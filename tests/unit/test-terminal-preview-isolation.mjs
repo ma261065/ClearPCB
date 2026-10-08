@@ -15,39 +15,17 @@ import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
-class Element {
-    constructor(tag) { allocations++; this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; this.style = {}; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    get classList() {
-        return {
-            add: name => this.setAttribute('class', `${this.getAttribute('class') || ''} ${name}`.trim()),
-            contains: name => (this.getAttribute('class') || '').split(' ').includes(name),
-        };
-    }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, before) {
-        child.remove();
-        const index = this.children.indexOf(before);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    get firstChild() { return this.children[0] || null; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    querySelectorAll(selector) {
-        const matches = child => selector.startsWith('.')
-            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []),
-            ...(child.querySelectorAll?.(selector) || []),
-        ]);
-    }
+function element(tag) {
+    allocations++;
+    const node = fakeElement(tag);
+    node.tag = tag;
+    return node;
 }
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById() { return null; } };
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => element(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(kind, deferred = false) {
@@ -63,13 +41,13 @@ function fixture(kind, deferred = false) {
     const collection = kind === 'via' ? 'vias' : 'pads';
     model[collection].push(terminal);
     model.tracks.push(shared, unrelated);
-    const groups = new Map(['top-copper', 'bottom-copper', 'vias'].map(layer => [layer, new Element('g')]));
+    const groups = new Map(['top-copper', 'bottom-copper', 'vias'].map(layer => [layer, element('g')]));
     let fills = 0;
     const app = {
         pcbDocument: model, placements: new Map(), netlist: [],
         history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, gridVisible: false,
-            setCrosshair() {}, hideCrosshair() {}, svg: new Element('svg') },
+            setCrosshair() {}, hideCrosshair() {}, svg: element('svg') },
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },

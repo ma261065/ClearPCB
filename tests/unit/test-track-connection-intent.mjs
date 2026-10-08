@@ -6,16 +6,9 @@ import { Pad } from '../../src/shapes/pad.js';
 import { Via } from '../../src/shapes/via.js';
 import { sampleArcEdge } from '../../src/shapes/arc-edge.js';
 import { getTrackDraw, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({
-    style: {}, dataset: {}, setAttribute() {}, appendChild() {}, remove() {}, focus() {},
-    addEventListener() {}, querySelectorAll: () => [], classList: { add() {}, remove() {} },
-});
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    createElement: element, createElementNS: element, getElementById: () => null,
-    querySelector: () => null, addEventListener() {}, removeEventListener() {}, body: element(),
-};
+installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

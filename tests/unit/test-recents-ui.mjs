@@ -1,48 +1,20 @@
 import assert from 'node:assert/strict';
 import { renderRecentFiles } from '../../src/shared/ui/recents.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class FakeElement {
-    constructor(tagName) {
-        this.tagName = tagName;
-        this.children = [];
-        this.listeners = new Map();
-        this.attributes = new Map();
-        this._textContent = '';
-    }
-
-    set textContent(value) {
-        this._textContent = value;
-        if (value === '') this.children = [];
-    }
-
-    get textContent() {
-        return this._textContent || this.children.map(child => child.textContent).join('');
-    }
-
-    appendChild(child) {
-        this.children.push(child);
-        return child;
-    }
-
-    addEventListener(type, listener) {
-        this.listeners.set(type, listener);
-    }
-
-    setAttribute(name, value) {
-        this.attributes.set(name, value);
-    }
-
-    async dispatch(type, event = {}) {
-        return await this.listeners.get(type)?.(event);
-    }
+const document = installFakeDom();
+function element(tagName) {
+    const el = fakeElement(tagName);
+    el.dispatch = async (type, event = {}) => {
+        for (const listener of el.listeners.get(type) || []) await listener(event);
+    };
+    return el;
 }
 
-globalThis.document = {
-    createElement: tagName => new FakeElement(tagName),
-};
+document.createElement = tagName => element(tagName);
 
 {
-    const container = new FakeElement('div');
+    const container = element('div');
     const opened = [];
     const removed = [];
     let entries = [
@@ -76,11 +48,11 @@ globalThis.document = {
     assert.equal(stopped, true);
     assert.deepEqual(removed, ['power.cpcb']);
     assert.equal(container.children.length, 1, 'removing a recent refreshes the list');
-    assert.match(container.children[0].children[1].attributes.get('aria-label'), /sensor\.cpcb/);
+    assert.match(container.children[0].children[1].getAttribute('aria-label'), /sensor\.cpcb/);
 }
 
 {
-    const container = new FakeElement('div');
+    const container = element('div');
     await renderRecentFiles({
         container,
         getFileManager: () => ({ getRecentFiles: async () => [] }),

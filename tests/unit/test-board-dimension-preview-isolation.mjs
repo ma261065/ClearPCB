@@ -16,23 +16,11 @@ import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { bindSettledChange, flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getBoardOutlineResize } from '../../src/pcb/modules/board-outline-resize.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
 class Element {
-    constructor() { allocations++; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    removeAttribute(key) { this.attributes.delete(key); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { child.remove(); }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-    querySelectorAll(selector) {
-        return this.children.filter(child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    constructor(tag = 'g') { allocations++; return fakeElement(tag); }
 }
 class Input {
     constructor(value) { this.value = value; this.listeners = new Map(); this.validity = ''; this.isConnected = true; }
@@ -42,10 +30,9 @@ class Input {
     emit(name, event = {}) { this.listeners.get(name)?.({ preventDefault() {}, stopPropagation() {}, ...event }); }
 }
 let currentInputs = new Map();
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = { createElementNS: () => new Element(), getElementById: id => currentInputs.get(id) || null,
-    querySelector: () => null, querySelectorAll: () => [] };
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
+document.getElementById = id => currentInputs.get(id) || null;
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

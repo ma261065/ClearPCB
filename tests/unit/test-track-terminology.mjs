@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const html = read('index.html');
@@ -12,13 +13,15 @@ assert.match(uiText, /Tracks and vias will appear/);
 
 // Drive the real SES import: file picker -> FileReader -> parser -> status line.
 let picker;
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    createElement: () => (picker = { files: [], listeners: {}, clicked: 0, click() { this.clicked++; }, addEventListener(name, fn) { this.listeners[name] = fn; } }),
-    createElementNS: () => ({}), body: {}, documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+const document = installFakeDom();
+const createElement = document.createElement;
+// The import's file input: count its clicks instead of opening a picker.
+document.createElement = tag => {
+    picker = createElement(tag);
+    picker.clicked = 0;
+    picker.click = () => { picker.clicked++; };
+    return picker;
 };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.FileReader = class { readAsText(text) { this.result = text; this.onload(); } };
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let displayed, rendered;
@@ -33,7 +36,7 @@ try {
     assert.equal(picker.clicked, 1, 'Import opens the file picker');
     picker.files = [`(session fixture (routes (resolution mm 1000) (network_out (net N1
         (wire (path F.Cu 200 0 0 1000 0)) (wire (path B.Cu 200 1000 0 1000 1000)) (via via_default 1000 0)))))`];
-    picker.listeners.change();
+    picker.fire('change');
 } finally {
     console.log = quietLog;
 }

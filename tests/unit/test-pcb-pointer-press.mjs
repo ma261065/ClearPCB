@@ -3,23 +3,16 @@ import { getPcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { getComponentDrag } from '../../src/pcb/modules/component-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
-const element = () => ({
-    style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-    setAttribute: noop, getAttribute: () => null, appendChild: child => child, removeChild: noop,
-    addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
-});
 const windowListeners = new Map();
-globalThis.window = { addEventListener: (type, listener) => windowListeners.set(type, listener), removeEventListener: noop, devicePixelRatio: 1 };
-globalThis.document = {
-    body: element(), documentElement: { getAttribute: () => 'dark' },
-    createElement: element, createElementNS: element,
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener: noop, removeEventListener: noop,
-};
+installFakeDom();
+globalThis.window.addEventListener = (type, listener) => windowListeners.set(type, listener);
+globalThis.window.removeEventListener = noop;
+globalThis.window.devicePixelRatio = 1;
 globalThis.HTMLElement = class HTMLElement {};
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+globalThis.localStorage.setItem = noop;
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PCB_CROSSHAIR_TOOLS } = await import('../../src/pcb/modules/tool-lifecycle.js');
@@ -32,7 +25,8 @@ function fixture(tool) {
     const listeners = new Map();
     const calls = [];
     const world = { x: 3, y: -4 };
-    const svg = { ...element(), addEventListener(type, listener) { listeners.set(type, listener); } };
+    const svg = fakeElement('svg');
+    svg.addEventListener = (type, listener) => { listeners.set(type, listener); };
     const viewport = {
         svg, scale: 10, shiftHeld: false,
         onInteractionStart: noop, hideCrosshair: () => calls.push(['cursor']), startPan: (x, y) => calls.push(['pan', x, y]),

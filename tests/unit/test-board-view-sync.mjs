@@ -2,30 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../../src/pcb/modules/board-view-sync.js';
 import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const svgElement = () => ({
-    attributes: new Map(), children: [], style: {}, parentNode: null,
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    removeAttribute(name) { this.attributes.delete(name); },
-    appendChild(child) { child.remove?.(); child.parentNode = this; this.children.push(child); return child; },
-    insertBefore(child) { return this.appendChild(child); },
-    removeChild(child) { child.remove(); return child; },
-    remove() {
-        if (!this.parentNode) return;
-        this.parentNode.children = this.parentNode.children.filter(other => other !== this);
-        this.parentNode = null;
-    },
-    querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = {
-    createElement: svgElement, createElementNS: svgElement, body: svgElement(),
-    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-};
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+installFakeDom();
+const svgElement = (tag = 'g') => fakeElement(tag);
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 {

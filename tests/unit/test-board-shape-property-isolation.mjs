@@ -19,25 +19,11 @@ import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
 class Element {
-    constructor(tag = 'g') { allocations++; this.localName = tag; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    removeAttribute(key) { this.attributes.delete(key); }
-    hasAttribute(key) { return this.attributes.has(key); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, sibling) {
-        child.remove();
-        const index = this.children.indexOf(sibling);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    querySelectorAll() { return []; }
-    querySelector() { return null; }
+    constructor(tag = 'g') { allocations++; return Object.assign(fakeElement(tag), { localName: tag }); }
 }
 const fields = new Map();
 const items = {
@@ -68,13 +54,10 @@ const items = {
         }
     },
 };
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = {
-    body: { tagName: 'BODY' }, activeElement: null,
-    createElementNS: () => new Element(), getElementById: id => fields.get(id) || null,
-    querySelector: () => null, querySelectorAll: () => [],
-};
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
+document.body.tagName = 'BODY';
+document.createElementNS = () => new Element();
+document.getElementById = id => fields.get(id) || null;
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

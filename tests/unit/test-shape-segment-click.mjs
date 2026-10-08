@@ -6,6 +6,7 @@ import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -14,28 +15,12 @@ function shapeModel(shapes = [], tracks = []) {
     return { pcbDocument, boardShapes: pcbDocument.boardShapes, tracks: pcbDocument.tracks, vias: pcbDocument.vias };
 }
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; }, querySelector() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return { style: {}, children: [], setAttribute(name, value) { attributes.set(name, String(value)); },
-            getAttribute(name) { return attributes.get(name) ?? null; }, removeAttribute(name) { attributes.delete(name); },
-            appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); },
-            insertBefore(child, reference) {
-                child.remove();
-                const index = this.children.indexOf(reference);
-                if (index < 0) this.children.push(child);
-                else this.children.splice(index, 0, child);
-                child.parentNode = this;
-            },
-            removeChild(child) { child.remove(); },
-            remove() {
-                if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-                this.parentNode = null;
-            },
-            querySelectorAll() { return []; } };
-    },
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag = 'g') => {
+    const element = fakeElement(tag);
+    element.querySelectorAll = () => [];
+    element.querySelector = () => null;
+    return element;
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction,

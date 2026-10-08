@@ -14,19 +14,10 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element() {
-    return {
-        style: {}, children: [], listeners: new Map(),
-        setAttribute() {}, querySelectorAll: () => [],
-        appendChild(child) { this.children.push(child); },
-        addEventListener(name, listener) { this.listeners.set(name, listener); },
-    };
-}
-
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null,
-    querySelectorAll: () => [], createElementNS: element, documentElement: { getAttribute: () => 'dark' } };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
@@ -86,7 +77,7 @@ for (const side of ['top', 'bottom']) {
         overlay.dispatchEvent = event => { lockOwner = event.detail.shape; };
         app.getLayerGroup = () => overlay;
         renderPcbSelectionAnchors(app);
-        overlay.children[0].listeners.get('click')({ stopPropagation() {} });
+        overlay.children[0].listeners.get('click')[0]({ stopPropagation() {} });
         assert.equal(lockOwner.kind, 'reftext');
         assert.equal(lockOwner.object, 'part', 'Reference lock icons retain the owning component for the unlock menu');
         assert.deepEqual(unlockMenuItems(app, 'reftext', 'part').map(item => item.text), [`Unlock ${layer.name} layer`],

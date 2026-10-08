@@ -11,9 +11,9 @@ import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { getPcbInteraction, setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getLastCrosshairWorld } from '../../src/pcb/modules/cursor-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null };
+installFakeDom();
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { closestPointOnSegment, pointInPolygon } from '../../src/core/geometry.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
+installFakeDom();
 const { createCopperDistanceChecker, collectCopper, runDRC } = await import('../../src/pcb/modules/drc.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { resolveTrackSegments } = await import('../../src/shared/pcb/board-geometry.js');

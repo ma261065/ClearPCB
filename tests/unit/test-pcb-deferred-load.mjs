@@ -5,48 +5,24 @@ import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
 function svgElement(tagName = 'g') {
-    return {
-        tagName, localName: tagName, attributes: new Map(), children: [], parentNode: null, style: {}, dataset: {}, textContent: '',
-        classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        hasAttribute(name) { return this.attributes.has(name); },
-        appendChild(child) {
-            child.parentNode?.removeChild(child);
-            child.parentNode = this;
-            this.children.push(child);
-            return child;
-        },
-        insertBefore(child) { return this.appendChild(child); },
-        removeChild(child) {
-            this.children = this.children.filter(other => other !== child);
-            child.parentNode = null;
-            return child;
-        },
-        remove() { this.parentNode?.removeChild(this); },
-        get firstChild() { return this.children[0] || null; },
-        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
-        querySelectorAll(selector) {
-            const matches = child => selector.startsWith('#')
-                ? child.getAttribute('id') === selector.slice(1)
-                : selector.startsWith('.') && (child.getAttribute('class') || '').split(' ').includes(selector.slice(1));
-            return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
-        },
-    };
+    const element = Object.assign(fakeElement(tagName), { localName: tagName, attributes: new Map() });
+    const setAttribute = element.setAttribute;
+    const removeAttribute = element.removeAttribute;
+    element.setAttribute = (name, value) => { setAttribute(name, value); element.attributes.set(name, String(value)); };
+    element.removeAttribute = name => { removeAttribute(name); element.attributes.delete(name); };
+    element.insertBefore = child => element.appendChild(child);
+    return element;
 }
 const storage = new Map();
 let onDesignDefaultsSaved = null;
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = {
-    createElementNS: (namespace, tagName) => svgElement(tagName), createElement: tagName => svgElement(tagName),
-    body: svgElement('body'), documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {},
-};
+const document = installFakeDom();
+document.createElementNS = (namespace, tagName) => svgElement(tagName);
+document.createElement = tagName => svgElement(tagName);
 globalThis.localStorage = {
     getItem: key => storage.get(key) ?? null,
     setItem(key, value) {
@@ -462,7 +438,7 @@ updateCuts.call(clipApp, { geometryChanged: false });
 assert.equal(geometryCalls, afterDelete, 'Empty cut geometry is cached too');
 console.log('PASS: viewport copper-cut cache, edit/undo invalidation, layer changes, SVG rebuild and deletion');
 
-globalThis.window = { addEventListener() {} };
+globalThis.window.addEventListener = () => {};
 Object.defineProperty(window, 'app', {
     get() { assert.fail('PCB synchronization must not read the global schematic'); },
 });

@@ -3,8 +3,9 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getPcbSelection, getPcbSelectionManager } from '../../src/pcb/modules/selection-registry.js';
 import { getTrackEdit, setTrackEdit } from '../../src/pcb/modules/track-select.js';
 import { isBoardOutlineSelected, setBoardOutlineSelected } from '../../src/pcb/modules/board-outline-resize.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 
 const rows = ['a', 'b', 'c'].map(id => ({
     dataset: { drcId: id },
@@ -22,10 +23,8 @@ const list = {
         return selector === '.drc-item' ? rows : [];
     },
 };
-globalThis.document = {
-    getElementById(id) {
-        return id === 'pcbDrcList' ? list : null;
-    },
+document.getElementById = id => {
+    return id === 'pcbDrcList' ? list : null;
 };
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

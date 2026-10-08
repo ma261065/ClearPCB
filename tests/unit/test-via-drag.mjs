@@ -6,26 +6,19 @@ import { Component } from '../../src/components/Component.js';
 import { areDragOverlaysDeferred, setBoardViewPanel, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { beginPcbPaste, cancelPcbPaste, getPcbPaste, updatePcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return {
-            setAttribute(name, value) { attributes.set(name, String(value)); },
-            getAttribute(name) { return attributes.get(name); },
-            remove() {
-                if (this.parentNode) {
-                    const siblings = this.parentNode.children;
-                    siblings.splice(siblings.indexOf(this), 1);
-                    this.parentNode = null;
-                }
-            },
-            classList: { add() {} },
-            dataset: {},
-        };
-    },
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag = 'g') => {
+    const element = fakeElement(tag);
+    element.remove = () => {
+        if (element.parentNode?.removeChild) element.parentNode.removeChild(element);
+        else if (element.parentNode?.children) {
+            element.parentNode.children.splice(element.parentNode.children.indexOf(element), 1);
+            element.parentNode = null;
+        }
+    };
+    return element;
 };
 
 const { Via } = await import('../../src/shapes/via.js');

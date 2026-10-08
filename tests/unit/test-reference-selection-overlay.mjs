@@ -8,19 +8,36 @@ import '../../src/pcb/modules/component-selection.js';
 import { drawRefOverlay, refreshRefHighlight, tryEditReferenceAt } from '../../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const near = (actual, expected) => assert.ok(Math.abs(Number(actual) - expected) < 1e-9,
     `Expected ${actual} to equal ${expected}`);
 
-const svgElement = (tagName = 'g') => ({
-    tagName, children: [], attributes: new Map(), style: {}, isConnected: false,
-    setAttribute(key, value) { this.attributes.set(key, String(value)); },
-    getAttribute(key) { return this.attributes.get(key) ?? null; },
-    appendChild(child) { child.isConnected = true; this.children.push(child); child.parentNode = this; },
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.isConnected = false; },
-    get firstChild() { return this.children[0] || null; },
-});
-globalThis.document = { createElementNS: (_namespace, tagName) => svgElement(tagName), documentElement: { getAttribute: () => 'dark' } };
+const document = installFakeDom();
+const svgElement = (tagName = 'g') => {
+    const el = fakeElement(tagName);
+    const attributes = {};
+    const setAttribute = el.setAttribute.bind(el);
+    const removeAttribute = el.removeAttribute.bind(el);
+    const appendChild = el.appendChild.bind(el);
+    const removeChild = el.removeChild.bind(el);
+    el.attributes = attributes;
+    Object.defineProperty(el, 'isConnected', { value: false, writable: true, configurable: true });
+    el.setAttribute = (key, value) => { attributes[key] = String(value); setAttribute(key, value); };
+    el.removeAttribute = key => { delete attributes[key]; removeAttribute(key); };
+    el.appendChild = child => {
+        const appended = appendChild(child);
+        Object.defineProperty(child, 'isConnected', { value: true, writable: true, configurable: true });
+        return appended;
+    };
+    el.removeChild = child => {
+        const removed = removeChild(child);
+        Object.defineProperty(child, 'isConnected', { value: false, writable: true, configurable: true });
+        return removed;
+    };
+    return el;
+};
+document.createElementNS = (_namespace, tagName) => svgElement(tagName);
 const refEl = () => ({ isConnected: true, attributes: { 'data-ref-anchor-y': '0', 'data-ref-cy': '0' },
     setAttribute(name, value) { this.attributes[name] = value; },
     getAttribute(name) { return this.attributes[name] ?? null; } });
@@ -104,23 +121,22 @@ clearPcbSelection(app);
 assert.deepEqual(overlayChildren(), [], 'Clearing multi-selection must clear the reference overlay');
 console.log('PASS: moved reference box clears on component selection, retargets across references, and respects additive selection');
 
-globalThis.window = { addEventListener() {} };
 globalThis.HTMLElement = class {};
 const alerts = [];
-const htmlElement = () => ({
-    style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    setAttribute() {}, appendChild(child) { this.children.push(child); return child; },
-    addEventListener() {}, removeEventListener() {}, focus() {}, remove() {}, querySelector: () => null,
-});
-globalThis.document = {
-    createElementNS() { return { setAttribute() {}, appendChild() {} }; },
-    createElement: htmlElement,
-    // Alerts are observed where the real showAlert() puts them: modal overlays on the body.
-    body: { appendChild(overlay) { if (overlay.className === 'app-modal-overlay') alerts.push(overlay); }, contains: () => false },
-    getElementById() { return null; },
-    querySelector() { return null; },
-    addEventListener() {}, removeEventListener() {},
+const htmlElement = (tagName = 'div') => {
+    const el = fakeElement(tagName);
+    el.querySelector = () => null;
+    return el;
 };
+document.createElementNS = (_namespace, tagName) => svgElement(tagName);
+document.createElement = htmlElement;
+document.body.replaceChildren();
+const appendToBody = document.body.appendChild.bind(document.body);
+document.body.appendChild = overlay => {
+    if (overlay.className === 'app-modal-overlay') alerts.push(overlay);
+    return appendToBody(overlay);
+};
+document.body.contains = () => false;
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -325,9 +341,11 @@ const guideLayer = { children: [], appendChild(child) {
     child.remove();
     this.children.push(child);
 } };
-document.createElementNS = () => ({ attributes: {},
-    setAttribute(name, value) { this.attributes[name] = String(value); },
-    remove() { guideLayer.children = guideLayer.children.filter(child => child !== this); } });
+document.createElementNS = (_namespace, tagName) => {
+    const el = svgElement(tagName);
+    el.remove = () => { guideLayer.children = guideLayer.children.filter(child => child !== el); };
+    return el;
+};
 for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     const local = { minX: mirrored ? -5 : -3, maxX: mirrored ? 3 : 5, minY: -2, maxY: 2 };
     const parent = { x: 20, y: 30, rotation, _getLocalBounds: () => local };
@@ -477,14 +495,11 @@ const highlightPlacement = { x: 0, y: 0, side: 'top', reference: 'R1', _refEl: r
     bounds: { x: 20, y: 0, width: 4, height: 2 } };
 refElement.isConnected = true;
 const highlightApp = { placements: new Map([['ref', highlightPlacement]]),
-    viewport: { addContent(node) { node.isConnected = true; this.overlay = node; } } };
-document.createElementNS = (namespace, tagName) => ({ tagName, attributes: {}, children: [],
-    setAttribute(name, value) { this.attributes[name] = String(value); },
-    getAttribute(name) { return this.attributes[name] ?? null; },
-    appendChild(child) { this.children.push(child); },
-    removeChild(child) { this.children = this.children.filter(item => item !== child); },
-    get firstChild() { return this.children[0] || null; },
-});
+    viewport: { addContent(node) {
+        Object.defineProperty(node, 'isConnected', { value: true, writable: true, configurable: true });
+        this.overlay = node;
+    } } };
+document.createElementNS = (_namespace, tagName) => svgElement(tagName);
 setPcbSelection(highlightApp, [{ kind: 'reftext', object: 'ref' }]);
 assert.equal(refElement.attributes.stroke, '#ffffff', 'Selected reference matches silk text in dark theme');
 theme = 'light';
@@ -579,18 +594,7 @@ const prepared = loadedModel.prepare(loadInput);
 const loadedField = prepared.shapes[0].shape;
 const loadedComponent = prepared.components[0];
 const attached = [];
-document.createElementNS = (_namespace, tagName) => ({
-    tagName, children: [], parentNode: null, attributes: new Map(), style: {},
-    appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
-    insertBefore(child, before) { child.parentNode = this; const index = before ? this.children.indexOf(before) : -1; this.children.splice(index < 0 ? this.children.length : index, 0, child); return child; },
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
-    remove() { this.parentNode?.removeChild(this); },
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    removeAttribute(name) { this.attributes.delete(name); },
-    get firstChild() { return this.children[0] || null; },
-    set textContent(value) { this.children.length = 0; this._text = String(value); },
-    get textContent() { return this._text || ''; },
+document.createElementNS = (_namespace, tagName) => Object.assign(svgElement(tagName), {
     getBBox() { return { x: 0, y: -2, width: 4, height: 2 }; },
 });
 const fieldElement = renderShape(loadedField, 1);

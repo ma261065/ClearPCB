@@ -9,9 +9,9 @@ import { collectCopperArtwork } from '../../src/pcb/modules/copper-artwork.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { fillRefreshError, isFillRefreshPending, setBoardViewPanel, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
 import { getDrcPresentation } from '../../src/pcb/modules/drc-state.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+installFakeDom();
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { buildFillMesh } = await import('../../src/pcb/modules/board3d.js');
 await loadClipper();

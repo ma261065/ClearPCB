@@ -401,9 +401,11 @@ object before it runs. A new command class must declare `lockTargets()`;
   via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
   evaluates sliced source text; add a small seam when a collaborator must be observed.
 - The PCB fixture uses the editor's real undo history (`createPcbHistory`, with the lock
-  gate). New tests build their DOM with `installFakeDom()` from
-  `tests/unit/helpers/fake-dom.mjs`; `test-fixture-ratchet` counts the tests that still
-  hand-roll a `globalThis.document` stub, and that number may only go down.
+  gate). Tests build their DOM with `installFakeDom()` from
+  `tests/unit/helpers/fake-dom.mjs` and add test-specific behaviour on top of it (an
+  element with an id in `document.body`, or one overridden method); `test-fixture-ratchet`
+  fails any test that assigns `globalThis.document` itself, except the one module
+  load-order test it lists with the reason.
 - `test-property-panels-logic-only` keeps Properties panels as descriptions: panel
   modules use no DOM, and only `shared/ui/property-fields.js` and the editors' hosts
   build property rows. Panel tests drive the description (`field.preview`/`commit`)

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { Track } from '../../src/shapes/track.js';
 import { Via } from '../../src/shapes/via.js';
@@ -43,8 +44,9 @@ class Element {
         }));
     }
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, createElementNS: () => new Element() };
+const document = installFakeDom();
+document.getElementById = () => null;
+document.createElementNS = () => new Element();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
 const rectangle = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];

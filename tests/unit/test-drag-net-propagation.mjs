@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; } };
+installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
 const { Via } = await import('../../src/shapes/via.js');
 const { Track } = await import('../../src/shapes/track.js');

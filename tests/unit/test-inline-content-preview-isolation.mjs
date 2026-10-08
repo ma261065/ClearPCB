@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { createPcbText, TEXT_LAYERS } from '../../src/core/pcb-text.js';
@@ -43,14 +44,12 @@ class Element {
 }
 let fields = new Map();
 const documentListeners = new Map();
-globalThis.document = {
-    body: new Element('body'), documentElement: new Element('html'), activeElement: null,
-    createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag),
-    getElementById: id => fields.get(id) || null,
-    addEventListener: (type, fn) => documentListeners.set(type, fn),
-    removeEventListener: type => documentListeners.delete(type),
-};
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
+document.createElement = tag => new Element(tag);
+document.createElementNS = (_, tag) => new Element(tag);
+document.getElementById = id => fields.get(id) || null;
+document.addEventListener = (type, fn) => documentListeners.set(type, fn);
+document.removeEventListener = type => documentListeners.delete(type);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(layer, extraTexts = 0, isNew = false) {

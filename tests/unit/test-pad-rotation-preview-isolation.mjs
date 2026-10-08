@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { Pad } from '../../src/shapes/pad.js';
@@ -17,42 +18,16 @@ import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handl
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
+const document = installFakeDom();
 let allocations = 0;
-class Element {
-    constructor(tag) { allocations++; this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; this.style = {}; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    get classList() {
-        return {
-            add: name => this.setAttribute('class', `${this.getAttribute('class') || ''} ${name}`.trim()),
-            contains: name => (this.getAttribute('class') || '').split(' ').includes(name),
-        };
-    }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, before) {
-        child.remove();
-        const index = this.children.indexOf(before);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    get firstChild() { return this.children[0] || null; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    querySelectorAll(selector) {
-        const matches = child => selector.startsWith('.')
-            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []),
-            ...(child.querySelectorAll?.(selector) || []),
-        ]);
-    }
+function countedElement(tag) {
+    allocations++;
+    return Object.assign(fakeElement(tag), { tag });
 }
-const input = { value: '' };
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag),
-    getElementById: id => id === 'pcbPropPadRotation' ? input : null,
-};
-globalThis.window = { addEventListener() {} };
+const input = Object.assign(fakeElement('input'), { value: '' });
+input.id = 'pcbPropPadRotation';
+document.body.appendChild(input);
+document.createElementNS = (_, tag) => countedElement(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(shape = 'rectangle', layers = 'both') {
@@ -64,11 +39,11 @@ function fixture(shape = 'rectangle', layers = 'both') {
     model.pads.push(pad, unrelated);
     model.tracks.push(attached);
     const groups = new Map(['top-copper', 'bottom-copper', 'top-copper-pad-drills', 'bottom-copper-pad-drills']
-        .map(layer => [layer, new Element('g')]));
+        .map(layer => [layer, countedElement('g')]));
     let fills = 0;
     const app = {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
-        viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {} },
+        viewport: { scale: 100, svg: countedElement('svg'), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },

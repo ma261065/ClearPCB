@@ -1,31 +1,11 @@
 /** A selected path's nodes stay hittable when a large corner radius pulls the drawn outline away from them. */
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-function element(tagName) {
-    return {
-        tagName, attributes: new Map(), children: [], style: {}, dataset: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) || null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { this.children.push(child); return child; },
-        insertBefore(child) { this.children.push(child); return child; },
-        remove() { this.removed = true; },
-        querySelectorAll() { return []; },
-        querySelector() { return null; },
-        addEventListener() {}, removeEventListener() {},
-        classList: { add() {}, remove() {}, toggle() {} },
-    };
-}
 const menus = [];
-globalThis.document = {
-    body: { appendChild(child) { menus.push(child); return child; } },
-    createElement: element,
-    createElementNS(_namespace, tagName) { return element(tagName); },
-    getElementById() { return null; },
-    querySelector() { return null; },
-    addEventListener() {}, removeEventListener() {},
-};
+const document = installFakeDom();
+document.body.appendChild = child => { menus.push(child); return child; };
+const element = (tagName) => fakeElement(tagName);
 
 const { hitTestBoardShape, selectBoardShape, showBoardShapeContextMenu, createBoardShapeSelectionAdapter } =
     await import('../../src/pcb/modules/board-shapes.js');

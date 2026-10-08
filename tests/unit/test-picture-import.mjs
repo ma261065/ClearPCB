@@ -4,14 +4,9 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { rasterizePicture, pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../../src/core/geometry.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; }, createElementNS() {
-    const attributes = new Map();
-    return { style: {}, setAttribute(name, value) { attributes.set(name, value); },
-        getAttribute(name) { return attributes.get(name); }, removeAttribute(name) { attributes.delete(name); },
-        appendChild() {}, remove() {}, querySelectorAll() { return []; } };
-} };
+installFakeDom();
 const { AddBoardShapeCommand, MoveBoardShapeCommand, ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../../src/pcb/modules/selection-registry.js');
 const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry } = await import('../../src/shared/pcb/board-shape-geometry.js');

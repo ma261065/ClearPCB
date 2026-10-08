@@ -3,10 +3,9 @@ import { createSurfaceBuilder } from '../../src/pcb/modules/board3d-surface-clie
 import { buildSurfaceBuffers } from '../../src/pcb/modules/board3d-surface-build.js';
 import { decodeSurfaceInputs } from '../../src/pcb/modules/board3d-surface-transfer.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains: () => false } };
+installFakeDom();
 const { buildSilkMesh, createSilkArtworkMeshCache, buildBoardSurfaceInputs, getLayerStylesAppearance, setLayerStylesAppearance,
     BOARD_SURFACE_ORDER, boardSurfaceMaterials } = await import('../../src/pcb/modules/board3d.js');
 const artworkMesh = createSilkArtworkMeshCache();

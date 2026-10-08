@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { generateFootprint } from '../../src/shared/pcb/footprint.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.document = { body: { contains() { return false; } } };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.localStorage = { getItem() { return null; } };
+installFakeDom();
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');

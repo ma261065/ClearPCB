@@ -1,31 +1,15 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 class Element {
-    children = [];
-    style = {};
-    classList = { add() {}, remove() {} };
-    appendChild(child) { this.children.push(child); }
-    contains(child) { return this.children.includes(child); }
-    replaceChildren() { this.children = []; }
-    setAttribute() {}
-    removeAttribute() {}
-    cloneNode() { return new Element(); }
-    remove() {}
+    constructor(tag = 'div') { return fakeElement(tag); }
 }
+installFakeDom();
 const storage = new Map();
 globalThis.localStorage = {
     getItem: key => storage.get(key) ?? null,
     setItem: (key, value) => storage.set(key, value),
     removeItem: key => storage.delete(key),
-};
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = {
-    createElement: () => new Element(),
-    createElementNS: () => new Element(),
-    getElementById: () => null,
-    body: new Element(),
-    documentElement: { getAttribute: () => 'dark' },
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
 globalThis.fetch = () => { throw new Error('Built-in packages must not fetch remote models'); };
 

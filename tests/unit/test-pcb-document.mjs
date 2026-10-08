@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { compactProjectAliases, normalizePcbSection } from '../../src/core/project-field-aliases.js';
@@ -313,15 +314,7 @@ assert.equal(typeof document, 'undefined');
 assert.equal(typeof localStorage, 'undefined', 'Model loading has no preferences-storage side effects');
 console.log('PASS headless full load, clear, partial design, retained defaults and stable model identities');
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: () => null, documentElement: { getAttribute: () => 'dark' },
-    createElementNS() {
-        const attributes = new Map();
-        return { setAttribute: (key, value) => attributes.set(key, String(value)),
-            getAttribute: key => attributes.get(key), style: {}, appendChild() {} };
-    },
-};
+installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 const { AddTrackCommand, AddViaCommand, RemoveTrackCommand, RemoveViaCommand } =

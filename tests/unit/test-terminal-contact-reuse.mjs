@@ -14,36 +14,13 @@ import {
     prepareCopperRegionContact, installCopperRegionContact,
 } from '../../src/pcb/modules/track-contact-geometry.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    removeAttribute(key) { this.attributes.delete(key); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, sibling) {
-        if (!sibling) return this.appendChild(child);
-        child.remove(); this.children.splice(this.children.indexOf(sibling), 0, child); child.parentNode = this;
-    }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-    get firstChild() { return this.children[0] || null; }
-    cloneNode() { const copy = new Element(); copy.attributes = new Map(this.attributes); return copy; }
-    querySelectorAll(selector) {
-        const attribute = /^\[([^=]+)="([^"]+)"\]$/.exec(selector);
-        const matches = child => selector.startsWith('.')
-            ? (child.getAttribute('class') || '').split(' ').includes(selector.slice(1))
-            : attribute && child.getAttribute(attribute[1]) === attribute[2];
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []), ...child.querySelectorAll(selector),
-        ]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+function element(tag = 'g') {
+    return fakeElement(tag);
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => new Element() };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => element(tag);
 const { reconcileRatsnest, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
 const { adoptFillResults } = await import('../../src/pcb/modules/fill-refresh.js');
 
@@ -51,7 +28,7 @@ const rectangle = (x, y, width, height) => [
     { x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height },
 ];
 function fixture(model = new PcbDocument()) {
-    const groups = new Map(['ratlines', 'top-fill', 'bottom-fill'].map(id => [id, new Element()]));
+    const groups = new Map(['ratlines', 'top-fill', 'bottom-fill'].map(id => [id, element()]));
     const app = { pcbDocument: model, placements: new Map(), netlist: [],
         getLayerGroup: id => groups.get(id),
         existingLayerGroups: () => groups,

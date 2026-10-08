@@ -5,35 +5,15 @@ import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { renderCopperFill } from '../../src/pcb/modules/copper-fill-render.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor(tag = 'g') { this.tag = tag; this.localName = tag; this.attributes = new Map(); this.children = []; this.style = {}; this.dataset = {}; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    hasAttribute(name) { return this.attributes.has(name); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, next) {
-        child.remove();
-        const index = this.children.indexOf(next);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    get firstChild() { return this.children[0] || null; }
-    querySelectorAll(selector) {
-        const attr = /^\[([^=\]]+)(?:="([^"]*)")?\]$/.exec(selector);
-        const matches = element => selector[0] === '#' ? element.getAttribute('id') === selector.slice(1)
-            : selector[0] === '.' ? (element.getAttribute('class') || '').split(' ').includes(selector.slice(1))
-            : attr ? element.hasAttribute(attr[1]) && (attr[2] === undefined || element.getAttribute(attr[1]) === attr[2])
-            : element.tag === selector;
-        return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+installFakeDom();
+function element(tag = 'g') {
+    const node = fakeElement(tag);
+    Object.defineProperty(node, 'tag', { get: () => node.tagName });
+    Object.defineProperty(node, 'localName', { get: () => node.tagName });
+    return node;
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { renderBoardShape, boardShapeCopperCuts, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     createBoardShapeSelectionAdapter, getBoardShapeRotationPreview } =
@@ -58,11 +38,11 @@ try {
             const shape = { id: 'cut', kind: 'rect', layer, copperMode, filled: true, lineWidth: 0.2,
                 points: [{ x: 5, y: 5 }, { x: 9, y: 5 }, { x: 9, y: 9 }, { x: 5, y: 9 }] };
             pcbDocument.boardShapes.push(shape);
-            const defs = new Element('defs');
+            const defs = element('defs');
             defs.setAttribute('data-pcb-defs', '');
             const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'hole']
-                .map(id => [id, new Element()]));
-            const svg = new Element('svg');
+                .map(id => [id, element()]));
+            const svg = element('svg');
             svg.appendChild(defs);
             const app = {
                 pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
@@ -141,12 +121,12 @@ try {
             };
             pcbDocument.boardShapes.push(shape);
             const before = pcbDocument.serialize();
-            const defs = new Element('defs');
+            const defs = element('defs');
             defs.setAttribute('data-pcb-defs', '');
-            const svg = new Element('svg');
+            const svg = element('svg');
             svg.appendChild(defs);
             const groups = new Map([`${side}-copper`, `${side}-fill`, `${side}-copper-knockout`]
-                .map(id => [id, new Element()]));
+                .map(id => [id, element()]));
             const app = {
                 pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
                 history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,

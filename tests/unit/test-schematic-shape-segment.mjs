@@ -1,20 +1,21 @@
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 /** Headless regression tests for schematic polyline segment refinement. */
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    createElementNS() {
-        return {
-            attributes: {},
-            setAttribute(name, value) { this.attributes[name] = value; this[name] = String(value); },
-            remove() {},
-            classList: { add() {} },
-            style: {},
-        };
-    },
-};
+const document = installFakeDom();
+function element(tag = 'g') {
+    const node = fakeElement(tag);
+    node.tag = tag;
+    node.attributes = {};
+    const setAttribute = node.setAttribute.bind(node);
+    const removeAttribute = node.removeAttribute.bind(node);
+    node.setAttribute = (name, value) => { node.attributes[name] = String(value); node[name] = String(value); setAttribute(name, value); };
+    node.getAttribute = name => node.attributes[name] ?? null;
+    node.removeAttribute = name => { delete node.attributes[name]; delete node[name]; removeAttribute(name); };
+    return node;
+}
+document.createElementNS = (_namespace, tag) => element(tag);
 
 const { createLine, createPolygon, createRect } = await import('../../src/shapes/polyline.js');
 const {
@@ -62,38 +63,11 @@ function expect(name, condition) {
     const originalFind = document.getElementById;
     const elements = [];
     document.createElement = tag => {
-        const listeners = new Map();
-        const element = { tag, tagName: String(tag).toUpperCase(), children: [], style: {}, dataset: {}, value: '', attributes: {}, parentNode: null,
-            get firstChild() { return this.children[0] || null; },
-            get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; },
-            get isConnected() { return true; },
-            appendChild(child) { child.parentNode?.removeChild?.(child); this.children.push(child); child.parentNode = this; return child; },
-            append(...children) { for (const child of children) if (typeof child === 'object') this.appendChild(child); },
-            insertBefore(child, next) {
-                child.parentNode?.removeChild?.(child);
-                const index = this.children.indexOf(next);
-                this.children.splice(index < 0 ? this.children.length : index, 0, child);
-                child.parentNode = this;
-            },
-            removeChild(child) {
-                this.children = this.children.filter(item => item !== child);
-                child.parentNode = null;
-                return child;
-            },
-            remove() { this.parentNode?.removeChild(this); },
-            setAttribute(name, value) { this.attributes[name] = value; },
-            getAttribute(name) { return this.attributes[name] ?? null; },
-            removeAttribute(name) { delete this.attributes[name]; },
-            addEventListener(type, listener) {
-                if (!listeners.has(type)) listeners.set(type, []);
-                listeners.get(type).push(listener);
-            },
-            fire(type, details = {}) {
-                for (const listener of listeners.get(type) || []) listener({ preventDefault() {}, stopPropagation() {}, ...details });
-            },
-        };
-        elements.push(element);
-        return element;
+        const node = element(tag);
+        node.tagName = String(tag).toUpperCase();
+        Object.defineProperty(node, 'isConnected', { value: true, configurable: true });
+        elements.push(node);
+        return node;
     };
     document.getElementById = id => elements.find(element => element.id === id) || null;
     const findIn = (root, id) => root?.id === id ? root

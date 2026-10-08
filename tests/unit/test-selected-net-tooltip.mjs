@@ -1,28 +1,21 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getNetTooltipElement, updateNetTooltip } from '../../src/pcb/modules/net-tooltip.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const appended = [];
-globalThis.document = {
-    createElement() {
-        return {
-            style: {},
-            textContent: '',
-            offsetWidth: 80,
-            offsetHeight: 20,
-        };
-    },
-    body: {
-        appendChild(element) {
-            appended.push(element);
-        },
-    },
+const document = installFakeDom();
+document.createElement = tag => Object.defineProperties(fakeElement(tag), {
+    offsetWidth: { value: 80 },
+    offsetHeight: { value: 20 },
+});
+const appendChild = document.body.appendChild.bind(document.body);
+document.body.appendChild = element => {
+    appended.push(element);
+    return appendChild(element);
 };
-globalThis.window = {
-    innerWidth: 1000,
-    innerHeight: 800,
-    addEventListener() {},
-};
+globalThis.window.innerWidth = 1000;
+globalThis.window.innerHeight = 800;
 
 const nativeSetTimeout = globalThis.setTimeout;
 const nativeClearTimeout = globalThis.clearTimeout;

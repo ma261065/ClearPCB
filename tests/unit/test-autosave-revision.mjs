@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { FileManager } from '../../src/core/FileManager.js';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { flashAutoSaveIndicator } from '../../src/schematic/modules/ui-utils.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;
@@ -9,6 +10,7 @@ const originalStorage = globalThis.localStorage;
 const originalRequestIdleCallback = globalThis.requestIdleCallback;
 const originalCancelIdleCallback = globalThis.cancelIdleCallback;
 const originalBootstrap = Object.getOwnPropertyDescriptor(globalThis, 'bootstrap');
+const document = installFakeDom();
 let globalLookups = 0;
 Object.defineProperty(globalThis, 'bootstrap', {
     configurable: true, get() { globalLookups++; return null; },
@@ -240,18 +242,18 @@ try {
     else globalThis.localStorage = originalStorage;
 }
 
-const originalDocument = globalThis.document;
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
+const originalGetElementById = document.getElementById;
+const originalCreateElement = document.createElement;
+const originalAppendChild = document.body.appendChild;
 const indicatorTimers = new Map();
 const indicatorElements = [];
 let indicatorTimerId = 0;
 try {
-    globalThis.document = {
-        getElementById: id => indicatorElements.find(element => element.id === id) || null,
-        createElement: () => ({ id: '', style: {} }),
-        body: { appendChild: element => indicatorElements.push(element) },
-    };
+    document.getElementById = id => indicatorElements.find(element => element.id === id) || null;
+    document.createElement = () => fakeElement('div');
+    document.body.appendChild = element => indicatorElements.push(element);
     globalThis.setTimeout = (callback, delay) => {
         assert.equal(delay, 250, 'Preserve indicator visibility duration');
         indicatorTimers.set(++indicatorTimerId, callback);
@@ -276,6 +278,7 @@ try {
 } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
-    if (originalDocument === undefined) delete globalThis.document;
-    else globalThis.document = originalDocument;
+    document.getElementById = originalGetElementById;
+    document.createElement = originalCreateElement;
+    document.body.appendChild = originalAppendChild;
 }

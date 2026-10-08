@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { Viewport } from '../../src/core/Viewport.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function element() {
-    return { style: {}, appendChild() {}, setAttribute() {}, querySelector: () => null };
+    return fakeElement('div');
 }
-globalThis.document = { createElement: element, createElementNS: element };
-globalThis.localStorage = { getItem: () => null };
+installFakeDom();
 
 class TestViewport extends Viewport {
     constructor() {

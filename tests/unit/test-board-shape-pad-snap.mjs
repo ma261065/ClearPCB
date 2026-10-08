@@ -1,26 +1,10 @@
 /** Board-shape moves and node edits use grid/alignment magnets only; Track moves still lock onto Pads. */
 import assert from 'node:assert/strict';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-function element(tagName) {
-    return {
-        tagName, attributes: new Map(), children: [], style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) || null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { this.children.push(child); return child; },
-        insertBefore(child) { this.children.push(child); return child; },
-        remove() { this.removed = true; },
-        querySelectorAll() { return []; },
-        classList: { add() {} },
-    };
-}
-globalThis.document = {
-    createElementNS(_namespace, tagName) { return element(tagName); },
-    getElementById() { return null; },
-    querySelector() { return null; },
-};
+installFakeDom();
+const element = (tagName) => fakeElement(tagName);
 
 const { startBoardShapeDrag, handleBoardShapeDrag } = await import('../../src/pcb/modules/board-shapes.js');
 const { snapPathTranslation } = await import('../../src/pcb/modules/path-edit.js');

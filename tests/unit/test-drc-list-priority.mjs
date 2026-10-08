@@ -1,33 +1,13 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-class Element {
-    constructor() {
-        this.children = [];
-        this.attributes = {};
-        this.dataset = {};
-        this.style = {};
-        this.className = '';
-        this.events = new Map();
-        this.classList = { add: name => { this.className += ` ${name}`; } };
-    }
-    set textContent(value) { this.text = value; this.children = []; }
-    get textContent() { return this.text || this.children.map(child => child.textContent).join(''); }
-    setAttribute(name, value) { this.attributes[name] = value; }
-    removeAttribute(name) { delete this.attributes[name]; }
-    appendChild(child) { this.children.push(child); }
-    addEventListener(name, listener) { this.events.set(name, listener); }
-    querySelectorAll(selector) {
-        return selector === '.drc-item' ? this.children.filter(child => child.dataset.drcId) : [];
-    }
-    focus() { this.focused = true; }
-    scrollIntoView() {}
+function element() {
+    return Object.assign(fakeElement('div'), { scrollIntoView() {} });
 }
-const list = new Element(), empty = new Element(), title = new Element();
-globalThis.document = {
-    createElement: () => new Element(),
-    getElementById: id => ({ pcbDrcList: list, pcbDrcEmpty: empty, pcbDrcSlideTitle: title })[id],
-};
+const document = installFakeDom();
+document.createElement = element;
+const list = element(), empty = element(), title = element();
+document.getElementById = id => ({ pcbDrcList: list, pcbDrcEmpty: empty, pcbDrcSlideTitle: title })[id];
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { getDrcPresentation } = await import('../../src/pcb/modules/drc-state.js');
 const app = Object.create(PCBApp.prototype);
@@ -54,7 +34,7 @@ assert.deepEqual(drc.violations, original, 'rendering does not reorder the under
 drc.selectedId = null;
 drc.moveSelection(1);
 assert.equal(drc.selectedId, 'first-short', 'keyboard navigation starts with the highest priority issue');
-rows[1].events.get('click')();
+rows[1].fire('click');
 assert.equal(drc.selectedId, 'via-shape-short', 'the formerly truncated short can be selected');
 
 drc.violations.push(violation('clearance', 'clearance'));
@@ -68,7 +48,7 @@ assert.match(list.children.at(-1).textContent, /16 more$/);
 
 drc.collapsedGroups.add('Shorted Nets');
 drc.renderList();
-assert.equal(list.children[0].attributes['aria-expanded'], 'false', 'priority respects section collapse state');
+assert.equal(list.children[0].getAttribute('aria-expanded'), 'false', 'priority respects section collapse state');
 assert.equal(list.children[0].children[1].textContent, 'Shorted Nets (2)', 'collapsed shorts still have a visible count');
 
 console.log('PASS DRC priority before row cap, short selection, keyboard navigation and collapsed-section counts');

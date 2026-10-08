@@ -9,18 +9,10 @@ import { beginTextDrag, createPcbTextSelectionAdapter, endTextDrag, updateTextDr
 import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-function svgElement() {
-    return {
-        children: [], parentNode: null, dataset: {}, attributes: new Map(), style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; },
-        appendChild(child) { child.parentNode = this; this.children.push(child); },
-        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
-    };
-}
-globalThis.document = { getElementById: () => null, querySelector: () => null, createElementNS: () => svgElement() };
+installFakeDom();
+const svgElement = (tagName = 'g') => fakeElement(tagName);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function textClearanceSnapshot(app, text) {

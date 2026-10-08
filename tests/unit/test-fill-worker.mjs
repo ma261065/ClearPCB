@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Worker as NodeWorker } from 'node:worker_threads';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { Track } from '../../src/shapes/track.js';
@@ -51,9 +52,9 @@ class Element {
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => new Element(), getElementById: () => null };
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
+document.getElementById = () => null;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 let observeDrcFrame = null;
 globalThis.requestAnimationFrame = () => { observeDrcFrame?.(); return 1; };

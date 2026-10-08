@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pointInPolygon } from '../../src/core/geometry.js';
 import { Via } from '../../src/shapes/via.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PANEL_DEFAULTS, panelSettings, buildPanelLayout } = await import('../../src/pcb/modules/panelization.js');
 const { SetPanelizationCommand, renderPanelPreview, resetPanelPreview, panelPreviewOutlinePath, panelPreviewSupportContours, updatePanelRailConstraints } = await import('../../src/pcb/modules/panelization-ui.js');
@@ -506,7 +506,9 @@ const createNode = (localName = 'g') => {
         },
     };
 };
-const priorDocument = globalThis.document;
+const priorCreateElement = document.createElement;
+const priorCreateElementNS = document.createElementNS;
+const priorCreateNodeIterator = document.createNodeIterator;
 const priorObserver = globalThis.MutationObserver;
 const priorSetTimeout = globalThis.setTimeout;
 const priorClearTimeout = globalThis.clearTimeout;
@@ -543,17 +545,15 @@ globalThis.MutationObserver = class {
 };
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);
-globalThis.document = { ...priorDocument,
-    createElementNS: (namespace, name) => createNode(name),
-    createNodeIterator(root) {
-        const nodes = [root, ...root.querySelectorAll()];
-        return { nextNode: () => nodes.shift() || null };
-    },
-    createElement(name) {
-        assert.equal(name, 'canvas');
-        return { width: 0, height: 0, getContext: () => ({ drawImage() {} }),
-            toBlob(callback) { canvasSizes.push([this.width, this.height]); callback(new Blob(['png'], { type: 'image/png' })); } };
-    },
+document.createElementNS = (namespace, name) => createNode(name);
+document.createNodeIterator = root => {
+    const nodes = [root, ...root.querySelectorAll()];
+    return { nextNode: () => nodes.shift() || null };
+};
+document.createElement = name => {
+    assert.equal(name, 'canvas');
+    return { width: 0, height: 0, getContext: () => ({ drawImage() {} }),
+        toBlob(callback) { canvasSizes.push([this.width, this.height]); callback(new Blob(['png'], { type: 'image/png' })); } };
 };
 const beginRefresh = () => {
     assert.equal(timers.size, 1);
@@ -698,7 +698,10 @@ try {
     }
     resetPanelPreview(previewApp);
 } finally {
-    globalThis.document = priorDocument;
+    document.createElement = priorCreateElement;
+    document.createElementNS = priorCreateElementNS;
+    if (priorCreateNodeIterator) document.createNodeIterator = priorCreateNodeIterator;
+    else delete document.createNodeIterator;
     globalThis.MutationObserver = priorObserver;
     globalThis.setTimeout = priorSetTimeout;
     globalThis.clearTimeout = priorClearTimeout;

@@ -1,17 +1,10 @@
 import assert from 'node:assert/strict';
 import { createShape } from '../../src/shapes/index.js';
 import { copySelection, beginPastePreview, confirmPaste } from '../../src/schematic/modules/clipboard.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element() {
-    return {
-        style: {}, classList: { add() {} }, attributes: {}, children: [],
-        setAttribute(key, value) { this.attributes[key] = value; },
-        appendChild(child) { this.children.push(child); },
-        cloneNode() { return element(); },
-        remove() {},
-    };
-}
-globalThis.document = { createElementNS: element };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 
 const selection = [
     { x: 10, y: -20, w: 12, h: 7, rot: 17.3 },

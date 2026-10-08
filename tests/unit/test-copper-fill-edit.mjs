@@ -3,9 +3,9 @@ import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {};
+installFakeDom();
 const { shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, loadBoardShapes, serializeBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit, deleteFillNode, deleteFocusedFillPart,

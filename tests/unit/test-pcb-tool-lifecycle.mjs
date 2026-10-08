@@ -11,36 +11,23 @@ import { getDrcPresentation } from '../../src/pcb/modules/drc-state.js';
 import { getHoveredComponent, hoverComponent } from '../../src/pcb/modules/component-selection.js';
 import { selectRefText } from '../../src/pcb/modules/ref-text-selection.js';
 import { getPcbSelection } from '../../src/pcb/modules/selection-registry.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const elements = new Map();
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: id => elements.get(id) || null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-    createElementNS: () => ({ setAttribute() {}, appendChild() {}, remove() {} }),
-};
+const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function element(id, dataset = {}) {
-    const classes = new Set(), listeners = new Map();
-    const el = {
-        id, dataset, textContent: '', hidden: true,
-        classList: { contains: name => classes.has(name), toggle(name, on) {
-            if (on === undefined) on = !classes.has(name);
-            if (on) classes.add(name); else classes.delete(name);
-        } },
-        setAttribute() {}, getAttribute: name => name === 'data-shape' ? dataset.shape : null,
-        querySelectorAll: () => [], contains: () => false,
-        addEventListener: (name, callback) => listeners.set(name, callback),
-        click: () => listeners.get('click')?.({ stopPropagation() {} }),
-    };
-    elements.set(id, el);
+    const el = fakeElement('button');
+    el.id = id;
+    Object.assign(el.dataset, dataset);
+    el.hidden = true;
+    document.body.appendChild(el);
     return el;
 }
 
 const tools = ['select', 'track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS];
 function fixture() {
-    elements.clear();
+    document.body.replaceChildren();
     const events = [];
     const buttons = Object.fromEntries(['Select', 'Track', 'Via', 'Pad', 'Hole', 'Text', 'Fill',
         'Shapes', 'ShapesArrow', 'ShapesWrap', 'ShapesMenu'].map(name => [name, element(`pcbTool${name}`)]));

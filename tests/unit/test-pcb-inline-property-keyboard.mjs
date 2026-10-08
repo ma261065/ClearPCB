@@ -1,56 +1,34 @@
 import assert from 'node:assert/strict';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 
-class Element {
-    constructor(tagName) {
-        this.tagName = tagName.toUpperCase();
-        this.children = [];
-        this.style = {};
-        this.listeners = new Map();
-        this.value = '';
-    }
-    setAttribute() {}
-    removeAttribute() {}
-    appendChild(child) {
-        child.remove();
-        this.children.push(child);
-        child.parentNode = this;
-    }
-    removeChild(child) {
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-    }
-    remove() { this.parentNode?.removeChild(this); }
-    get isConnected() { return !!this.parentNode; }
-    addEventListener(type, listener) {
-        if (!this.listeners.has(type)) this.listeners.set(type, []);
-        this.listeners.get(type).push(listener);
-    }
-    dispatchEvent(event) {
-        for (const listener of this.listeners.get(event.type) || []) listener(event);
-    }
-    focus() { document.activeElement = this; }
-    setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
+function element(tagName) {
+    const node = fakeElement(tagName);
+    node.tagName = tagName.toUpperCase();
+    node.value = '';
+    node.setSelectionRange = (start, end) => { node.selectionStart = start; node.selectionEnd = end; };
+    node.dispatchEvent = event => {
+        for (const listener of node.listeners.get(event.type) || []) listener(event);
+        return !event.defaultPrevented;
+    };
+    return node;
 }
-const properties = new Element('div');
-properties.contains = element => element.parentNode === properties;
+const document = installFakeDom();
+const properties = element('div');
+properties.id = 'pcbPropertiesPanel';
+document.body.appendChild(properties);
 const listeners = new Map();
-globalThis.document = {
-    body: new Element('body'), activeElement: null,
-    createElement: name => new Element(name),
-    createElementNS: (namespace, name) => new Element(name),
-    getElementById: id => id === 'pcbPropertiesPanel' ? properties : null,
-    addEventListener: (name, listener) => listeners.set(name, listener),
-    removeEventListener: name => listeners.delete(name),
-};
-globalThis.window = { addEventListener() {} };
+document.createElement = name => element(name);
+document.createElementNS = (namespace, name) => element(name);
+document.addEventListener = (name, listener) => listeners.set(name, listener);
+document.removeEventListener = name => listeners.delete(name);
 // Node has Event but not InputEvent, which rerouted typing dispatches like real typing.
 globalThis.InputEvent = class InputEvent extends Event {
     constructor(type, init = {}) { super(type, init); this.inputType = init.inputType ?? ''; this.data = init.data ?? null; }
 };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const container = new Element('g');
+const container = element('g');
 const completions = [];
 const app = {
 
@@ -84,7 +62,7 @@ try {
         return event;
     };
     for (const id of ['pcbPropRefRot', 'pcbPropTextRot', 'pcbPropRefSize', 'pcbPropRefLW']) {
-        const field = new Element('input');
+        const field = element('input');
         field.id = id;
         field.type = 'number';
         properties.appendChild(field);
@@ -111,7 +89,7 @@ try {
     assert.deepEqual(completions, [true, false, true, false, true, false, true, false],
         'Enter/Escape retain inline commit/cancel behavior from properties');
     {
-        const field = new Element('input');
+        const field = element('input');
         field.id = 'pcbPropTextSize';
         field.type = 'number';
         properties.appendChild(field);
@@ -124,7 +102,7 @@ try {
     }
     hiddenInput.focus();
     assert.equal(key('7').prevented, false, 'Hidden input still receives its own native keystrokes');
-    const button = new Element('button');
+    const button = element('button');
     properties.appendChild(button);
     button.focus();
     assert.equal(key('7').prevented, true, 'Non-numeric property controls can still resume label typing');

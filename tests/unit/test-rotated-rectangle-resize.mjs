@@ -11,15 +11,9 @@ import { CORNER_CHORD_TOLERANCE } from '../../src/shapes/rounded-path.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; }, querySelector() { return null; },
-    createElementNS() {
-        return { style: {}, classList: { add() {}, remove() {} }, setAttribute() {},
-            appendChild() {}, remove() {}, querySelectorAll() { return []; } };
-    },
-};
+installFakeDom();
 const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit } = await import('../../src/pcb/modules/copper-fill-edit.js');

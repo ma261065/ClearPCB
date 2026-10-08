@@ -5,6 +5,7 @@ import { Wire } from '../../src/shapes/wire.js';
 import { Track } from '../../src/shapes/track.js';
 import { captureResolvedPlacement } from '../../src/core/pcb-placement-geometry.js';
 import { extractComponents } from '../../src/core/netlist.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -153,24 +154,10 @@ const headless = await prepareFabricationSnapshot({ pcbDocument: project.pcbDocu
 assert.ok(exportGerbers(headless).size > 0, 'A complete resolved layout can reach manufacturing without an editor');
 
 function element() {
-    const attributes = new Map();
-    return {
-        style: {}, dataset: {}, children: [], parentNode: null,
-        setAttribute: (name, value) => attributes.set(name, String(value)),
-        getAttribute: name => attributes.get(name) ?? null,
-        hasAttribute: name => attributes.has(name),
-        removeAttribute: name => attributes.delete(name),
-        querySelectorAll: () => [], querySelector: () => null,
-        appendChild(child) {
-            child.parentNode?.removeChild(child);
-            this.children.push(child);
-            child.parentNode = this;
-        },
-        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
-        remove() { this.parentNode?.removeChild(this); },
-    };
+    return fakeElement('g');
 }
-globalThis.document = { createElementNS: element, getElementById: () => null };
+const fakeDocument = installFakeDom();
+fakeDocument.createElementNS = element;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { placementTransform } = await import('../../src/pcb/modules/track-commands.js');
 const slotsBeforeAttachment = structuredClone([...autoSlots]);

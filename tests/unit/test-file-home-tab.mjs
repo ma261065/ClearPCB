@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
+installFakeDom();
+globalThis.window.setTimeout = callback => { callback(); };
 globalThis.requestAnimationFrame = callback => callback();
 globalThis.localStorage = { getItem() { return null; } };
-installFakeDom();
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
@@ -132,8 +132,9 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
 }
 {
     const project = new ProjectDocument();
-    const pcbTitle = {};
-    globalThis.document = { getElementById: id => id === 'pcbDocTitle' ? pcbTitle : null };
+    const pcbTitle = document.createElement('span');
+    pcbTitle.id = 'pcbDocTitle';
+    document.body.appendChild(pcbTitle);
     window.app = { _updateTitle() { assert.fail('PCB edits must not update an unrelated global schematic'); } };
     const host = {
         project, fileManager: project.fileManager, ui: { docTitle: {} },

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains: () => false } };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {}, length: 0 };
+installFakeDom();
+document.body.contains = () => false;
 const { KiCadFetcher } = await import('../../src/components/KiCadFetcher.js');
 const { generateFootprint } = await import('../../src/shared/pcb/footprint.js');
 const { parseObjModel } = await import('../../src/shared/3d/model-rendering.js');

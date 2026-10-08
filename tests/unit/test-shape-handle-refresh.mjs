@@ -3,16 +3,9 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return { style: {}, setAttribute(name, value) { attributes.set(name, value); },
-            getAttribute(name) { return attributes.get(name); }, removeAttribute(name) { attributes.delete(name); },
-            appendChild() {}, remove() {}, querySelectorAll() { return []; } };
-    },
-};
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
+installFakeDom();
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../../src/pcb/modules/fill-refresh.js');

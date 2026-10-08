@@ -6,23 +6,9 @@
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    querySelector() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return {
-            setAttribute(name, value) { attributes.set(name, String(value)); },
-            getAttribute(name) { return attributes.get(name) ?? null; },
-            removeAttribute(name) { attributes.delete(name); },
-            appendChild() {},
-            remove() {},
-            classList: { add() {} },
-        };
-    },
-};
+installFakeDom();
 
 const { Track } = await import('../../src/shapes/track.js');
 const { isTrackRectangleLoop, resolveTrackEdgePaths } = await import('../../src/shapes/track-geometry.js');

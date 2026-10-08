@@ -15,38 +15,23 @@ import {
 import { Shape } from '../../src/shapes/shape.js';
 import { Component } from '../../src/components/Component.js';
 import { ensureView, viewOf, componentViewOf } from '../../src/schematic/render/shape-view-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function node(name) {
-    return {
-        name, parentNode: null, children: [], attributes: new Map(), removed: 0, style: {},
-        appendChild(child) {
-            child.parentNode?.removeChild(child);
-            child.parentNode = this;
-            this.children.push(child);
-            return child;
-        },
-        insertBefore(child, next) {
-            child.parentNode?.removeChild(child);
-            child.parentNode = this;
-            const index = next ? this.children.indexOf(next) : -1;
-            this.children.splice(index < 0 ? this.children.length : index, 0, child);
-            return child;
-        },
-        removeChild(child) {
-            this.children.splice(this.children.indexOf(child), 1);
-            child.parentNode = null;
-            return child;
-        },
-        remove() { this.removed++; this.parentNode?.removeChild(this); },
-        setAttribute(key, value) { this.attributes.set(key, value); },
-        removeAttribute(key) { this.attributes.delete(key); },
-        getAttribute(key) { return this.attributes.get(key) ?? null; },
-        cloneNode() { return { clonedFrom: this }; },
-        get nextSibling() {
-            const siblings = this.parentNode?.children || [];
-            return siblings[siblings.indexOf(this) + 1] || null;
-        },
-    };
+    const element = fakeElement(name);
+    element.name = name;
+    element.removed = 0;
+    element.attributes = new Map();
+    const setAttribute = element.setAttribute.bind(element);
+    const getAttribute = element.getAttribute.bind(element);
+    const removeAttribute = element.removeAttribute.bind(element);
+    const remove = element.remove.bind(element);
+    element.setAttribute = (key, value) => { element.attributes.set(key, String(value)); setAttribute(key, value); };
+    element.getAttribute = key => element.attributes.get(key) ?? getAttribute(key);
+    element.removeAttribute = key => { element.attributes.delete(key); removeAttribute(key); };
+    element.remove = () => { element.removed++; remove(); };
+    element.cloneNode = () => ({ clonedFrom: element });
+    return element;
 }
 
 function viewApp() {
@@ -69,7 +54,8 @@ function viewApp() {
     };
 }
 
-globalThis.document = { createElementNS: (_namespace, tag) => node(tag) };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => node(tag);
 
 class TestShape extends Shape {
     constructor(id) { super({ id }); this._culled = false; }

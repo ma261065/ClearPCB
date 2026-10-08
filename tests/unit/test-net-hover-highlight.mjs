@@ -1,52 +1,17 @@
 import assert from 'node:assert/strict';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { getNetHoveredShapeIds } from '../../src/pcb/modules/board-shape-state.js';
 
-function element(tag) {
-    const attributes = new Map();
-    return {
-        tag,
-        children: [],
-        parentNode: null,
-        style: {},
-        dataset: {},
-        setAttribute(name, value) { attributes.set(name, String(value)); },
-        getAttribute(name) { return attributes.get(name) ?? null; },
-        appendChild(child) {
-            child.parentNode = this;
-            this.children.push(child);
-        },
-        removeChild(child) {
-            this.children = this.children.filter(item => item !== child);
-            child.parentNode = null;
-        },
-        remove() {
-            if (!this.parentNode) return;
-            this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-            this.parentNode = null;
-        },
-        querySelectorAll(selector) {
-            const cls = selector.startsWith('.') ? selector.slice(1) : null;
-            return this.children.flatMap(child => [
-                ...(cls && child.getAttribute('class') === cls ? [child] : []),
-                ...child.querySelectorAll(selector),
-            ]);
-        },
-    };
-}
-
-globalThis.document = {
-    createElementNS(_namespace, tag) { return element(tag); },
-    getElementById() { return null; },
-};
+installFakeDom();
 
 const { setHoverHighlight } = await import('../../src/pcb/modules/track-select.js');
 const { getBoardShapeElement, shapeHoverColor, shapeSelectionColor } = await import('../../src/pcb/modules/board-shapes.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const groups = new Map([
-    ['vias', element('g')],
-    ['selection-overlay', element('g')],
-    ['top-copper', element('g')],
-    ['bottom-copper', element('g')],
+    ['vias', fakeElement('g')],
+    ['selection-overlay', fakeElement('g')],
+    ['top-copper', fakeElement('g')],
+    ['bottom-copper', fakeElement('g')],
 ]);
 const viaA = { id: 'via-a', x: 1, y: 1, diameter: 1, net: 'N1' };
 const viaB = { id: 'via-b', x: 2, y: 2, diameter: 1, net: 'N1' };

@@ -1,15 +1,7 @@
 /** Headless regression tests for shared Track render/selection layer runs. */
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    createElementNS: () => ({
-        dataset: {},
-        classList: { contains: () => false },
-        setAttribute() {},
-        remove() {},
-    }),
-    getElementById: () => null,
-};
+installFakeDom();
 
 const { Track } = await import('../../src/shapes/track.js');
 const { buildTrackLayerRuns } = await import('../../src/pcb/modules/track-render.js');

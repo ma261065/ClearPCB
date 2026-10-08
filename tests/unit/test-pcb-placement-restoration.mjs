@@ -4,6 +4,7 @@ import { Component } from '../../src/components/Component.js';
 import { Track } from '../../src/shapes/track.js';
 import { capturePlacementOverride } from '../../src/core/PcbPlacementState.js';
 import { captureResolvedPlacement } from '../../src/core/pcb-placement-geometry.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 const definition = distance => ({
     name: 'RestorationFixture', _source: 'KiCad', symbol: { pins: [{ number: '1' }] },
@@ -84,29 +85,25 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) for (c
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
 
-class Element {
-    constructor(tag = 'g') { this.tag = tag; this.attributes = new Map(); this.children = []; this.style = {}; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    hasAttribute(name) { return this.attributes.has(name); }
-    removeAttribute(name) { this.attributes.delete(name); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    get firstChild() { return this.children[0] || null; }
-    querySelectorAll(selector) {
-        const matches = element => selector.split(',').some(part => {
+function element(tag = 'g') {
+    const node = Object.assign(fakeElement(tag), { tag, attributes: new Map() });
+    const setAttribute = node.setAttribute;
+    const removeAttribute = node.removeAttribute;
+    node.setAttribute = (name, value) => { setAttribute(name, value); node.attributes.set(name, String(value)); };
+    node.removeAttribute = name => { removeAttribute(name); node.attributes.delete(name); };
+    node.querySelectorAll = selector => {
+        const matches = child => selector.split(',').some(part => {
             part = part.trim();
-            return part.startsWith('.') ? (element.getAttribute('class') || '').split(' ').includes(part.slice(1))
-                : part.startsWith('[') ? element.hasAttribute(part.slice(1, -1)) : element.tag === part;
+            return part.startsWith('.') ? (child.getAttribute('class') || '').split(' ').includes(part.slice(1))
+                : part.startsWith('[') ? child.hasAttribute(part.slice(1, -1)) : child.tag === part;
         });
-        return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+        return node.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
+    };
+    node.querySelector = selector => node.querySelectorAll(selector)[0] || null;
+    return node;
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null,
-    documentElement: { getAttribute: () => 'dark' } };
+const fakeDocument = installFakeDom();
+fakeDocument.createElementNS = (_, tag) => element(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { placementTransform } = await import('../../src/pcb/modules/track-commands.js');
 const { project, state, tracks } = fixture({ side: 'top' });
@@ -116,7 +113,7 @@ const app = {
     project, placements: new Map(),
     get tracks() { assert.fail('Restoration presentation cannot read track models'); },
     getLayerGroup(id) {
-        if (!groups.has(id)) groups.set(id, new Element());
+        if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },
     updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
@@ -129,7 +126,7 @@ app._placeFootprints(initial.placements);
 const untouched = app.placements.get('outside');
 const automatic = app.placements.get('automatic');
 state.overrides.delete('outside');
-const background = new Element('rect');
+const background = element('rect');
 app.getLayerGroup('board-outline').appendChild(background);
 
 for (const side of ['bottom', 'top']) {

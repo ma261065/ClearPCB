@@ -5,25 +5,21 @@ import { Pad } from '../../src/shapes/pad.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../../src/pcb/modules/track-render.js';
 import { renderPad, removePadElements } from '../../src/pcb/modules/pad.js';
 import { selectTrackOrVia, clearTrackSelection } from '../../src/pcb/modules/track-select.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
-class Element {
-    attributes = new Map();
-    children = [];
-    parentNode = null;
-    dataset = {};
-    style = {};
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); }
-    remove() {
-        if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-        this.parentNode = null;
-    }
+function element(tag = 'g') {
+    const node = Object.assign(fakeElement(tag), { attributes: new Map() });
+    const setAttribute = node.setAttribute;
+    const removeAttribute = node.removeAttribute;
+    node.setAttribute = (name, value) => { setAttribute(name, value); node.attributes.set(name, String(value)); };
+    node.removeAttribute = name => { removeAttribute(name); node.attributes.delete(name); };
+    return node;
 }
-globalThis.document = { createElementNS: () => new Element(), getElementById: () => null };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => element(tag);
 const groups = () => new Map(['top-copper', 'bottom-copper', 'top-copper-track-labels',
     'bottom-copper-track-labels', 'top-copper-pad-drills', 'bottom-copper-pad-drills', 'vias']
-    .map(layer => [layer, new Element()]));
+    .map(layer => [layer, element()]));
 const children = layers => [...layers.values()].flatMap(group => group.children);
 const makeTrack = () => new Track({ id: 'same-id', net: 'GND',
     points: [{ x: 1.123456, y: 2 }, { x: 12, y: 2 }, { x: 12, y: 14 }],

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
-globalThis.window = { addEventListener: noop, removeEventListener: noop };
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
-globalThis.document = { getElementById: () => null };
+installFakeDom();
+globalThis.window.addEventListener = noop;
+globalThis.window.removeEventListener = noop;
 
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { getShapeNodeFocus, setShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } =

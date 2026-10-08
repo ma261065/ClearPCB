@@ -1,55 +1,27 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-// Minimal SVG DOM: attributes, children, '#id' and '[attr^="prefix"]' selectors.
-class El {
-    constructor(tagName) {
-        this.tagName = tagName;
-        this.localName = tagName;
-        this.attributes = new Map();
-        this.children = [];
-        this.parentNode = null;
-        this.dataset = {};
-        this.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
-        const props = {};
-        this.style = { props, setProperty(name, value) { props[name] = value; } };
-    }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
-    hasAttribute(name) { return this.attributes.has(name); }
-    removeAttribute(name) { this.attributes.delete(name); }
-    appendChild(child) { child.parentNode?.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
-    insertBefore(child, before) {
-        child.parentNode?.removeChild(child);
-        child.parentNode = this;
-        const index = this.children.indexOf(before);
-        if (index < 0) this.children.push(child);
-        else this.children.splice(index, 0, child);
-        return child;
-    }
-    removeChild(child) { this.children = this.children.filter(c => c !== child); child.parentNode = null; return child; }
-    remove() { this.parentNode?.removeChild(this); }
-    addEventListener() {}
-    removeEventListener() {}
-    *descendants() { for (const child of this.children) { yield child; yield* child.descendants(); } }
-    querySelectorAll(selector) {
-        const prefix = /^\[([\w-]+)\^="(.*)"\]$/.exec(selector);
-        if (prefix) return [...this.descendants()].filter(el => el.getAttribute(prefix[1])?.startsWith(prefix[2]));
-        if (selector.startsWith('#')) return [...this.descendants()].filter(el => el.getAttribute('id') === selector.slice(1));
-        return [];
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+function descendants(node) {
+    return node.children.flatMap(child => [child, ...descendants(child)]);
 }
 
-const noop = () => {};
-globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
-globalThis.document = {
-    body: new El('body'), documentElement: { getAttribute: () => 'dark' },
-    createElement: tag => new El(tag), createElementNS: (_ns, tag) => new El(tag),
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener: noop, removeEventListener: noop,
-};
-globalThis.HTMLElement = class HTMLElement {};
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+function element(tagName) {
+    const el = fakeElement(tagName);
+    el.localName = el.tagName;
+    el.style.setProperty = (name, value) => { el.style[name] = value; };
+    const querySelectorAll = el.querySelectorAll.bind(el);
+    el.querySelectorAll = selector => {
+        const prefix = /^\[([\w-]+)\^="(.*)"\]$/.exec(selector);
+        return prefix ? descendants(el).filter(child => child.getAttribute(prefix[1])?.startsWith(prefix[2]))
+            : querySelectorAll(selector);
+    };
+    el.querySelector = selector => el.querySelectorAll(selector)[0] || null;
+    return el;
+}
+
+const document = installFakeDom();
+document.createElement = tag => element(tag);
+document.createElementNS = (_ns, tag) => element(tag);
 
 const { removalHatchFill, stripRemovalHatches } = await import('../../src/pcb/modules/removal-hatch.js');
 const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
@@ -58,14 +30,14 @@ const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const patternsIn = defs => defs.children.filter(child => child.tagName === 'pattern');
 const appWithDefs = (defs, scale = 4) => {
     defs.setAttribute('data-pcb-defs', '');
-    const svg = new El('svg');
+    const svg = element('svg');
     svg.appendChild(defs);
     return { viewport: { scale, svg } };
 };
 
 // One pattern per removal mode, in the editor's defs, sized in board millimetres.
 {
-    const defs = new El('defs');
+    const defs = element('defs');
     const app = appWithDefs(defs);
     assert.equal(removalHatchFill(app, 'remove-copper'), 'url(#pcb-removal-hatch-remove-copper)');
     const [pattern] = patternsIn(defs);
@@ -84,7 +56,7 @@ const appWithDefs = (defs, scale = 4) => {
     assert.equal(removalHatchFill({ viewport: { scale: 1 } }, 'remove-copper'), 'none', 'No SVG, no hatch');
 
     // Replaced defs get their own pattern; another editor on the same defs reuses it.
-    const nextDefs = new El('defs');
+    const nextDefs = element('defs');
     nextDefs.setAttribute('data-pcb-defs', '');
     app.viewport.svg.children = [nextDefs];
     nextDefs.parentNode = app.viewport.svg;
@@ -98,11 +70,11 @@ console.log('PASS removal hatch patterns: one per mode, reused, in board units, 
 
 // Removal shapes are filled with their hatch; additive copper keeps its colour.
 {
-    const defs = new El('defs');
+    const defs = element('defs');
     const groups = new Map();
     const app = {
         ...appWithDefs(defs, 1), _shapeElements: new Map(),
-        getLayerGroup(id) { if (!groups.has(id)) groups.set(id, new El('g')); return groups.get(id); },
+        getLayerGroup(id) { if (!groups.has(id)) groups.set(id, element('g')); return groups.get(id); },
     };
     const circle = { kind: 'circle', x: 0, y: 0, radius: 2, layer: 'top-copper', filled: true, lineWidth: 0.2 };
     renderBoardShape(app, { ...circle, id: 'cut', copperMode: 'remove-copper' });
@@ -136,11 +108,11 @@ console.log('PASS holes are stacked above removal hatching');
 
 // Exports show removal shapes as outlines, even after computed styles are inlined.
 {
-    const root = new El('svg');
-    const hatched = root.appendChild(new El('path'));
+    const root = element('svg');
+    const hatched = root.appendChild(element('path'));
     hatched.setAttribute('fill', 'url(#pcb-removal-hatch-remove-copper)');
     hatched.style.fill = 'url("#pcb-removal-hatch-remove-copper")';
-    const copper = root.appendChild(new El('g')).appendChild(new El('path'));
+    const copper = root.appendChild(element('g')).appendChild(element('path'));
     copper.setAttribute('fill', '#e74c3c');
     stripRemovalHatches(root);
     assert.equal(hatched.getAttribute('fill'), 'none');

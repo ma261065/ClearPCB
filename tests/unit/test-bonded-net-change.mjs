@@ -1,18 +1,8 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    createElementNS() {
-        return {
-            setAttribute() {},
-            remove() {},
-            classList: { add() {} },
-            dataset: {},
-        };
-    },
-};
+installFakeDom();
 
 const [{ Track }, { Via }, { _applyNetToBondedCopper, applyNetToCopperSelection }] = await Promise.all([
     import('../../src/shapes/track.js'),

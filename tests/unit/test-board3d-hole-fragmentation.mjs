@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains() { return false; } } };
+installFakeDom();
 const { punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d.js');
 
 const mesh = {

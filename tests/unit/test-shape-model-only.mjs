@@ -7,72 +7,29 @@ import { Text } from '../../src/shapes/text.js';
 import { Component } from '../../src/components/Component.js';
 import { renderShape } from '../../src/schematic/render/shape-renderer.js';
 import { deleteView, viewOf } from '../../src/schematic/render/shape-view-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor(tagName) {
-        this.tagName = tagName;
-        this.children = [];
-        this.parentNode = null;
-        this.attributes = new Map();
-        this.style = {};
-        this.classList = {
-            classes: new Set(),
-            add: name => this.classList.classes.add(name),
-            contains: name => this.classList.classes.has(name),
-        };
-        this._text = '';
-    }
-    appendChild(child) {
-        child.parentNode?.removeChild(child);
-        child.parentNode = this;
-        this.children.push(child);
-        return child;
-    }
-    insertBefore(child, before) {
-        child.parentNode?.removeChild(child);
-        child.parentNode = this;
-        const index = before ? this.children.indexOf(before) : -1;
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        return child;
-    }
-    removeChild(child) {
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-        return child;
-    }
-    remove() { this.parentNode?.removeChild(this); }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    get firstChild() { return this.children[0] || null; }
-    get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; }
-    set textContent(value) {
-        for (const child of [...this.children]) child.remove();
-        this._text = String(value);
-    }
-    get textContent() {
-        return this._text + this.children.map(child => child.textContent).join('');
-    }
-    getBBox() {
-        if (this.tagName === 'g') {
-            const text = this.children.find(child => child.tagName === 'text');
+const document = installFakeDom();
+function svgElement(tagName) {
+    const element = fakeElement(tagName);
+    element.getBBox = () => {
+        if (element.tagName === 'g') {
+            const text = element.children.find(child => child.tagName === 'text');
             if (text) return text.getBBox();
         }
-        if (this.tagName === 'text') {
+        if (element.tagName === 'text') {
             return {
-                x: Number(this.getAttribute('x')) || 0,
-                y: (Number(this.getAttribute('y')) || 0) - 3,
+                x: Number(element.getAttribute('x')) || 0,
+                y: (Number(element.getAttribute('y')) || 0) - 3,
                 width: 12,
                 height: 3,
             };
         }
         return { x: 0, y: 0, width: 0, height: 0 };
-    }
+    };
+    return element;
 }
-
-globalThis.document = {
-    createElementNS(_namespace, tagName) { return new Element(tagName); },
-};
+document.createElementNS = (_namespace, tagName) => svgElement(tagName);
 
 {
     const shapesDir = fileURLToPath(new URL('../../src/shapes/', import.meta.url));

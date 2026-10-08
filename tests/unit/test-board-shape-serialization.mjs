@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+installFakeDom();
 const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { decodePictureArtwork } = await import('../../src/shared/pcb/picture-storage.js');
@@ -202,7 +203,6 @@ assert.deepEqual(shapes, before);
 assert.deepEqual(image, imageBefore);
 console.log('PASS: rectangle/image frames, bounded corner drift, legacy reads and exact fabrication geometry');
 
-globalThis.document = { getElementById: () => null };
 const { serializePcb, preparePcb } = await import('../../src/pcb/modules/project-state.js');
 const { serializePcbText } = await import('../../src/pcb/modules/pcb-text.js');
 const text = { id: 'text-2jbepmqe', content: 'Hello', x: 91.44000000000001, y: -69.85,

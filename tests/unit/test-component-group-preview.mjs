@@ -12,23 +12,19 @@ import { renderTrack, hasTrackElements } from '../../src/pcb/modules/track-rende
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 class Element {
-    constructor(tag) { this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
+    constructor(tag) { return Object.assign(fakeElement(tag), { tag }); }
 }
-globalThis.document = { createElementNS: (_, tag) => new Element(tag) };
+installFakeDom();
 const frames = new Map();
 let frameId = 0;
-globalThis.window = {
+Object.assign(globalThis.window, {
     addEventListener() {},
     requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; },
     cancelAnimationFrame(id) { frames.delete(id); },
-};
+});
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 function fixture(saved) {
     const project = new ProjectDocument();

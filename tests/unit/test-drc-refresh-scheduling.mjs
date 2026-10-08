@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { getComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { isFillRefreshScheduled, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
@@ -6,15 +7,7 @@ import { getDrcPresentation, scheduleDrc } from '../../src/pcb/modules/drc-state
 import { runDrcNow } from '../../src/pcb/modules/drc-refresh.js';
 import { recomputeFillsNow } from '../../src/pcb/modules/fill-refresh.js';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: () => null,
-    createElementNS() {
-        const attributes = new Map();
-        return { style: {}, dataset: {}, setAttribute: (key, value) => attributes.set(key, value),
-            getAttribute: key => attributes.get(key), appendChild() {}, remove() {} };
-    },
-};
+installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
 const { loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');

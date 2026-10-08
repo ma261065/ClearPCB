@@ -12,8 +12,9 @@ import { LOCK_SCREEN_GAP_PX, LOCK_SIZE, lockIconMetrics } from '../../src/core/u
 import { compactProjectAliases, normalizeProjectAliases } from '../../src/core/project-field-aliases.js';
 import { validateProject } from '../../src/core/project-format.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 const pad = new Pad({
@@ -100,8 +101,9 @@ assert.deepEqual(
 movingAdapter.endMove(false);
 assert.deepEqual({ x: movingPad.x, y: movingPad.y }, { x: 0, y: 0 });
 const rotatingPad = new Pad({ x: 0, y: 0, shape: 'rectangle', size: 2, ratio: 2 });
-const rotationInput = { value: '' };
-globalThis.document = { getElementById: id => id === 'pcbPropPadRotation' ? rotationInput : null };
+const rotationInput = fakeElement('input');
+rotationInput.value = '';
+document.getElementById = id => id === 'pcbPropPadRotation' ? rotationInput : null;
 const rotationApp = {
     pcbDocument: new PcbDocument(),
     viewport: { scale: 1 }, getLayerGroup: () => null,
@@ -118,37 +120,22 @@ assert.equal(rotationInput.value, '315', 'rotation property follows the dragged 
 assert.ok(padOutline(rotationAdapter.object)[1].y > 0, 'pad geometry follows the pointer rotation direction');
 rotationAdapter.endAnchorDrag(false);
 
-class FakeSvgElement {
-    constructor(name) {
-        this.localName = name;
-        this.attributes = new Map();
-        this.dataset = {};
-        this.children = [];
-    }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { this.children.push(child); child.parentNode = this; }
-    insertBefore(child) { this.appendChild(child); }
-    querySelector() { return null; }
-    remove() {
-        if (this.parentNode) {
-            this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-        }
-    }
+function svgElement(name) {
+    const element = fakeElement(name);
+    element.localName = name;
+    return element;
 }
-globalThis.document = {
-    createElementNS: (_namespace, name) => new FakeSvgElement(name),
-    getElementById: () => null,
-};
+document.createElementNS = (_namespace, name) => svgElement(name);
+document.getElementById = () => null;
 assert.doesNotThrow(() => renderTrack({ edges: new Map() }, () => null),
     'track rendering has no stale Via drill-colour dependency');
 const renderGroups = new Map([
-    ['top-copper', new FakeSvgElement('g')],
-    ['top-copper-track-labels', new FakeSvgElement('g')],
-    ['bottom-copper', new FakeSvgElement('g')],
-    ['top-copper-pad-drills', new FakeSvgElement('g')],
-    ['bottom-copper-pad-drills', new FakeSvgElement('g')],
-    ['hole', new FakeSvgElement('g')],
+    ['top-copper', svgElement('g')],
+    ['top-copper-track-labels', svgElement('g')],
+    ['bottom-copper', svgElement('g')],
+    ['top-copper-pad-drills', svgElement('g')],
+    ['bottom-copper-pad-drills', svgElement('g')],
+    ['hole', svgElement('g')],
 ]);
 const renderedPad = new Pad({
     id: 'pad_render', x: 3, y: 4, shape: 'round', size: 2, drill: 1, layers: 'both',
@@ -174,7 +161,7 @@ assert.equal(renderGroups.get('hole').children.length, 0,
     'Pad drills are not covered by an opaque hole-layer disc');
 assert.match(padCopperPathD(renderedPad), /^M.*Z M|^M.*ZM/,
     'Pad copper path includes an outer contour and bore contour');
-const viaLayer = new FakeSvgElement('g');
+const viaLayer = svgElement('g');
 renderVia({ id: 'via_render', x: 3, y: 4, diameter: 1, drill: 0.5 },
     layer => layer === 'vias' ? viaLayer : null);
 assert.equal(viaLayer.children[0].getAttribute('fill-opacity'), '1',

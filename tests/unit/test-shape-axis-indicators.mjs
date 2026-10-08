@@ -3,36 +3,25 @@ import { getBoardShapeSegmentFocus, setShapeDefaults } from '../../src/pcb/modul
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 
 function element(tagName) {
-    return {
-        tagName,
-        attributes: new Map(),
-        children: [],
-        style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) || null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { this.children.push(child); return child; },
-        insertBefore(child, reference) {
-            const index = this.children.indexOf(reference);
-            if (index < 0) this.children.push(child);
-            else this.children.splice(index, 0, child);
-            return child;
-        },
-        remove() { this.removed = true; },
-        querySelectorAll() { return []; },
-        classList: { add() {} },
-    };
+    const node = fakeElement(tagName);
+    node.attributes = new Map();
+    const setAttribute = node.setAttribute.bind(node);
+    const getAttribute = node.getAttribute.bind(node);
+    const removeAttribute = node.removeAttribute.bind(node);
+    const remove = node.remove.bind(node);
+    node.setAttribute = (name, value) => { node.attributes.set(name, String(value)); setAttribute(name, value); };
+    node.getAttribute = name => node.attributes.get(name) || getAttribute(name);
+    node.removeAttribute = name => { node.attributes.delete(name); removeAttribute(name); };
+    node.remove = () => { node.removed = true; remove(); };
+    return node;
 }
 
-globalThis.document = {
-    createElementNS(_namespace, tagName) { return element(tagName); },
-    getElementById() { return null; },
-    querySelector() { return null; },
-};
+document.createElementNS = (_namespace, tagName) => element(tagName);
 
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, getBoardShapeAnchors, createBoardShapeSelectionAdapter,
     updateShapeDrawPreview, cancelShapeDraw, finishShapeDraw } = await import('../../src/pcb/modules/board-shapes.js');

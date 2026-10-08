@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { activeElement: null, body: { contains: () => false } };
-globalThis.localStorage = { length: 0, getItem: () => null, setItem() {} };
+installFakeDom();
 globalThis.fetch = () => { throw new Error('Unexpected remote access in lifecycle fixture'); };
 const { ComponentPicker } = await import('../../src/components/ComponentPicker.js');
 const { KiCadFetcher, warmKiCadIndex } = await import('../../src/components/KiCadFetcher.js');

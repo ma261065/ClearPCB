@@ -1,7 +1,7 @@
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
-globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains() { return false; } } };
+installFakeDom();
 
 const { boardShapeFilledRemovalOutlines } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const { boardSlabWithCutouts, punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d.js');

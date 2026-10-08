@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
@@ -30,14 +31,13 @@ class Element {
     remove() { this.parentNode?.removeChild(this); }
     querySelectorAll() { return []; }
 }
-const input = { value: '' };
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag),
-    getElementById: id => id === 'pcbPropImageRot' ? input : null,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-};
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
+const document = installFakeDom();
+const input = fakeElement('input');
+input.id = 'pcbPropImageRot';
+document.body.appendChild(input);
+document.createElementNS = (_, tag) => new Element(tag);
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
 globalThis.localStorage = { setItem() {} };
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PROPERTY_ORDER, propertyRank, sortByPropertyOrder } from '../../src/shared/ui/property-order.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, createElement: () => ({ style: {}, dataset: {} }) };
+installFakeDom();
 const { mergeDescriptors } = await import('../../src/schematic/modules/properties.js');
 const { Circle } = await import('../../src/shapes/circle.js');
 const { Arc } = await import('../../src/shapes/arc.js');

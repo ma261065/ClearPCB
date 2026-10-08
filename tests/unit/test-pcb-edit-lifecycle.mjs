@@ -9,9 +9,9 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { querySelector: () => null, getElementById: () => null };
+installFakeDom();
 const frames = new Map();
 let frameId = 0;
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };

@@ -14,52 +14,41 @@ import {
     measureTextAdvance,
 } from '../../src/core/text-edit-geometry.js';
 import { renderShape, updateTextElement } from '../../src/schematic/render/shape-renderer.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class SvgElement {
-    constructor(tagName) {
-        this.tagName = tagName;
-        this.children = [];
-        this.attributes = new Map();
-        this.style = {};
-        this.textContent = '';
-    }
-    appendChild(child) { this.children.push(child); return child; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    removeAttribute(name) { this.attributes.delete(name); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    getBBox() {
-        if (this.tagName !== 'text') throw new Error('Only text is measurable in this fixture');
-        const size = Number(this.getAttribute('font-size')) || 2;
+const document = installFakeDom();
+function svgElement(tagName) {
+    const element = fakeElement(tagName);
+    element.getBBox = () => {
+        if (element.tagName !== 'text') throw new Error('Only text is measurable in this fixture');
+        const size = Number(element.getAttribute('font-size')) || 2;
         return {
-            x: Number(this.getAttribute('x')) || 0,
-            y: (Number(this.getAttribute('y')) || 0) - size,
-            width: this.textContent.length * size * 0.6,
+            x: Number(element.getAttribute('x')) || 0,
+            y: (Number(element.getAttribute('y')) || 0) - size,
+            width: element.textContent.length * size * 0.6,
             height: size,
         };
-    }
+    };
+    return element;
 }
-
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    createElementNS(namespace, tagName) { return new SvgElement(tagName); },
-    createElement(tagName) {
-        if (tagName !== 'canvas') return {};
-        return {
-            getContext() {
-                return {
-                    font: '',
-                    textBaseline: '',
-                    measureText(value) {
-                        return {
-                            width: value.length * 600,
-                            actualBoundingBoxAscent: 800,
-                            actualBoundingBoxDescent: 200,
-                        };
-                    },
-                };
-            },
-        };
-    },
+document.createElementNS = (_namespace, tagName) => svgElement(tagName);
+document.createElement = tagName => {
+    if (tagName !== 'canvas') return fakeElement(tagName);
+    return {
+        getContext() {
+            return {
+                font: '',
+                textBaseline: '',
+                measureText(value) {
+                    return {
+                        width: value.length * 600,
+                        actualBoundingBoxAscent: 800,
+                        actualBoundingBoxDescent: 200,
+                    };
+                },
+            };
+        },
+    };
 };
 
 {

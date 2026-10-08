@@ -5,16 +5,9 @@ import { Track } from '../../src/shapes/track.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, MovePlacementCommand } from '../../src/pcb/modules/track-commands.js';
 import { renderTrack, hasTrackElements } from '../../src/pcb/modules/track-render.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor(tag) { this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-}
-globalThis.document = { createElementNS: (_, tag) => new Element(tag) };
+installFakeDom();
 function fixture() {
     const project = new ProjectDocument();
     project.schematicDocument.components.push(new Component({
@@ -38,14 +31,14 @@ function fixture() {
         placements: project.resolvePcbLayout().placements, history: new CommandHistory(),
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
         getLayerGroup(id) {
-            if (!groups.has(id)) groups.set(id, new Element('g'));
+            if (!groups.has(id)) groups.set(id, fakeElement('g'));
             return groups.get(id);
         },
         markDirty: () => dirty++,
     };
     for (const track of app.tracks) renderTrack(track, id => app.getLayerGroup(id));
     const lines = () => [...groups.values()].flatMap(group => group.children)
-        .filter(element => element.tag === 'polyline');
+        .filter(element => element.tagName === 'polyline');
     return { app, project, first, second, unrelated, lines, dirty: () => dirty };
 }
 

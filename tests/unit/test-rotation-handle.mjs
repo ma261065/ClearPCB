@@ -5,6 +5,7 @@ import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mj
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setTextToolDefaults, showTextToolProperties } from '../../src/pcb/modules/text-properties.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -30,22 +31,22 @@ assert.ok(Math.abs(rotated[0].x + 2) < 1e-9 && Math.abs(rotated[0].y - 4) < 1e-9
 assert.deepEqual(points[0], { x: -4, y: -2 });
 console.log('PASS rotation handle position, angle direction, wrapping and image geometry');
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 const inputs = new Map([['pcbPropTextRot', { value: '' }], ['pcbPropImageRot', { value: '' }]]);
 function element(tag) {
-    return {
-        tag, children: [], attributes: new Map(), style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name); },
-        appendChild(child) { this.children.push(child); child.parentNode = this; },
-        remove() { this.parentNode?.children.splice(this.parentNode.children.indexOf(this), 1); },
-        querySelectorAll(selector) {
-            return this.children.filter(child => selector === '.pcb-selection-anchors'
-                && child.attributes.get('class') === 'pcb-selection-anchors');
-        },
-    };
+    const node = fakeElement(tag);
+    node.tag = tag;
+    node.attributes = new Map();
+    const setAttribute = node.setAttribute.bind(node);
+    const getAttribute = node.getAttribute.bind(node);
+    const removeAttribute = node.removeAttribute.bind(node);
+    node.setAttribute = (name, value) => { node.attributes.set(name, String(value)); setAttribute(name, value); };
+    node.getAttribute = name => node.attributes.get(name) ?? getAttribute(name);
+    node.removeAttribute = name => { node.attributes.delete(name); removeAttribute(name); };
+    return node;
 }
-globalThis.document = { getElementById: id => inputs.get(id) || null, createElementNS: (namespace, tag) => element(tag) };
+document.getElementById = id => inputs.get(id) || null;
+document.createElementNS = (_namespace, tag) => element(tag);
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
 const { createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');

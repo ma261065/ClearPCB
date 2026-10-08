@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; } };
+const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { getDrcPresentation } = await import('../../src/pcb/modules/drc-state.js');
 
@@ -40,9 +40,9 @@ function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
     const rows = ['a', 'b'].map(id => ({
         dataset: { drcId: id }, classList: { toggle() {} }, focus() {}, scrollIntoView() {},
     }));
-    globalThis.document.getElementById = id => id === 'pcbDrcSlidePanel' ? panel
+    document.getElementById = id => id === 'pcbDrcSlidePanel' ? panel
         : id === 'pcbDrcList' ? { querySelectorAll: () => rows } : null;
-    globalThis.document.querySelector = selector => selector === '.cpcb3d-host' ? viewer : null;
+    document.querySelector = selector => selector === '.cpcb3d-host' ? viewer : null;
     app.viewport = {
         viewBox, svg: { getBoundingClientRect: () => svgRect },
         _updateViewBox() { updates++; }, _notifyViewChanged() { notifications++; },

@@ -2,23 +2,13 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { isBoardViewRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardOutlineResize } from '../../src/pcb/modules/board-outline-resize.js';
-globalThis.window = { addEventListener() {} };
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
 ]);
-globalThis.document = {
-    createElementNS: () => ({
-        attributes: new Map(), children: [], style: {}, dataset: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
-        remove() { this.parentNode?.removeChild?.(this); },
-        querySelector() { return null; },
-        querySelectorAll() { return []; },
-    }),
-    getElementById: id => inputs.get(id) || null,
-};
+const document = installFakeDom();
+document.getElementById = id => inputs.get(id) || null;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const dimensionPrototype = Object.create(null, Object.fromEntries(['boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
@@ -173,15 +163,9 @@ assert.equal(beginBoardOutlineResize(app, { x: 110, y: -95 }), false);
 layer.locked = false;
 setBoardOutlineSelected(app, false);
 assert.deepEqual(boardOutlineHandles(app), []);
-const makeElement = () => ({
-    attributes: new Map(), children: [], style: {}, parent: null,
-    setAttribute(name, value) { this.attributes.set(name, value); },
-    appendChild(child) { child.parent = this; this.children.push(child); },
-    remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
-    querySelector() { return null; },
-    querySelectorAll() { return [...this.children]; },
-});
-globalThis.document = { createElementNS: makeElement, getElementById: id => inputs.get(id) || null };
+const makeElement = () => fakeElement('g');
+document.createElementNS = makeElement;
+document.getElementById = id => inputs.get(id) || null;
 const overlay = makeElement();
 app.getLayerGroup = () => overlay;
 setBoardOutlineSelected(app, true);
@@ -191,7 +175,7 @@ for (const scale of [10, 20]) {
     assert.equal(overlay.children.length, 1, 'Redraw replaces old handles');
     assert.equal(overlay.children[0].children.length, 3);
     for (const handle of overlay.children[0].children) {
-        assert.equal(Number(handle.attributes.get('width')) * scale, 8, 'Handles remain 8 screen pixels');
+        assert.equal(Number(handle.getAttribute('width')) * scale, 8, 'Handles remain 8 screen pixels');
     }
 }
 layer.visible = false;
@@ -216,21 +200,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
 {
     const { SetBoardOutlineCommand } = await import('../../src/pcb/modules/track-commands.js');
     const { getBoardOutline, rectangleBoardOutline, boardBoundary } = await import('../../src/shared/pcb/board-outline.js');
-    const makeOutlineElement = () => ({
-        attributes: new Map(), children: [], style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { child.parentNode = this; this.children.push(child); },
-        removeChild(child) {
-            this.children = this.children.filter(element => element !== child);
-            child.parentNode = null;
-            return child;
-        },
-        remove() { this.parentNode?.removeChild(this); },
-        querySelector(selector) { return this.children.find(child => child.getAttribute('class') === selector.slice(1)) || null; },
-        querySelectorAll() { return []; },
-    });
+    const makeOutlineElement = () => fakeElement('g');
     document.createElementNS = makeOutlineElement;
     for (const geometry of [null, { id: 'board-outline', kind: 'circle', layer: 'board-outline',
         x: 35, y: -20, radius: 8 }]) {

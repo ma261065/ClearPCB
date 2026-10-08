@@ -6,78 +6,28 @@ import { Wire } from '../../src/shapes/wire.js';
 import { Arc } from '../../src/shapes/arc.js';
 import { viewOf } from '../../src/schematic/render/shape-view-state.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    attributes = new Map();
-    children = [];
-    parentNode = null;
-    style = {};
-    dataset = {};
-    classList = {
-        contains: name => (this.getAttribute('class') || this.className || '').split(/\s+/).includes(name),
-        add: name => this.classList.toggle(name, true),
-        toggle: (name, force) => {
-            const names = new Set((this.getAttribute('class') || this.className || '').split(/\s+/).filter(Boolean));
-            if (force ?? !names.has(name)) names.add(name); else names.delete(name);
-            this.setAttribute('class', [...names].join(' '));
+function element(tag = 'div') {
+    const node = fakeElement(tag);
+    node.rebuilds = 0;
+    const innerHTML = Object.getOwnPropertyDescriptor(node, 'innerHTML');
+    Object.defineProperty(node, 'innerHTML', {
+        get: innerHTML.get,
+        set(value) {
+            node.rebuilds++;
+            innerHTML.set.call(node, value);
         },
-    };
-    _text = '';
-    rebuilds = 0;
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    appendChild(child) { this.insertBefore(child, null); }
-    append(...children) {
-        for (const child of children) {
-            if (typeof child === 'string') this._text += child;
-            else this.appendChild(child);
-        }
-    }
-    addEventListener() {}
-    insertBefore(child, next) {
-        child.remove();
-        const index = next ? this.children.indexOf(next) : this.children.length;
-        assert.ok(index >= 0);
-        this.children.splice(index, 0, child);
-        child.parentNode = this;
-    }
-    removeChild(child) {
-        assert.ok(this.children.includes(child));
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-    }
-    remove() { this.parentNode?.removeChild(this); }
-    set textContent(text) {
-        for (const child of [...this.children]) child.remove();
-        this._text = String(text);
-    }
-    get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
-    set innerHTML(text) { this.rebuilds++; this.textContent = text; }
-    querySelector(selector) {
-        return this.querySelectorAll(selector)[0] || null;
-    }
-    querySelectorAll(selector) {
-        const matches = selector.startsWith('#') ? this.id === selector.slice(1)
-            : selector.startsWith('.') && selector.slice(1).split('.').every(name => this.classList.contains(name));
-        return [...(matches ? [this] : []), ...this.children.flatMap(child => child.querySelectorAll(selector))];
-    }
-    get firstChild() { return this.children[0] || null; }
-    get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; }
-    get previousSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) - 1] || null; }
+    });
+    return node;
 }
+
 const listeners = new Map();
-globalThis.window = {
-    addEventListener(name, callback) { listeners.set(name, callback); },
-    removeEventListener(name) { listeners.delete(name); },
-};
-globalThis.document = {
-    body: new Element(), createElementNS: () => new Element(), createElement: () => new Element(),
-    getElementById: id => document.body.querySelector(`#${id}`),
-    querySelector: selector => document.body.querySelector(selector),
-    querySelectorAll: selector => document.body.querySelectorAll(selector),
-    addEventListener() {}, removeEventListener() {},
-};
+const document = installFakeDom();
+globalThis.window.addEventListener = (name, callback) => listeners.set(name, callback);
+globalThis.window.removeEventListener = name => listeners.delete(name);
+document.createElementNS = (_namespace, tag) => element(tag);
+document.createElement = tag => element(tag);
 const {
     commandAddShapeInternal, commandRemoveShapeInternal, commandDeleteShapesInternal,
     commandRestoreShapesInternal,
@@ -93,21 +43,21 @@ const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 
 function fixture(shape) {
     document.body.textContent = '';
-    const layer = new Element();
-    const root = new Element();
+    const layer = element();
+    const root = element();
     root.appendChild(layer);
     document.body.appendChild(root);
-    const panel = new Element();
+    const panel = element();
     document.body.appendChild(panel);
-    const tip = new Element();
+    const tip = element();
     tip.id = 'schematicStatusTip';
     document.body.appendChild(tip);
-    const ribbon = new Element();
+    const ribbon = element();
     ribbon.id = 'ribbonSchematic';
     ribbon.className = 'ribbon';
     document.body.appendChild(ribbon);
     for (const name of ['home', 'properties']) {
-        const tab = new Element(), panel = new Element();
+        const tab = element(), panel = element();
         tab.className = 'ribbon-tab';
         tab.dataset.tab = name;
         panel.className = 'ribbon-panel';

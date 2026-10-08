@@ -7,6 +7,7 @@ import { encodeSurfaceInputs, decodeSurfaceInputs } from '../../src/pcb/modules/
 import { clipMeshToOutline, punchHolesInFlatMesh, polygonAreaXZ } from '../../src/pcb/modules/board3d-mesh-ops.js';
 import { pointInPolygon } from '../../src/core/geometry.js';
 import { meshToGeometry } from '../../src/shared/3d/model-rendering.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const mesh = {
     verts: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 0, y: 0, z: 10 }],
@@ -124,9 +125,7 @@ for (const attribute of ['position', 'normal', 'color']) {
     assert.equal(expected.empty[attribute].length, 0);
 }
 legacy.dispose();
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains: () => false } };
+installFakeDom();
 const { surfaceBufferGeometry } = await import('../../src/pcb/modules/board3d.js');
 const reconstructed = surfaceBufferGeometry(expected.copper);
 for (const attribute of ['position', 'normal', 'color']) {

@@ -3,9 +3,9 @@ import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { AddShapeCommand } from '../../src/schematic/modules/commands.js';
 import { Circle } from '../../src/shapes/circle.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+installFakeDom();
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { openFile } = await import('../../src/schematic/modules/files.js');
 const blank = () => ({ version: '1.0', type: 'clearpcb-project',

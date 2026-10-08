@@ -7,24 +7,9 @@
  * so the shape modules import and construct cleanly.
  */
 
-// ── Minimal DOM stub (shapes only touch the DOM when rendering) ──
-globalThis.document = {
-    createElementNS: () => {
-        const el = {
-            _text: '',
-            attrs: {},
-            children: [],
-            setAttribute(k, v) { this.attrs[k] = v; },
-            appendChild(c) { this.children.push(c); return c; },
-            classList: { add() {} },
-        };
-        Object.defineProperty(el, 'textContent', {
-            get() { return el._text; },
-            set(v) { el._text = v; el.children.length = 0; },
-        });
-        return el;
-    },
-};
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
+installFakeDom();
 
 const { Polyline } = await import('../../src/shapes/polyline.js');
 const { Arc } = await import('../../src/shapes/arc.js');

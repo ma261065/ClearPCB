@@ -8,26 +8,15 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { createPcbText } from '../../src/core/pcb-text.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 function element() {
-    const attributes = new Map();
-    return {
-        style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {} },
-        setAttribute(name, value) { attributes.set(name, String(value)); },
-        getAttribute(name) { return attributes.get(name) ?? null; },
-        removeAttribute(name) { attributes.delete(name); },
-        appendChild(child) { this.children.push(child); return child; },
-        insertBefore(child) { this.children.push(child); return child; },
-        remove() {}, querySelector: () => null, querySelectorAll: () => [],
-        addEventListener() {}, removeEventListener() {},
-    };
+    return fakeElement('g');
 }
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
+const document = installFakeDom();
 globalThis.HTMLElement = class {};
-globalThis.document = {
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    createElement: element, createElementNS: element,
-};
+document.createElement = element;
+document.createElementNS = element;
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

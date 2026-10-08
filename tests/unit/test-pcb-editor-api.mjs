@@ -1,19 +1,10 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
-const element = () => ({
-    style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-    setAttribute: noop, getAttribute: () => null, appendChild: child => child, removeChild: noop,
-    addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
-globalThis.document = {
-    body: element(), documentElement: { getAttribute: () => 'dark' },
-    createElement: element, createElementNS: element,
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener: noop, removeEventListener: noop,
-};
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+installFakeDom();
+globalThis.window.devicePixelRatio = 1;
+globalThis.localStorage.setItem = noop;
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PCB_EDITOR_SERVICES } = await import('../../src/pcb/modules/pcb-editor-api.js');

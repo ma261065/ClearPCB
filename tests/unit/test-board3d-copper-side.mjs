@@ -1,18 +1,9 @@
 import assert from 'node:assert/strict';
 import * as THREE from '../../assets/vendor/three.module.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
-globalThis.localStorage = {
-    getItem() { return null; },
-    removeItem() {},
-};
-globalThis.window = {
-    addEventListener() {},
-    dispatchEvent() {},
-};
-globalThis.document = {
-    body: { contains() { return false; } },
-};
+installFakeDom();
 
 const { appendFlatStroke, collectCopperSubtractHoles, punchHolesInFlatMesh, updateBoardCameraClipping } =
     await import('../../src/pcb/modules/board3d.js');

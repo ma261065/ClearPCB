@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import * as THREE from '../../assets/vendor/three.module.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
-globalThis.document = { body: { contains() { return false; } } };
+installFakeDom();
 const { updateBoardCameraClipping } = await import('../../src/pcb/modules/board3d.js');
 
 // Bounds and chip height reproduced from 3ddebug.cpcb; no supplier mesh is needed.

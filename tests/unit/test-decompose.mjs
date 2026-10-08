@@ -4,28 +4,9 @@
  * Run with:  node tests/unit/test-decompose.mjs
  */
 
-globalThis.document = {
-    createElementNS: () => {
-        const el = {
-            _text: '', attrs: {}, children: [],
-            setAttribute(k, v) { this.attrs[k] = v; },
-            appendChild(c) { this.children.push(c); return c; },
-            get firstChild() { return this.children[0] || null; },
-            insertBefore(child, before) {
-                const index = this.children.indexOf(before);
-                this.children.splice(index < 0 ? this.children.length : index, 0, child);
-                return child;
-            },
-            remove() { this.removed = true; },
-            classList: { add() {} },
-        };
-        Object.defineProperty(el, 'textContent', {
-            get() { return el._text; },
-            set(v) { el._text = v; el.children.length = 0; },
-        });
-        return el;
-    },
-};
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
+installFakeDom();
 
 const { Polyline } = await import('../../src/shapes/polyline.js');
 const { updateShapeAnchors, updatePolylineGraphElement } = await import('../../src/schematic/render/shape-renderer.js');
@@ -83,34 +64,34 @@ const geometryBefore = JSON.stringify(rect.toJSON());
 for (const scale of [0.5, 10]) {
     updateShapeAnchors(rect, scale, true);
     const guide = viewOf(rect).anchorsGroup.children[0];
-    ok(`guide is behind handles at scale ${scale}`, guide.attrs.class === 'shape-edit-guide');
+    ok(`guide is behind handles at scale ${scale}`, guide.getAttribute('class') === 'shape-edit-guide');
     ok('guide reaches the original rectangle corners',
-        guide.attrs.d === 'M 0 0 L 100 0 L 100 60 L 0 60 L 0 0 Z');
-    ok('guide stays one screen pixel wide', guide.attrs['stroke-width'] === '1'
-        && guide.attrs['vector-effect'] === 'non-scaling-stroke');
-    ok('guide has no fill or pointer interaction', guide.attrs.fill === 'none'
-        && guide.attrs['pointer-events'] === 'none');
+        guide.getAttribute('d') === 'M 0 0 L 100 0 L 100 60 L 0 60 L 0 0 Z');
+    ok('guide stays one screen pixel wide', guide.getAttribute('stroke-width') === '1'
+        && guide.getAttribute('vector-effect') === 'non-scaling-stroke');
+    ok('guide has no fill or pointer interaction', guide.getAttribute('fill') === 'none'
+        && guide.getAttribute('pointer-events') === 'none');
 }
 ok('guides leave saved geometry unchanged', JSON.stringify(rect.toJSON()) === geometryBefore);
 const anchorsBeforeDeselect = viewOf(rect).anchorsGroup;
 updateShapeAnchors(rect, 1, false);
-ok('deselect removes the guide with its handles', viewOf(rect).anchorsGroup === null && anchorsBeforeDeselect.removed);
+ok('deselect removes the guide with its handles', viewOf(rect).anchorsGroup === null && anchorsBeforeDeselect.parentNode === null);
 updateShapeAnchors(out, 1, true);
-ok('guide retains explicit arc edges', viewOf(out).anchorsGroup.children[0].attrs.d.includes('A '));
+ok('guide retains explicit arc edges', viewOf(out).anchorsGroup.children[0].getAttribute('d').includes('A '));
 
 for (const scale of [0.5, 10]) {
     updateShapeAnchors(rect, scale, true, 'b');
-    const ring = viewOf(rect).anchorsGroup.children.find(child => child.attrs.class === 'schematic-node-selection-ring');
-    ok('refined node has a ring at its actual position', ring?.attrs.cx === '100' && ring?.attrs.cy === '0');
-    ok('node ring retains screen size across zoom', Number(ring?.attrs.r) * scale === 8
-        && ring?.attrs['vector-effect'] === 'non-scaling-stroke');
+    const ring = viewOf(rect).anchorsGroup.children.find(child => child.getAttribute('class') === 'schematic-node-selection-ring');
+    ok('refined node has a ring at its actual position', ring?.getAttribute('cx') === '100' && ring?.getAttribute('cy') === '0');
+    ok('node ring retains screen size across zoom', Number(ring?.getAttribute('r')) * scale === 8
+        && ring?.getAttribute('vector-effect') === 'non-scaling-stroke');
     ok('node refinement hides the full editing guide',
-        !viewOf(rect).anchorsGroup.children.some(child => child.attrs.class === 'shape-edit-guide'));
+        !viewOf(rect).anchorsGroup.children.some(child => child.getAttribute('class') === 'shape-edit-guide'));
 }
 updateShapeAnchors(rect, 1, true);
 ok('whole-shape selection restores guide and clears node ring',
-    viewOf(rect).anchorsGroup.children[0].attrs.class === 'shape-edit-guide'
-    && !viewOf(rect).anchorsGroup.children.some(child => child.attrs.class === 'schematic-node-selection-ring'));
+    viewOf(rect).anchorsGroup.children[0].getAttribute('class') === 'shape-edit-guide'
+    && !viewOf(rect).anchorsGroup.children.some(child => child.getAttribute('class') === 'schematic-node-selection-ring'));
 
 const mixedWidth = new Polyline({
     closed: true, fill: true, lineWidth: 0.2,
@@ -125,28 +106,28 @@ const renderMixed = () => {
     return element.children;
 };
 const beforeWidth = mixedWidth.captureState();
-const fillBefore = renderMixed()[0].attrs.d;
+const fillBefore = renderMixed()[0].getAttribute('d');
 mixedWidth.setEdgeAttr('e0', 'width', 0.8);
 const mixedChildren = renderMixed();
-ok('segment width does not change rounded fill geometry', mixedChildren[0].attrs.d === fillBefore);
+ok('segment width does not change rounded fill geometry', mixedChildren[0].getAttribute('d') === fillBefore);
 ok('mixed-width rounded polygon has separate corner and edge strokes', mixedChildren.length === 6);
 ok('separate corner and edge strokes have round caps at shared nodes',
-    mixedChildren.slice(1).every(child => child.attrs['stroke-linecap'] === 'round'));
-ok('only the selected segment uses the new width', mixedChildren[2].attrs['stroke-width'] === '0.8'
-    && mixedChildren[1].attrs['stroke-width'] === '0.2'
-    && mixedChildren.slice(3).every(child => child.attrs['stroke-width'] === '0.2'));
+    mixedChildren.slice(1).every(child => child.getAttribute('stroke-linecap') === 'round'));
+ok('only the selected segment uses the new width', mixedChildren[2].getAttribute('stroke-width') === '0.8'
+    && mixedChildren[1].getAttribute('stroke-width') === '0.2'
+    && mixedChildren.slice(3).every(child => child.getAttribute('stroke-width') === '0.2'));
 ok('rounded corner retains the PCB shape-wide width',
-    mixedChildren[1].attrs.d === 'M 8 0 Q 10 0 10 2');
+    mixedChildren[1].getAttribute('d') === 'M 8 0 Q 10 0 10 2');
 ok('incoming and outgoing edges stop at the corner tangencies',
-    mixedChildren[2].attrs.d === 'M 0 0 L 8 0'
-    && mixedChildren[3].attrs.d === 'M 10 2 L 10 10');
+    mixedChildren[2].getAttribute('d') === 'M 0 0 L 8 0'
+    && mixedChildren[3].getAttribute('d') === 'M 10 2 L 10 10');
 ok('single-node rounding survives segment width edits', mixedWidth.nodeCornerRadius('b') === 2
     && mixedWidth.nodeCornerRadius('a') === 0 && mixedWidth.nodeCornerRadius('c') === 0);
 ok('selected straight portion still stops at the rounded corner', mixedWidth.getStraightEdgePortion('e0').second.x === 8);
 mixedWidth.applyState(beforeWidth);
 const restored = renderMixed();
 ok('undo snapshot restores uniform width without losing the corner', restored.length === 2
-    && restored[0].attrs.d === fillBefore && restored[1].attrs['stroke-width'] === '0.2');
+    && restored[0].getAttribute('d') === fillBefore && restored[1].getAttribute('stroke-width') === '0.2');
 
 const openRoundedLine = new Polyline({
     points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
@@ -155,7 +136,7 @@ const openRoundedLine = new Polyline({
 const openElement = document.createElementNS('', 'g');
 updatePolylineGraphElement(openRoundedLine, openElement, '#fff', '#fff', 100);
 ok('uniform-width open rounded line has round endpoint caps', openElement.children.length === 1
-    && openElement.children[0].attrs['stroke-linecap'] === 'round');
+    && openElement.children[0].getAttribute('stroke-linecap') === 'round');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

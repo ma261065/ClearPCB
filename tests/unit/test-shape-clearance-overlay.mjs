@@ -14,41 +14,32 @@ import {
 } from '../../src/pcb/modules/clearance-overlay.js';
 import { isShapeClearancePending, pictureRefreshState } from '../../src/pcb/modules/picture-refresh.js';
 import { notifyOverlayVisibilityChanged } from '../../src/pcb/modules/layers.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-const element = () => ({
-    children: [], attributes: new Map(), dataset: {}, style: {},
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    removeAttribute(name) { this.attributes.delete(name); },
-    appendChild(child) {
-        child.parentNode?.removeChild(child);
-        this.children.push(child);
-        child.parentNode = this;
-    },
-    removeChild(child) {
-        assert.ok(this.children.includes(child));
+const document = installFakeDom();
+const element = (tag = 'g') => {
+    const node = fakeElement(tag);
+    node.attributes = new Map();
+    const setAttribute = node.setAttribute.bind(node);
+    const getAttribute = node.getAttribute.bind(node);
+    const removeAttribute = node.removeAttribute.bind(node);
+    const removeChild = node.removeChild.bind(node);
+    node.setAttribute = (name, value) => { node.attributes.set(name, String(value)); setAttribute(name, value); };
+    node.getAttribute = name => node.attributes.get(name) ?? getAttribute(name);
+    node.removeAttribute = name => { node.attributes.delete(name); removeAttribute(name); };
+    node.removeChild = child => {
+        assert.ok(node.children.includes(child));
         child.removals = (child.removals || 0) + 1;
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-    },
-    insertBefore(child, reference) {
-        child.parentNode?.removeChild(child);
-        const index = this.children.indexOf(reference);
-        if (index < 0) this.children.push(child);
-        else this.children.splice(index, 0, child);
-        child.parentNode = this;
-    },
-    remove() { this.parentNode?.removeChild(this); },
-    get firstChild() { return this.children[0]; },
-    querySelectorAll() { return []; },
-});
-globalThis.document = { createElementNS: element, getElementById() { return null; }, createElement: element,
-    body: element(), documentElement: { getAttribute: () => 'dark' }, querySelector: () => null,
-    querySelectorAll: () => [], addEventListener() {} };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+        return removeChild(child);
+    };
+    return node;
+};
+document.createElementNS = (_namespace, tag) => element(tag);
+document.createElement = tag => element(tag);
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 globalThis.cancelAnimationFrame = () => {};
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../../src/shared/pcb/board-shape-geometry.js');

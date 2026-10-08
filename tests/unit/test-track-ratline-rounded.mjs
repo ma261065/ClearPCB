@@ -1,12 +1,16 @@
 /** Ratlines end on a rounded Track's drawn copper, not on the off-copper corner node. */
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({
-    attributes: {}, dataset: {},
-    setAttribute(name, value) { this.attributes[name] = value; },
-    remove() { this.parent.children.splice(this.parent.children.indexOf(this), 1); },
-}) };
+const document = installFakeDom();
+document.createElementNS = () => {
+    const element = fakeElement('line');
+    element.attributes = {};
+    element.setAttribute = (name, value) => { element.attributes[name] = String(value); };
+    element.getAttribute = name => element.attributes[name] ?? null;
+    element.removeAttribute = name => { delete element.attributes[name]; };
+    return element;
+};
 const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { resolveTrackSegments } = await import('../../src/shapes/track-geometry.js');

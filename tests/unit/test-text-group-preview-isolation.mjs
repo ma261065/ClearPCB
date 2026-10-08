@@ -18,30 +18,18 @@ import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    appendChild(child) { child.parentNode?.removeChild(child); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    querySelectorAll(selector) {
-        const matches = child => selector.startsWith('.')
-            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []),
-            ...(child.querySelectorAll?.(selector) || []),
-        ]);
-    }
+function element() {
+    return fakeElement('g');
 }
 const frames = new Map();
 let nextFrame = 0;
-globalThis.window = { addEventListener() {},
-    requestAnimationFrame(callback) { frames.set(++nextFrame, callback); return nextFrame; },
-    cancelAnimationFrame(id) { frames.delete(id); } };
-globalThis.document = { createElementNS: () => new Element(), getElementById: () => null,
-    documentElement: new Element() };
+installFakeDom();
+globalThis.window.requestAnimationFrame = callback => { frames.set(++nextFrame, callback); return nextFrame; };
+globalThis.window.cancelAnimationFrame = id => { frames.delete(id); };
+globalThis.requestAnimationFrame = globalThis.window.requestAnimationFrame;
+globalThis.cancelAnimationFrame = globalThis.window.cancelAnimationFrame;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(mixed) {
@@ -61,7 +49,7 @@ function fixture(mixed) {
             x: 10 * index + Math.PI, y: 3 * index - Math.E, rotation: 37.123456789,
             size: 1.23456789, strokeWidth: 0.123456789 }));
     for (const text of texts) project.pcbDocument.texts.set(text.id, text);
-    const groups = new Map(['top-silk', 'bottom-copper', 'bottom-document', 'top-copper'].map(id => [id, new Element()]));
+    const groups = new Map(['top-silk', 'bottom-copper', 'bottom-document', 'top-copper'].map(id => [id, element()]));
     let renders = 0;
     for (const group of groups.values()) {
         const append = group.appendChild;

@@ -3,11 +3,11 @@ import { getBoardShapeSegmentFocus, setBoardShapeSegmentFocus } from '../../src/
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; }, querySelector() { return null; },
-    createElementNS() { return { setAttribute() {}, getAttribute() { return null; }, appendChild() {}, remove() {} }; } };
+installFakeDom();
 globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
 
 const {
     finishSelectionInteraction,

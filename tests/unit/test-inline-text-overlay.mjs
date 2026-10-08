@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import {
     applyTextConnectionGuide,
     createInlineTextOverlay,
@@ -30,11 +31,8 @@ function element(tagName) {
     };
 }
 
-globalThis.document = {
-    createElementNS(namespace, tagName) {
-        return element(tagName);
-    },
-};
+const document = installFakeDom();
+document.createElementNS = (_namespace, tagName) => element(tagName);
 
 const container = element('g');
 const overlay = createInlineTextOverlay(group => container.appendChild(group));

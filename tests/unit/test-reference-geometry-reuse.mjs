@@ -1,19 +1,13 @@
 import assert from 'node:assert/strict';
 import { applyRefGeometry } from '../../src/shared/pcb/footprint.js';
 import { layoutReferenceText } from '../../src/shared/pcb/reference-text.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    attributes = new Map();
-    children = [];
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { this.children.push(child); }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); }
-    get firstChild() { return this.children[0] || null; }
-}
 let created = 0;
-globalThis.document = { createElementNS: () => { created++; return new Element(); } };
-const group = new Element();
+const document = installFakeDom();
+const createElementNS = document.createElementNS;
+document.createElementNS = (...args) => { created++; return createElementNS(...args); };
+const group = fakeElement('g');
 const initial = ['R12', 3, -2.8, 1.2, 0.15];
 applyRefGeometry(group, ...initial);
 const originalGlyphs = [...group.children];
@@ -45,7 +39,7 @@ for (const [field, value] of [[0, 'R13'], [1, 4], [2, -3.8], [3, 1.200000001], [
     assert.equal(applyRefGeometry(group, ...initial), true, 'Returning to previous inputs rebuilds the current group');
     verify(initial);
 }
-const freshGroup = new Element();
+const freshGroup = fakeElement('g');
 assert.equal(applyRefGeometry(freshGroup, ...initial), true, 'A replacement SVG group must build its own glyphs');
 assert.ok(freshGroup.children.length > 0);
 assert.ok(freshGroup.children.every(child => !group.children.includes(child)));

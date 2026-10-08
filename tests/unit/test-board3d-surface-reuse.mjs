@@ -4,6 +4,7 @@ import { createSurfaceBuilder } from '../../src/pcb/modules/board3d-surface-clie
 import { buildSurfaceBuffers } from '../../src/pcb/modules/board3d-surface-build.js';
 import { surfaceInputsEqual } from '../../src/pcb/modules/board3d-surface-equality.js';
 import { decodeSurfaceInputs } from '../../src/pcb/modules/board3d-surface-transfer.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const surface = () => ({
     outline: [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 10 }, { x: 0, z: 10 }],
@@ -139,9 +140,7 @@ ownedBuilder.dispose();
 const source = readFileSync(new URL('../../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
 assert.ok(source.includes('surfaceBuilder.build(surfaces, { takeOwnership: true })'),
     'The viewer hands its freshly generated geometry to the builder');
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains: () => false } };
+installFakeDom();
 const { createSurfacePublisher } = await import('../../src/pcb/modules/board3d.js');
 assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: BOARD_SURFACE_ORDER \}\);/,
     'The viewer publishes finished buffers through the shared surface publisher');

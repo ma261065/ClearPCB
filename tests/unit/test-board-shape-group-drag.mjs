@@ -3,8 +3,9 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+installFakeDom();
 const timers = new Map();
 let timerId = 0;
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
@@ -16,18 +17,6 @@ const flushTimers = () => {
     timers.clear();
     for (const callback of pending) callback();
 };
-globalThis.document = {
-    getElementById() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return {
-            appendChild() {},
-            getAttribute(name) { return attributes.get(name) || null; },
-            setAttribute(name, value) { attributes.set(name, String(value)); },
-        };
-    },
-};
-
 const {
     applyShapeGeometry,
     cloneShapeGeometry,

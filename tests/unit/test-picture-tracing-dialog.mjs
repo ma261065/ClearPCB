@@ -1,21 +1,19 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { installVTracerEnvironment } from './helpers/vtracer-environment.mjs';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const vtraceEnvironment = installVTracerEnvironment({ failures: 1 });
 
-function element() {
-    const listeners = new Map();
-    return { style: {}, value: '', checked: false, textContent: '', hidden: false,
-        get valueAsNumber() { return Number(this.value); },
-        addEventListener(name, listener) {
-            if (!listeners.has(name)) listeners.set(name, []);
-            listeners.get(name).push(listener);
-        },
-        async emit(name, event = {}) { for (const listener of listeners.get(name) || []) await listener(event); },
-        setAttribute() {}, getAttribute() { return ''; }, appendChild() {}, remove() {}, focus() {},
-        getBoundingClientRect() { return { left: 0, top: 0, width: 600, height: 600 }; },
+const document = installFakeDom();
+function element(tagName = 'div') {
+    const el = fakeElement(tagName);
+    Object.assign(el, { value: '', checked: false, hidden: false });
+    el.emit = async (name, event = {}) => {
+        for (const listener of el.listeners.get(name) || []) await listener(event);
     };
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 600, height: 600 });
+    return el;
 }
 let empty = false;
 const fills = [];
@@ -35,7 +33,7 @@ function canvas() {
             return { width, height, data };
         },
     };
-    return { ...element(), width: 64, height: 64, getContext() { return context; } };
+    return Object.assign(element('canvas'), { width: 64, height: 64, getContext() { return context; } });
 }
 const fields = new Map(Object.entries({ layer: 'top-silk', width: '30', resolution: '64', net: '',
     conversion: 'pixels', traceResolution: 'source', threshold: '128', thresholdValue: '', simplify: '1', simplifyValue: '',
@@ -71,26 +69,24 @@ const dialog = Object.assign(element(), { closed: false,
     showModal() {}, close() { this.closed = true; },
 });
 const resizeListeners = new Set();
-globalThis.window = { devicePixelRatio: 2,
+Object.assign(globalThis.window, { devicePixelRatio: 2,
     addEventListener(name, listener) { if (name === 'resize') resizeListeners.add(listener); },
-    removeEventListener(name, listener) { if (name === 'resize') resizeListeners.delete(listener); } };
+    removeEventListener(name, listener) { if (name === 'resize') resizeListeners.delete(listener); } });
 const createdCanvases = [];
-globalThis.document = { body: element(), documentElement: { clientWidth: 1000, clientHeight: 800 },
-    getElementById() { return null; },
-    createElement(tag) {
-        if (tag === 'dialog') return dialog;
-        if (tag === 'canvas') {
-            const preview = canvas();
-            preview.popoverOpen = false;
-            preview.showPopover = () => { preview.popoverOpen = true; };
-            preview.hidePopover = () => { preview.popoverOpen = false; };
-            createdCanvases.push(preview);
-            return preview;
-        }
-        return element();
-    },
-    createElementNS() { return element(); },
+Object.assign(document.documentElement, { clientWidth: 1000, clientHeight: 800 });
+document.createElement = tag => {
+    if (tag === 'dialog') return dialog;
+    if (tag === 'canvas') {
+        const preview = canvas();
+        preview.popoverOpen = false;
+        preview.showPopover = () => { preview.popoverOpen = true; };
+        preview.hidePopover = () => { preview.popoverOpen = false; };
+        createdCanvases.push(preview);
+        return preview;
+    }
+    return element(tag);
 };
+document.createElementNS = () => element();
 globalThis.createImageBitmap = async () => ({ width: 1302, height: 527, close() {} });
 const { showPictureImport } = await import('../../src/pcb/modules/picture-import.js');
 const { PcbDocument } = await import('../../src/core/PcbDocument.js');

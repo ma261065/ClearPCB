@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { Circle } from '../../src/shapes/circle.js';
 import { Arc } from '../../src/shapes/arc.js';
 import { Polyline } from '../../src/shapes/polyline.js';
@@ -100,7 +101,7 @@ class Element {
             width: text.textContent.length * 1.7, height: 2 };
     }
 }
-globalThis.document = { createElementNS: () => new Element() };
+installFakeDom().createElementNS = () => new Element();
 const text = new Text({ x: 1, y: 4, text: 'Text' });
 const estimate = text.getBounds();
 renderShape(text, 10);

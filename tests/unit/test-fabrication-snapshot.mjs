@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { getComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { inflateRawSync } from 'node:zlib';
@@ -8,7 +9,7 @@ import { Track } from '../../src/shapes/track.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../../src/core/pcb-text.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
-globalThis.window = { addEventListener() {}, document: { createElement() {}, body: {} } };
+const document = installFakeDom();
 const { exportGerbers, buildZip } = await import('../../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { setDragOverlaysDeferred, setFillRefreshScheduled, setFillRefreshSuspended } = await import('../../src/pcb/modules/refresh-state.js');
@@ -247,7 +248,7 @@ const progressHost = {
         set value(next) { this.current = next; recordProgress(); }, removeAttribute() { this.current = null; recordProgress(); } },
     querySelector(selector) { return selector === 'progress' ? this.bar : this.label; },
 };
-globalThis.document = { getElementById: id => id === 'pcbGerberProgress' ? progressHost : null };
+document.getElementById = id => id === 'pcbGerberProgress' ? progressHost : null;
 const recordProgress = () => progressLabels.push(progressHost.hidden ? null : [progressHost.label.textContent, progressHost.bar.value]);
 const workerSnapshots = [];
 globalThis.Worker = class {

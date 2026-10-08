@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Via } from '../../src/shapes/via.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { MoveViaCommand, ModifyViaCommand } from '../../src/core/pcb-via-commands.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -60,8 +61,7 @@ const { startViaDrag, cancelViaDrag } = await import('../../src/pcb/modules/trac
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const viaLayer = PCB_LAYERS.find(layer => layer.id === 'vias');
 const layerState = { visible: viaLayer.visible, locked: viaLayer.locked };
-globalThis.document = { getElementById: () => null,
-    createElementNS: () => ({ style: {}, setAttribute() {}, remove() {} }) };
+installFakeDom();
 try {
     viaLayer.visible = true;
     viaLayer.locked = false;
@@ -115,5 +115,6 @@ try {
 } finally {
     Object.assign(viaLayer, layerState);
     delete globalThis.document;
+    delete globalThis.window;
 }
 console.log('PASS physical via queries, frozen/plain data, history and consistent six-pixel interaction thresholds');

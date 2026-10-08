@@ -1,20 +1,13 @@
 /** PCB select-tool press: phase priority chain, and component presses through the shared drag start. */
 import assert from 'node:assert/strict';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { getComponentDrag } from '../../src/pcb/modules/component-selection.js';
 
 const noop = () => {};
-const element = () => ({
-    style: {}, dataset: {}, children: [], classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-    setAttribute: noop, getAttribute: () => null, removeAttribute: noop, appendChild: child => child,
-    insertBefore: child => child, remove: noop, addEventListener: noop, removeEventListener: noop,
-    querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
-globalThis.document = { body: element(), documentElement: { getAttribute: () => 'dark' }, createElement: element,
-    createElementNS: element, getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener: noop, removeEventListener: noop };
+installFakeDom();
+globalThis.window.devicePixelRatio = 1;
 globalThis.HTMLElement = class HTMLElement {};
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+globalThis.localStorage.setItem = noop;
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PcbDocument } = await import('../../src/core/PcbDocument.js');
@@ -42,7 +35,7 @@ for (let handledAt = 0; handledAt < PHASES.length; handledAt++) {
 // A press on a component selects it and starts the shared drag, unless the placement is locked.
 for (const locked of [false, true]) {
     const pcbDocument = new PcbDocument();
-    const svg = element();
+    const svg = fakeElement('svg');
     const placement = { x: 10, y: 20, locked, bounds: { x: -1, y: -1, width: 2, height: 2 }, padOffsets: [], pads: new Map() };
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument, viewport: { svg, scale: 10 }, _layerGroups: new Map(), _clearancesVisible: false,

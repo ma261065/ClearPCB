@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 
 class Element {
@@ -23,8 +24,9 @@ class Element {
         ]);
     }
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS() { return new Element(); }, getElementById() { return null; } };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
+document.getElementById = () => null;
 
 const { Track } = await import('../../src/shapes/track.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');

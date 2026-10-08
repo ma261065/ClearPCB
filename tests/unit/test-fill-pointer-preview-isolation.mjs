@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
@@ -46,8 +47,9 @@ class Element {
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => new Element(), getElementById() { return null; } };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
+document.getElementById = () => null;
 const frames = new Map();
 let frameId = 0;
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };

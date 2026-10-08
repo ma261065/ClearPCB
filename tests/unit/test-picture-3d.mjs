@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import Clipper from '../../assets/vendor/clipper.esm.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../../src/core/geometry.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
+installFakeDom();
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
 globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = { body: { contains() { return false; } } };
 const { imageArtworkMesh } = await import('../../src/pcb/modules/board3d.js');
 const image = pictureShape({ width: 3, height: 1, rectangles: [
     { x: 0, y: 0, width: 1, height: 1 }, { x: 2, y: 0, width: 1, height: 1 },

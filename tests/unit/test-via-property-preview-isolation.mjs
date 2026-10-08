@@ -16,90 +16,31 @@ import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { renderPropertyFields } from '../../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0, frameId = 0, inputs = new Map();
 const frames = new Map();
+const document = installFakeDom();
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.localStorage = { setItem() {} };
 function flushFrames() {
     for (const [id, callback] of [...frames]) { frames.delete(id); callback(); }
 }
-class Element {
-    constructor(tag) {
-        allocations++; this.tag = tag; this.children = []; this.attributes = new Map();
-        this.dataset = {}; this.style = {}; this.listeners = new Map();
-    }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    get className() { return this.getAttribute('class') || ''; }
-    set className(value) { this.setAttribute('class', value); }
-    get classList() {
-        return {
-            add: name => this.setAttribute('class', `${this.getAttribute('class') || ''} ${name}`.trim()),
-            contains: name => (this.getAttribute('class') || '').split(' ').includes(name),
-        };
-    }
-    addEventListener(type, callback) {
-        if (!this.listeners.has(type)) this.listeners.set(type, []);
-        this.listeners.get(type).push(callback);
-    }
-    focus() {}
-    append(...children) { for (const child of children) this.appendChild(child); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, before) {
-        child.remove();
-        const index = this.children.indexOf(before);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    get firstChild() { return this.children[0] || null; }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-    removeChild(child) {
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-        return child;
-    }
-    dispatchEvent(event) {
-        for (const callback of this.listeners.get(event.type) || []) callback(event);
-        return true;
-    }
-    emit(type, value = this.value, extra = {}) {
+function element(tag) {
+    allocations++;
+    const node = fakeElement(tag);
+    node.tag = tag;
+    node.localName = tag;
+    Object.defineProperty(node, 'isConnected', { value: true, configurable: true });
+    node.emit = function emit(type, value = this.value, extra = {}) {
         if (value !== undefined) this.value = String(value);
         return this.dispatchEvent({ type, target: this, preventDefault() {}, stopPropagation() {}, ...extra });
-    }
-    get valueAsNumber() { return this.value?.trim?.() === '' ? NaN : Number(this.value); }
-    querySelectorAll(selector) {
-        return this.children.flatMap(child => [
-            ...(selector.startsWith('.') && child.classList.contains(selector.slice(1)) ? [child] : []),
-            ...child.querySelectorAll(selector),
-        ]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-    contains(node) {
-        for (let current = node; current; current = current.parentNode) if (current === this) return true;
-        return false;
-    }
+    };
+    return node;
 }
-class Input extends Element {
-    constructor(value) { super('input'); this.value = String(value); }
-    emit(type, value = this.value, extra = {}) {
-        this.value = String(value);
-        const event = { type, target: this, preventDefault() {}, stopPropagation() {}, ...extra };
-        for (const callback of this.listeners.get(type) || []) callback(event);
-    }
-}
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag), createElement: tag => new Element(tag),
-    getElementById: id => inputs.get(id) || null,
-    querySelector: () => null, querySelectorAll: () => [],
-    addEventListener() {}, removeEventListener() {}, body: new Element('body'),
-};
+document.createElementNS = (_namespace, tag) => element(tag);
+document.createElement = tag => element(tag);
+document.getElementById = id => inputs.get(id) || null;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { ModalManager } = await import('../../src/core/ModalManager.js');
 
@@ -113,8 +54,8 @@ function fixture(count = 1, unrelatedCount = 1) {
     model.vias.push(...vias, ...unrelated);
     model.tracks.push(attached);
     inputs = new Map();
-    const items = new Element('div');
-    const groups = new Map([['vias', new Element('g')]]);
+    const items = element('div');
+    const groups = new Map([['vias', element('g')]]);
     let fills = 0, clearances = 0;
     const app = {};
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
@@ -125,7 +66,7 @@ function fixture(count = 1, unrelatedCount = 1) {
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
-        viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
+        viewport: { scale: 100, svg: element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         openPropertyPanel(panel) { this.setPropertiesTitle?.(panel.title); this.refreshPropertyPanel(panel); this.showPropertiesTab?.(); return true; },
         refreshPropertyPanel(panel) {

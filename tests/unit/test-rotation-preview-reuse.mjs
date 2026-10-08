@@ -11,16 +11,18 @@ import { getTextPosePreviewTexts } from '../../src/pcb/modules/text-commands.js'
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { getBoardShapeElement } from '../../src/pcb/modules/board-shapes.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const inputs = new Map();
-globalThis.document = {
-    getElementById: id => inputs.get(id) || null,
-    createElementNS: () => ({
-        dataset: {}, attributes: new Map(),
-        setAttribute(name, value) { this.attributes.set(name, value); },
-        getAttribute(name) { return this.attributes.get(name); },
-        remove() { this.parentNode?.removeChild(this); },
-    }),
+const document = installFakeDom();
+document.getElementById = id => inputs.get(id) || null;
+document.createElementNS = (_namespace, tag) => {
+    const node = fakeElement(tag);
+    node.attributes = new Map();
+    const setAttribute = node.setAttribute.bind(node);
+    node.setAttribute = (name, value) => { node.attributes.set(name, String(value)); setAttribute(name, value); };
+    node.getAttribute = name => node.attributes.get(name) ?? null;
+    return node;
 };
 for (const kind of ['text', 'pad']) {
     const originalRotation = 12.3456789;

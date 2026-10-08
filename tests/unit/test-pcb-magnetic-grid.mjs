@@ -16,19 +16,10 @@ import { snapPadPlacement } from '../../src/pcb/modules/pad-tool.js';
 import { updateCursorCrosshair } from '../../src/pcb/modules/cursor-state.js';
 import { beginPcbPaste, cancelPcbPaste, updatePcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    documentElement: { getAttribute: () => 'dark' },
-    createElementNS: () => ({
-        attributes: new Map(), children: [], dataset: {}, style: {},
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; },
-        appendChild(child) { this.children.push(child); child.parentNode = this; },
-        remove() { this.parentNode?.removeChild?.(this); },
-    }),
-    getElementById: () => null,
-};
+const document = installFakeDom();
+document.createElementNS = () => fakeElement('g');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(viewport) {

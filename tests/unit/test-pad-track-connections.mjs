@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; } };
+installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

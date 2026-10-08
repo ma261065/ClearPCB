@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { Track } from '../../src/shapes/track.js';
 import { PCB_LAYERS } from '../../src/pcb/modules/layers.js';
 import { armBoxSelect, maybeStartBoxSelect, finishBoxSelect, refreshBoxSelectionHighlights } from '../../src/pcb/modules/box-select.js';
@@ -29,8 +30,9 @@ class Element {
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => new Element(), getElementById: () => null };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
+document.getElementById = () => null;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const frames = new Map();
 let nextFrame = 0;

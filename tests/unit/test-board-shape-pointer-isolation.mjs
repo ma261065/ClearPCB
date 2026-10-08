@@ -13,29 +13,14 @@ import { PCB_LAYERS, notifyLayerLockChanged } from '../../src/pcb/modules/layers
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { setBoardShapeNodeFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
 class Element {
-    constructor() { allocations++; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    removeAttribute(key) { this.attributes.delete(key); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, sibling) {
-        if (!sibling) return this.appendChild(child);
-        child.remove(); this.children.splice(this.children.indexOf(sibling), 0, child); child.parentNode = this;
-    }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    remove() { this.parentNode?.removeChild(this); }
-    querySelectorAll() { return []; }
-    querySelector() { return null; }
+    constructor(tag = 'g') { allocations++; return fakeElement(tag); }
 }
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = {
-    createElementNS: () => new Element(), getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [],
-};
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
+document.createElementNS = () => new Element();
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

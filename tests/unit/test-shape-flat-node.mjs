@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; }, querySelector() { return null; },
-    createElementNS() {
-        return { style: {}, setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, appendChild() {}, remove() {}, querySelectorAll() { return []; } };
-    },
-};
+installFakeDom();
 const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     serializeBoardShapes, loadBoardShapes, applyShapeSnapshot,

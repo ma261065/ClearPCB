@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import ClipperLib from '../../assets/vendor/clipper.esm.js';
 import { punchHolesInFlatMesh } from '../../src/pcb/modules/board3d-mesh-ops.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {};
+installFakeDom();
 const { boardShapeFilledRemovalOutlines } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const shape = {
     kind: 'polygon', layer: 'hole', filled: true, lineWidth: 1.85,

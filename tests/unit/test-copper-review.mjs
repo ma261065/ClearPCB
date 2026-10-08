@@ -9,9 +9,9 @@ import { Component } from '../../src/components/Component.js';
 import { Via } from '../../src/shapes/via.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
+installFakeDom();
 const { buildFillContext } = await import('../../src/pcb/modules/fill-context.js');
 const { computeFillPolygons, computeFillPolygonsInOrder, loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');

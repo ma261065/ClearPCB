@@ -2,18 +2,10 @@ import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { distanceToSegment, pointInPolygon } from '../../src/core/geometry.js';
 import { pictureShape, pictureContours } from '../../src/shared/pcb/picture-raster.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element() {
-    return {
-        attributes: {}, children: [], dataset: {},
-        classList: { contains: () => false },
-        setAttribute(key, value) { this.attributes[key] = String(value); },
-        appendChild(child) { this.children.push(child); child.parent = this; },
-        remove() { this.parent.children.splice(this.parent.children.indexOf(this), 1); },
-    };
-}
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 const { collectCopper, runDRC } = await import('../../src/pcb/modules/drc.js');
 const { reconcileRatsnest, nearestPointOnNet, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
 const { resolveTrackContactGeometry } = await import('../../src/pcb/modules/track-contact-geometry.js');
@@ -40,8 +32,9 @@ const board = shape => ({
 });
 const ratlines = app => {
     reconcileRatsnest(app);
-    return app.ratLayer.children.map(({ attributes: a, dataset }) => ({
-        x1: +a.x1, y1: +a.y1, x2: +a.x2, y2: +a.y2, net: dataset.net,
+    return app.ratLayer.children.map(line => ({
+        x1: +line.getAttribute('x1'), y1: +line.getAttribute('y1'),
+        x2: +line.getAttribute('x2'), y2: +line.getAttribute('y2'), net: line.dataset.net,
     }));
 };
 const artwork = [

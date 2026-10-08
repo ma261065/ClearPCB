@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
-globalThis.window = { addEventListener: noop, removeEventListener: noop };
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
-globalThis.document = { getElementById: () => null, createElementNS: () => ({ setAttribute: noop, remove: noop, style: {} }) };
+installFakeDom();
+globalThis.window.addEventListener = noop;
+globalThis.window.removeEventListener = noop;
 
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const {

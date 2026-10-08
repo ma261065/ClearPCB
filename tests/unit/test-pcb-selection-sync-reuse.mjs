@@ -4,19 +4,12 @@
  * stay correct. Pad and fill bounds memos follow in-place edits.
  */
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 
 const noop = () => {};
-const element = () => ({
-    style: {}, dataset: {}, children: [], classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-    setAttribute: noop, getAttribute: () => null, removeAttribute: noop, appendChild: child => child,
-    insertBefore: child => child, remove: noop, addEventListener: noop, removeEventListener: noop,
-    querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.window = { addEventListener: noop, removeEventListener: noop };
-globalThis.document = { createElement: element, createElementNS: element, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [] };
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+installFakeDom();
+globalThis.localStorage.setItem = noop;
 
 await import('../../src/ui/PCBApp.js');
 const registry = await import('../../src/pcb/modules/selection-registry.js');

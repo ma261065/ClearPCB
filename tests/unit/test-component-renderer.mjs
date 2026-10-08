@@ -8,84 +8,15 @@ import {
     renderComponent,
 } from '../../src/schematic/render/component-renderer.js';
 import { componentViewOf } from '../../src/schematic/render/shape-view-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor(tagName) {
-        this.tagName = tagName;
-        this.children = [];
-        this.parentNode = null;
-        this.attributes = new Map();
-        this.style = {};
-        this.dataset = {};
-        this.classList = {
-            classes: new Set(),
-            add: name => this.classList.classes.add(name),
-            remove: name => this.classList.classes.delete(name),
-            toggle: (name, force) => {
-                const next = force === undefined ? !this.classList.classes.has(name) : !!force;
-                if (next) this.classList.classes.add(name);
-                else this.classList.classes.delete(name);
-                return next;
-            },
-            contains: name => this.classList.classes.has(name),
-        };
-        this.listeners = new Map();
-        this._text = '';
-    }
-    appendChild(child) {
-        child.parentNode?.removeChild(child);
-        child.parentNode = this;
-        this.children.push(child);
-        return child;
-    }
-    insertBefore(child, before) {
-        child.parentNode?.removeChild(child);
-        child.parentNode = this;
-        const index = before ? this.children.indexOf(before) : -1;
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        return child;
-    }
-    removeChild(child) {
-        this.children.splice(this.children.indexOf(child), 1);
-        child.parentNode = null;
-        return child;
-    }
-    remove() { this.parentNode?.removeChild(this); }
-    setAttribute(name, value) {
-        this.attributes.set(name, String(value));
-        if (name === 'class') this.classList.add(String(value));
-    }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    addEventListener(type, listener) { this.listeners.set(type, listener); }
-    dispatchEvent(event) { this.listeners.get(event.type)?.(event); return true; }
-    querySelector(selector) {
-        const wanted = selector.toLowerCase();
-        const stack = [...this.children];
-        while (stack.length) {
-            const child = stack.shift();
-            if (child.tagName === wanted) return child;
-            stack.unshift(...child.children);
-        }
-        return null;
-    }
-    get firstChild() { return this.children[0] || null; }
-    get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; }
-    set textContent(value) {
-        for (const child of [...this.children]) child.remove();
-        this._text = String(value);
-    }
-    get textContent() {
-        return this._text + this.children.map(child => child.textContent).join('');
-    }
-}
+installFakeDom();
 
 let created = 0;
-globalThis.document = {
-    createElementNS(_namespace, tagName) {
-        created++;
-        return new Element(tagName);
-    },
+const createElementNS = document.createElementNS;
+document.createElementNS = (namespace, tagName) => {
+    created++;
+    return createElementNS(namespace, tagName);
 };
 
 function component(id = 'U1') {
@@ -118,7 +49,7 @@ function tags(element) {
     assert.equal(componentViewOf(comp).element, element);
     assert.equal(componentPinElement(comp, 'pin-1')?.tagName, 'g');
 
-    const parent = new Element('svg');
+    const parent = fakeElement('svg');
     parent.appendChild(element);
     discardComponent(comp);
     assert.equal(componentViewOf(comp), undefined);
@@ -127,7 +58,7 @@ function tags(element) {
 
 {
     const comp = component('pose');
-    const parent = new Element('svg');
+    const parent = fakeElement('svg');
     const before = parent.appendChild(buildComponentSymbol(comp));
     const beforeTags = tags(before);
 

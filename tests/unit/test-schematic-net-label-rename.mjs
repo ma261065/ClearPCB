@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = { addEventListener() {}, removeEventListener() {}, getElementById: () => null };
+installFakeDom();
 const { endTextEdit } = await import('../../src/schematic/modules/text-edit.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 

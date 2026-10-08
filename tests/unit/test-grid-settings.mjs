@@ -1,17 +1,16 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown, syncGridSettings } from '../../src/shared/ui/viewport.js';
 import { Viewport } from '../../src/core/Viewport.js';
 import { snapToGridLines } from '../../src/core/grid-snap.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { defaultPcbStackup } from '../../src/core/project-format.js';
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
-globalThis.document = {
-    getElementById() { return { addEventListener() {} }; },
-    querySelectorAll() { return []; },
-    createElement(tag) { return { tag, children: [], appendChild(child) { this.children.push(child); } }; },
-};
+document.getElementById = () => ({ addEventListener() {} });
+document.querySelectorAll = () => [];
+document.createElement = tag => Object.assign(fakeElement(tag), { tag });
 
 function control() {
     const handlers = new Map();

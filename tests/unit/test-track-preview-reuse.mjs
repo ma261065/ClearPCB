@@ -1,31 +1,18 @@
 import assert from 'node:assert/strict';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
 function element(tag) {
-    return {
-        tag, attributes: new Map(), children: [], parentNode: null, dataset: {},
-        setAttribute(name, value) { this.attributes.set(name, value); },
-        getAttribute(name) { return this.attributes.get(name); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) {
-            child.remove();
-            this.children.push(child);
-            child.parentNode = this;
-            return child;
-        },
-        remove() {
-            if (this.parentNode) {
-                const siblings = this.parentNode.children;
-                siblings.splice(siblings.indexOf(this), 1);
-                this.parentNode = null;
-            }
-        },
-    };
+    const node = fakeElement(tag);
+    node.tag = tag;
+    const getAttribute = node.getAttribute;
+    node.getAttribute = name => getAttribute(name) ?? undefined;
+    return node;
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS(namespace, tag) { allocations++; return element(tag); } };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => { allocations++; return element(tag); };
 const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrackDraw, finishTrackDraw }
     = await import('../../src/pcb/modules/track-draw.js');
 const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));

@@ -184,7 +184,8 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 - **Unit and regression tests** are `tests/unit/test-*.mjs`, plain Node scripts using
   `node:assert`. They call real functions: PCB editor code runs on
   `tests/unit/pcb-editor-fixture.mjs` (real undo history and lock gate), and DOM code on
-  `installFakeDom()` from `tests/unit/helpers/fake-dom.mjs`. Run one with
+  `installFakeDom()` from `tests/unit/helpers/fake-dom.mjs` (never a hand-rolled
+  `globalThis.document`). Run one with
   `node tools/test.mjs <name>`.
 - **Browser scenarios** are `tests/browser/*.mjs`, each exporting
   `scenarios: [{ name, run(page, url) }]`, driven by Playwright in headless

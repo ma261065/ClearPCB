@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { runPcbNudgeAction } from '../../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../../src/shapes/property-preview.js';
@@ -31,11 +32,14 @@ function element() {
     };
 }
 
-globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
+const document = installFakeDom();
+globalThis.window.setTimeout = callback => { callback(); };
 globalThis.requestAnimationFrame = callback => callback();
-globalThis.document = { createElementNS: element, createElement: element, body: element(),
-    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
+document.createElementNS = element;
+document.createElement = element;
+document.getElementById = () => null;
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');

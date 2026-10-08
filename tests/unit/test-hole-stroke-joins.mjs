@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { distanceToSegment, pointInPolygon } from '../../src/core/geometry.js';
 import { boardShapeRemovalPathD, resolveBoardShapeGeometry } from '../../src/shared/pcb/board-shape-geometry.js';
 import { setHoveredBoardShape } from '../../src/pcb/modules/board-shape-state.js';
@@ -16,7 +17,9 @@ const element = (localName = 'g') => ({
         this.parentNode = null;
     },
 });
-globalThis.document = { createElementNS: (_, tag) => element(tag), getElementById: () => null };
+const document = installFakeDom();
+document.createElementNS = (_, tag) => element(tag);
+document.getElementById = () => null;
 const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const contoursOf = path => [...path.matchAll(/M\s+([^Z]+)Z/g)].map(match => {

@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 
 const frames = new Map();
 let frameId = 0;
-globalThis.window = {
-    addEventListener() {},
-    requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; },
-    cancelAnimationFrame(id) { frames.delete(id); },
-};
-globalThis.document = {};
+installFakeDom();
+window.requestAnimationFrame = globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+window.cancelAnimationFrame = globalThis.cancelAnimationFrame = id => frames.delete(id);
 const { beginGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag } = await import('../../src/pcb/modules/box-select.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { getTextPosePreviewTexts } = await import('../../src/pcb/modules/text-commands.js');

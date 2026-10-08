@@ -3,18 +3,10 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { getHoveredBoardShape } from '../../src/pcb/modules/board-shape-state.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({
-    children: [], parentNode: null, style: {}, attributes: new Map(),
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    removeAttribute(name) { this.attributes.delete(name); },
-    appendChild(child) { this.children.push(child); child.parentNode = this; },
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
-    querySelectorAll() { return []; },
-});
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element, getElementById() { return null; } };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 const { renderBoardShape, setBoardShapeHover } = await import('../../src/pcb/modules/board-shapes.js');
 const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../../src/pcb/modules/selection-registry.js');

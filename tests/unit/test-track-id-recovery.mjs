@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { repairDuplicateBoardShapeIds, repairDuplicateTrackIds, validateProject } from '../../src/core/project-format.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
+installFakeDom();
 const { Shape, resetIdCounter } = await import('../../src/shapes/shape.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { createShape } = await import('../../src/shapes/index.js');

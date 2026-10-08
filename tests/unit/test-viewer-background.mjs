@@ -5,6 +5,7 @@ import {
     createViewerBackgroundTexture,
     paintViewerBackground,
 } from '../../src/pcb/modules/viewer-background.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const stops = [];
 const fills = [];
@@ -57,8 +58,8 @@ assert.match(board3d, /wd\.documentElement\.style\.background = VIEWER_BACKGROUN
 assert.match(board3d, /html,body\{[^}]*background:\$\{VIEWER_BACKGROUND\.edge\}/,
     'The popup document keeps a solid background beneath the canvas');
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElement() { return {}; } };
+const document = installFakeDom();
+document.createElement = () => ({});
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const composites = ['source-over'];
 const holeFills = [];

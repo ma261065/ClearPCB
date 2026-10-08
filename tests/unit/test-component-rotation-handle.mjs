@@ -14,48 +14,32 @@ import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const ids = new Map(), frames = new Map();
 let frameId = 0;
 function element(tag = 'g') {
-    return {
-        tag, children: [], attributes: new Map(), style: {}, dataset: {}, listeners: new Map(),
-        classList: { toggle() {} },
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name); },
-        hasAttribute(name) { return this.attributes.has(name); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { this.children.push(child); child.parentNode = this; },
-        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
-        remove() { this.parentNode?.removeChild(this); },
-        querySelectorAll(selector) {
-            return this.children.filter(child => selector.startsWith('.')
-                ? (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)) : child.tag === selector);
-        },
-        querySelector(selector) { return selector.startsWith('#') ? ids.get(selector.slice(1)) : this.querySelectorAll(selector)[0]; },
-        addEventListener(type, listener) {
-            if (!this.listeners.has(type)) this.listeners.set(type, []);
-            this.listeners.get(type).push(listener);
-        },
-        fire(type) { for (const listener of this.listeners.get(type) || []) listener({ type }); },
-        set innerHTML(html) {
-            this.html = html;
-            this.children = [];
-            for (const match of html.matchAll(/<(input|button|select)[^>]*id="([^"]+)"([^>]*)>/g)) {
-                const child = element(match[1]);
-                child.value = match[3].match(/value="([^"]*)"/)?.[1] || '';
-                child.disabled = match[3].includes('disabled');
-                child.checked = match[3].includes('checked');
-                ids.set(match[2], child);
-                this.appendChild(child);
-            }
-        },
-        get innerHTML() { return this.html || ''; },
+    const node = fakeElement(tag);
+    Object.defineProperty(node, 'tag', { get: () => node.tagName });
+    const setAttribute = node.setAttribute;
+    node.setAttribute = (name, value) => {
+        setAttribute(name, value);
+        if (name === 'id') ids.set(String(value), node);
     };
+    const innerHtml = Object.getOwnPropertyDescriptor(node, 'innerHTML');
+    Object.defineProperty(node, 'innerHTML', {
+        get: () => innerHtml.get.call(node),
+        set(html) {
+            innerHtml.set.call(node, html);
+            for (const child of node.querySelectorAll('[id]')) ids.set(child.id, child);
+        },
+    });
+    return node;
 }
-globalThis.document = { createElement: element, createElementNS: (ns, tag) => element(tag),
-    getElementById: id => ids.get(id) || null, querySelector: () => null };
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
+document.createElement = element;
+document.createElementNS = (_namespace, tag) => element(tag);
+document.getElementById = id => ids.get(id) || null;
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -89,8 +73,9 @@ function fixture(saved = true, side = 'top', mirror = false) {
     ids.set('pcbPropertiesPanel', panel);
     let renders = 0, dirty = 0, fills = 0, views3d = 0;
     const footprintElement = element();
+    const footprintSetAttribute = footprintElement.setAttribute;
     footprintElement.setAttribute = (name, value) => {
-        footprintElement.attributes.set(name, String(value));
+        footprintSetAttribute(name, value);
         if (name === 'transform') renders++;
     };
     placement.elements = [footprintElement];
@@ -131,7 +116,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         }
         assert.equal(track.nodes.get('n1').x, 40);
         assert.equal(track.nodes.get('n1').y, 50);
-        const line = copper.children.find(child => child.tag === 'polyline');
+        const line = copper.children.find(child => child.tagName === 'polyline');
         if (line) {
             const points = line.getAttribute('points').split(' ');
             for (const id of ['n0', 'n2']) {

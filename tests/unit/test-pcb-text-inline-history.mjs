@@ -11,21 +11,10 @@ import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js'
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-const svgElement = () => ({
-    attributes: new Map(), children: [], dataset: {}, style: {},
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },
-    removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; },
-    querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.document = {
-    documentElement: { getAttribute: () => 'dark' },
-    createElementNS: svgElement,
-    getElementById: () => null,
-};
+installFakeDom();
+const svgElement = (tagName = 'g') => fakeElement(tagName);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function textClearanceSnapshot(app, text) {
@@ -62,11 +51,11 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     const renders = [], removals = [], historyChanges = [];
     let destroyed = 0, inputRemoved = 0, cleared = 0, exited = 0;
     // The text's own layer records what the real renderer draws and removes there.
-    const textLayer = {
-        ...svgElement(),
-        appendChild(child) { this.children.push(child); child.parentNode = this; renders.push({ ...app.texts.get(text.id) }); },
-        removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; removals.push(text.id); },
-    };
+    const textLayer = svgElement();
+    const appendText = textLayer.appendChild.bind(textLayer);
+    const removeText = textLayer.removeChild.bind(textLayer);
+    textLayer.appendChild = child => { const appended = appendText(child); renders.push({ ...app.texts.get(text.id) }); return appended; };
+    textLayer.removeChild = child => { const removed = removeText(child); removals.push(text.id); return removed; };
     const otherLayer = svgElement();
     const clearanceLayer = svgElement();
     const app = {

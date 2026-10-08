@@ -2,28 +2,24 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let select = null;
-globalThis.window = { addEventListener() {} };
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
-globalThis.document = {
-    getElementById: id => id === 'pcbToolShapeLayer' ? select : null,
-    querySelectorAll: () => [],
-    createElementNS() {
-        const attributes = new Map();
-        return {
-            children: [],
-            style: {}, setAttribute: (key, value) => attributes.set(key, String(value)),
-            getAttribute: key => attributes.get(key) ?? null,
-            removeAttribute: key => attributes.delete(key),
-            appendChild(child) {
-                this.children.push(child);
-                child.parentNode = this;
-                return child;
-            },
-        };
-    },
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+document.getElementById = id => id === 'pcbToolShapeLayer' ? select : null;
+document.querySelectorAll = () => [];
+document.createElementNS = (_namespace, tag) => {
+    const node = fakeElement(tag);
+    node.attributes = new Map();
+    const setAttribute = node.setAttribute.bind(node);
+    const getAttribute = node.getAttribute.bind(node);
+    const removeAttribute = node.removeAttribute.bind(node);
+    node.setAttribute = (key, value) => { node.attributes.set(key, String(value)); setAttribute(key, value); };
+    node.getAttribute = key => node.attributes.get(key) ?? getAttribute(key);
+    node.removeAttribute = key => { node.attributes.delete(key); removeAttribute(key); };
+    return node;
 };
 const { PCB_LAYERS, notifyLayerLockChanged } = await import('../../src/pcb/modules/layers.js');
 const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =

@@ -4,21 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
-const element = () => ({
-    style: {}, dataset: {}, classList: { add: noop, remove: noop, toggle: noop, contains: () => false },
-    setAttribute: noop, getAttribute: () => null, appendChild: child => child, removeChild: noop,
-    addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
-globalThis.document = {
-    body: element(), documentElement: { getAttribute: () => 'dark' },
-    createElement: element, createElementNS: element,
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener: noop, removeEventListener: noop,
-};
-globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
+installFakeDom();
+globalThis.window.devicePixelRatio = 1;
+globalThis.localStorage.setItem = noop;
 
 const { PCB_INTERACTIONS, hasPcbGesture, isPcbDrawing, blocksPcbExport } = await import('../../src/pcb/modules/pcb-interactions.js');
 const { dispatchPcbPointerMove, cancelPcbPointerGestures, releasePcbPointerGestures, createPointerMoveDispatch, createPointerGestureFinishers, PCB_RELEASE_OUTCOMES, PCB_INTERACTION_ROUTES } = await import('../../src/pcb/modules/pcb-interaction-routing.js');

@@ -5,17 +5,15 @@ import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { Circle } from '../../src/shapes/circle.js';
 import { Polyline } from '../../src/shapes/polyline.js';
 import { ModifyShapeCommand, MoveShapesCommand } from '../../src/schematic/modules/commands.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const listeners = new Map();
 const elements = new Map();
-globalThis.window = {
-    addEventListener: (name, callback) => listeners.set(name, callback),
-    removeEventListener: name => listeners.delete(name),
-};
-globalThis.document = {
-    getElementById: id => elements.get(id) || null,
-    querySelector: () => null,
-};
+const document = installFakeDom();
+globalThis.window.addEventListener = (name, callback) => listeners.set(name, callback);
+globalThis.window.removeEventListener = name => listeners.delete(name);
+document.getElementById = id => elements.get(id) || null;
+document.querySelector = () => null;
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { bindKeyboardShortcuts } = await import('../../src/schematic/modules/keyboard.js');
 const { runSchematicEscapeAction, runSchematicHistoryAction } = await import('../../src/schematic/modules/editor-actions.js');

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { getNetGuideLine, getTrackDraw, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
@@ -18,8 +19,9 @@ function element() {
         remove() { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); },
     };
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element, getElementById() { return null; } };
+const document = installFakeDom();
+document.createElementNS = element;
+document.getElementById = () => null;
 const { nearestPointOnNet, startTrackDraw, updateTrackDraw, cancelTrackDraw, toggleTrackLayer,
     reconcileRatsnest, addTrackWaypoint, finishTrackDraw } =
     await import('../../src/pcb/modules/track-draw.js');

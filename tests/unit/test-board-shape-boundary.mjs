@@ -7,6 +7,7 @@ import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -15,25 +16,16 @@ function shapeModel(...shapes) {
     return { pcbDocument, boardShapes: pcbDocument.boardShapes };
 }
 
-globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 let contextMenu = null;
-globalThis.document = {
-    getElementById(id) { return id === 'pcbBoardShapeContextMenu' ? contextMenu : null; },
-    querySelector() { return null; }, addEventListener() {}, removeEventListener() {},
-    body: { appendChild(element) { contextMenu = element; } },
-    createElement() { return this.createElementNS(); },
-    createElementNS() {
-        const attributes = new Map();
-        const listeners = new Map();
-        return { style: {}, children: [], dataset: {},
-            setAttribute(name, value) { attributes.set(name, String(value)); },
-            getAttribute(name) { return attributes.get(name); }, removeAttribute(name) { attributes.delete(name); },
-            addEventListener(name, callback) { listeners.set(name, callback); },
-            click() { listeners.get('click')?.(); },
-            appendChild(element) { this.children.push(element); },
-            remove() { if (contextMenu === this) contextMenu = null; }, querySelectorAll() { return []; } };
-    },
+const document = installFakeDom();
+const appendToBody = document.body.appendChild;
+document.getElementById = id => id === 'pcbBoardShapeContextMenu' ? contextMenu : null;
+document.body.appendChild = element => {
+    contextMenu = element;
+    const remove = element.remove;
+    element.remove = () => { if (contextMenu === element) contextMenu = null; remove.call(element); };
+    return appendToBody.call(document.body, element);
 };
 const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePathD } =
     await import('../../src/shared/pcb/board-shape-geometry.js');

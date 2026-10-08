@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
 const { runDRC } = await import('../../src/pcb/modules/drc.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { getDrcPresentation } = await import('../../src/pcb/modules/drc-state.js');
@@ -93,10 +94,8 @@ const panel = {
     querySelector: () => null,
     getBoundingClientRect: () => ({ right: 320, top: 0 }),
 };
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag),
-    getElementById: id => id === 'pcbDrcSlidePanel' ? panel : null,
-};
+document.createElementNS = (_, tag) => new Element(tag);
+document.getElementById = id => id === 'pcbDrcSlidePanel' ? panel : null;
 const ui = Object.create(PCBApp.prototype);
 const overlay = new Element('g');
 ui.getLayerGroup = () => overlay;

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { bindRibbonHeight } from '../../src/shared/ui/ribbon-height.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 function fixture() {
     const frames = [], listeners = {}, fontListeners = {};
-    globalThis.window = { addEventListener(name, fn) { listeners[name] = fn; } };
-    globalThis.document = { fonts: { addEventListener(name, fn) { fontListeners[name] = fn; } } };
+    const document = installFakeDom();
+    globalThis.window.addEventListener = (name, fn) => { listeners[name] = fn; };
+    document.fonts = { addEventListener(name, fn) { fontListeners[name] = fn; } };
     globalThis.requestAnimationFrame = fn => frames.push(fn);
     let width = 1000, reads = 0, writes = 0, failure = false;
     const panels = [50.25, 73.5, 62].map((height, index) => ({

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { getComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 
@@ -33,7 +34,8 @@ function element() {
         querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     };
 }
-globalThis.document = { createElementNS: () => element() };
+const document = installFakeDom();
+document.createElementNS = () => element();
 const { scheduleFillRefresh } = await import('../../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
 const { loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');

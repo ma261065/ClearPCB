@@ -21,40 +21,21 @@ import { getPcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
-class Element {
-    constructor(tag = 'g') { allocations++; this.tag = tag; this.localName = tag; this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    hasAttribute(key) { return this.attributes.has(key); }
-    removeAttribute(key) { this.attributes.delete(key); }
-    get classList() { return { contains: name => (this.getAttribute('class') || '').split(' ').includes(name), add() {} }; }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, sibling) {
-        if (!sibling) return this.appendChild(child);
-        child.remove(); this.children.splice(this.children.indexOf(sibling), 0, child); child.parentNode = this;
-    }
-    removeChild(child) { child.remove(); }
-    remove() { if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1); this.parentNode = null; }
-    querySelectorAll(selector) {
-        const attribute = /^\[([^=]+)="([^"]+)"\]$/.exec(selector);
-        const matches = child => selector.startsWith('.') ? child.classList.contains(selector.slice(1))
-            : selector.startsWith('#') ? child.getAttribute('id') === selector.slice(1)
-                : !!attribute && child.getAttribute(attribute[1]) === attribute[2];
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []),
-            ...child.querySelectorAll(selector),
-        ]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-    get firstChild() { return this.children[0] || null; }
-    addEventListener() {}
+function element(tag = 'g') {
+    allocations++;
+    const node = Object.assign(fakeElement(tag), { tag, localName: tag, attributes: new Map() });
+    const setAttribute = node.setAttribute;
+    const removeAttribute = node.removeAttribute;
+    node.setAttribute = (key, value) => { setAttribute(key, value); node.attributes.set(key, String(value)); };
+    node.removeAttribute = key => { removeAttribute(key); node.attributes.delete(key); };
+    return node;
 }
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], documentElement: new Element() };
-globalThis.localStorage = { setItem() {} };
+const document = installFakeDom();
+document.createElementNS = (_, tag) => element(tag);
+globalThis.localStorage.setItem = () => {};
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -89,11 +70,11 @@ function fixture(deferred = false) {
     model.boardShapes.push(rect, circle, arc, image, fill, circleFill); model.texts.set(text.id, text);
     setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
     const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'top-silk', 'hole',
-        'selection-overlay', 'clearance-overlay'].map(id => [id, new Element()]));
+        'selection-overlay', 'clearance-overlay'].map(id => [id, element()]));
     let derived = 0, crosshairs = 0;
     const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [],
         _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
-        viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
+        viewport: { scale: 10, gridVisible: false, svg: element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
         refreshFills() { if (!areDragOverlaysDeferred(this) && !isFillRefreshSuspended(this)) derived++; },
@@ -341,9 +322,9 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     const { app } = fixture();
     app._pcbClipboard = { shapes: [{ id: 'cut', kind: 'circle', layer: 'top-copper', x: 10, y: 10,
         radius: 2, lineWidth: 0.2, copperMode: 'remove-copper' }] };
-    const defs = new Element('defs');
+    const defs = element('defs');
     defs.setAttribute('data-pcb-defs', '');
-    const svg = new Element('svg');
+    const svg = element('svg');
     svg.appendChild(defs);
     app.viewport.svg = svg;
     app.pasteSelection();

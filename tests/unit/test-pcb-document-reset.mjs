@@ -1,52 +1,14 @@
 import assert from 'node:assert/strict';
 import { setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 function element(tag) {
-    const attributes = new Map();
-    const listeners = new Map();
-    return {
-        tag, children: [], parentNode: null, style: {}, dataset: {},
-        classList: { add() {}, remove() {} },
-        addEventListener(type, listener) {
-            if (!listeners.has(type)) listeners.set(type, []);
-            listeners.get(type).push(listener);
-        },
-        dispatchEvent(event) { for (const listener of listeners.get(event.type) || []) listener(event); },
-        focus() {},
-        setAttribute(name, value) { attributes.set(name, String(value)); },
-        getAttribute(name) { return attributes.get(name) ?? null; },
-        removeAttribute(name) { attributes.delete(name); },
-        appendChild(child) {
-            child.remove();
-            child.parentNode = this;
-            this.children.push(child);
-            return child;
-        },
-        removeChild(child) {
-            this.children = this.children.filter(item => item !== child);
-            child.parentNode = null;
-        },
-        remove() { this.parentNode?.removeChild(this); },
-        querySelectorAll(selector) {
-            const matches = item => selector.startsWith('.')
-                ? (item.getAttribute('class') || '').split(/\s+/).includes(selector.slice(1))
-                : item.tag === selector;
-            return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
-        },
-        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
-    };
+    return Object.assign(fakeElement(tag), { tag });
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    body: element('body'),
-    documentElement: { getAttribute() { return 'dark'; } },
-    createElementNS: (_namespace, tag) => element(tag),
-    createElement: tag => element(tag),
-    getElementById() { return null; },
-    querySelector() { return null; },
-};
-globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+const document = installFakeDom();
+document.createElementNS = (_namespace, tag) => element(tag);
+document.createElement = tag => element(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { boardDimensionsDialog, initializeBoardOutlineState, isBoardOutlineDrawn } = await import('../../src/pcb/modules/board-outline-resize.js');
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');

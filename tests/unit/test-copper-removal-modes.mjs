@@ -1,15 +1,8 @@
 import assert from 'node:assert/strict';
 import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: () => null,
-    createElementNS: () => ({
-        attributes: {}, dataset: {},
-        setAttribute(name, value) { this.attributes[name] = value; },
-        remove() { this.parent.children.splice(this.parent.children.indexOf(this), 1); },
-    }),
-};
+installFakeDom();
 const { collectCopper, runDRC } = await import('../../src/pcb/modules/drc.js');
 const { reconcileRatsnest, collectBondedCopper, resolveTrackDrawSnap, nearestPointOnNet, setTrackToolLayer } =
     await import('../../src/pcb/modules/track-draw.js');
@@ -25,7 +18,11 @@ const rectangle = (halfSize) => [
     { x: halfSize, y: halfSize }, { x: -halfSize, y: halfSize },
 ];
 function board(extra = {}) {
-    const ratlines = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
+    const ratlines = {
+        children: [],
+        appendChild(line) { line.parentNode = this; this.children.push(line); },
+        removeChild(line) { this.children.splice(this.children.indexOf(line), 1); line.parentNode = null; },
+    };
     const app = { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(),
         texts: new Map(), netlist: [], _shapeElements: new Map(), viewport: { scale: 100, gridVisible: false },
         getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };

@@ -1,14 +1,8 @@
 import assert from 'node:assert/strict';
 import { isEditorActive, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-const quietElement = () => ({ style: {}, setAttribute() {}, appendChild() {}, classList: { add() {}, remove() {} } });
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.document = {
-    activeElement: null, body: { contains: () => false }, documentElement: { getAttribute: () => 'dark' },
-    createElement: quietElement, createElementNS: quietElement,
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-};
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const document = installFakeDom();
 globalThis.MutationObserver = class { observe() {} };
 const { AppBootstrap } = await import('../../src/ui/AppBootstrap.js');
 const { ModalManager } = await import('../../src/core/ModalManager.js');
@@ -42,7 +36,7 @@ function fixture() {
         set() { assert.fail('Startup must not publish the legacy schematic alias'); },
     });
     globalThis.window = window;
-    globalThis.document = { ...globalThis.document, querySelectorAll: selector => (selector === '.mode-tab' ? tabs : []) };
+    document.querySelectorAll = selector => (selector === '.mode-tab' ? tabs : []);
     for (let entry = ModalManager.top(); entry; entry = ModalManager.top()) ModalManager.pop(entry.id);
     const services = {
         ProjectDocument: class {

@@ -9,16 +9,9 @@ import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { documentElement: { getAttribute: () => 'dark' }, createElementNS: (_namespace, tagName) => ({
-    tagName, attributes: new Map(), children: [],
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    appendChild(child) { this.children.push(child); },
-    removeChild(child) { this.children = this.children.filter(item => item !== child); },
-    get firstChild() { return this.children[0] || null; },
-}) };
+const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(saved, selected = false) {
@@ -157,7 +150,7 @@ for (const saved of [false, true]) for (const selected of [false, true]) {
     assert.equal(f.placement.refRot, 345);
 }
 
-Object.assign(globalThis.document, { getElementById: () => null, querySelector: () => null });
+Object.assign(document, { getElementById: () => null, querySelector: () => null });
 for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change', 'commit', 'field', 'move', 'rotate']) {
     const f = fixture(true), { app, placement, inputs } = f;
     const before = capturePlacementOverride(placement), valid = value === '3';

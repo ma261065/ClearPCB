@@ -16,6 +16,7 @@ import {
     LOCK_SCREEN_GAP_PX,
     lockIconMetrics,
 } from '../../src/core/ui-helpers.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 const square = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }];
 const rightEdgeLock = lockPositionOutsideOutline(square, { x: 20, y: 6 }, 20);
@@ -60,23 +61,9 @@ const sampledArcLock = lockPositionOutsideOutline(
 assert.ok(sampledArcLock.y + LOCK_BOUNDS.maxY < -6,
     'fat sampled arc uses the nearest centreline segment when painted widths overlap');
 
-globalThis.window = { addEventListener() {} };
-const domElement = () => ({
-    style: {}, children: [], attributes: new Map(), classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    setAttribute(name, value) { this.attributes.set(name, String(value)); },
-    getAttribute(name) { return this.attributes.get(name) ?? null; },
-    removeAttribute(name) { this.attributes.delete(name); },
-    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },
-    insertBefore(child) { return this.appendChild(child); },
-    remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(el => el !== this); },
-    querySelector: () => null, querySelectorAll: () => [],
-});
-globalThis.document = {
-    createElement: domElement, createElementNS: domElement, body: domElement(),
-    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-};
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const document = installFakeDom();
+document.createElement = () => fakeElement('g');
+document.createElementNS = () => fakeElement('g');
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

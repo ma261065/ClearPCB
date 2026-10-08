@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element, getElementById() { return null; } };
+const element = (tag = 'g') => fakeElement(tag);
+installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']

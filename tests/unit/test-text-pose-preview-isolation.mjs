@@ -15,25 +15,12 @@ import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handl
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    appendChild(child) { this.children.push(child); child.parentNode = this; }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
-    querySelectorAll(selector) {
-        const matches = child => selector.startsWith('.')
-            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
-        return this.children.flatMap(child => [
-            ...(matches(child) ? [child] : []),
-            ...(child.querySelectorAll?.(selector) || []),
-        ]);
-    }
+function element() {
+    return fakeElement('g');
 }
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => new Element(), getElementById: () => null,
-    documentElement: new Element() };
+installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(layer) {
@@ -43,7 +30,7 @@ function fixture(layer) {
     const unrelated = createPcbText({ id: 'other', x: 100, y: 100, layer });
     pcbDocument.texts.set(text.id, text);
     pcbDocument.texts.set(unrelated.id, unrelated);
-    const group = new Element();
+    const group = element();
     let changes = 0;
     const app = {
         pcbDocument, history: new CommandHistory({ onChanged: () => changes++ }),

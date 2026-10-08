@@ -20,59 +20,25 @@ import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { showNetGuideLine, showTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;
+const document = installFakeDom();
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.localStorage = { setItem() {} };
-class Element {
-    constructor(tag) {
-        allocations++; this.tag = tag; this.children = []; this.attributes = new Map();
-        this.dataset = {}; this.style = {};
-    }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    addEventListener() {}
-    set className(value) { this.setAttribute('class', value); }
-    get classList() {
-        return {
-            add: name => this.setAttribute('class', `${this.getAttribute('class') || ''} ${name}`.trim()),
-            contains: name => (this.getAttribute('class') || '').split(' ').includes(name),
-        };
-    }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, before) {
-        child.remove();
-        const index = this.children.indexOf(before);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    get firstChild() { return this.children[0] || null; }
-    get tagName() { return this.tag; }
-    get localName() { return this.tag; }
-    removeChild(child) { child.remove(); }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-    querySelectorAll(selector) {
-        return this.children.flatMap(child => [
-            ...(selector.split(',').some(part => {
-                const [tag, cls] = part.trim().split('.');
-                return cls && (!tag || tag === child.tag) && child.classList.contains(cls);
-            }) ? [child] : []),
-            ...child.querySelectorAll(selector),
-        ]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+function element(tag) {
+    allocations++;
+    const node = fakeElement(tag);
+    node.tag = tag;
+    node.localName = tag;
+    const baseQuerySelectorAll = node.querySelectorAll;
+    node.querySelectorAll = selector => selector.includes(',')
+        ? selector.split(',').flatMap(part => baseQuerySelectorAll.call(node, part.trim()))
+        : baseQuerySelectorAll.call(node, selector);
+    return node;
 }
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag), createElement: tag => new Element(tag),
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    addEventListener() {}, removeEventListener() {}, body: new Element('body'),
-};
+document.createElementNS = (_namespace, tag) => element(tag);
+document.createElement = tag => element(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { clearanceOverlayState } = await import('../../src/pcb/modules/clearance-overlay.js');
 
@@ -88,7 +54,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         points: [{ x: 100 + index, y: 100 }, { x: 101 + index, y: 100 }] }));
     model.tracks.push(track, ...unrelated);
     if (mode === 'bridge') model.vias.push(new Via({ x: Math.PI, y: -Math.E }));
-    const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, new Element('g')]));
+    const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, element('g')]));
     let fills = 0, clearances = 0, boardRefreshes = 0;
     const app = {};
     setDragOverlaysDeferred(app, deferred);
@@ -101,7 +67,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
-        viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
+        viewport: { scale: 100, svg: element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => ({ innerHTML: '' }), refreshPropertyPanel() {}, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
@@ -346,8 +312,8 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
 }
 
 function enableClearances({ app, groups }) {
-    groups.set('clearance-overlay', new Element('g'));
-    groups.set('vias', new Element('g'));
+    groups.set('clearance-overlay', element('g'));
+    groups.set('vias', element('g'));
     const work = { trackScans: 0, viaScans: 0, fullRedraws: 0 };
     for (const group of groups.values()) {
         const query = group.querySelectorAll.bind(group);

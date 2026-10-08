@@ -15,13 +15,10 @@ import { getTextDrag } from '../../src/pcb/modules/pcb-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: () => null, querySelector: () => null,
-    querySelectorAll: () => [],
-    createElement() { assert.fail('Locked text must not create an inline editor'); },
-};
+const document = installFakeDom();
+document.createElement = () => assert.fail('Locked text must not create an inline editor');
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 

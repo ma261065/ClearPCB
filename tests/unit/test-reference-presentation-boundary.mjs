@@ -7,30 +7,16 @@ import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '..
 import { applyRefGeometry } from '../../src/shared/pcb/footprint.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { refBox } from '../../src/pcb/modules/ref-text-geometry.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-class Element {
-    attributes = new Map();
-    children = [];
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    hasAttribute(name) { return this.attributes.has(name); }
-    removeAttribute(name) { this.attributes.delete(name); }
-    appendChild(child) { this.children.push(child); }
-    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); }
-    get firstChild() { return this.children[0] || null; }
-    querySelector(selector) {
-        return selector === '[data-fp-ref]' ? this.children.find(child => child.hasAttribute?.('data-fp-ref')) || null : null;
-    }
-    querySelectorAll() { return this.children; }
-}
-globalThis.document = { createElementNS: () => new Element(), documentElement: { getAttribute: () => 'dark' } };
-globalThis.window = { addEventListener() {} };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
-    const reference = new Element(), padNumber = new Element(), group = new Element();
+    const reference = element('g'), padNumber = element('text'), group = element('g');
     let dirty = 0, overlays = 0, boardRefreshes = 0, highlights = 0, caretUpdates = 0;
-    reference.isConnected = true;
+    Object.defineProperty(reference, 'isConnected', { value: true, configurable: true });
     const setReferenceAttribute = reference.setAttribute.bind(reference);
     reference.setAttribute = (name, value) => {
         if (name === 'stroke') highlights++;
@@ -40,11 +26,12 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     padNumber.setAttribute('data-mx-center', '2');
     group.appendChild(reference);
     group.appendChild(padNumber);
+    group.querySelectorAll = () => group.children;
     applyRefGeometry(reference, 'R12', 3, -2.8, 1.2, 0.15);
     const placement = { x: 10, y: -20, rotation: 37, side, mirror,
         refDx: 1.234567, refDy: -2.345678, refRot: 23.456789,
         refSize: 1.2, refStrokeWidth: 0.15, reference: 'R12', elements: [group],
-        _refEl: reference, lodEl: new Element(), bounds: { x: -2, y: -1, width: 4, height: 2 } };
+        _refEl: reference, lodEl: element('g'), bounds: { x: -2, y: -1, width: 4, height: 2 } };
     Object.defineProperty(placement, 'padOffsets', {
         get() { assert.fail('Reference presentation must not recalculate physical pads'); },
     });

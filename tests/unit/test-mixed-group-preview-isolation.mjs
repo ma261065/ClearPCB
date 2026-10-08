@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { Component } from '../../src/components/Component.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
@@ -67,14 +68,17 @@ class Element {
 }
 const frames = new Map();
 let frameId = 0;
-globalThis.window = { addEventListener() {}, requestAnimationFrame(fn) { frames.set(++frameId, fn); return frameId; },
-    cancelAnimationFrame(id) { frames.delete(id); } };
+const document = installFakeDom();
+globalThis.window.requestAnimationFrame = fn => { frames.set(++frameId, fn); return frameId; };
+globalThis.window.cancelAnimationFrame = id => frames.delete(id);
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 globalThis.localStorage = { setItem() {} };
-globalThis.document = { documentElement: { getAttribute: () => 'dark' }, createElementNS: (_, tag) => new Element(tag), createElement: tag => new Element(tag),
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-    removeEventListener() {}, body: new Element('body') };
+document.createElementNS = (_, tag) => new Element(tag);
+document.createElement = tag => new Element(tag);
+document.getElementById = () => null;
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(deferred = false, component = false) {

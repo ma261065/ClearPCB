@@ -1,38 +1,14 @@
 import assert from 'node:assert/strict';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { pointInPolygon } from '../../src/core/geometry.js';
 
 function node(localName = 'g') {
-    const attributes = new Map();
-    return {
-        localName, children: [], parentNode: null, dataset: {}, style: {},
-        get id() { return attributes.get('id'); },
-        setAttribute(key, value) { attributes.set(key, String(value)); },
-        getAttribute(key) { return attributes.get(key) ?? null; },
-        removeAttribute(key) { attributes.delete(key); },
-        classList: {
-            add(value) { attributes.set('class', `${attributes.get('class') || ''} ${value}`.trim()); },
-            contains(value) { return (attributes.get('class') || '').split(' ').includes(value); },
-        },
-        appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; return child; },
-        removeChild(child) { child.remove(); return child; },
-        insertBefore(child, before) {
-            child.remove();
-            this.children.splice(this.children.indexOf(before), 0, child);
-            child.parentNode = this;
-        },
-        remove() {
-            if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-            this.parentNode = null;
-        },
-    };
+    return Object.assign(fakeElement(localName), { localName });
 }
 const timers = new Map();
 let timerId = 0;
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    documentElement: node('html'), getElementById() { return null; },
-    createElementNS: (_, name) => node(name),
-};
+const document = installFakeDom();
+document.createElementNS = (_, name) => node(name);
 globalThis.MutationObserver = class { observe() {} disconnect() {} };
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);

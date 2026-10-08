@@ -5,9 +5,11 @@ import { routeAllPathfinder } from '../../src/pcb/modules/autorouter-pathfinder.
 import { tracksFromAutorouterResult } from '../../src/pcb/modules/autorouter-adapter.js';
 import { exportDSN, importDSN, importSES } from '../../src/pcb/modules/dsn.js';
 import { AutorouterPresentation } from '../../src/pcb/modules/autorouter-presentation.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 // Direct calls use the non-yielding DOM path; real workers exercise MessageChannel scheduling.
-globalThis.document = { visibilityState: 'hidden' };
+const document = installFakeDom();
+document.visibilityState = 'hidden';
 
 const input = {
     trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.4, gridStep: 0.5,
@@ -99,13 +101,16 @@ assert.deepEqual(ses.tracks, [{ net: 'N1', layer: 'top', points: [{ x: 2, y: -3 
 assert.equal(Object.hasOwn(ses, 'traces'), false);
 assert.equal(tracksFromAutorouterResult(ses, { trackWidth: 0.234 }).tracks[0].width, 0.234);
 
-globalThis.window = { addEventListener() {} };
 const nodes = [];
-globalThis.document = { createElementNS(_ns, tag) {
-    const node = { tag, dataset: {}, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; },
-        remove() { nodes.splice(nodes.indexOf(this), 1); } };
+document.createElementNS = (_ns, tag) => {
+    const node = fakeElement(tag);
+    node.attributes = {};
+    const setAttribute = node.setAttribute.bind(node);
+    node.setAttribute = (key, value) => { node.attributes[key] = String(value); setAttribute(key, value); };
+    node.getAttribute = key => node.attributes[key] ?? null;
+    node.remove = () => { nodes.splice(nodes.indexOf(node), 1); };
     return node;
-} };
+};
 const presentation = new AutorouterPresentation({
     getProgressHost: () => null,
     getRoutingParams: () => ({ trackWidth: 0.234, viaDiameter: 0.4, viaDrill: 0.2 }),

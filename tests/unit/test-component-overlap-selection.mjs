@@ -7,17 +7,16 @@ import { createRect } from '../../src/shapes/polyline.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getComponentDrag, hitTestComponent } from '../../src/pcb/modules/component-selection.js';
 import { hoverComponentCandidate, hoverOverlapHitCount, scheduleHoverUpdate, setHoverOverlapHitCount } from '../../src/pcb/modules/pcb-hover.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const frames = new Map();
 let frameId = 0;
-const schematicTip = { hidden: true, textContent: '' };
-globalThis.window = { addEventListener() {} };
+const document = installFakeDom();
+const schematicTip = fakeElement('div');
+schematicTip.id = 'schematicStatusTip';
+schematicTip.hidden = true;
+document.body.appendChild(schematicTip);
 globalThis.HTMLElement = class {};
-globalThis.document = {
-    getElementById: id => id === 'schematicStatusTip' ? schematicTip : null,
-    querySelector: () => null,
-    createElementNS: () => ({ setAttribute() {}, appendChild() {}, remove() {}, style: {} }),
-};
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
 const flushFrames = () => {

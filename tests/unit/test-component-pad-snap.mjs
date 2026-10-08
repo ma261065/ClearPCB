@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { getTrackDraw, hasTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element, getElementById() { return null; } };
+installFakeDom();
 const { findNearbyPad, resolveTrackDrawSnap, startTrackDraw, updateTrackDraw, cancelTrackDraw } =
     await import('../../src/pcb/modules/track-draw.js');
 const { startVertexDrag, updateVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
@@ -21,7 +20,7 @@ function fixture(shape = 'rect', width = 0.5, height = 0.5, rotation = 0) {
         netlist: [{ net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] }],
         tracks: [], vias: [], pads: [], boardShapes: [],
         getLayerGroup() { return null; },
-        viewport: { svg: element(), scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
+        viewport: { svg: fakeElement('svg'), scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
     };
 }
 

@@ -1,29 +1,9 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-const eventTarget = () => {
-    const listeners = new Map();
-    return {
-        value: '',
-        addEventListener(name, handler) {
-            if (!listeners.has(name)) listeners.set(name, new Set());
-            listeners.get(name).add(handler);
-        },
-        removeEventListener(name, handler) { listeners.get(name)?.delete(handler); },
-        fire(type, details = {}) { for (const handler of [...(listeners.get(type) || [])]) handler({ type, ...details }); },
-    };
-};
-globalThis.window = eventTarget();
-const element = () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
-    setAttribute() {}, getAttribute: () => null, appendChild: child => child, addEventListener() {} });
-globalThis.document = { createElementNS() {
-    const attributes = new Map();
-    return { style: {}, setAttribute(name, value) { attributes.set(name, value); },
-        getAttribute(name) { return attributes.get(name); }, appendChild() {}, remove() {} };
-}, createElement: element, body: element(), documentElement: { getAttribute: () => 'dark' },
-getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+installFakeDom();
 const { ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { cloneShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
 const { EditTextCommand, AddTextCommand, RemoveTextCommand } = await import('../../src/pcb/modules/text-commands.js');

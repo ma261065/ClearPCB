@@ -4,19 +4,11 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { Circle } from '../../src/shapes/circle.js';
 import { Track } from '../../src/shapes/track.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element() {
-    return {
-        children: [], style: {}, classList: { add() {} }, setAttribute() {},
-        appendChild(child) { this.children.push(child); child.parentNode = this; },
-        removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; },
-        remove() { this.parentNode?.removeChild(this); },
-        cloneNode() { return element(); },
-    };
-}
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => element(), getElementById: () => null, querySelector: () => null };
-globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const document = installFakeDom();
+const element = (tag = 'g') => fakeElement(tag);
+document.createElementNS = (_namespace, tag) => element(tag);
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { copySelection, beginPastePreview } = await import('../../src/schematic/modules/clipboard.js');
 const { newFile } = await import('../../src/schematic/modules/files.js');

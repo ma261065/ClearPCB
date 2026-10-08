@@ -9,21 +9,9 @@ import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { getPcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    querySelector() { return null; },
-    createElementNS() {
-        const attributes = new Map();
-        return {
-            setAttribute(name, value) { attributes.set(name, String(value)); },
-            getAttribute(name) { return attributes.get(name) ?? null; },
-            removeAttribute(name) { attributes.delete(name); },
-            appendChild() {},
-        };
-    },
-};
+installFakeDom();
 
 const { deleteBoxSelection } = await import('../../src/pcb/modules/box-select.js');
 const { setPcbSelection, getPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');

@@ -2,7 +2,7 @@
  * A small DOM for Node tests: enough of window, document and elements for editor
  * code that builds SVG/HTML, wires listeners and reads attributes, without a
  * browser. Prefer this over a per-test `globalThis.document = {...}` stub, which
- * drifts as the code grows (test-fixture-ratchet counts those).
+ * drifts as the code grows (test-fixture-ratchet fails on those).
  *
  * Install it before importing editor modules, since some read globals at load:
  *   import { installFakeDom } from './helpers/fake-dom.mjs';
@@ -89,6 +89,12 @@ function matches(element, selector) {
         if (actual === null || (value !== undefined && actual !== value)) return false;
     }
     return true;
+}
+
+function notFound(method, node) {
+    const error = new Error(`${method}: the ${node?.tagName || 'node'} is not a child of this element`);
+    error.name = 'NotFoundError';
+    return error;
 }
 
 /** A fake element: attributes, children, listeners, classes, style and simple selectors. */
@@ -187,13 +193,16 @@ export function fakeElement(tagName = 'div') {
             for (const node of nodes) element.appendChild(typeof node === 'object' ? node : Object.assign(fakeElement('#text'), { textContent: String(node) }));
         },
         insertBefore(child, before) {
+            // As in a browser, a reference node must be a child (or null to append).
+            if (before != null && !element.children.includes(before)) throw notFound('insertBefore', before);
             child.parentNode?.removeChild?.(child);
             child.parentNode = element;
-            const index = element.children.indexOf(before);
+            const index = before == null ? -1 : element.children.indexOf(before);
             element.children.splice(index < 0 ? element.children.length : index, 0, child);
             return child;
         },
         removeChild(child) {
+            if (!element.children.includes(child)) throw notFound('removeChild', child);
             element.children = element.children.filter(item => item !== child);
             child.parentNode = null;
             return child;

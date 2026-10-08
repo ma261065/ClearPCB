@@ -5,24 +5,9 @@
  * copper edge are skipped because the models sample curves at different densities.
  */
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element() {
-    const attributes = new Map();
-    return {
-        style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, contains: () => false },
-        attributes: {},
-        setAttribute(name, value) { attributes.set(name, String(value)); this.attributes[name] = value; },
-        getAttribute(name) { return attributes.get(name) ?? null; },
-        removeAttribute(name) { attributes.delete(name); },
-        appendChild(child) { child.parent = this; this.children.push(child); return child; },
-        insertBefore(child) { this.children.push(child); return child; },
-        remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); },
-        querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {},
-    };
-}
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    createElement: element, createElementNS: element };
+installFakeDom();
 
 const { createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
 const { trackFromBoardShape } = await import('../../src/shared/pcb/copper-path-tracks.js');
@@ -55,7 +40,7 @@ function trackFor(spec) {
     return trackFromBoardShape(shapeFor(spec), 'N');
 }
 function board(extra) {
-    const layer = element();
+    const layer = fakeElement('g');
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
         texts: new Map(), _shapeElements: new Map(), viewport: { scale: 10 }, getLayerGroup: () => layer, ...extra };
 }
@@ -67,8 +52,8 @@ function edgeClearance(segments, point, extra = 0) {
 }
 function ratlines(app) {
     reconcileRatsnest(app);
-    return app.getLayerGroup().children.map(line => ({ x1: +line.attributes.x1, y1: +line.attributes.y1,
-        x2: +line.attributes.x2, y2: +line.attributes.y2 }));
+    return app.getLayerGroup().children.map(line => ({ x1: +line.getAttribute('x1'), y1: +line.getAttribute('y1'),
+        x2: +line.getAttribute('x2'), y2: +line.getAttribute('y2') }));
 }
 
 const mismatches = [];

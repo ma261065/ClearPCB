@@ -3,11 +3,10 @@ import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../.
 import { applyRefGeometry } from '../../src/shared/pcb/footprint.js';
 import { PcbPlacementState } from '../../src/core/PcbPlacementState.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({ attributes: {}, children: [],
-    setAttribute(name, value) { this.attributes[name] = value; },
-    appendChild(child) { this.children.push(child); } });
-globalThis.document = { createElementNS: element, documentElement: { getAttribute: () => 'dark' } };
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
 assert.deepEqual(referenceAnchor(null), { cx: 0, baseY: -2.8 });
 assert.deepEqual(referenceAnchor({ x: 2, y: -4, width: 6 }), { cx: 5, baseY: -4.8 });
 for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
@@ -15,7 +14,7 @@ for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
     const local = layoutReferenceText('R12', cx, baseY, 1.2, 0.2);
     const group = element();
     applyRefGeometry(group, 'R12', cx, baseY, 1.2, 0.2);
-    assert.deepEqual(group.children.map(child => child.attributes.points),
+    assert.deepEqual(group.children.map(child => child.getAttribute('points')),
         local.polylines.map(poly => poly.map(point => `${point.x},${point.y}`).join(' ')));
     for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         const placement = { reference: 'R12', outline, x: 20, y: -20, side, mirror,
@@ -40,8 +39,6 @@ for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
 assert.equal(resolveReferenceText({ reference: 'R1', refVisible: false }), null);
 assert.equal(resolveReferenceText({ reference: '' }), null);
 console.log('PASS reference baseline, SVG glyphs and independent side/mirror/rotation transforms');
-
-globalThis.window = { addEventListener() {} };
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { buildTextMesh } = await import('../../src/pcb/modules/board3d.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');

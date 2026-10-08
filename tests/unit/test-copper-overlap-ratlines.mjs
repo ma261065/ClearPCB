@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({
-    attributes: {}, dataset: {},
-    setAttribute(name, value) { this.attributes[name] = value; },
-    remove() { this.parent.children.splice(this.parent.children.indexOf(this), 1); },
-}) };
+installFakeDom();
 const { reconcileRatsnest, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
 const { runDRC } = await import('../../src/pcb/modules/drc.js');
 const { Track } = await import('../../src/shapes/track.js');
@@ -24,14 +20,18 @@ const pad = (id = 'pad', x = 0) => ({
 });
 const via = () => ({ id: 'via', x: 0, y: 0, diameter: 2, drill: 0.8, net: 'Net0002' });
 function board(extra = {}) {
-    const layer = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
+    const layer = {
+        children: [],
+        appendChild(line) { line.parentNode = this; this.children.push(line); },
+        removeChild(line) { this.children.splice(this.children.indexOf(line), 1); line.parentNode = null; },
+    };
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
         placements: new Map(), netlist: [], texts: new Map(), getLayerGroup: () => layer, ...extra };
 }
 function check(app, expected, message, options) {
     reconcileRatsnest(app, options);
     const ratlines = app.getLayerGroup().children.map(line => ({
-        net: line.dataset.net, ...Object.fromEntries(['x1', 'y1', 'x2', 'y2'].map(key => [key, +line.attributes[key]])),
+        net: line.dataset.net, ...Object.fromEntries(['x1', 'y1', 'x2', 'y2'].map(key => [key, +line.getAttribute(key)])),
     }));
     assert.equal(ratlines.length, expected, message);
     assert.equal(runDRC(app, { clearance: 0.3, ratlines }).violations.filter(v => v.rule === 'unrouted').length,

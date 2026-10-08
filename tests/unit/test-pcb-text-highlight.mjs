@@ -1,36 +1,8 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function element(tag) {
-    const attributes = new Map();
-    return {
-        tag,
-        children: [],
-        parentNode: null,
-        style: {},
-        dataset: {},
-        textContent: '',
-        setAttribute(name, value) { attributes.set(name, String(value)); },
-        getAttribute(name) { return attributes.get(name) ?? null; },
-        appendChild(child) {
-            child.parentNode = this;
-            this.children.push(child);
-            return child;
-        },
-        querySelectorAll() { return []; },
-        removeChild(child) {
-            this.children = this.children.filter(item => item !== child);
-            child.parentNode = null;
-        },
-    };
-}
-
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    documentElement: { getAttribute() { return 'dark'; } },
-    createElementNS(_namespace, tag) { return element(tag); },
-    getElementById() { return null; },
-};
+installFakeDom();
 
 const [
     { default: PCBApp },
@@ -47,7 +19,7 @@ const [
 ]);
 
 const text = createPcbText({ id: 'text-a', content: 'A', layer: 'top-copper' });
-const layer = element('g');
+const layer = fakeElement('g');
 const app = Object.create(PCBApp.prototype);
 app.pcbDocument = new PcbDocument();
 app.texts = new Map([[text.id, text]]);

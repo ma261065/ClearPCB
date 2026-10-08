@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+installFakeDom();
 globalThis.HTMLElement = class {};
-globalThis.document = { getElementById() { return null; }, querySelector() { return null; } };
 const { getOverlapCyclePress, idleState, overlapCycleState, STATE_TABLE } = await import('../../src/schematic/modules/draw-states.js');
 const { runSchematicEscapeAction } = await import('../../src/schematic/modules/editor-actions.js');
 const shape = (id, hit = true) => ({ id, visible: true, selected: false,

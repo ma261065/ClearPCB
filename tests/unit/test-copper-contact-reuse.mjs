@@ -5,9 +5,9 @@ import {
 } from '../../src/pcb/modules/track-contact-geometry.js';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({ setAttribute() {}, dataset: {} }) };
+installFakeDom();
 const { reconcileRatsnest, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
 const { Track } = await import('../../src/shapes/track.js');
 

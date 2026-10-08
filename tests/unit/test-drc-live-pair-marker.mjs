@@ -8,16 +8,10 @@ import { Via } from '../../src/shapes/via.js';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { setFillRefreshError, setFillRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-const element = () => ({
-    style: {}, dataset: {}, setAttribute() {}, appendChild() {}, remove() {}, focus() {},
-    addEventListener() {}, querySelectorAll: () => [], classList: { add() {}, remove() {} },
-});
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    createElement: element, createElementNS: element, getElementById: () => null,
-    querySelector: () => null, addEventListener() {}, removeEventListener() {}, body: element(),
-};
+const element = (tag = 'g') => fakeElement(tag);
+installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 const { runDRC, resolveDrcPairMarker } = await import('../../src/pcb/modules/drc.js');

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const stored = new Map();
 globalThis.localStorage = {
@@ -6,22 +7,24 @@ globalThis.localStorage = {
     setItem(key, value) { stored.set(key, value); },
     removeItem(key) { stored.delete(key); },
 };
-globalThis.window = new EventTarget();
-globalThis.HTMLElement = class extends EventTarget {};
-const buttons = new Map(['themeToggle', 'pcbThemeToggle'].map(id => [id, new HTMLElement()]));
-const attributes = new Map();
-const element = () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
-    setAttribute() {}, getAttribute: () => null, appendChild: child => child, remove() {}, addEventListener() {} });
-globalThis.document = {
-    getElementById(id) { return buttons.get(id) || null; },
-    documentElement: {
-        setAttribute(key, value) { attributes.set(key, value); },
-        removeAttribute(key) { attributes.delete(key); },
-        getAttribute(key) { return attributes.get(key) ?? null; },
-    },
-    body: element(), createElement: element, createElementNS: element,
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+const document = installFakeDom();
+const windowListeners = new Map();
+window.addEventListener = (type, callback) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, []);
+    windowListeners.get(type).push(callback);
 };
+window.removeEventListener = (type, callback) => {
+    windowListeners.set(type, (windowListeners.get(type) || []).filter(item => item !== callback));
+};
+window.dispatchEvent = event => {
+    for (const callback of windowListeners.get(event.type) || []) callback(event);
+    return true;
+};
+const buttons = new Map(['themeToggle', 'pcbThemeToggle'].map(id => [id, fakeElement('button')]));
+for (const [id, button] of buttons) {
+    button.id = id;
+    document.body.appendChild(button);
+}
 const shared = await import('../../src/shared/ui/theme.js');
 const { bindThemeToggle, toggleTheme, loadTheme } = await import('../../src/schematic/modules/theme.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
@@ -69,7 +72,7 @@ for (const [index, run] of toggles.entries()) {
     run();
     const expected = index % 2 === 0 ? 'light' : 'dark';
     assert.equal(shared.getSavedTheme(), expected);
-    assert.equal(attributes.get('data-theme') || 'dark', expected);
+    assert.equal(document.documentElement.getAttribute('data-theme') || 'dark', expected);
     assert.equal(schematicUpdates, index + 1, 'Either toggle refreshes the schematic once');
     assert.equal(pcbUpdates, index + 1, 'Either toggle refreshes PCB once');
     assert.deepEqual(highlights, Array(index + 1).fill('part'), 'Either toggle refreshes the selected reference highlight');

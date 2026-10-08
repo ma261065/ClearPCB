@@ -9,22 +9,10 @@ import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
-function svgElement() {
-    return {
-        attributes: new Map(), children: [], style: {}, dataset: {}, parentNode: null,
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; },
-        removeAttribute(name) { this.attributes.delete(name); },
-        appendChild(child) { child.parentNode?.removeChild?.(child); child.parentNode = this; this.children.push(child); return child; },
-        removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; return child; },
-        remove() { this.parentNode?.removeChild?.(this); },
-        querySelector() { return null; },
-        querySelectorAll() { return []; },
-    };
-}
-globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => svgElement(), getElementById: () => null, querySelector: () => null };
+installFakeDom();
+const svgElement = (tag = 'g') => fakeElement(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const workers = [], intervals = new Map();
 let nextId = 0;

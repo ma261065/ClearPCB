@@ -9,15 +9,14 @@ import { getComponentDrag } from '../../src/pcb/modules/component-selection.js';
 import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 const elements = new Map();
-globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
-globalThis.document = {
-    getElementById: id => elements.get(id) || null,
-    createElement: () => ({ style: {}, classList: { add() {}, remove() {} }, remove() {} }),
-    body: { appendChild(element) { elements.get('events')?.push(element.textContent); } },
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
-};
+const document = installFakeDom();
+document.getElementById = id => elements.get(id) || null;
+document.createElement = tag => fakeElement(tag);
+document.body.appendChild = element => { elements.get('events')?.push(element.textContent); return element; };
+globalThis.window.setTimeout = callback => { callback(); };
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
