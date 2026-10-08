@@ -134,6 +134,20 @@ state keyed by the editor that any object may read (`refresh-state.js`) takes `o
 A function that needs only a few of the editor's collections names them
 (`@param {Pick<PcbEditor, 'tracks'|'vias'>} app`): hit tests, snapping lookups, lock
 and net queries do, so what each one depends on is in its signature.
+Schematic modules likewise type the editor as `SchematicEditor`
+(`schematic-editor-api.js`, the `SchematicApp` class) and a schematic object as
+`SchematicShape` (`SchematicDocument.js`: a shape or component); `app.selection` is a
+`SelectionManager<SchematicShape>`. Shared types have one owner and other files alias
+it: `Point` in `core/geometry.js`, the tool options and restore data in
+`SchematicApp.js`, the interaction state next to `STATE_TABLE` in `draw-states.js`,
+pin snaps in `wire-snap.js`, open and save results in `FileManager.js`.
+Modules call editor methods directly (`app.setPcbStatus(...)`, not
+`app.setPcbStatus?.(...)`): the editor always has them, so an optional call only hides
+a fake that lacks one, and `test-pcb-editor-api` and `test-schematic-editor-api` fail on
+it. Optional calls remain for members that may be absent, such as `refreshPcbRibbon`
+before the ribbon exists, or for a `PcbBoard` that is not the editor. Tests that build a
+plain-object editor spread `pcbEditorStubs()` or `schematicEditorStubs()` from
+`tests/unit/helpers/` and override what they observe.
 `node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
 private editor accesses against `tools/pcb-editor-access-baseline.json`, and
 `node tools/check-schematic-editor-access.mjs` checks the schematic layer

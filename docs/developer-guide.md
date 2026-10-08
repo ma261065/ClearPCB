@@ -10,6 +10,9 @@ It links to the reference pages rather than repeating them:
   area.
 - [clearpcb_file_format.md](clearpcb_file_format.md): the saved `.cpcb` format.
 
+If you are taking the code over, read [Handover: Where Things Stand](#handover-where-things-stand)
+for what is enforced, what is unfinished and the routine before pushing.
+
 ## The Mental Model
 
 ClearPCB is vanilla JavaScript ES modules with no build step: the browser loads
@@ -187,7 +190,9 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 
 - **Unit and regression tests** are `tests/unit/test-*.mjs`, plain Node scripts using
   `node:assert`. They call real functions: PCB editor code runs on
-  `tests/unit/pcb-editor-fixture.mjs` (real undo history and lock gate), and DOM code on
+  `tests/unit/pcb-editor-fixture.mjs` (real undo history and lock gate; a test that
+  needs only a plain-object editor spreads `pcbEditorStubs()` or
+  `schematicEditorStubs()` from `tests/unit/helpers/`), and DOM code on
   `installFakeDom()` from `tests/unit/helpers/fake-dom.mjs` (never a hand-rolled
   `globalThis.document`). Run one with
   `node tools/test.mjs <name>`. A test that passes but prints a `TypeError`,
@@ -228,10 +233,63 @@ node tools/browser-test.mjs
 `typecheck.mjs` also runs the strict settings, where a file may only lose errors and a
 new file must have none, so type new code fully (JSDoc on parameters, no implicit
 `any`, null cases handled). A PCB module types the editor as `PcbEditor` and plain
-board data as `PcbBoard` (`pcb-editor-api.js`); keep a function's tags in one JSDoc
+board data as `PcbBoard` (`pcb-editor-api.js`); a schematic module types it as
+`SchematicEditor` (`schematic-editor-api.js`) and its objects as `SchematicShape`; keep a function's tags in one JSDoc
 block, since the type check reads only the block nearest the declaration. `regression.mjs` covers the import rules, both private-access ratchets, the docs'
 references (a test, file or page a doc names must exist, so rename or update the
 doc with the code), every unit test and the autorouter baseline. When a ratchet reports resolved accesses, remove
 them from its baseline so the count only falls. Files use LF line endings
 (`.gitattributes`). A local pass is not the last word: after pushing, check that
 the Regression Checks workflow is green on CI, which runs the browser tests on Linux.
+
+## Handover: Where Things Stand
+
+The structure is enforced rather than documented only: the gate fails on an import
+that crosses a layer, on a module that reaches an editor's private members, on an
+optional call to an editor method (`app.method?.()`), on a doc that names a file
+that no longer exists, and on a strict type error the baseline does not list. Most of
+the source type-checks under the strict settings: `cleanFolders` in
+`tools/typecheck-strict-baseline.json` lists the folders with none, and the file lists
+the remaining errors per file. Work that is known but not done, with a way in:
+
+- **Component library.** `ComponentPicker.js` and `KiCadFetcher.js` are about 2,950
+  lines each and carry most of the remaining strict errors in `src/components` (with
+  `ComponentLibrary.js`, `STEPPreview.js` and the built-in packages and models). Split
+  them by what they do (picker search, list, preview and placement; fetcher index,
+  footprint, symbol and model download) the way `track-drag.js` and `board-shapes.js`
+  were split: one owner per piece of state, importers changed to the owner rather than
+  re-exported, the docs' owner index updated. Then type each piece and add the folder
+  to `cleanFolders`.
+- **Shared code.** `src/shared/pcb` (board and shape geometry, footprints, pictures) and
+  `src/shared/ui` (ribbon, viewport, modal, export) still have strict errors, as do
+  `AppBootstrap.js` and `mcp-session.js` in `src/ui`. These are small, independent
+  files: type one at a time, reusing the owners' types (`PcbBoard`, `BoardShape`,
+  `PropertyField`).
+- **Loose types.** `SchematicShape` (`SchematicDocument.js`) and the PCB's `BoardShape`
+  accept any field, so a misspelt shape field is not caught. Making them unions
+  discriminated by a literal `type` lets the checker narrow on `shape.type`; do it
+  one shape class at a time. A few drag and selection states are still `any`
+  (`VertexDrag` in `track-drag.js`, `SelectionShape` in `selection-registry.js`).
+- **Autorouter.** `tools/regression.mjs` routes fixture boards and compares the result
+  with a baseline, and the lifecycle and ownership have unit tests, but the
+  pathfinder, maze and common modules (about 5,900 lines) have no unit tests of their
+  own. Add tests for the pieces with clear inputs and outputs (cost functions,
+  obstacle maps, path simplification) before changing their behaviour.
+- **Browser tests under load.** Run two full browser runs at once (as below) and a
+  few schematic scenarios (corner drag and wire drawing in cancel isolation, text
+  autoreplace and text property changes) have occasionally failed once and then
+  passed on every rerun, also at `CPU_THROTTLE=6`. If one fails again, read its
+  failure screenshot (`browser-test-failure-*.png` in the repository root) and look
+  for a wait on a fixed delay or on a condition that holds before the editor has
+  finished.
+
+### Before pushing
+
+1. `node tools/typecheck.mjs` (both passes; after moving code between files, rewrite
+   the strict baseline with `--write-baseline`, check the total did not rise, and say
+   so in the commit).
+2. `node tools/regression.mjs`.
+3. `node tools/browser-test.mjs`, and for changes to timing, rendering or input,
+   two full runs at once (for example `--shard=1/4` to `--shard=4/4` twice, in
+   parallel) to load the machine the way a CI runner is loaded.
+4. Push, then check that the Regression Checks workflow is green.
