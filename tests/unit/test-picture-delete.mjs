@@ -7,7 +7,7 @@ import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
-const { renderBoardShape, setBoardShapeHover } = await import('../../src/pcb/modules/board-shapes.js');
+const { renderBoardShape, setBoardShapeHover } = await import('../../src/pcb/modules/board-shape-render.js');
 const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../../src/pcb/modules/selection-registry.js');
 const image = { ...pictureShape({ width: 2, height: 2, rectangles: [{ x: 0, y: 0, width: 2, height: 2 }] },

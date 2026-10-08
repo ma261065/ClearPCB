@@ -1,7 +1,7 @@
 import { getPropertyEditor } from './property-editors.js';
 import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance, refreshBoardShapeClearance } from './clearance-overlay.js';
-import { getBoardShapeDrag } from './board-shapes.js';
+import { getBoardShapeDrag } from './board-shape-drag.js';
 import { isRotationHandleDragActive } from './rotation-handle.js';
 import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */

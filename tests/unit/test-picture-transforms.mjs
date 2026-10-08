@@ -62,7 +62,8 @@ for (const property of ['invert', 'flipHorizontal', 'flipVertical']) {
     assert.throws(() => validatePictureArtwork({ ...raster, [property]: 'false' }), /expected a boolean/);
 }
 globalThis.window = { addEventListener() {} };
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 image.id = 'pshape_1';
 for (const invert of [false, true]) {
     for (const flipHorizontal of [false, true]) {

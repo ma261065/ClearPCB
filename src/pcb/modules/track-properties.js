@@ -15,7 +15,7 @@ import { RemoveTrackCommand, RemoveViaCommand, AddTrackCommand, AddViaCommand, C
 import { setSelectionInteraction } from './selection-interaction.js';
 import { PCB_LAYERS, isLayerLocked, isLayerVisible, pcbLayerOption } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
-import { canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './board-shapes.js';
+import { canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './track-shape-conversion.js';
 import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';

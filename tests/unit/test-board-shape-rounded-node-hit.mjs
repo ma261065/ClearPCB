@@ -7,8 +7,7 @@ const document = installFakeDom();
 document.body.appendChild = child => { menus.push(child); return child; };
 const element = (tagName) => fakeElement(tagName);
 
-const { hitTestBoardShape, selectBoardShape, showBoardShapeContextMenu, createBoardShapeSelectionAdapter } =
-    await import('../../src/pcb/modules/board-shapes.js');
+const { hitTestBoardShape, selectBoardShape, showBoardShapeContextMenu, createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
 const { boardShapeHitTest } = await import('../../src/shared/pcb/board-shape-geometry.js');
 
 const overlay = element('g');

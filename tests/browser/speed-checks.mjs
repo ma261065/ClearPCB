@@ -150,7 +150,7 @@ export const scenarios = [
                     }
                 }));
                 assert.ok(await waitForPage(page, kind => Promise.all([import('/src/pcb/modules/track-drag.js'),
-                    import('/src/pcb/modules/terminal-drag.js'), import('/src/pcb/modules/board-shapes.js')])
+                    import('/src/pcb/modules/terminal-drag.js'), import('/src/pcb/modules/board-shape-drag.js')])
                     .then(([drags, terminals, shapes]) => {
                     const app = window.bootstrap.pcbApp;
                     const drag = kind === 'via' ? terminals.getViaDrag(app) : kind === 'track' ? drags.getVertexDrag(app)

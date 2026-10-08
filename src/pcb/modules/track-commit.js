@@ -3,7 +3,7 @@ import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ModifyTrackCommand,
 import { ModifyPadCommand } from './pad-commands.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
-import { captureBoardShapeState } from './board-shapes.js';
+import { captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { Track } from '../../shapes/track.js';
 import { viaAtPoint } from './track-edits.js';
 import { NODE_MERGE_EPS } from './track-drop.js';

@@ -19,7 +19,7 @@ const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 const { PCB_TOOLS } = await import('../../src/pcb/modules/pcb-tools.js');
 const { getTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const { getFillDraw } = await import('../../src/pcb/modules/copper-fill-draw.js');
-const { getShapeDraw } = await import('../../src/pcb/modules/board-shapes.js');
+const { getShapeDraw } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { isBoxSelectArmed } = await import('../../src/pcb/modules/box-select.js');
 const { cancelPcbDrawingMode } = await import('../../src/pcb/modules/tool-lifecycle.js');
 

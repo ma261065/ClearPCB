@@ -4,7 +4,7 @@ import { getPcbSelection } from './selection-registry.js';
 import { hasPcbGesture } from './pcb-interactions.js';
 import { handleTrackDrawKey } from './track-draw.js';
 import { handleFillDrawKey } from './copper-fill-draw.js';
-import { handleShapeDrawKey } from './board-shapes.js';
+import { handleShapeDrawKey } from './board-shape-draw.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*

@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { bulgeRatio } from '../../src/core/geometry.js';
-import { getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
-    renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    deleteBoardShapeVertex, captureBoardShapeState, hasBoardShapeElement } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter, deleteBoardShapeVertex } from '../../src/pcb/modules/board-shapes.js';
+import { renderBoardShape, hasBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
+import { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
+import { captureBoardShapeState } from '../../src/core/pcb-board-shapes.js';
 import { showBoardShapeProperties } from '../../src/pcb/modules/board-shape-properties.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refresh.js';
@@ -17,7 +18,7 @@ import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js'
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 

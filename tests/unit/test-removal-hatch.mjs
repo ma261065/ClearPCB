@@ -24,7 +24,7 @@ document.createElement = tag => element(tag);
 document.createElementNS = (_ns, tag) => element(tag);
 
 const { removalHatchFill, stripRemovalHatches } = await import('../../src/pcb/modules/removal-hatch.js');
-const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 const patternsIn = defs => defs.children.filter(child => child.tagName === 'pattern');

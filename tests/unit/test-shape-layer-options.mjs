@@ -7,8 +7,7 @@ const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PcbDocument } = await import('../../src/core/PcbDocument.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { PCB_LAYERS, isViaVisible, isViaLocked, notifyLayerLockChanged } = await import('../../src/pcb/modules/layers.js');
-const { resolveShapeDrawLayer } =
-    await import('../../src/pcb/modules/board-shapes.js');
+const { resolveShapeDrawLayer } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { showBoardShapeToolProperties, showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { syncPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 

@@ -10,8 +10,8 @@ installFakeDom();
 const { AddBoardShapeCommand, MoveBoardShapeCommand, ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../../src/pcb/modules/selection-registry.js');
 const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { serializeBoardShapes, loadBoardShapes,
-    cloneShapeGeometry, translateShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes, cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes, translateShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
 const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const { collectCopperArtwork } = await import('../../src/pcb/modules/copper-artwork.js');

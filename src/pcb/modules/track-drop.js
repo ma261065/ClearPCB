@@ -11,7 +11,7 @@ import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { ModifyPadCommand } from './pad-commands.js';
-import { captureBoardShapeState } from './board-shapes.js';
+import { captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { collapseCollinearTrackNodes, showTrackViaNetConflict } from './track-edits.js';

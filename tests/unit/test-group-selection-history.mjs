@@ -8,7 +8,7 @@ import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js'
 import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getFillDraw } from '../../src/pcb/modules/copper-fill-draw.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { getTrackDraw, setTrackToolLayer } from '../../src/pcb/modules/track-draw.js';
 import { setTextToolDefaults } from '../../src/pcb/modules/text-properties.js';
 import { setFillToolDefaults } from '../../src/pcb/modules/copper-fill-draw.js';

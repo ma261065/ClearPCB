@@ -6,7 +6,7 @@ import { PCB_SHAPE_TOOLS, normalizePcbTool } from '../../src/pcb/modules/pcb-too
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { showTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { getFillDraw } from '../../src/pcb/modules/copper-fill-draw.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getDrcPresentation } from '../../src/pcb/modules/drc-state.js';

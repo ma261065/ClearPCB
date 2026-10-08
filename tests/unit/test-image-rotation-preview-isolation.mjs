@@ -4,9 +4,10 @@ import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { boardShapeBounds, boardShapeHitTest, boardShapeRemovalPathD } from '../../src/shared/pcb/board-shape-geometry.js';
-import { createBoardShapeSelectionAdapter, getBoardShapeRotationPreview, renderBoardShape,
-    selectBoardShape, setBoardShapeHover, captureBoardShapeState, endBoardShapeDrag,
-    boardShapeElementCount, getBoardShapeElement, hasBoardShapeElement } from '../../src/pcb/modules/board-shapes.js';
+import { createBoardShapeSelectionAdapter, getBoardShapeRotationPreview, selectBoardShape } from '../../src/pcb/modules/board-shapes.js';
+import { renderBoardShape, setBoardShapeHover, boardShapeElementCount, getBoardShapeElement, hasBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
+import { captureBoardShapeState } from '../../src/core/pcb-board-shapes.js';
+import { endBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { RemoveBoardShapeCommand } from '../../src/pcb/modules/shape-commands.js';
 import { rotatedImagePoints } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../../src/pcb/modules/selection-registry.js';

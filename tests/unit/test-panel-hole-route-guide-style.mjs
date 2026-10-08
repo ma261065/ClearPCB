@@ -13,7 +13,7 @@ globalThis.MutationObserver = class { observe() {} disconnect() {} };
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);
 const { renderPanelPreview, resetPanelPreview } = await import('../../src/pcb/modules/panelization-ui.js');
-const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
 const { rectangleBoardOutline } = await import('../../src/shared/pcb/board-outline.js');
 const { startTrackDraw, updateTrackDraw, cancelTrackDraw, setTrackToolNet } = await import('../../src/pcb/modules/track-draw.js');
 const { reconcileRatsnest, getNetGuideLine } = await import('../../src/pcb/modules/ratsnest.js');

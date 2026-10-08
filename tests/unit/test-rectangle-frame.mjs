@@ -6,7 +6,8 @@ import { FileManager, readProjectFile } from '../../src/core/FileManager.js';
 import { createShape } from '../../src/shapes/index.js';
 
 globalThis.window = { addEventListener() {} };
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { preparePcb } = await import('../../src/pcb/modules/project-state.js');
 const { decodePictureArtwork } = await import('../../src/shared/pcb/picture-storage.js');
 const { pictureContours } = await import('../../src/shared/pcb/picture-raster.js');

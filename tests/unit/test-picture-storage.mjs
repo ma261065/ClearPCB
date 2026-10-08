@@ -39,7 +39,8 @@ console.log(`PASS: lossless image storage; 6400-dot fixture ${JSON.stringify(art
 
 globalThis.window = { addEventListener() {} };
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const first = { ...pictureShape(large, { widthMm: 20, layer: 'top-silk' }), id: 'pshape_1' };
 const second = { ...pictureShape(large, { widthMm: 30, layer: 'bottom-silk', center: { x: 5, y: 7 } }), id: 'pshape_2' };
 const saved = serializeBoardShapes({ boardShapes: [first, second] });

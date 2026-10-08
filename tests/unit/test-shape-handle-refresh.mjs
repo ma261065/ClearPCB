@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
+const { cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');

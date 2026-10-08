@@ -26,7 +26,7 @@ const {
     syncBoardOutlineInputs,
 } =
     await import('../../src/pcb/modules/board-outline-resize.js');
-const { getBoardShapeElement } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement } = await import('../../src/pcb/modules/board-shape-render.js');
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { setPropertyEditor } = await import('../../src/pcb/modules/property-editors.js');

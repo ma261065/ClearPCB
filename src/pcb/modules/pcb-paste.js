@@ -15,8 +15,9 @@ import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 import { createPcbText } from './pcb-text.js';
 import { removeTextElement } from './pcb-text-render.js';
 import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
-import { cloneShapeGeometry, translateShapeGeometry, applyShapeGeometry, renderBoardShape,
-    removeBoardShapeElement } from './board-shapes.js';
+import { cloneShapeGeometry, applyShapeGeometry } from '../../core/pcb-board-shapes.js';
+import { translateShapeGeometry } from './board-shapes.js';
+import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
 import { updateCursorForTool } from './tool-lifecycle.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';

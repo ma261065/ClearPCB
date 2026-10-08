@@ -14,7 +14,7 @@ import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { refreshBoxSelectionHighlights } from '../../src/pcb/modules/box-select.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;

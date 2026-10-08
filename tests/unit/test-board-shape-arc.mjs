@@ -3,9 +3,9 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { setBoardShapeSegmentFocus, setShapeDefaults } from '../../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { renderPropertyFields, propertyField } from '../../src/shared/ui/property-fields.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 
 const pcbShapeGeometry = await import('../../src/shared/pcb/board-shape-geometry.js');
@@ -63,23 +63,11 @@ const {
 
 installFakeDom();
 
-const {
-    applyBoardShapeVertexResize,
-    getBoardShapeAnchors,
-    moveBoardShapeAnchor,
-    cloneShapeGeometry,
-    boardShapeCopperCuts,
-    finishLineDraw,
-    handleBoardShapeDrag,
-    startBoardShapeDrag,
-    endBoardShapeDrag,
-    finishShapeDrawAtPoint,
-    renderBoardShape,
-    shapeHoverColor,
-    shapeSelectionColor,
-    shapeDrawClick,
-    updateShapeDrawPreview,
-} = await import('../../src/pcb/modules/board-shapes.js');
+const { applyBoardShapeVertexResize, handleBoardShapeDrag, startBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
+const { getBoardShapeAnchors, moveBoardShapeAnchor, boardShapeCopperCuts } = await import('../../src/pcb/modules/board-shapes.js');
+const { cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
+const { finishLineDraw, finishShapeDrawAtPoint, shapeDrawClick, updateShapeDrawPreview } = await import('../../src/pcb/modules/board-shape-draw.js');
+const { renderBoardShape, shapeHoverColor, shapeSelectionColor } = await import('../../src/pcb/modules/board-shape-render.js');
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const boardShapeEditor = await import('../../src/pcb/modules/board-shapes.js');
 for (const name of Object.keys(pcbShapeGeometry)) {

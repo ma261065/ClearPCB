@@ -30,13 +30,9 @@ import { CopperFill } from '../../shapes/copper-fill.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isViaVisible } from './layers.js';
 import { isPcbObjectLocked } from './object-locks.js';
-import {
-    applyShapeGeometry,
-    cloneShapeGeometry,
-    renderBoardShape,
-    removeBoardShapeElement,
-    translateShapeGeometry,
-} from './board-shapes.js';
+import { applyShapeGeometry, cloneShapeGeometry } from '../../core/pcb-board-shapes.js';
+import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
+import { translateShapeGeometry } from './board-shapes.js';
 import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
 import {
     CompoundCommand,

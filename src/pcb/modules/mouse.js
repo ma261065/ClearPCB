@@ -20,10 +20,9 @@ import { endPcbPaste, isPcbPasteActive } from './pcb-paste.js';
 import { placeFloatingSelectionInteraction } from './selection-interaction.js';
 import { beginBoardOutlineResize, hitTestBoardOutlineHandle } from './board-outline-resize.js';
 import { getPcbSelection } from './selection-registry.js';
-import {
-    getShapeDraw, hitTestBoardShape, hitTestBoardShapeVertex, finishPolygonDraw, finishLineDraw,
-    finishShapeDrawAtPoint, showBoardShapeContextMenu, dismissBoardShapeContextMenu,
-} from './board-shapes.js';
+import { getShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint } from './board-shape-draw.js';
+import { hitTestBoardShape, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from './board-shapes.js';
+import { hitTestBoardShapeVertex } from './board-shape-drag.js';
 import { hasBoxSelection, pointInBoxSelection } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';

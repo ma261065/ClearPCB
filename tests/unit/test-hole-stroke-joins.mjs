@@ -20,7 +20,7 @@ const element = (localName = 'g') => ({
 const document = installFakeDom();
 document.createElementNS = (_, tag) => element(tag);
 document.getElementById = () => null;
-const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const contoursOf = path => [...path.matchAll(/M\s+([^Z]+)Z/g)].map(match => {
     const values = match[1].replaceAll('L', '').trim().split(/\s+/).map(Number);

@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const { shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { getBoardShapeAnchors, loadBoardShapes, serializeBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeAnchors, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit, deleteFillNode, deleteFocusedFillPart,
     commitFillEdit, startFillEditAt } = await import('../../src/pcb/modules/copper-fill-edit.js');
 const { createCopperFillSelectionAdapter } = await import('../../src/pcb/modules/copper-fill-selection.js');

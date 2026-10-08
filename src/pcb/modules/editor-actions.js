@@ -3,7 +3,8 @@ import { finishSelectionInteraction, clearSelectionInteractionUi, setSelectionIn
 import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, getGroupDrag, hasBoxSelection, deleteBoxSelection, isBoxSelectArmed, isBoxSelecting } from './box-select.js';
 import { clearCursorCrosshair } from './cursor-state.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview, getBoardOutlineResize } from './board-outline-resize.js';
-import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
+import { getBoardShapeDrag, endBoardShapeDrag } from './board-shape-drag.js';
+import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, deleteFocusedBoardShape } from './board-shapes.js';
 import { cancelVertexDrag, getVertexDrag, setSegmentClickEdgeId } from './track-drag.js';
 import { cancelViaDrag, getViaDrag } from './terminal-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';

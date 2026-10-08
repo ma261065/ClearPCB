@@ -17,23 +17,9 @@ const flushTimers = () => {
     timers.clear();
     for (const callback of pending) callback();
 };
-const {
-    applyShapeGeometry,
-    cloneShapeGeometry,
-    createBoardShapeSelectionAdapter,
-    endBoardShapeDrag,
-    getBoardShapeDrag,
-    handleBoardShapeDrag,
-    openBoardShape,
-    deleteBoardShapeVertex,
-    deleteBoardShapeSegment,
-    setBoardShapeSegmentType,
-    serializeBoardShapes,
-    setBoardShapeNodeCornerRadius,
-    startBoardShapeDrag,
-    translateShapeGeometry,
-    getBoardShapePointerPreview,
-} = await import('../../src/pcb/modules/board-shapes.js');
+const { applyShapeGeometry, cloneShapeGeometry, serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { createBoardShapeSelectionAdapter, openBoardShape, deleteBoardShapeVertex, deleteBoardShapeSegment, setBoardShapeSegmentType, setBoardShapeNodeCornerRadius, translateShapeGeometry, getBoardShapePointerPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { endBoardShapeDrag, getBoardShapeDrag, handleBoardShapeDrag, startBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { boardShapeNodeCornerRadius, boardShapeSegmentBulge, boardShapeSegmentWidth,
     resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview } = await import('../../src/pcb/modules/box-select.js');

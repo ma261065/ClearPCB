@@ -15,9 +15,9 @@ function element(tag = 'g') {
     return node;
 }
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const { renderBoardShape, boardShapeCopperCuts, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    createBoardShapeSelectionAdapter, getBoardShapeRotationPreview } =
-    await import('../../src/pcb/modules/board-shapes.js');
+const { renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
+const { boardShapeCopperCuts, createBoardShapeSelectionAdapter, getBoardShapeRotationPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag } =
     await import('../../src/pcb/modules/box-select.js');
 const timers = new Map();

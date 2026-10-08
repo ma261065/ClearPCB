@@ -40,7 +40,8 @@ assert.ok(cleaned.contours.length < speckled.contours.length, 'Despeckling remov
 assert.throws(() => tracePicture({ width, height: width, mask: new Uint8Array(width * width) }), /empty/);
 console.log('PASS ImageTracerJS curve fitting, hole preservation, white-material polarity and noise filtering');
 globalThis.window = { addEventListener() {} };
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { collectCopperArtwork } = await import('../../src/pcb/modules/copper-artwork.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');

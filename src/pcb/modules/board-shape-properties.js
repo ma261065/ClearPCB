@@ -23,24 +23,10 @@ import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor } from './property-editors.js';
 import { normalizeShapeCopperMode, isMaskLayer, rectCornerRadius, polygonCornerRadius, boardShapeNodeCornerRadius, circleFilledRadius, boardShapeSegmentBulge, shapeOutline, boardShapeLineWidthMinimum, normalizedBoardShapeLineWidth, boardShapeSegmentWidth } from '../../shared/pcb/board-shape-geometry.js';
-import {
-    copperPathReplacementCommands,
-    canonicalBoardShape,
-    collapseCollinearPolylinePoints,
-    selectReplacementTracks,
-    copyBoardShape,
-    createBoardShapePropertyBinding,
-    createBoardShapePropertyPreview,
-    displayedBoardShape,
-    editableShapeBulge,
-    getBoardShapeDrag,
-    getShapeDraw,
-    normalizeStraightArc,
-    resolveShapeDrawLayer,
-    setBoardShapeNodeCornerRadius,
-    shapeKindLabel,
-    updateShapeDrawPreview,
-} from './board-shapes.js';
+import { copperPathReplacementCommands, selectReplacementTracks } from './track-shape-conversion.js';
+import { canonicalBoardShape, collapseCollinearPolylinePoints, copyBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, editableShapeBulge, normalizeStraightArc, setBoardShapeNodeCornerRadius, shapeKindLabel } from './board-shapes.js';
+import { getBoardShapeDrag } from './board-shape-drag.js';
+import { getShapeDraw, resolveShapeDrawLayer, updateShapeDrawPreview } from './board-shape-draw.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
 import { getLastCrosshairWorld } from './cursor-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */

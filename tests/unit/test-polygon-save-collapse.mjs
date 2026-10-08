@@ -9,7 +9,8 @@ import { FileManager, readProjectFile } from '../../src/core/FileManager.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { preparePcb } = await import('../../src/pcb/modules/project-state.js');
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const round4 = value => Math.round(value * 10000) / 10000;

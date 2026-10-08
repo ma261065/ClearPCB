@@ -13,7 +13,7 @@ import { resolveTrackEdgePaths } from '../../shapes/track-geometry.js';
 import { curveRatlineTargets } from '../../shapes/path-geometry.js';
 import { copperLayer, resolveCopperPads } from './copper-model.js';
 import { boardShapeRatlineTargets, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
-import { getBoardShapeDrag } from './board-shapes.js';
+import { getBoardShapeDrag } from './board-shape-drag.js';
 import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, pointInCopperRegion } from './track-contact-geometry.js';
 import { clearTerminalContactPasses, shapeCopperContains, _clusterCopperContacts } from './track-connections.js';
 import { spatialClusterMST } from './cluster-mst.js';

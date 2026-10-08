@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    serializeBoardShapes, loadBoardShapes, applyShapeSnapshot,
-    setBoardShapeNodeCornerRadius } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
+const { serializeBoardShapes, applyShapeSnapshot } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes, setBoardShapeNodeCornerRadius } = await import('../../src/pcb/modules/board-shapes.js');
 const { CORNER_CHORD_TOLERANCE } = await import('../../src/shared/pcb/board-geometry.js');
 
 for (const radius of [0.05, 2, 50]) {

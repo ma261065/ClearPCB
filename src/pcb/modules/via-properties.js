@@ -22,7 +22,7 @@ import { copperNetNames } from './track-properties.js';
 /** @typedef {'diameter'|'drill'} ViaNumberKey */
 /** @typedef {{vias: Via[], active: boolean, affectsLayer: (layerId: string) => boolean, commit: () => void, cancel: () => void, dispose: () => void, prepare: () => boolean}} ViaPropertyBinding */
 /** @typedef {{via: Via, before: object, after: object}} ViaPropertyChange */
-/** @typedef {{tracks: Set<Track>, vias: Set<Via>, padNets: Set<string>, padNetByKey: Map<string, string>}} BondedCopperGroup */
+/** @typedef {import('./track-properties.js').BondedCopperGroup} BondedCopperGroup */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 

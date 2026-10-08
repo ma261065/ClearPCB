@@ -6,9 +6,8 @@ import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js
 import { finishSelectionInteraction, getSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { getGroupDrag, deselectHiddenPcbSelection } from './box-select.js';
 import { cancelPcbPosePreviews } from './edit-lifecycle.js';
-import {
-    endBoardShapeDrag, getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, selectBoardShape,
-} from './board-shapes.js';
+import { endBoardShapeDrag, getBoardShapeDrag } from './board-shape-drag.js';
+import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, selectBoardShape } from './board-shapes.js';
 import { refreshPcbToolLayerState } from './tool-lifecycle.js';
 import { cancelVertexDrag, getVertexDrag, trackPointerTouchesLayer } from './track-drag.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection } from './track-select.js';

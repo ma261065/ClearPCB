@@ -45,7 +45,7 @@ const { Pad } = await import('../../src/shapes/pad.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
 const { createPcbText } = await import('../../src/core/pcb-text.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
-const { serializeBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
 
 const calls = [];
 const previews = [];

@@ -10,7 +10,7 @@ globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 {
     const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
-    const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
+    const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
     const { initializeBoardOutlineState, setBoardOutlineDrawn } = await import('../../src/pcb/modules/board-outline-resize.js');
     const renders = new Map();
     const groups = new Map();

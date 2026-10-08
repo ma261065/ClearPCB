@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 function element(tag) {
@@ -15,7 +15,8 @@ const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { newFile } = await import('../../src/schematic/modules/files.js');
 const { loadPcb } = await import('../../src/pcb/modules/project-state.js');
-const { renderBoardShape, shapeDrawClick, updateShapeDrawPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
+const { shapeDrawClick, updateShapeDrawPreview } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { boardDimensions } = await import('../../src/shared/pcb/board-outline.js');
 const { getPcbSelectionManager, setPcbSelection, getPcbSelectionEntries, clearPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { renderPcbSelectionAnchors } = await import('../../src/pcb/modules/selection-anchors.js');

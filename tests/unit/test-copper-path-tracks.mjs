@@ -4,7 +4,7 @@
  * Fill turns a closed loop back into a filled board shape.
  */
 import { PcbDocument } from '../../src/core/PcbDocument.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
@@ -13,18 +13,8 @@ installFakeDom();
 const { Track } = await import('../../src/shapes/track.js');
 const { isTrackRectangleLoop, resolveTrackEdgePaths } = await import('../../src/shapes/track-geometry.js');
 const { isCopperPathShape, trackFromBoardShape } = await import('../../src/shared/pcb/copper-path-tracks.js');
-const {
-    addBoardShapeOrTrackCommand,
-    canFillTrackLoop,
-    finishLineDraw,
-    finishShapeDraw,
-    shapeDrawClick,
-    copperPathReplacementCommands,
-    fillTrackLoop,
-    canMoveTrackToBoardLayer,
-    moveTrackToBoardLayer,
-    setTrackCopperMode,
-} = await import('../../src/pcb/modules/board-shapes.js');
+const { addBoardShapeOrTrackCommand, canFillTrackLoop, copperPathReplacementCommands, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } = await import('../../src/pcb/modules/track-shape-conversion.js');
+const { finishLineDraw, finishShapeDraw, shapeDrawClick } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { setShapeDefaults } = await import('../../src/pcb/modules/board-shape-state.js');
 
 let failures = 0;

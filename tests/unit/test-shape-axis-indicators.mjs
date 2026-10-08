@@ -1,8 +1,8 @@
 /** Headless regression tests for Track-style generic-shape H/V/45 glow. */
 import { getBoardShapeSegmentFocus, setShapeDefaults } from '../../src/pcb/modules/board-shape-state.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const document = installFakeDom();
@@ -23,8 +23,9 @@ function element(tagName) {
 
 document.createElementNS = (_namespace, tagName) => element(tagName);
 
-const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, getBoardShapeAnchors, createBoardShapeSelectionAdapter,
-    updateShapeDrawPreview, cancelShapeDraw, finishShapeDraw } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
+const { getBoardShapeAnchors, createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
+const { updateShapeDrawPreview, cancelShapeDraw, finishShapeDraw } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { Viewport } = await import('../../src/core/Viewport.js');
 const { makeAxisGlowHalo } = await import('../../src/pcb/modules/axis-glow.js');
 const sharedGlow = await import('../../src/shapes/axis-glow.js');

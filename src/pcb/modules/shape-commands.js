@@ -6,17 +6,9 @@
  * for the live-geometry edit debounce.
  */
 
-import {
-    renderBoardShape,
-    removeBoardShapeElement,
-    renderBoardShapeSegmentSelection,
-    canonicalBoardShape,
-    getBoardShapeRotationPreview,
-    getBoardShapePropertyPreview,
-    getBoardShapeDrag,
-    finishBoardShapeRotationPreview,
-    endBoardShapeDrag,
-} from './board-shapes.js';
+import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
+import { renderBoardShapeSegmentSelection, canonicalBoardShape, getBoardShapeRotationPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from './board-shapes.js';
+import { getBoardShapeDrag, endBoardShapeDrag } from './board-shape-drag.js';
 import { refreshBoardShapeProperties } from './board-shape-properties.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';

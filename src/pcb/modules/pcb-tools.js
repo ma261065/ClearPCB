@@ -13,7 +13,7 @@
  * way (`drawing`) are not checked again.
  */
 import { padLayers } from '../../shapes/pad-geometry.js';
-import { getShapeDraw, resolveShapeDrawLayer, shapeDrawClick } from './board-shapes.js';
+import { getShapeDraw, resolveShapeDrawLayer, shapeDrawClick } from './board-shape-draw.js';
 import { showBoardShapeToolProperties } from './board-shape-properties.js';
 import { pressFillTool, showFillToolProperties } from './copper-fill-edit.js';
 import { fillToolDefaults, getFillDraw } from './copper-fill-draw.js';

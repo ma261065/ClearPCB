@@ -10,7 +10,7 @@ import { setComputedFill, getComputedFill } from '../../src/pcb/modules/computed
 import { beginPcbPaste, cancelPcbPaste, endPcbPaste, preparePcbPaste, updatePcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { renderTrack, renderVia } from '../../src/pcb/modules/track-render.js';
 import { renderPad } from '../../src/pcb/modules/pad.js';
-import { getBoardShapeElement, hasBoardShapeElement, renderBoardShape } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeElement, hasBoardShapeElement, renderBoardShape } from '../../src/pcb/modules/board-shape-render.js';
 import { renderCopperFill } from '../../src/pcb/modules/copper-fill-render.js';
 import { getPcbSelectionEntries, setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';

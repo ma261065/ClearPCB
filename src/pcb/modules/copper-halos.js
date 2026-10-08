@@ -5,7 +5,7 @@
 import { buildTrackLayerRuns } from './track-render.js';
 import { displayedVia, canonicalTrack, displayedTrack } from './track-commands.js';
 import { PCB_HOVER_HIGHLIGHT_OPACITY, PCB_SELECTION_HIGHLIGHT_OPACITY, isLayerVisible } from './layers.js';
-import { setBoardShapeNetHover } from './board-shapes.js';
+import { setBoardShapeNetHover } from './board-shape-render.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { getPcbSelection } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
@@ -22,7 +22,7 @@ import { getSelectedTrack, getSelectedVia, getTrackEdit, trackIsVisible } from '
 /** @typedef {CopperHoverHit|{type: string, componentId: string, pinNumber: string|number}|{type: string, pad: Pad}|{type: string, shape: CopperShape}} PublicCopperHoverHit */
 /** @typedef {{id?: string, type?: string, net?: string, layer?: string, copperMode?: string}} CopperShape */
 /** @typedef {{kind:'pad', key:string}|{kind:'track', track:Track}|{kind:'via', via:Via}} HoverQueueItem */
-/** @typedef {{type:'track', track: Track}|{type:'via', via: Via}} TrackViaHit */
+/** @typedef {import('./track-select.js').TrackViaHit} TrackViaHit */
 
 const NS = 'http://www.w3.org/2000/svg';
 

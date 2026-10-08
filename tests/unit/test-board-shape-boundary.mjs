@@ -5,7 +5,7 @@ import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-sta
 import { getBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
@@ -29,9 +29,9 @@ document.body.appendChild = element => {
 };
 const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePathD } =
     await import('../../src/shared/pcb/board-shape-geometry.js');
-const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
-    createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    showBoardShapeContextMenu, setBoardShapeSegmentType, getBoardShapePropertyPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeAnchors, loadBoardShapes, createBoardShapeSelectionAdapter, showBoardShapeContextMenu, setBoardShapeSegmentType, getBoardShapePropertyPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes, cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { cancelPictureCopperRefresh } = await import('../../src/pcb/modules/picture-refresh.js');
@@ -522,7 +522,8 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
 
 {
     const { boardBoundary, rectangleBoardOutline } = await import('../../src/shared/pcb/board-outline.js');
-    const { renderBoardShape, setBoardShapeHover, selectBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
+    const { renderBoardShape, setBoardShapeHover } = await import('../../src/pcb/modules/board-shape-render.js');
+    const { selectBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
     const { beginGroupDrag, updateGroupDrag, cancelGroupDrag } = await import('../../src/pcb/modules/box-select.js');
     const { CommandHistory } = await import('../../src/core/CommandHistory.js');
     const model = new PcbDocument();

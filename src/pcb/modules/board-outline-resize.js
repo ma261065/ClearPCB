@@ -5,7 +5,8 @@ import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
 import { clearBoardDimensionPreview, getBoardDimensionPreview, getBoardOutline, rectangleBoardOutline,
     boardBoundary, boardDimensions, setBoardDimensionPreview } from '../../shared/pcb/board-outline.js';
-import { removeBoardShapeElement, renderBoardShape, selectBoardShape } from './board-shapes.js';
+import { removeBoardShapeElement, renderBoardShape } from './board-shape-render.js';
+import { selectBoardShape } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';

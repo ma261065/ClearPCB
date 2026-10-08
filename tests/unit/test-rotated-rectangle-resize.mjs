@@ -10,12 +10,13 @@ import { distanceToSegment } from '../../src/core/geometry.js';
 import { CORNER_CHORD_TOLERANCE } from '../../src/shapes/rounded-path.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit } = await import('../../src/pcb/modules/copper-fill-edit.js');
 const { cancelPictureCopperRefresh } = await import('../../src/pcb/modules/picture-refresh.js');
 const { rectCornerRadius } = await import('../../src/shared/pcb/board-shape-geometry.js');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
-import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
+import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let select = null;
@@ -22,8 +22,7 @@ document.createElementNS = (_namespace, tag) => {
     return node;
 };
 const { PCB_LAYERS, notifyLayerLockChanged } = await import('../../src/pcb/modules/layers.js');
-const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
-    await import('../../src/pcb/modules/board-shapes.js');
+const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } = await import('../../src/pcb/modules/board-shape-draw.js');
 const { showBoardShapeToolProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 let shown = null;

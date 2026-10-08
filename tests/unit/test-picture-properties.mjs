@@ -30,7 +30,8 @@ const settleChange = (field, value) => {
     field.change(value);
     flushSettledChanges();
 };
-const { cloneShapeGeometry, createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
+const { cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
+const { createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { copperCutState } = await import('../../src/pcb/modules/copper-cuts.js');

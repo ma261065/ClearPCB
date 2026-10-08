@@ -10,7 +10,7 @@ import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionP
     initializeBoardOutlineState, setBoardOutlineSelected } from '../../src/pcb/modules/board-outline-resize.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
-import { getBoardShapeElement } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
 import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';

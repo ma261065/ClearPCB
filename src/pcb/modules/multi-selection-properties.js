@@ -12,7 +12,7 @@ import { PICTURE_LAYERS } from '../../shared/pcb/picture-raster.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { sortByPropertyOrder } from '../../shared/ui/property-order.js';
 import { renderPropertyFields } from '../../shared/ui/property-fields.js';
-import { applyShapeSnapshot, captureBoardShapeState } from './board-shapes.js';
+import { applyShapeSnapshot, captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { canEditFill } from './copper-fill-edit.js';

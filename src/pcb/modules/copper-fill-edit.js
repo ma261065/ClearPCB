@@ -1,7 +1,6 @@
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
-import { canonicalBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape,
-    getBoardShapeAnchors, handleBoardShapeDrag, startBoardShapeDrag, endBoardShapeDrag,
-    remapBoardShapeNodeRadii } from './board-shapes.js';
+import { canonicalBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, getBoardShapeAnchors, remapBoardShapeNodeRadii } from './board-shapes.js';
+import { handleBoardShapeDrag, startBoardShapeDrag, endBoardShapeDrag } from './board-shape-drag.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 import { shapePathD } from '../../shared/pcb/board-shape-geometry.js';
 import { validBoardOutline } from '../../shared/pcb/board-outline.js';

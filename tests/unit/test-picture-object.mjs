@@ -36,8 +36,9 @@ console.log('PASS single image object, internal artwork contours and proportiona
 
 globalThis.window = { addEventListener() {} };
 const { boardShapeHitTest, boardShapeBounds, resolveBoardShapeGeometry } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { getBoardShapeAnchors,
-    serializeBoardShapes, loadBoardShapes, applyBoardShapeVertexResize } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeAnchors, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { applyBoardShapeVertexResize } = await import('../../src/pcb/modules/board-shape-drag.js');
 image.id = 'pshape_1';
 assert.equal(getBoardShapeAnchors(image).length, 4, 'Image exposes only bounding-box resize handles');
 assert.ok(getBoardShapeAnchors(image).every(anchor => !anchor.midpoint));

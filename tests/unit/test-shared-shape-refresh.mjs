@@ -5,7 +5,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const { ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
-const { cloneShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
+const { cloneShapeGeometry } = await import('../../src/core/pcb-board-shapes.js');
 const { EditTextCommand, AddTextCommand, RemoveTextCommand } = await import('../../src/pcb/modules/text-commands.js');
 const { pictureRefreshHold } = await import('../../src/pcb/modules/picture-refresh.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');

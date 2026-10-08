@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { shapePathD, boardShapeBounds } from '../../src/shared/pcb/board-shape-geometry.js';
-import { createBoardShapeSelectionAdapter, renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag,
-    endBoardShapeDrag, getBoardShapeElement, hasBoardShapeElement, openBoardShape, setBoardShapeSegmentType,
-    selectBoardShape, deleteFocusedBoardShape } from '../../src/pcb/modules/board-shapes.js';
+import { createBoardShapeSelectionAdapter, openBoardShape, setBoardShapeSegmentType, selectBoardShape, deleteFocusedBoardShape } from '../../src/pcb/modules/board-shapes.js';
+import { renderBoardShape, getBoardShapeElement, hasBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
+import { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbSelection, getPcbSelection, syncPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
@@ -12,7 +12,7 @@ import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refres
 import { PCB_LAYERS, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { setBoardShapeNodeFocus } from '../../src/pcb/modules/board-shape-state.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0;

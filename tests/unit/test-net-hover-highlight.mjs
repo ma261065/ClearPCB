@@ -5,7 +5,7 @@ import { getNetHoveredShapeIds } from '../../src/pcb/modules/board-shape-state.j
 installFakeDom();
 
 const { setHoverHighlight } = await import('../../src/pcb/modules/copper-halos.js');
-const { getBoardShapeElement, shapeHoverColor, shapeSelectionColor } = await import('../../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, shapeHoverColor, shapeSelectionColor } = await import('../../src/pcb/modules/board-shape-render.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const groups = new Map([
     ['vias', fakeElement('g')],

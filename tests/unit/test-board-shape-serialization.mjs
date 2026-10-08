@@ -4,7 +4,8 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { serializeBoardShapes, loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
+const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
+const { loadBoardShapes } = await import('../../src/pcb/modules/board-shapes.js');
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { decodePictureArtwork } = await import('../../src/shared/pcb/picture-storage.js');
 const { validatePicturePoints } = await import('../../src/shared/pcb/picture-raster.js');

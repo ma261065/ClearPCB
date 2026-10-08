@@ -324,7 +324,6 @@ const { cancelPictureCopperRefresh } = await import('../../src/pcb/modules/pictu
 const { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand } =
     await import('../../src/pcb/modules/text-commands.js');
 const textView = await import('../../src/pcb/modules/pcb-text.js');
-const shapeView = await import('../../src/pcb/modules/board-shapes.js');
 const panelLayout = await import('../../src/pcb/modules/panelization.js');
 const { serializePcb, preparePcb } = await import('../../src/pcb/modules/project-state.js');
 const snapshotApp = { pcbDocument: snapshotModel, viewport: grid };
@@ -337,7 +336,6 @@ assert.equal(panelLayout.panelSettings, panelSettings);
 assert.equal(panelLayout.PANEL_DEFAULTS, PANEL_DEFAULTS, 'Existing panel module imports reuse neutral definitions');
 const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
 const { AddFillCommand, RemoveFillCommand } = await import('../../src/pcb/modules/copper-fill-commands.js');
-assert.equal(shapeView.serializeBoardShapes, serializeBoardShapes);
 assert.equal(textView.createPcbText, createPcbText, 'Existing renderer-module imports reuse the neutral data helper');
 assert.equal(textView.serializePcbText, serializePcbText);
 assert.equal(textView.TEXT_LAYERS, TEXT_LAYERS);

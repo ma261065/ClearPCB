@@ -1,5 +1,5 @@
 import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
-import { cancelShapeDraw, getShapeDraw } from './board-shapes.js';
+import { cancelShapeDraw, getShapeDraw } from './board-shape-draw.js';
 import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
 import { clearPadPreview } from './pad-tool.js';
 import { cancelTrackDrawing } from './track-draw.js';

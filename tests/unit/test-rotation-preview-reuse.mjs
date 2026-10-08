@@ -10,7 +10,7 @@ import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refres
 import { getTextPosePreviewTexts } from '../../src/pcb/modules/text-commands.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
-import { getBoardShapeElement } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const inputs = new Map();

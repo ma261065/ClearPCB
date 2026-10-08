@@ -1,12 +1,12 @@
 /** Board-shape moves and node edits use grid/alignment magnets only; Track moves still lock onto Pads. */
 import assert from 'node:assert/strict';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const element = (tagName) => fakeElement(tagName);
 
-const { startBoardShapeDrag, handleBoardShapeDrag } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { snapPathTranslation } = await import('../../src/pcb/modules/path-edit.js');
 const { Pad } = await import('../../src/shapes/pad.js');
 

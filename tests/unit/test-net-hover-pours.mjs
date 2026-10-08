@@ -5,7 +5,7 @@ installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 const { setHoverHighlight } = await import('../../src/pcb/modules/copper-halos.js');
 const { getNetHoveredShapeIds } = await import('../../src/pcb/modules/board-shape-state.js');
-const { hasBoardShapeElement } = await import('../../src/pcb/modules/board-shapes.js');
+const { hasBoardShapeElement } = await import('../../src/pcb/modules/board-shape-render.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
 const { Pad } = await import('../../src/shapes/pad.js');
 

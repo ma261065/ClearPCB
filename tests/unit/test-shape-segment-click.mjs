@@ -4,7 +4,7 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
-import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
+import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
@@ -26,9 +26,8 @@ globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction,
     placeFloatingSelectionInteraction } = await import('../../src/pcb/modules/selection-interaction.js');
 const { boardShapeHitTest } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
-    renderBoardShapeSegmentSelection, selectBoardShape,
-    startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape, getBoardShapePropertyPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { createBoardShapeSelectionAdapter, getBoardShapeAnchors, renderBoardShapeSegmentSelection, selectBoardShape, openBoardShape, getBoardShapePropertyPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { renderPcbSelectionAnchors } = await import('../../src/pcb/modules/selection-anchors.js');
 const { Track } = await import('../../src/shapes/track.js');

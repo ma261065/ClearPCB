@@ -1,4 +1,5 @@
-import { hitTestBoardShape, setBoardShapeHover } from './board-shapes.js';
+import { hitTestBoardShape } from './board-shapes.js';
+import { setBoardShapeHover } from './board-shape-render.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { getPcbSelectionHits, isPcbSelected } from './selection-registry.js';
 import { hitTestTrack, getSelectedTrack } from './track-select.js';

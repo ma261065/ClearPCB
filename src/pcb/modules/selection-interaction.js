@@ -8,9 +8,7 @@ import {
     setPcbSelection,
     togglePcbSelection,
 } from './selection-registry.js';
-import {
-    selectBoardShape,
-} from './board-shapes.js';
+import { selectBoardShape } from './board-shapes.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { clearTrackSelection } from './track-select.js';
 import { showTrackSelectionProperties } from './track-properties.js';
