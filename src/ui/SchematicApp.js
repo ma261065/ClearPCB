@@ -768,7 +768,7 @@ export default class SchematicApp {
         this._updateUndoRedoButtons();
         
         // Initialize grid dropdown with current units
-        this._updateGridDropdown();
+        this.updateGridDropdown();
 
         // Properties panel
         this._bindPropertiesPanel();
@@ -890,7 +890,7 @@ export default class SchematicApp {
     /**
      * Updates grid size dropdown options for current units.
      */
-    _updateGridDropdown() {
+    updateGridDropdown() {
         updateGridDropdown(this);
         this.refreshRibbon?.();
     }

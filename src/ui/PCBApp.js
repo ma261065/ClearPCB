@@ -877,7 +877,7 @@ export default class PCBApp {
      * Rebuild the grid-size dropdown for the current unit system.
      * Reuses the shared updateGridDropdown helper from viewport.js.
      */
-    _updateGridDropdown() {
+    updateGridDropdown() {
         if (!this.viewport || !this.ui?.gridSize) return;
         updateGridDropdown(this);
     }

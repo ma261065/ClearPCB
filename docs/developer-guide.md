@@ -34,8 +34,8 @@ ClearPCB is vanilla JavaScript ES modules with no build step: the browser loads
    `getLastCrosshairWorld(app)` in `cursor-state.js`). Other modules call those functions; they do not reach
    into `app._something`. What the editor itself provides, modules reach through
    its public services (`pcb/modules/pcb-editor-api.js`,
-   `schematic/modules/schematic-editor-api.js`). The gate fails on any module that
-   uses an editor's private (`_`-prefixed) members.
+   `schematic/modules/schematic-editor-api.js`). The gate fails on any module or
+   shared code that uses an editor's private (`_`-prefixed) members.
 4. **Every authored change is a command.** A command changes the model and can
    undo itself; `core/CommandHistory` runs it. PCB *model* commands
    (`core/pcb-*-commands.js`) change only `PcbDocument`; *editor* commands
@@ -238,7 +238,7 @@ Run these before pushing (setup for TypeScript and Playwright is in the
    After moving code between files, rewrite the baseline with `--write-baseline`,
    check that the total did not rise, and say so in the commit message.
 2. `node tools/regression.mjs`: the gate. It checks the import directions, that no
-   module uses an editor's private members, that every file, test and page a doc
+   module or shared code uses an editor's private members, that every file, test and page a doc
    names exists (so rename or update the doc with the code), runs every unit test,
    and routes the autorouter's fixture board against its baseline. It takes a few
    minutes, most of it routing.

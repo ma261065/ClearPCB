@@ -6,7 +6,7 @@
 /** @typedef {{getBounds: () => Bounds|null}} BoundComponent */
 /** @typedef {{setDirty: (dirty: boolean) => void}} DirtyFileManager */
 /** @typedef {{gridSize?: HTMLSelectElement, gridStyle?: HTMLSelectElement, units?: HTMLSelectElement, showGrid?: HTMLInputElement, snapToGrid?: HTMLInputElement}} ViewportUiControls */
-/** @typedef {{viewport: Viewport|null, ui?: unknown, fileManager?: DirtyFileManager, _ribbonRefresh?: () => void, refreshPcbRibbon?: () => void, _updateGridDropdown?: () => void, fitToContent?: () => void, shapes?: BoundShape[], components?: BoundComponent[]}} SharedViewportApp */
+/** @typedef {{viewport: Viewport|null, ui?: unknown, fileManager?: DirtyFileManager, _ribbonRefresh?: () => void, refreshPcbRibbon?: () => void, updateGridDropdown?: () => void, fitToContent?: () => void, shapes?: BoundShape[], components?: BoundComponent[]}} SharedViewportApp */
 
 /** Grid preferences to save with a document, or undefined without a viewport. */
 /** @param {Viewport|null|undefined} viewport */
@@ -65,7 +65,7 @@ export function syncGridSettings(app) {
 /**
  * Binds change listeners for grid size, grid style, units, show-grid,
  * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
- * @param {SharedViewportApp & {viewport: Viewport, ui: Required<ViewportUiControls>, fileManager: DirtyFileManager, _updateGridDropdown: () => void, fitToContent: () => void}} app - Application state.
+ * @param {SharedViewportApp & {viewport: Viewport, ui: Required<ViewportUiControls>, fileManager: DirtyFileManager, updateGridDropdown: () => void, fitToContent: () => void}} app - Application state.
  */
 export function bindViewportControls(app) {
     app.ui.gridSize.addEventListener('change', (e) => {
@@ -80,7 +80,7 @@ export function bindViewportControls(app) {
 
     app.ui.units.addEventListener('change', (e) => {
         app.viewport.setUnits(/** @type {import('../../core/Viewport.js').ViewportUnit} */ (/** @type {HTMLSelectElement} */ (e.target).value));
-        app._updateGridDropdown();
+        app.updateGridDropdown();
         app.fileManager.setDirty(true);
     });
 

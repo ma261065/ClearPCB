@@ -1,4 +1,4 @@
 export {
     axisAlignment, renderAxisGlow, renderAxisGlowTop, refreshAxisGlow,
-    clearAxisGlow, makeAxisGlowHalo, makeAxisGlowCenterline,
+    clearAxisGlow, getAxisGlowState, makeAxisGlowHalo, makeAxisGlowCenterline,
 } from '../../shapes/axis-glow.js';

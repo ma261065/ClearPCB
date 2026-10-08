@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = mkdtempSync(join(root, '.regression-runner-'));
 const bytes = 2 * 1024 * 1024;
 
-function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, schematicAccessExit = 0, docsExit = 0, summary = 'Routed 74/76 connections, 288 tracks, 214 vias', violations = 0 } = {}) {
+function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, schematicAccessExit = 0, sharedAccessExit = 0, docsExit = 0, summary = 'Routed 74/76 connections, 288 tracks, 214 vias', violations = 0 } = {}) {
     writeFileSync(join(fixture, 'tools', 'check-imports.mjs'), `
         console.log('Import boundaries: stub');
         process.exitCode = ${importsExit};
@@ -20,6 +20,10 @@ function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit
     writeFileSync(join(fixture, 'tools', 'check-schematic-editor-access.mjs'), `
         console.log('Schematic editor access: stub');
         process.exitCode = ${schematicAccessExit};
+    `);
+    writeFileSync(join(fixture, 'tools', 'check-shared-editor-access.mjs'), `
+        console.log('Shared editor access: stub');
+        process.exitCode = ${sharedAccessExit};
     `);
     writeFileSync(join(fixture, 'tools', 'check-doc-references.mjs'), `
         console.log('Doc references: stub');
@@ -95,6 +99,13 @@ try {
     assert.match(schematicAccess.stdout, /PASS  PCB editor access matches/);
     assert.match(schematicAccess.stdout, /FAIL  schematic editor access matches tools\/schematic-editor-access-baseline\.json/);
     assert.match(schematicAccess.stdout, /REGRESSION GATE: FAIL\s*$/);
+
+    const sharedAccess = runGate({ sharedAccessExit: 1 });
+    assert.ifError(sharedAccess.error);
+    assert.equal(sharedAccess.status, 1, 'Shared editor access failures are hard failures');
+    assert.match(sharedAccess.stdout, /PASS  schematic editor access matches/);
+    assert.match(sharedAccess.stdout, /FAIL  shared editor access matches tools\/shared-editor-access-baseline\.json/);
+    assert.match(sharedAccess.stdout, /REGRESSION GATE: FAIL\s*$/);
 
     const docs = runGate({ docsExit: 1 });
     assert.ifError(docs.error);

@@ -5,7 +5,8 @@
 // src/pcb/modules/pcb-editor-api.js. tools/pcb-editor-access-baseline.json lists any
 // private members a module may use; it is empty. A module using a private member not
 // listed for it fails, and so does a listed member it no longer uses. Scans src/pcb and the shared
-// PCB code in src/shared/pcb. Modules always name the editor `app`; dynamic `app[key]`
+// PCB code in src/shared/pcb. PCB and schematic modules always name the editor
+// `app`; shared-code checks also scan `editor` and `host`. Dynamic `app[key]`
 // access is not tracked.
 //
 // Usage:
@@ -26,10 +27,14 @@ const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
     return entry.name.endsWith('.js') ? [full] : [];
 });
 
+const escapeRegExp = text => text.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+
 /** Private editor members referenced by one module's source. */
-export function privateEditorMembers(source) {
+export function privateEditorMembers(source, editorNames = ['app']) {
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    return [...new Set([...code.matchAll(/\bapp\??\.(_[A-Za-z]\w*)/g)].map(match => match[1]))].sort();
+    const names = editorNames.map(escapeRegExp).join('|');
+    const pattern = new RegExp(`\\b(?:${names})\\??\\.(_[A-Za-z]\\w*)`, 'g');
+    return [...new Set([...code.matchAll(pattern)].map(match => match[1]))].sort();
 }
 
 /**
@@ -59,12 +64,13 @@ export function editorAccessLoopholes(source) {
 
 /**
  * @param {string[]} [roots] Directories to scan (default: the PCB scope).
+ * @param {string[]} [editorNames] Identifiers that may hold the editor.
  * @returns {Record<string, string[]>} Module path -> private members, for modules that use any.
  */
-export function currentAccess(roots = scanRoots) {
+export function currentAccess(roots = scanRoots, editorNames = ['app']) {
     const access = {};
     for (const file of roots.flatMap(listJs).sort()) {
-        const members = privateEditorMembers(readFileSync(file, 'utf8'));
+        const members = privateEditorMembers(readFileSync(file, 'utf8'), editorNames);
         if (members.length) access[relative(root, file).split(sep).join('/')] = members;
     }
     return access;
@@ -72,11 +78,12 @@ export function currentAccess(roots = scanRoots) {
 
 /**
  * Check (or with --update rewrite) one editor's private-access baseline.
- * @param {{label: string, roots: string[], facade: string, baselinePath: string, hint: string}} scope
+ * @param {{label: string, roots: string[], facade?: string, baselinePath: string, hint: string, editorNames?: string[]}} scope
  */
-export function runEditorAccessCheck({ label, roots, facade, baselinePath, hint }) {
+export function runEditorAccessCheck({ label, roots, facade, baselinePath, hint, editorNames = ['app'] }) {
     const baselineName = relative(root, baselinePath).split(sep).join('/');
-    const loopholes = [...roots.flatMap(listJs), facade].sort().flatMap(file =>
+    const loopholeFiles = [...roots.flatMap(listJs), ...(facade ? [facade] : [])];
+    const loopholes = loopholeFiles.sort().flatMap(file =>
         editorAccessLoopholes(readFileSync(file, 'utf8'))
             .map(entry => `${relative(root, file).split(sep).join('/')}:${entry}`));
     for (const line of loopholes) console.error(`LOOPHOLE ${line}`);
@@ -85,7 +92,7 @@ export function runEditorAccessCheck({ label, roots, facade, baselinePath, hint 
         process.exitCode = 1;
         return;
     }
-    const current = currentAccess(roots);
+    const current = currentAccess(roots, editorNames);
     if (process.argv.includes('--update')) {
         writeFileSync(baselinePath, JSON.stringify(current, null, 2) + '\n');
         const total = Object.values(current).reduce((sum, members) => sum + members.length, 0);

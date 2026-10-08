@@ -312,8 +312,8 @@ node tools/regression.mjs
 ```
 
 It checks the import directions between editors (`tools/check-imports.mjs`), that
-no module uses an editor's private members (`tools/check-pcb-editor-access.mjs`,
-`tools/check-schematic-editor-access.mjs`), checks that the tests, files and pages the
+no module or shared code uses an editor's private members (`tools/check-pcb-editor-access.mjs`,
+`tools/check-schematic-editor-access.mjs`, `tools/check-shared-editor-access.mjs`), checks that the tests, files and pages the
 docs name still exist (`tools/check-doc-references.mjs`), runs every `tests/unit/test-*.mjs` in its own
 process, then routes `test-board.json` and checks the result
 (`tools/check-clearance-full.mjs`). Routing must complete at least 74 of the 76

@@ -40,7 +40,7 @@ function fixture(shape = new Circle({ radius: 5 })) {
         currentTool: 'select', interactionState: 'idle',
         viewport: { svg: { style: {} } }, selection: new SelectionManager(),
         renderShapes() {}, hideCrosshair() {}, removeBoxSelectElement() {},
-        _updateUndoRedoButtons() {}, _updateGridDropdown() {}, _bindPropertiesPanel() {}, _bindRibbon() {},
+        _updateUndoRedoButtons() {}, updateGridDropdown() {}, _bindPropertiesPanel() {}, _bindRibbon() {},
         getViewSettings: () => undefined,
         ui: Object.fromEntries(['undoBtn', 'redoBtn', 'gridSize', 'gridStyle', 'units', 'showGrid', 'snapToGrid']
             .map(id => [id, button()])),

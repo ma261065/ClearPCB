@@ -93,6 +93,8 @@ console.log('\n--- [1/3] architecture boundaries and doc references ---');
     hardCheck(access.code === 0, 'PCB editor access matches tools/pcb-editor-access-baseline.json');
     const schematicAccess = run(process.execPath, ['tools/check-schematic-editor-access.mjs']);
     hardCheck(schematicAccess.code === 0, 'schematic editor access matches tools/schematic-editor-access-baseline.json');
+    const sharedAccess = run(process.execPath, ['tools/check-shared-editor-access.mjs']);
+    hardCheck(sharedAccess.code === 0, 'shared editor access matches tools/shared-editor-access-baseline.json');
     const docs = run(process.execPath, ['tools/check-doc-references.mjs']);
     hardCheck(docs.code === 0, 'doc references to tests, files and pages resolve');
 }

@@ -30,6 +30,7 @@ const { updateShapeDrawPreview, cancelShapeDraw, finishShapeDraw } = await impor
 const { Viewport } = await import('../../src/core/Viewport.js');
 const { makeAxisGlowHalo } = await import('../../src/pcb/modules/axis-glow.js');
 const sharedGlow = await import('../../src/shapes/axis-glow.js');
+const axisGlowState = app => sharedGlow.getAxisGlowState(app);
 const { createLine, createRect } = await import('../../src/shapes/polyline.js');
 const wireGuides = await import('../../src/schematic/modules/wire-drag-snap.js');
 const { Arc } = await import('../../src/shapes/arc.js');
@@ -171,7 +172,7 @@ for (const [name, target, expectedKind, diagonal] of [
     startBoardShapeDrag(app, shape, { x: 5, y: 0 });
     handleBoardShapeDrag(app, { x: 5, y: 3 });
     expect('translating a horizontal Line segment shows no orientation halo',
-        !app._axisGlowHalos?.length && !app._axisGlowTop?.length);
+        !axisGlowState(app).halos?.length && !axisGlowState(app).top?.length);
 }
 
 for (const commit of [false, true]) {
@@ -316,15 +317,15 @@ for (const kind of ['arc', 'line']) {
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: 2 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: 1 });
-        expect('PCB bulge drag suppresses endpoint axis indicators', !app._axisGlowHalos?.length && !app._axisGlowTop?.length);
+        expect('PCB bulge drag suppresses endpoint axis indicators', !axisGlowState(app).halos?.length && !axisGlowState(app).top?.length);
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
         expect('PCB near-zero bulge drag reaches exact zero', kind === 'arc' ? getBoardShapeDrag(app).shape.bulge.y === 0 : getBoardShapeDrag(app).shape.segmentBulges[0] === 0);
-        expect('PCB straightening uses blue width-aware halo', app._axisGlowHalos?.[0]?.getAttribute('stroke') === '#0072B2'
-            && Math.abs(Number(app._axisGlowHalos[0].getAttribute('stroke-width'))
+        expect('PCB straightening uses blue width-aware halo', axisGlowState(app).halos?.[0]?.getAttribute('stroke') === '#0072B2'
+            && Math.abs(Number(axisGlowState(app).halos[0].getAttribute('stroke-width'))
                 - (width + 2 * Math.max(4 / app.viewport.scale, width * 0.25))) < 1e-9);
-        const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+        const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
         handleBoardShapeDrag(app, { x: 5, y: -1 });
-        expect('PCB dragging past straight clears the straightening indicator', !app._axisGlowHalos?.length
+        expect('PCB dragging past straight clears the straightening indicator', !axisGlowState(app).halos?.length
             && previous.every(node => node.removed));
         app.viewport.shiftHeld = true;
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
@@ -362,20 +363,20 @@ for (const [name, points, color, pattern] of [
     const app = { viewport: { scale: 20, contentLayer: element('g') }, shapes: [], components: [] };
     const nodeIds = shape.getOrderedNodeIds();
     renderShapeAlignment(app, shape, [nodeIds[1]]);
-    expect(`schematic ${name} uses shared halo color`, app._axisGlowHalos?.length === points.length - 1
-        && app._axisGlowHalos.every(halo => halo.getAttribute('stroke') === color));
-    expect(`schematic ${name} uses shared centerline pattern`, app._axisGlowTop?.length > 0
-        && app._axisGlowTop.every(line => line.getAttribute('stroke-dasharray') === pattern));
-    const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
-    const beforeWidth = Number(app._axisGlowHalos[0].getAttribute('stroke-width'));
+    expect(`schematic ${name} uses shared halo color`, axisGlowState(app).halos?.length === points.length - 1
+        && axisGlowState(app).halos.every(halo => halo.getAttribute('stroke') === color));
+    expect(`schematic ${name} uses shared centerline pattern`, axisGlowState(app).top?.length > 0
+        && axisGlowState(app).top.every(line => line.getAttribute('stroke-dasharray') === pattern));
+    const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
+    const beforeWidth = Number(axisGlowState(app).halos[0].getAttribute('stroke-width'));
     app.viewport.scale = 10;
     renderShapes(app);
     expect(`schematic ${name} redraw refreshes indicators`, previous.every(node => node.removed));
-    expect(`schematic ${name} halo responds to zoom`, Number(app._axisGlowHalos[0].getAttribute('stroke-width')) > beforeWidth);
-    const current = [...app._axisGlowHalos, ...app._axisGlowTop];
+    expect(`schematic ${name} halo responds to zoom`, Number(axisGlowState(app).halos[0].getAttribute('stroke-width')) > beforeWidth);
+    const current = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     clearDragState(app);
     expect(`schematic ${name} drag cleanup removes indicators`, current.every(node => node.removed)
-        && app._axisGlowResolved === null && app._axisGlowTop === null);
+        && axisGlowState(app).resolved === null && axisGlowState(app).top === null);
 }
 
 {
@@ -384,20 +385,20 @@ for (const [name, points, color, pattern] of [
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     shape.setEdgeAttr(edgeId, 'bulge', 0.5);
     renderShapeAlignment(app, shape, [shape.getOrderedNodeIds()[0]]);
-    expect('curved schematic endpoint shows its chord axis', app._axisGlowTop.length === 1
-        && app._axisGlowResolved[0].segment.axisKind === 'h');
+    expect('curved schematic endpoint shows its chord axis', axisGlowState(app).top.length === 1
+        && axisGlowState(app).resolved[0].segment.axisKind === 'h');
     shape.setEdgeAttr(edgeId, 'bulge', 0);
     renderShapeAlignment(app, shape, [`bulge_${edgeId}`]);
-    expect('straightening a schematic curved edge shows collinear indicator', app._axisGlowHalos[0]?.getAttribute('stroke') === '#0072B2');
+    expect('straightening a schematic curved edge shows collinear indicator', axisGlowState(app).halos[0]?.getAttribute('stroke') === '#0072B2');
     const arc = new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 0 } });
     renderShapeAlignment(app, arc, ['mid']);
-    expect('straightening a standalone schematic arc shows collinear indicator', app._axisGlowHalos[0]?.getAttribute('stroke') === '#0072B2');
+    expect('straightening a standalone schematic arc shows collinear indicator', axisGlowState(app).halos[0]?.getAttribute('stroke') === '#0072B2');
     for (const width of [0.2, 4]) {
         for (const scale of [1, 100]) {
             arc.lineWidth = width;
             app.viewport.scale = scale;
             renderShapeAlignment(app, arc, ['mid']);
-            const haloWidth = Number(app._axisGlowHalos[0].getAttribute('stroke-width'));
+            const haloWidth = Number(axisGlowState(app).halos[0].getAttribute('stroke-width'));
             expect('standalone Arc straightening halo uses standard width-aware sizing',
                 Math.abs(haloWidth - (width + 2 * Math.max(4 / scale, width * 0.25))) < 1e-9);
         }
@@ -411,13 +412,13 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     for (const nodeId of shape.getOrderedNodeIds().slice(0, 2)) {
         renderShapeAlignment(app, shape, [nodeId]);
-        expect('either curved-segment endpoint shows its H/V/45 chord guide', app._axisGlowHalos.length === 1
-            && app._axisGlowResolved[0].segment.axisKind && !app._axisGlowResolved[0].segment.collinear);
+        expect('either curved-segment endpoint shows its H/V/45 chord guide', axisGlowState(app).halos.length === 1
+            && axisGlowState(app).resolved[0].segment.axisKind && !axisGlowState(app).resolved[0].segment.collinear);
     }
     renderShapeAlignment(app, shape, [`bulge_${edgeId}`]);
-    expect('curved-segment bulge drag hides endpoint guides', !app._axisGlowHalos.length);
+    expect('curved-segment bulge drag hides endpoint guides', !axisGlowState(app).halos.length);
     renderShapeAlignment(app, shape, [shape.getOrderedNodeIds()[0]], [edgeId]);
-    expect('excluded curved segments do not show chord guides', !app._axisGlowHalos.length);
+    expect('excluded curved segments do not show chord guides', !axisGlowState(app).halos.length);
 }
 
 for (const standalone of [false, true]) {
@@ -434,7 +435,7 @@ for (const standalone of [false, true]) {
         shape.moveAnchor(handle, snapped.x, snapped.y);
         renderShapeAlignment(app, shape, [handle]);
         expect('snapped bulge displays the blue straightening indicator',
-            app._axisGlowHalos[0]?.getAttribute('stroke') === '#0072B2');
+            axisGlowState(app).halos[0]?.getAttribute('stroke') === '#0072B2');
         const away = { x: 4.13, y: 6.27 };
         const curved = snapShapeBulge(app, shape, handle, away);
         expect('bulge outside straightening tolerance remains curved', curved.x === away.x && curved.y === away.y);
@@ -449,14 +450,14 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     for (const handle of ['mid', 'bulge']) {
         renderShapeAlignment(app, arc, ['end']);
-        expect('endpoint dragging retains its axis indicator', app._axisGlowHalos.length === 1);
+        expect('endpoint dragging retains its axis indicator', axisGlowState(app).halos.length === 1);
         expect('standalone Arc endpoint guide uses normal width-aware sizing',
-            Math.abs(Number(app._axisGlowHalos[0].getAttribute('stroke-width'))
+            Math.abs(Number(axisGlowState(app).halos[0].getAttribute('stroke-width'))
                 - (arc.lineWidth + 2 * Math.max(4 / app.viewport.scale, arc.lineWidth * 0.25))) < 1e-9);
-        const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+        const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
         renderShapeAlignment(app, arc, [handle]);
-        expect('bulge dragging clears endpoint H/V/45 indicators', !app._axisGlowHalos.length
-            && !app._axisGlowTop.length && previous.every(node => node.removed));
+        expect('bulge dragging clears endpoint H/V/45 indicators', !axisGlowState(app).halos.length
+            && !axisGlowState(app).top.length && previous.every(node => node.removed));
     }
 }
 
@@ -467,8 +468,8 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     };
     setSchematicDrag(app, { shape, edgeId, beforeState: shape.captureState(), startWorldPos: { x: 5, y: 10 } });
     updatePolylineSegmentDrag(app, { x: 5, y: 12 });
-    expect('schematic segment dragging renders only adjoining alignment indicators', app._axisGlowResolved.length === 2
-        && app._axisGlowResolved.every(({ segment }) => segment.axisKind === 'v'));
+    expect('schematic segment dragging renders only adjoining alignment indicators', axisGlowState(app).resolved.length === 2
+        && axisGlowState(app).resolved.every(({ segment }) => segment.axisKind === 'v'));
     const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 0, y: 0 }];
     expect('folded-back edges are not straight-through collinear pairs',
         sharedGlow.pathAlignmentSegments(points, false, [1]).every(segment => !segment.collinear));
@@ -481,11 +482,11 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
         toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
     setSchematicDrawingActive(app, true);
     updatePreview(app);
-    expect('schematic drawing preview displays collinear continuation', app._axisGlowResolved.length === 2
-        && app._axisGlowResolved.every(({ segment }) => segment.collinear));
-    const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+    expect('schematic drawing preview displays collinear continuation', axisGlowState(app).resolved.length === 2
+        && axisGlowState(app).resolved.every(({ segment }) => segment.collinear));
+    const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     cancelDrawing(app);
-    expect('ending schematic drawing clears alignment indicators', previous.every(node => node.removed) && app._axisGlowResolved === null);
+    expect('ending schematic drawing clears alignment indicators', previous.every(node => node.removed) && axisGlowState(app).resolved === null);
 }
 
 
@@ -500,12 +501,12 @@ for (const [name, edge, collinear, axisKind] of [
         && !!result.guides[0].collinear === collinear && result.guides[0].axisKind === axisKind);
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     sharedGlow.renderGuideLines(app, result.guides);
-    expect(`wire ${name} uses the consolidated colors and patterns`, app._axisGlowHalos.length === 1
-        && app._axisGlowHalos[0].getAttribute('stroke') === (collinear ? '#0072B2' : '#E69F00')
-        && app._axisGlowTop[0].getAttribute('stroke-dasharray') === (collinear ? '0.0005 0.3' : null));
-    const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+    expect(`wire ${name} uses the consolidated colors and patterns`, axisGlowState(app).halos.length === 1
+        && axisGlowState(app).halos[0].getAttribute('stroke') === (collinear ? '#0072B2' : '#E69F00')
+        && axisGlowState(app).top[0].getAttribute('stroke-dasharray') === (collinear ? '0.0005 0.3' : null));
+    const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     sharedGlow.renderGuideLines(app, []);
-    expect(`wire ${name} clears obsolete guides`, previous.every(node => node.removed) && !app._axisGlowResolved.length);
+    expect(`wire ${name} clears obsolete guides`, previous.every(node => node.removed) && !axisGlowState(app).resolved.length);
     expect(`wire ${name} never creates the old guide pool`, !Object.hasOwn(app, '_collinearGuides'));
 }
 
@@ -522,8 +523,8 @@ for (const [name, edge, collinear, axisKind] of [
     expect('wire 45° segment shows a diagonal guide', on.guides.length === 1 && on.guides[0].axisKind === 'd');
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     sharedGlow.renderGuideLines(app, on.guides);
-    expect('wire 45° guide uses the diagonal color and dashes', app._axisGlowHalos[0].getAttribute('stroke') === '#CC79A7'
-        && app._axisGlowTop[0].getAttribute('stroke-dasharray') === '0.4 0.3');
+    expect('wire 45° guide uses the diagonal color and dashes', axisGlowState(app).halos[0].getAttribute('stroke') === '#CC79A7'
+        && axisGlowState(app).top[0].getAttribute('stroke-dasharray') === '0.4 0.3');
     const exact = wireGuides.computeMovingSegmentSnaps(0.5, [{ moving: { x: -4, y: 4 }, fixed: { x: 0, y: 0 } }], undefined, { diagonal: true });
     expect('an exact 45° wire keeps its position and shows the guide', exact.adjustX === 0 && exact.adjustY === 0
         && exact.guides[0]?.axisKind === 'd');
@@ -542,17 +543,17 @@ for (const [name, edge, collinear, axisKind] of [
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
     const corner = shape.getOrderedNodeIds()[0];
     renderShapeAlignment(app, shape, [corner]);
-    expect('square anchor editing uses exactly four shared indicators', app._axisGlowResolved.length === 4
-        && app._axisGlowResolved.every(({ segment }) => segment.square));
-    expect('square feedback remains blue with a solid centerline', app._axisGlowHalos.every(line => line.getAttribute('stroke') === '#0072B2')
-        && app._axisGlowTop.every(line => !line.getAttribute('stroke-dasharray')));
-    const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+    expect('square anchor editing uses exactly four shared indicators', axisGlowState(app).resolved.length === 4
+        && axisGlowState(app).resolved.every(({ segment }) => segment.square));
+    expect('square feedback remains blue with a solid centerline', axisGlowState(app).halos.every(line => line.getAttribute('stroke') === '#0072B2')
+        && axisGlowState(app).top.every(line => !line.getAttribute('stroke-dasharray')));
+    const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     shape.moveAnchor(corner, -2, 0);
     renderShapeAlignment(app, shape, [corner]);
     expect('leaving square aspect clears indicators without redundant H/V guides', previous.every(node => node.removed)
-        && app._axisGlowResolved.length === 0);
+        && axisGlowState(app).resolved.length === 0);
     clearDragState(app);
-    expect('square editing cleanup uses the shared lifecycle', app._axisGlowResolved === null);
+    expect('square editing cleanup uses the shared lifecycle', axisGlowState(app).resolved === null);
 }
 
 {
@@ -561,13 +562,13 @@ for (const [name, edge, collinear, axisKind] of [
         toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
     setSchematicDrawingActive(app, true);
     updatePreview(app);
-    expect('square preview uses one shared outline', app._axisGlowResolved.length === 4
-        && app._axisGlowResolved.every(({ segment }) => segment.square));
+    expect('square preview uses one shared outline', axisGlowState(app).resolved.length === 4
+        && axisGlowState(app).resolved.every(({ segment }) => segment.square));
     app.drawCurrent = { x: 12, y: 10 };
     updatePreview(app);
-    expect('non-square preview suppresses redundant H/V indicators', app._axisGlowResolved.length === 0);
+    expect('non-square preview suppresses redundant H/V indicators', axisGlowState(app).resolved.length === 0);
     cancelDrawing(app);
-    expect('rectangle preview cancellation clears consolidated guides', app._axisGlowResolved === null);
+    expect('rectangle preview cancellation clears consolidated guides', axisGlowState(app).resolved === null);
 }
 
 for (const commit of [false, true]) {
@@ -581,30 +582,30 @@ for (const commit of [false, true]) {
     setPcbInteraction(app, '_shapeDraw', { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') });
     setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 10, y: 10 });
-    expect('PCB square drawing displays all four sides on the correct layer', app._axisGlowResolved.length === 4
-        && app._axisGlowResolved.every(({ segment }) => segment.square && segment.layerId === 'top-silk'));
-    expect('PCB square drawing uses the shared blue solid style', app._axisGlowHalos.every(line => line.getAttribute('stroke') === '#0072B2')
-        && app._axisGlowTop.every(line => !line.getAttribute('stroke-dasharray')));
+    expect('PCB square drawing displays all four sides on the correct layer', axisGlowState(app).resolved.length === 4
+        && axisGlowState(app).resolved.every(({ segment }) => segment.square && segment.layerId === 'top-silk'));
+    expect('PCB square drawing uses the shared blue solid style', axisGlowState(app).halos.every(line => line.getAttribute('stroke') === '#0072B2')
+        && axisGlowState(app).top.every(line => !line.getAttribute('stroke-dasharray')));
     updateShapeDrawPreview(app, { x: -10, y: -10 });
-    expect('PCB square preview handles reversed corners', app._axisGlowResolved.length === 4);
+    expect('PCB square preview handles reversed corners', axisGlowState(app).resolved.length === 4);
     updateShapeDrawPreview(app, { x: 10, y: 10 + Number.EPSILON * 10 });
-    expect('PCB square preview tolerates floating-point roundoff', app._axisGlowResolved.length === 4);
-    const squareOutline = [...app._axisGlowHalos, ...app._axisGlowTop];
+    expect('PCB square preview tolerates floating-point roundoff', axisGlowState(app).resolved.length === 4);
+    const squareOutline = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     updateShapeDrawPreview(app, { x: 10, y: 10.000001 });
-    expect('PCB nearly square preview clears indicators without H/V guides', !app._axisGlowResolved.length
+    expect('PCB nearly square preview clears indicators without H/V guides', !axisGlowState(app).resolved.length
         && squareOutline.every(node => node.removed));
     updateShapeDrawPreview(app, { x: -10, y: -10.049 });
-    expect('PCB square preview rejects the former visual tolerance', !app._axisGlowResolved.length);
+    expect('PCB square preview rejects the former visual tolerance', !axisGlowState(app).resolved.length);
     updateShapeDrawPreview(app, { x: 0, y: 0 });
-    expect('PCB degenerate preview has no square indicator', !app._axisGlowResolved.length);
+    expect('PCB degenerate preview has no square indicator', !axisGlowState(app).resolved.length);
     updateShapeDrawPreview(app, { x: 10, y: 10 });
-    const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+    const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
     if (commit) {
         getShapeDraw(app).points.push({ x: 10, y: 10 });
         finishShapeDraw(app);
     } else cancelShapeDraw(app);
     expect(`PCB rectangle drawing ${commit ? 'completion' : 'cancellation'} clears the indicator`,
-        app._axisGlowResolved === null && getShapeDraw(app) == null && previous.every(node => node.removed));
+        axisGlowState(app).resolved === null && getShapeDraw(app) == null && previous.every(node => node.removed));
 }
 
 for (const mode of ['corner', 'segment', 'move']) {
@@ -623,17 +624,17 @@ for (const mode of ['corner', 'segment', 'move']) {
         startBoardShapeDrag(app, shape, start, mode === 'corner' ? 0 : null,
             { whole: mode !== 'corner', allowSegment: mode === 'segment' });
         handleBoardShapeDrag(app, target);
-        expect(`PCB ${mode} drag shows the full square indicator`, app._axisGlowResolved.length === 4
-            && app._axisGlowResolved.every(({ segment }) => segment.square));
+        expect(`PCB ${mode} drag shows the full square indicator`, axisGlowState(app).resolved.length === 4
+            && axisGlowState(app).resolved.every(({ segment }) => segment.square));
         if (mode !== 'move') {
             handleBoardShapeDrag(app, { x: target.x, y: target.y - 1 });
-            expect(`PCB ${mode} drag suppresses indicators outside square aspect`, !app._axisGlowResolved.length);
+            expect(`PCB ${mode} drag suppresses indicators outside square aspect`, !axisGlowState(app).resolved.length);
             handleBoardShapeDrag(app, target);
         }
-        const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
+        const previous = [...axisGlowState(app).halos, ...axisGlowState(app).top];
         endBoardShapeDrag(app, commit);
         expect(`PCB ${mode} drag ${commit ? 'completion' : 'cancellation'} clears square indicators`,
-            app._axisGlowResolved === null && previous.every(node => node.removed));
+            axisGlowState(app).resolved === null && previous.every(node => node.removed));
     }
 }
 
@@ -654,15 +655,15 @@ for (const height of [8, 10]) {
     const actualHeight = Math.abs(displayed.points[2].y - displayed.points[0].y);
     expect(`PCB corner snaps ${height === 10 ? 'an existing square' : 'a rectangle'} to exact square geometry`,
         Math.abs(width - actualHeight) < 1e-9 && Math.abs(displayed.points[0].x - 0.1) < 1e-9
-        && app._axisGlowResolved.length === 4);
+        && axisGlowState(app).resolved.length === 4);
     expect('square snapping preserves the fixed opposite corner', displayed.points[2].x === 10 && displayed.points[2].y === height);
     handleBoardShapeDrag(app, { x: 0.1, y: height - 9.3 });
-    expect('PCB corner releases square snapping beyond the alignment threshold', !app._axisGlowResolved.length
+    expect('PCB corner releases square snapping beyond the alignment threshold', !axisGlowState(app).resolved.length
         && Math.abs(displayed.points[0].y - (height - 9.3)) < 1e-9);
     app.viewport.shiftHeld = true;
     handleBoardShapeDrag(app, target);
     expect('Shift bypasses square snapping and removes the square indicator', displayed.points[0].x === target.x
-        && displayed.points[0].y === target.y && !app._axisGlowResolved.length);
+        && displayed.points[0].y === target.y && !axisGlowState(app).resolved.length);
     endBoardShapeDrag(app, false);
 }
 
@@ -687,9 +688,9 @@ for (const index of [0, 2]) {
     expect(`schematic endpoint ${index} snaps to an oblique continuation`, Math.abs(snapped.y * 10 - snapped.x * 3) < 1e-9);
     schematic.moveAnchor(nodeId, snapped.x, snapped.y);
     renderShapeAlignment(schematicApp, schematic, [schematic.getOrderedNodeIds()[index]]);
-    expect(`schematic endpoint ${index} shows blue dotted collinear feedback`, schematicApp._axisGlowResolved.length === 2
-        && schematicApp._axisGlowResolved.every(({ dashKind }) => dashKind === 'dotted')
-        && schematicApp._axisGlowHalos.every(halo => halo.getAttribute('stroke') === '#0072B2'));
+    expect(`schematic endpoint ${index} shows blue dotted collinear feedback`, axisGlowState(schematicApp).resolved.length === 2
+        && axisGlowState(schematicApp).resolved.every(({ dashKind }) => dashKind === 'dotted')
+        && axisGlowState(schematicApp).halos.every(halo => halo.getAttribute('stroke') === '#0072B2'));
 
     const shape = { id: 'collinear-endpoint', kind: 'line', layer: 'top-copper', lineWidth: 0.4,
         points: points.map(point => ({ ...point })) };
@@ -702,10 +703,10 @@ for (const index of [0, 2]) {
     startBoardShapeDrag(app, shape, shape.points[index], index);
     handleBoardShapeDrag(app, cursor);
     expect(`PCB endpoint ${index} snaps to exact oblique geometry`, Math.abs(getBoardShapeDrag(app).shape.points[index].y * 10 - getBoardShapeDrag(app).shape.points[index].x * 3) < 1e-9);
-    expect(`PCB endpoint ${index} shows both collinear segments`, app._axisGlowResolved.length === 2
-        && app._axisGlowResolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
+    expect(`PCB endpoint ${index} shows both collinear segments`, axisGlowState(app).resolved.length === 2
+        && axisGlowState(app).resolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
     handleBoardShapeDrag(app, { x: points[index].x, y: points[index].y + 1 });
-    expect(`PCB endpoint ${index} clears feedback when no longer aligned`, !app._axisGlowResolved.length);
+    expect(`PCB endpoint ${index} clears feedback when no longer aligned`, !axisGlowState(app).resolved.length);
     endBoardShapeDrag(app, false);
 }
 
@@ -717,12 +718,12 @@ for (const index of [0, 2]) {
     setPcbInteraction(app, '_shapeDraw', { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') });
     setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 20, y: 6.15 });
-    expect('PCB drawing preview shows collinear continuation', app._axisGlowResolved.length === 2
-        && app._axisGlowResolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
+    expect('PCB drawing preview shows collinear continuation', axisGlowState(app).resolved.length === 2
+        && axisGlowState(app).resolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
     updateShapeDrawPreview(app, { x: 20, y: 7 });
-    expect('PCB drawing preview clears collinear feedback off alignment', !app._axisGlowResolved.length);
+    expect('PCB drawing preview clears collinear feedback off alignment', !axisGlowState(app).resolved.length);
     cancelShapeDraw(app);
-    expect('PCB line drawing cancellation clears alignment feedback', app._axisGlowResolved === null);
+    expect('PCB line drawing cancellation clears alignment feedback', axisGlowState(app).resolved === null);
 }
 
 {

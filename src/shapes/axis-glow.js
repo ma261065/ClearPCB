@@ -21,12 +21,27 @@ const COLLINEAR_GLOW_COLOR = '#0072B2';
  * @typedef {{
  *   viewport?: {scale?: number, contentLayer?: Element},
  *   getLayerGroup?: (layerId?: string) => Element|null,
- *   _axisGlowHalos?: Element[]|null,
- *   _axisGlowTop?: Element[]|null,
- *   _axisGlowResolved?: Array<{segment: AxisSegment, dashKind: string}>|null,
  *   [key: string]: any,
  * }} AxisGlowApp
+ * @typedef {{
+ *   halos: Element[]|null,
+ *   top: Element[]|null,
+ *   resolved: Array<{segment: AxisSegment, dashKind: string}>|null,
+ * }} AxisGlowState
  */
+
+/** @type {WeakMap<object, AxisGlowState>} */
+const axisGlowState = new WeakMap();
+
+/** @param {AxisGlowApp} app */
+export function getAxisGlowState(app) {
+    let state = axisGlowState.get(app);
+    if (!state) {
+        state = { halos: null, top: null, resolved: null };
+        axisGlowState.set(app, state);
+    }
+    return state;
+}
 
 /**
  * @param {Point} a
@@ -137,6 +152,7 @@ export function renderGuideLines(app, guides) {
  */
 export function renderAxisGlow(app, segments) {
     clearAxisGlow(app);
+    const state = getAxisGlowState(app);
     const resolved = [];
     const halos = [];
     for (const segment of segments || []) {
@@ -157,39 +173,41 @@ export function renderAxisGlow(app, segments) {
         halos.push(halo);
         resolved.push({ segment, dashKind });
     }
-    app._axisGlowHalos = halos;
-    app._axisGlowResolved = resolved;
+    state.halos = halos;
+    state.resolved = resolved;
     renderAxisGlowTop(app);
 }
 
 /** @param {any} app */
 export function renderAxisGlowTop(app) {
-    for (const element of app._axisGlowTop || []) element.remove();
+    const state = getAxisGlowState(app);
+    for (const element of state.top || []) element.remove();
     const centerlines = [];
-    for (const { segment, dashKind } of app._axisGlowResolved || []) {
+    for (const { segment, dashKind } of state.resolved || []) {
         const parent = layerFor(app, segment);
         if (!parent) continue;
         const centerline = makeAxisGlowCenterline(app, segment, dashKind);
         parent.appendChild(centerline);
         centerlines.push(centerline);
     }
-    app._axisGlowTop = centerlines;
+    state.top = centerlines;
 }
 
 /** @param {any} app */
 export function refreshAxisGlow(app) {
-    const resolved = /** @type {Array<{segment: any}>|undefined} */ (app._axisGlowResolved);
+    const resolved = /** @type {Array<{segment: any}>|null} */ (getAxisGlowState(app).resolved);
     const segments = resolved?.map(entry => entry.segment);
     if (segments) renderAxisGlow(app, segments);
 }
 
 /** @param {any} app */
 export function clearAxisGlow(app) {
-    for (const key of ['_axisGlowHalos', '_axisGlowTop']) {
-        for (const element of app[key] || []) element.remove();
-        app[key] = null;
-    }
-    app._axisGlowResolved = null;
+    const state = getAxisGlowState(app);
+    for (const element of state.halos || []) element.remove();
+    for (const element of state.top || []) element.remove();
+    state.halos = null;
+    state.top = null;
+    state.resolved = null;
 }
 
 /**

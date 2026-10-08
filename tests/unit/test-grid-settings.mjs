@@ -109,7 +109,7 @@ assert.equal(withoutControls.viewport.gridSize, 0.254, 'Preset normalization doe
 const app = editor();
 let dirtyChanges = 0;
 app.fileManager = { setDirty(value) { assert.equal(value, true); dirtyChanges++; } };
-app._updateGridDropdown = () => updateGridDropdown(app);
+app.updateGridDropdown = () => updateGridDropdown(app);
 bindViewportControls(app);
 app.ui.gridSize.value = '0.5';
 app.ui.gridSize.change();

@@ -157,10 +157,13 @@ plain-object editor spread `pcbEditorStubs()` or `schematicEditorStubs()` from
 `node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
 private editor accesses against `tools/pcb-editor-access-baseline.json`, and
 `node tools/check-schematic-editor-access.mjs` checks the schematic layer
-(`src/schematic`) against `tools/schematic-editor-access-baseline.json`. Both
-baselines are empty, so any `app._x` use fails: call the owning module's export
+(`src/schematic`) against `tools/schematic-editor-access-baseline.json`.
+`node tools/check-shared-editor-access.mjs` checks shared code (`src/core`,
+`src/shapes`, `src/components`, `src/shared/ui`, `src/shared/3d`, `src/easyeda`)
+against `tools/shared-editor-access-baseline.json`. All three baselines are
+empty, so any editor-like `app._x`, `editor._x` or `host._x` use fails: call the owning module's export
 (for example `cancelPcbPosePreviews` in `edit-lifecycle.js`) or a public editor
-service instead. Both run as hard checks in the regression gate. `test-schematic-module-load-order` loads each
+service instead. They run as hard checks in the regression gate. `test-schematic-module-load-order` loads each
 schematic module first in a fresh process, so a direct import that creates an
 evaluation-order cycle fails.
 
@@ -478,7 +481,7 @@ object before it runs. A new command class must declare `lockTargets()`;
 ## Checks
 
 - `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'
-  private-access ratchets, doc references (`tools/check-doc-references.mjs`: every test,
+  and shared-code private-access ratchets, doc references (`tools/check-doc-references.mjs`: every test,
   file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered. A test

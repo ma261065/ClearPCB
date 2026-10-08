@@ -25,6 +25,9 @@ assert.deepEqual(privateEditorMembers(`
     // app._commented
     /* app._blockCommented */
 `), ['_one', '_two']);
+assert.deepEqual(privateEditorMembers(`
+    app._one; editor?._two(); host._three; this._own;
+`, ['app', 'editor', 'host']), ['_one', '_three', '_two']);
 
 const { editorAccessLoopholes } = await import('../../tools/check-pcb-editor-access.mjs');
 assert.deepEqual(editorAccessLoopholes([
