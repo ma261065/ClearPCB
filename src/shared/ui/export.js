@@ -2,10 +2,9 @@
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
 /** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
 /** @typedef {{viewport: Viewport}} ViewportExportApp */
-/** @typedef {{_pdfVectorLoader?: Promise<Function>}} VectorPdfLoaderHost */
 /** @typedef {{getSelection: () => any[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection */
 /** @typedef {{fileName?: string|null}} ExportFileManager */
-/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport, _pdfVectorLoader?: Promise<Function>}} ExportApp */
+/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport}} ExportApp */
 /** @typedef {{x: number, y: number, width: number, height: number}} ExportViewBox */
 
 /**
@@ -166,14 +165,17 @@ export async function printSchematic(app) {
     }
 }
 
+/** Each editor's vector PDF library load, started on its first PDF export. */
+const pdfVectorLoaders = /** @type {WeakMap<object, Promise<Function>>} */ (new WeakMap());
+
 /**
- * Lazy-loads jspdf and svg2pdf vendor scripts.
- * @param {object} app - Application state.
+ * Lazy-loads jspdf and svg2pdf vendor scripts, once per editor.
+ * @param {object} app - The editor exporting.
  * @returns {Promise<Function>} Resolves to the `jsPDF` constructor.
  */
 export function loadVectorPdfLibs(app) {
-    const host = /** @type {VectorPdfLoaderHost} */ (app);
-    if (host._pdfVectorLoader) return host._pdfVectorLoader;
+    const pending = pdfVectorLoaders.get(app);
+    if (pending) return pending;
 
     /**
      * @param {string} src
@@ -201,7 +203,7 @@ export function loadVectorPdfLibs(app) {
         document.head.appendChild(script);
     });
 
-    host._pdfVectorLoader = (async () => {
+    const loader = (async () => {
         await loadScript(new URL('../../../assets/vendor/jspdf.umd.min.js', import.meta.url).href);
         await loadScript(new URL('../../../assets/vendor/svg2pdf.umd.min.js', import.meta.url).href);
 
@@ -212,8 +214,8 @@ export function loadVectorPdfLibs(app) {
         }
         return w.jspdf.jsPDF;
     })();
-
-    return host._pdfVectorLoader;
+    pdfVectorLoaders.set(app, loader);
+    return loader;
 }
 
 /**
