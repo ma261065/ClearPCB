@@ -51,7 +51,7 @@ arc-aware outline path (`_buildOutlinePathD`) instead of a polygon.
 Pure functions (take the shapes array directly, no editor state):
 
 - `isJoinable(shape)` / `joinableAnchors(shape)` — which shapes/endpoints can join.
-- `findJoinTarget(shapes, worldPos, tol, dragShape)` — nearest joinable endpoint
+- `findJoinTarget(shapes, worldPos, tol, dragShape, dragAnchorId)` — nearest joinable endpoint
   on another shape; drives the snap highlight and the drop merge.
 - `joinShapes(shapeA, anchorA, shapeB, anchorB)` — fuse into a new `Polyline`
   (via `absorb` + `mergeNodes`); auto-fuses any further coincident open ends and
@@ -83,8 +83,8 @@ declares the same `bulge` edge attribute for curved track segments. Free-standin
 PCB board shapes have their own arc/segment editing path in
 `src/pcb/modules/board-shapes.js` and `board-shape-properties.js`.
 
-The endpoint-to-endpoint shape-join gesture is not wired into the PCB editor.
-To add it, a PCB drag adapter would call
+The endpoint-to-endpoint shape-join gesture is available in the schematic
+editor. The PCB editor does not call it. To add it, a PCB drag adapter would call
 `findJoinTarget(app.shapes, pos, tol, dragShape, dragAnchorId)` and commit the
 result of `joinShapes()` through PCB commands. No schematic types are referenced
 by the shared modules.

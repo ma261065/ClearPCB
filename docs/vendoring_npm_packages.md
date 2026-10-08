@@ -83,17 +83,17 @@ npx esbuild node_modules/<package-name>/dist/index.js --bundle --format=esm --ou
 Pop-Location
 ```
 
-## Currently vendored packages
+## Vendored packages
 
 | File | Package | GitHub | Version | Size | License |
 |------|---------|--------|---------|------|---------|
-| `clipper.esm.js` | jsclipper / ClipperLib | [junmer/clipper-lib](https://github.com/junmer/clipper-lib) | 6.4.2.2 | ~335KB | Boost Software License |
-| `earcut.module.js` | earcut | [mapbox/earcut](https://github.com/mapbox/earcut) | — | ~20KB | ISC |
+| `clipper.esm.js` | jsclipper / ClipperLib | [junmer/clipper-lib](https://github.com/junmer/clipper-lib) | 6.4.2.2 | ~97KB | Boost Software License |
+| `earcut.module.js` | earcut | [mapbox/earcut](https://github.com/mapbox/earcut) | — | ~21KB | ISC |
 | `fflate.module.js` + `fflate.module.d.ts` | fflate | [101arrowz/fflate](https://github.com/101arrowz/fflate) | — | ~31KB + declarations | MIT |
-| `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | 2.5.1 | ~500KB | MIT |
-| `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
+| `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | 2.5.1 | ~356KB | MIT |
+| `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~81KB | MIT |
 | `three.module.js` | three (core only) | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~502KB | MIT |
-| `imagetracer.js` | imagetracerjs | [jankovicsandras/imagetracerjs](https://github.com/jankovicsandras/imagetracerjs/tree/1.2.6) | 1.2.6 | ~47KB | Unlicense |
+| `imagetracer.js` | imagetracerjs | [jankovicsandras/imagetracerjs](https://github.com/jankovicsandras/imagetracerjs/tree/1.2.6) | 1.2.6 | ~46KB | Unlicense |
 | `vtracer_wasm.js` + `vtracer_wasm_bg.wasm` | @visioncortex/vtracer | [visioncortex/vtracer](https://github.com/visioncortex/vtracer/tree/1.0.0-alpha.4) | 1.0.0-alpha.4 | ~15KB + 653KB | MIT OR Apache-2.0; dependency notices included |
 
 ImageTracerJS is downloaded from the upstream `1.2.6` tag's
@@ -164,7 +164,7 @@ the dependency inventory from that exact build. Headless coverage:
 > controls addon is bundled). If the viewer starts using new three.js features
 > (e.g. `RoomEnvironment` / `PMREMGenerator` for prefiltered environment
 > reflections), add the symbols to the entry's export list and re-vendor. Full
-> current export list: `AmbientLight, Box3, BufferGeometry, CanvasTexture,
+> export list in this vendored bundle: `AmbientLight, Box3, BufferGeometry, CanvasTexture,
 > Color, DirectionalLight, DoubleSide, EquirectangularReflectionMapping,
 > Float32BufferAttribute, Group, LinearFilter, LinearMipmapLinearFilter, Mesh,
 > MeshStandardMaterial, PerspectiveCamera, PointLight, SRGBColorSpace, Scene,

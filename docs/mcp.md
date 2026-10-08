@@ -19,7 +19,7 @@ MCP change** until the session is disabled or another MCP write replaces it.
 
 ## Pairing
 
-1. Open ClearPCB and choose **File > AI Mode**.
+1. Open ClearPCB and choose **AI Mode** in the ribbon.
 2. Select **Enable MCP**.
 3. Copy the generated URL into the MCP client.
 4. Disable the session when finished.
@@ -33,8 +33,8 @@ an untrusted client.
 The browser connects to `/mcp/relay/<session-id>` by WebSocket. MCP clients use
 `/mcp/<session-id>` over Streamable HTTP. A Durable Object keyed by the random
 session ID relays typed requests and responses; it does not store project data.
-Messages larger than one WebSocket frame are chunked, with a 16 MiB limit per
-request or response.
+Payloads larger than 192 KiB are chunked, with a 16 MiB limit per request or
+response.
 
 ## Local Development
 

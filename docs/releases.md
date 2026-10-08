@@ -287,7 +287,7 @@ back to `dev` by merge or cherry-pick. Test and tag the next patch version;
 never move an existing release tag. Stable deployment requires the tag's
 commit to be reachable from its corresponding `release_MAJOR.MINOR` branch.
 
-Only the GitHub Release marked **Latest** may deploy. An older release-line
+Only the GitHub Release marked **Latest** may deploy. A previous release-line
 patch can be published without replacing a newer stable site; its deployment
 workflow will stop at the latest-release guard. To roll back, revert the bad
 change on the maintained release branch and publish a new patch release.
@@ -298,7 +298,7 @@ failures, but do not modify release assets or tags after distributing them.
 
 New saves use project format `1.0`. Pre-release `2.0` projects and recovery
 snapshots are intentionally rejected, with no automatic migration. Retain the
-old app revision and backups for work that must remain accessible. This is a
+matching app revision and backups for work that must remain accessible. This is a
 breaking pre-release transition, not a numeric downgrade migration.
 
 The format supports ordered multilayer copper and via spans, but the current

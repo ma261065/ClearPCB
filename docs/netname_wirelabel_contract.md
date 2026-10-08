@@ -2,13 +2,13 @@
 
 ## Goal
 
-Describe the data model ClearPCB uses today for schematic wire identity and
-visible labels. The current model has two separate concepts:
+Describe the data model ClearPCB uses for schematic wire identity and visible
+labels. The model has two separate concepts:
 
 - `wire.net`: electrical identity for a wire graph.
 - `wire.wireLabel`: the visible wire-name text, shown through an attached label.
 
-There is no `wire.netName` field in the current source or file format.
+There is no `wire.netName` field in the source or file format.
 
 ## Wire shape
 
@@ -90,8 +90,8 @@ is attached to a wire, `label-attachment.js` can copy its text into
 `wire.wireLabel`, and wire reconciliation (`schematic/modules/wire-reconcile.js`, with the label rules in
 `wire-labels.js`) marks one
 attached label as the primary wire-name label with `attachment.wireName === true`.
-The command and property paths still accept the `wireLabel` field key so older or
-undo-restored data remains editable.
+The command and property paths also accept the `wireLabel` field key so
+undo-restored or compatibility data remains editable.
 
 ## Source-of-truth rules
 

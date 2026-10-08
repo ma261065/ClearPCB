@@ -2,7 +2,7 @@
 
 ClearPCB stores one logical JSON document containing both the schematic and PCB.
 This document describes the canonical format (`version: "1.0"`). Files saved
-with the pre-release `"2.0"` label are deliberately rejected, including old
+with the pre-release `"2.0"` label are deliberately rejected, including matching
 autorecovery snapshots. There is no automatic migration.
 
 On disk, `.cpcb` is a ZIP container: `manifest.json` identifies the container and
@@ -15,7 +15,7 @@ Plain JSON input is also supported, subject to the same project validation.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
 are not valid. ClearPCB-owned records are strict: unknown fields, obsolete
-fields, and legacy representations make the file invalid. Record fields may
+fields, and unsupported representations make the file invalid. Record fields may
 use either the compact persisted key or its documented long-form alias. If
 both aliases occur with different values, the file is rejected as ambiguous;
 equal duplicates are accepted and normalized. ClearPCB never mutates the
@@ -23,8 +23,9 @@ supplied object while normalizing it. Loading stops at the first error and
 reports its property path plus a line-numbered JSON snippet of
 the faulty value. Invalid JSON is reported with the ZIP member name, exact
 source line and column, a bounded source excerpt, and a caret at the offending
-character, including for minified one-line members. Provider-defined values nested inside supported component
-metadata retain their provider-specific structure.
+character, including for minified one-line members. Provider-defined values
+nested inside supported component metadata retain their provider-specific
+structure.
 
 ## Document Envelope
 
@@ -81,7 +82,7 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
   closed outline; ordinary artwork retains even-odd crossings, while board
   outlines must remain simple. Collapsed curved edges, conflicting widths/radii and merged
   rounded corners fail explicitly rather than lose properties or enlarge a
-  radius previously constrained by the tiny edge. Open lines, electrical graphs
+  radius constrained by the tiny edge. Open lines, electrical graphs
   and parametric rectangles/images are not subject to this polygon cleanup.
 - IDs are opaque strings. Readers must not infer object type solely from an ID
   prefix.
@@ -173,7 +174,7 @@ Polylines and wires use graph storage rather than a single point array:
 | `nd` | Node map. Each value is `[x, y]`. New rectangle records use a frame and `cn` instead. |
 | `ed` | Edge map. Each value is `[fromNodeId, toNodeId]`. |
 | `cl` | Closed graph. Omitted/false means open. |
-| `f` | Filled. Graph serializers emit this explicitly. |
+| `f` | Filled. Polyline and track serializers emit this explicitly; wire records omit it. |
 | `fa` | Fill alpha. Omitted when `0.3`. |
 | `cr` | Corner radius. Omitted when zero. |
 | `bg` | Per-edge bulge map for curved edges. |
@@ -188,7 +189,7 @@ and `ew` for edge-specific layers and widths.
 | --- | --- |
 | `wl` | Wire label string. Emitted for every wire. |
 | `pc` | Pin-connection map keyed by node ID. |
-| `n` | Net name; omitted when empty. |
+| `n` | Net name; emitted when non-empty. New wires receive an auto-assigned `NetNNNN` name. |
 | `lo` | Non-default wire-label offset `[x, y]`. |
 
 ### Circle
@@ -240,7 +241,7 @@ width/bulge metadata. `ncr` remains keyed by node ID. Coordinates are derived
 from the frame when loading.
 
 `cr` is the optional corner radius. Fill-related fields use `f`, `fc`, and `fa`.
-Legacy rectangle records with `nd`/`ed` remain readable temporarily; saving them
+Rectangle records with `nd`/`ed` remain readable for compatibility; saving them
 emits the frame representation. Supplying both a frame and `nd` is invalid.
 A persisted `points` array or `type: "rect"` is still invalid.
 
@@ -313,8 +314,8 @@ Component instances are stored in `schematic.components`:
 
 Package selection is per instance and only applies to built-in library
 definitions. Built-in geometry is regenerated from the bundled catalogue, not
-embedded in the project. Older projects without `pkg` use the original package
-with its bundled 3D model. An unknown package ID, a package not offered for that
+embedded in the project. Files without `pkg` use the default package and bundled
+3D model for that component. An unknown package ID, a package not offered for that
 component type, or `pkg` on an embedded/custom definition is rejected.
 
 Non-built-in component definitions are embedded while serializing, then moved
@@ -403,7 +404,7 @@ Layer locks are separate: they are local editor preferences and are not saved.
 | `design.vd` (`viaDiameter`) | number | Default via outside diameter in mm; positive, at most 25. |
 | `design.dr` (`viaDrill`) | number | Default via drill diameter in mm; positive, at most 25. Larger saved routing values are clamped to these maximums on load. |
 | `design.u` (`units`) | string | PCB UI display units, normally `"mm"` or `"inch"`. |
-| `design.rt` (`router`) | string | Router mode, currently `"maze"` or `"pathfinder"`. |
+| `design.rt` (`router`) | string | Router mode: `"maze"` or `"pathfinder"`. |
 
 `stackup`, `design`, and every `design` field listed above are required when
 `pcb` exists. `board` is optional, but when present it may contain only `w`, `h`,
@@ -487,8 +488,8 @@ The Horizontal/Vertical edges groups independently enable positioning holes
 and fiducial marks on their nonzero rails (top/bottom and left/right respectively).
 All four boolean settings default to false and work with tabs or V-cuts.
 Each enabled rail gets two 3 mm NPTH positioning holes and/or two 1 mm copper
-fiducials with 3 mm mask openings on both sides, with no paste. Dimensions
-are currently fixed. Features sit on the rail centerline, 2.5 mm in from each
+fiducials with 3 mm mask openings on both sides, with no paste. These dimensions
+are fixed. Features sit on the rail centerline, 2.5 mm in from each
 end of the board-array span; when both options are on, fiducials move to
 6.5 mm in from each end. Rails must be at least 5 mm wide and long enough
 for the selected features. Validation enforces 1 mm clearance from rail edges,
@@ -502,8 +503,8 @@ power-of-two steps, capped at 2048 pixels per side. Rails and separation marks
 remain vector geometry, and fabrication output is unaffected. Ghosts are not
 stored as duplicate authored objects. Applying a panel initially creates its
 note lines as ordinary `pcb.texts` objects on `top-document`, with normal
-selection, editing, movement, deletion and undo. Existing panels from older
-files get these texts on their next Apply. The optional `noteCreated: true`
+selection, editing, movement, deletion and undo. Panel settings without
+`noteCreated: true` create these texts on their next Apply. The optional `noteCreated: true`
 panel setting records this conversion, so subsequent panel edits and redraws
 do not overwrite edits or regenerate deleted notes. Removing panel settings
 leaves these independent text objects untouched. The note is a snapshot at
@@ -585,7 +586,7 @@ Tracks use the schematic graph base plus track fields:
 | `ncr` | Per-node corner-radius overrides keyed by node ID, including zero to retain a sharp corner. |
 | `bg` | Edge bulges keyed by edge ID. |
 | `pdc` | Pad connections keyed by node ID. |
-| `sbs` | Identity of the board shape a track was converted from: `{ id, plated }` (both optional; `plated` only when the source was a plated hole). Reused when the track turns back into a board shape, the id only while no other shape uses it. Older files stored a full shape copy here; it is read and trimmed to these fields. |
+| `sbs` | Identity of the board shape a track was converted from: `{ id, plated }` (both optional; `plated` only when the source was a plated hole). Reused when the track turns back into a board shape, the id only while no other shape uses it. If a file stores a full shape copy here, it is read and trimmed to these fields. |
 
 Per-edge maps contain only values that differ from the shape-wide default.
 
@@ -612,8 +613,8 @@ loop to a non-copper layer turns it back into an unfilled board shape with the
 Giving such a track a copper removal mode likewise makes it an unfilled,
 netless board shape on its own copper layer.
 Track ids and board-shape ids must each be unique; opening or recovering a
-project that repeats one (possible with files from older builds) gives the later
-copies fresh ids, keeps their geometry and marks the project unsaved.
+project that repeats one gives the later copies fresh ids, keeps their geometry
+and marks the project unsaved.
 
 ### Vias
 
@@ -644,7 +645,7 @@ All vias, including track layer-change vias, are standalone entries in
 Both span endpoints must be declared copper layers, with `from` before `to`.
 A top-to-inner or inner-to-bottom span is blind; an inner-to-inner span is
 buried. Every copper layer between the endpoints participates in the via.
-The current editor can only load through vias on two-layer boards, and may
+The editor can only load through vias on two-layer boards, and may
 omit an explicit top-to-bottom span when saving because it equals the default.
 
 ### Standalone Pads
@@ -740,9 +741,9 @@ the artwork's horizontal/vertical flip settings.
 Frames must have all five finite numeric parameters and nonempty dimensions.
 Dimensions that round to zero are rejected rather than saved as degenerate frames.
 Partial frames or simultaneous frame and corner-coordinate representations
-are rejected. Legacy corner-based images and rectangles remain readable for
-migration, but new saves/autosaves use frames only. Older application versions
-without frame support cannot read these new records.
+are rejected. Corner-based images and rectangles remain readable for migration,
+but saves and autosaves use frames only. Application versions without frame
+support cannot read these records.
 
 #### Images
 
@@ -773,16 +774,15 @@ and `flipVertical` occupies two bits of `flags`, starting at the low bits:
 Coordinates are not rounded or quantized. Full JSON numeric precision survives
 save/load, including fractional source-pixel positions and radii. Placement is
 stored separately as the rectangle frame above, not as rounded corner points.
-For older rounded image records that fail strict rectangle validation, loading
+For rounded image records that fail strict rectangle validation, loading
 uses a bounded coordinate tolerance of 0.0001 mm and normalizes the points to a
 rectangle. Subsequent saves encode that rectangle as a frame.
 Empty bounds and distortion beyond that allowance remain invalid; strict
 runtime rectangle validation is unchanged.
 Loaded duplicates are independently editable. Only persistence uses this encoding;
 renderers and fabrication snapshots consume the decoded geometry described below.
-Legacy uncompressed artwork is not supported and is rejected when loading a
-project. Older app versions without these encoding tags cannot read compacted
-image records.
+Uncompressed artwork is not supported and is rejected when loading a project.
+App versions without these encoding tags cannot read compacted image records.
 
 Decoded rectangle artwork is `{ width, height, rectangles }`: integer raster
 dimensions (1 to 512 pixels each), and 1 to 2,000 nonoverlapping pixel-space runs
@@ -811,8 +811,8 @@ fill, independent of winding, so nested rings preserve holes and islands.
 `rectangles` and `contours` are mutually exclusive. The same optional invert/flip
 flags apply to either representation. ImageTracerJS and VTracer fitted curves are flattened
 with a maximum 0.125-source-pixel chord deviation and stored as contours; no library
-objects, SVG markup, or original image bytes are persisted. Older ClearPCB versions
-without contour-image support cannot load these new traced image records.
+objects, SVG markup, or original image bytes are persisted. ClearPCB versions
+without contour-image support cannot load these traced image records.
 
 Halftone images store `{ width, height, circles }`, with 1..2048 source dimensions
 and 1..20,000 circles. Each circle is `{ x, y, radius }` in source-pixel coordinates;
@@ -838,8 +838,8 @@ gaps, so logical connectivity does not guarantee connectivity between printed
 islands. Copper-removal pictures remain non-conductive and cut their actual artwork.
 Dot size is computed from grayscale
 cell averages at import; the source photo, dot-size setting and sampling grid are
-not persisted. Contour-based halftones use the same compact storage encodings. Older versions
-without circle-artwork support cannot load the new records. This representation
+not persisted. Contour-based halftones use the same compact storage encodings.
+App versions without circle-artwork support cannot load these records. This representation
 is internal to an image and is distinct from standalone board circle objects.
 
 Lines, arcs, rectangles and polygons store centreline coordinates. Their strokes
@@ -880,7 +880,7 @@ release, undo/redo and save/load; no per-node join-style flags are stored.
 | `remove-solder-mask` | Open solder mask without removing copper. |
 | `remove-copper-mask` | Remove copper and open solder mask. |
 
-The legacy aliases `remove` and `remove-mask` are invalid.
+The aliases `remove` and `remove-mask` are invalid.
 
 ### Copper Fills
 
@@ -904,7 +904,7 @@ Copper fills are stored inside `pcb.boardShapes` with `type: "fill"`:
 | Key | Meaning | Default when omitted |
 | --- | --- | --- |
 | `l` | `top-copper` or `bottom-copper`. | Required. |
-| `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Polygon/circle outline; legacy rectangles only. |
+| `pts` | Control vertices as `[x,y]` pairs, without a repeated closing point. | Polygon/circle outline; compatibility rectangles only. |
 | `x`, `y`, `w`, `h`, `rot`, `rev` | Rectangle frame described above; preserves vertex-indexed metadata. | Required for rectangle except optional `rev`. |
 | `k` (`kind`) | Closed outline geometry: `polygon`, `rect`, or `circle`. | Required. |
 | `cr` (`cornerRadius`) | Default corner radius in mm. | `0`. |
@@ -1011,10 +1011,10 @@ substrate and are excluded from fabricated-board previews and Gerbers.
 Generated footprint pad objects use shorter side values: `top`, `bottom`, or
 `both`. These are internal surface/through pad classifications, not standalone
 `pcb.pads` file values. Standalone saved pads use `top-copper`, `bottom-copper`,
-or `both` in their `ls`/`layers` field. A generated or standalone plated through
-pad marked `both` spans every copper layer, including inner layers, rather than
-only the two surfaces. Surface pads remain on the corresponding outer copper
-layer.
+or `both` in their `ls`/`layers` field. A generated or standalone pad marked
+`both` is handled on the top and bottom copper surfaces. Standalone pad records
+cannot name inner copper layers. Surface pads remain on the corresponding outer
+copper layer.
 
 ### Multilayer Contract
 
@@ -1049,7 +1049,7 @@ editing can use these fields without changing `version: "1.0"`.
 This defines connectivity and ordering, not a physical laminate specification:
 dielectric materials, copper weights, and impedance-controlled stackup details
 are not presently represented. Any future extension affecting manufacturing
-must be capability-checked before older editors may edit or export it.
+must be capability-checked before editors without that support may edit or export it.
 
 ### Version Policy
 
@@ -1143,7 +1143,7 @@ project document:
 
 ## Implementation Sources
 
-The format is currently defined by serializers and loaders rather than a JSON
+The format is defined by serializers and loaders rather than a JSON
 Schema file. The authoritative implementation points are:
 
 - `src/core/ProjectDocument.js`: document assembly and section ownership.

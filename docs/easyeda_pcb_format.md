@@ -14,7 +14,10 @@ All coordinates are in **10-mil units** (1 unit = 10 mils = 0.254 mm).
 
 To convert to mm: `value * 0.254` or equivalently `value / 3.937`.
 
-Coordinates are **absolute board positions** (e.g. ~3900–4100 range is typical), not relative to the footprint origin. The parser must center them by computing the centroid and offsetting to (0,0).
+Coordinates are **absolute board positions** (e.g. ~3900–4100 range is typical),
+not relative to the footprint origin. ClearPCB converts them to footprint-local
+coordinates by centering on the pad bounding box when pads exist, and on the
+overall parsed-geometry bounding box for silk-only footprints.
 
 ## Layer IDs (EasyEDA Standard)
 
@@ -52,13 +55,16 @@ Document graphics are design references, not copper or solder-mask openings.
 ClearPCB retains them in the editor and PDF/print exports, but excludes them
 from fabricated-board previews and Gerbers. Layer 12 is duplicated for every
 supported graphic type; layers 13 and 14 remain side-specific. EasyEDA Pro
-layers 99/100/101 are currently skipped by the footprint parser.
+layers 99/100/101 are skipped by the footprint parser.
 
 ### EasyEDA Pro Layer Differences
 
 EasyEDA Pro uses a **different numbering** for paste/mask:
 - Standard: 5/6 = paste, 7/8 = mask
 - Pro: 5/6 = mask, 7/8 = paste
+
+ClearPCB interprets these layer IDs using the EasyEDA Standard mapping above.
+It does not auto-detect and swap the EasyEDA Pro paste/mask numbering.
 
 ## Shape Formats
 
@@ -224,7 +230,8 @@ TEXT~type~x~y~strokeWidth~rotation~mirror~layer~net~fontSize~text~svgPath~displa
 | 13 | id | Shape ID |
 | 14 | locked | Lock flag |
 
-> **Not currently rendered** in ClearPCB (would need stroke path rendering).
+> **ClearPCB skips `TEXT` records.** Rendering them would require stroke path
+> rendering.
 
 ### SVGNODE
 
@@ -247,8 +254,8 @@ EasyEDA **does not store** paste mask and solder mask openings as explicit shape
 - **Solder mask:** Pad size + ClearPCB's fixed `MASK_EXPANSION` (`0.05` mm per side)
 
 The PAD format has optional `pasteExpansion` and `maskExpansion` fields at
-positions [16] and [17], but ClearPCB currently ignores them and generates these
-shapes from pad data.
+positions [16] and [17], but ClearPCB ignores them and generates these shapes
+from pad data.
 
 ## Implementation Notes
 
@@ -275,7 +282,11 @@ recover that information automatically; reimport them from the source library.
 
 ### Centering
 
-EasyEDA uses absolute board coordinates (~3900–4100 range). After parsing all shapes, the parser computes the centroid of all coordinates and offsets everything to (0,0) for footprint-local positioning.
+EasyEDA uses absolute board coordinates (~3900–4100 range). After parsing, the
+parser offsets pads, paste apertures and rendered graphics to footprint-local
+coordinates. It centers on the pad bounding box when pads exist so copper stays
+symmetric about the origin; for silk-only footprints it centers on the overall
+parsed-geometry bounding box.
 
 ### Scaling Detection
 
