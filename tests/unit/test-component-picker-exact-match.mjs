@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 globalThis.window ??= { addEventListener() {} };
-const { isExactNameMatch, pickerResultNames } = await import('../../src/components/ComponentPicker.js');
+const { isExactNameMatch, pickerResultNames } = await import('../../src/components/picker/ui-state.js');
 
 assert.equal(isExactNameMatch('C46749', ['NE555P', 'C46749']), true, 'an LCSC part number matches exactly');
 assert.equal(isExactNameMatch('C46749', ['NE555P', 'C467490']), false, 'a longer part sharing the prefix does not match');

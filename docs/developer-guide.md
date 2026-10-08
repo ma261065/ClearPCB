@@ -260,14 +260,15 @@ the source type-checks under the strict settings: `cleanFolders` in
 `tools/typecheck-strict-baseline.json` lists the folders with none, and the file lists
 the remaining errors per file. Work that is known but not done, with a way in:
 
-- **Component library.** `ComponentPicker.js` and `KiCadFetcher.js` are about 2,950
-  lines each and carry most of the remaining strict errors in `src/components` (with
-  `ComponentLibrary.js`, `STEPPreview.js` and the built-in packages and models). Split
-  them by what they do (picker search, list, preview and placement; fetcher index,
-  footprint, symbol and model download) the way `track-drag.js` and `board-shapes.js`
-  were split: one owner per piece of state, importers changed to the owner rather than
-  re-exported, the docs' owner index updated. Then type each piece and add the folder
-  to `cleanFolders`.
+- **Component library.** `ComponentPicker.js` is now the small public picker facade,
+  with search, result-list rendering, online selection, symbol/footprint previews,
+  UI state and placement hand-off owned by `src/components/picker/*`. Continue by
+  strictly typing those picker owners one at a time. `KiCadFetcher.js` remains about
+  2,950 lines and should be split by index, footprint, symbol and model download the
+  way `track-drag.js` and `board-shapes.js` were split: one owner per piece of state,
+  importers changed to the owner rather than re-exported, and the docs' owner index
+  updated. `ComponentLibrary.js`, `STEPPreview.js` and the built-in packages and
+  models also still carry strict errors.
 - **Shared code.** `src/shared/pcb` (board and shape geometry, footprints, pictures) and
   `src/shared/ui` (ribbon, viewport, modal, export) still have strict errors, as do
   `AppBootstrap.js` and `mcp-session.js` in `src/ui`. These are small, independent

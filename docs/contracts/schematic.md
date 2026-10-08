@@ -156,8 +156,8 @@ drawing tool with Escape does not leave an empty Properties tab. Selection
 properties remain visible when switching to Select with a selection.
 The picker's "Exact match" checkbox filters the current Online (EasyEDA/KiCad)
 or Local results to those whose part number, manufacturer part number or name
-equals the search text, ignoring case (`isExactNameMatch()`); toggling it
-re-filters without a new online search.
+equals the search text, ignoring case (`components/picker/ui-state.js`
+`isExactNameMatch()`); toggling it re-filters without a new online search.
 
 ## Text Orientation and Field Guides
 

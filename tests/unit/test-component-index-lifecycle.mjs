@@ -4,10 +4,14 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 installFakeDom();
+globalThis.getComputedStyle ??= () => ({ marginBottom: '0' });
 globalThis.fetch = () => { throw new Error('Unexpected remote access in lifecycle fixture'); };
 const { ComponentPicker } = await import('../../src/components/ComponentPicker.js');
 const { KiCadFetcher, warmKiCadIndex } = await import('../../src/components/KiCadFetcher.js');
 const { createGenerationGate, createDebouncedRunner } = await import('../../src/components/async-control.js');
+const { createPickerDOM } = await import('../../src/components/picker/dom.js');
+const { beginPlacement } = await import('../../src/components/picker/placement.js');
+const { prepareKiCadIndex, searchLCSC, setSearchMode } = await import('../../src/components/picker/search.js');
 const { ModalManager } = await import('../../src/core/ModalManager.js');
 const { onToolSelected, onComponentPickerClosed } = await import('../../src/schematic/modules/tool.js');
 const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
@@ -35,6 +39,21 @@ async function flush() {
 }
 function fixture({ cached = false, mode = 'lcsc' } = {}) {
     const load = deferred(), progress = [], calls = [], renders = [];
+    const listEl = document.createElement('div');
+    const body = document.createElement('div');
+    body.appendChild(listEl);
+    let listHtml = '';
+    Object.defineProperty(listEl, 'innerHTML', {
+        get() { return listHtml; },
+        set(value) {
+            listHtml = String(value);
+            listEl.replaceChildren();
+            const indexing = listHtml.match(/cp-indexing-message">([^<]+)/);
+            if (indexing) renders.push(indexing[1]);
+            else if (listHtml.includes('cp-lcsc-prompt')) renders.push('prompt');
+            else if (listHtml.includes('Searching online')) renders.push('loading');
+        },
+    });
     const fetcher = {
         libraryIndex: cached ? { symbols: { Device: ['R'] } } : null,
         ensureIndexLoaded(callback) {
@@ -44,24 +63,21 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
         },
     };
     const picker = Object.assign(Object.create(ComponentPicker.prototype), {
-        library: { kicadFetcher: fetcher }, isOpen: false, searchMode: mode, searchQuery: '',
+        library: { kicadFetcher: fetcher, getAllDefinitions: () => [] },
+        isOpen: false, searchMode: mode, searchQuery: '', selectedCategory: 'All',
         componentItems: new Map(), lazyLoader: null, searchRequestGate: createGenerationGate(),
         selectionRequestGate: createGenerationGate(), modeButtons: [],
         element: { classList: { remove() {}, add() {} }, querySelectorAll: () => [] },
-        eventBus: { emit() {} }, listEl: { innerHTML: '' },
+        eventBus: { emit() {} }, body, listEl,
         categoriesEl: { style: {} }, searchInput: {}, placeBtn: {}, previewSvg: {}, previewInfo: {},
-        _updatePackageSelector() {}, _disposeModel3dViewer() {},
-        _showLCSCPrompt() { renders.push('prompt'); },
-        _showIndexingProgress(message) { renders.push(message); },
-        _showLoading() { renders.push('loading'); },
-        _populateComponents() { renders.push('local'); },
-        _populateLCSCResults() { renders.push('results'); },
+        packageRow: { style: {} }, packageSelect: { replaceChildren() {} },
+        preview3d: { classList: { remove() {} } }, preview3dInfo: {},
         searchManager: {
             async searchLCSC(query) { calls.push(`online:${query}`); return [{ id: query }]; },
             async searchKiCad(query) { calls.push(`kicad:${query}`); return [{ name: query }]; },
         },
     });
-    picker.searchDebouncer = createDebouncedRunner(400, () => picker._searchLCSC());
+    picker.searchDebouncer = createDebouncedRunner(400, () => searchLCSC(picker));
     return { picker, fetcher, load, progress, calls, renders };
 }
 
@@ -112,8 +128,8 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
 
 {
     const f = fixture();
-    await f.picker._prepareKiCadIndex();
-    f.picker._setSearchMode('lcsc');
+    await prepareKiCadIndex(f.picker);
+    setSearchMode(f.picker, 'lcsc');
     assert.deepEqual(f.calls, [], 'Constructed/closed pickers do not initialize the index');
     f.picker.toggle();
     assert.equal(f.picker.isOpen, true);
@@ -132,9 +148,9 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
 {
     const f = fixture({ mode: 'local' });
     f.picker.toggle();
-    await f.picker._prepareKiCadIndex();
+    await prepareKiCadIndex(f.picker);
     assert.equal(f.calls.length, 0, 'The Local picker does not request another index load');
-    f.picker._setSearchMode('lcsc');
+    setSearchMode(f.picker, 'lcsc');
     assert.equal(f.calls.length, 1, 'Switching an open picker to Online starts indexing');
     f.load.resolve();
     await flush();
@@ -152,14 +168,15 @@ for (const finish of ['close', 'local', 'new-query']) {
     const f = fixture();
     f.picker.toggle();
     if (finish === 'close') f.picker.close();
-    else if (finish === 'local') f.picker._setSearchMode('local');
+    else if (finish === 'local') setSearchMode(f.picker, 'local');
     else { f.picker.searchQuery = 'resistor'; f.picker.searchRequestGate.next(); }
     const before = [...f.renders];
+    const beforeHtml = f.picker.listEl.innerHTML;
     f.progress[0]({ message: 'Late progress', loaded: 1, total: 2 });
     f.load.reject(new Error('Stale index failure'));
     await flush();
     assert.deepEqual(f.renders, before, `${finish}: stale index progress does not replace current UI`);
-    assert.equal(f.picker.listEl.innerHTML, '');
+    assert.equal(f.picker.listEl.innerHTML, beforeHtml);
     f.picker.close();
 }
 {
@@ -175,7 +192,7 @@ for (const finish of ['close', 'local', 'new-query']) {
     const f = fixture();
     f.picker.toggle();
     f.picker.searchQuery = 'NE555';
-    const search = f.picker._searchLCSC();
+    const search = searchLCSC(f.picker);
     f.progress[0]({ message: 'Obsolete opening progress', loaded: 0, total: 1 });
     assert.notEqual(f.renders.at(-1), 'Obsolete opening progress');
     f.fetcher.libraryIndex = { symbols: {} };
@@ -193,7 +210,7 @@ for (const finish of ['close', 'local', 'new-query']) {
     const error = console.error, logged = [];
     try {
         console.error = (...args) => logged.push(args);
-        const search = f.picker._searchLCSC();
+        const search = searchLCSC(f.picker);
         f.load.reject(new Error('Initial indexing failed'));
         await assert.doesNotReject(search, 'First-search index failures use the normal search error path');
         assert.equal(f.picker.isSearching, false, 'Index failures cannot leave a permanent loading state');
@@ -253,6 +270,8 @@ assert.equal(ModalManager.top(), null);
             classList: { add: value => classes.add(value), remove: value => classes.delete(value),
                 contains: value => classes.has(value) },
             addEventListener: (name, callback) => events.set(name, callback),
+            appendChild() {},
+            replaceChildren() {},
             click: () => events.get('click')?.(), focus() {},
             querySelector(selector) {
                 if (!controls.has(selector)) controls.set(selector, node());
@@ -265,7 +284,7 @@ assert.equal(ModalManager.top(), null);
     try {
         for (const action of ['button', 'escape', 'toggle', 'close']) for (const placing of [false, true]) {
             const { picker } = fixture({ mode: 'local' });
-            picker._createDOM();
+            createPickerDOM(picker);
             assert.match(picker.element.innerHTML, /<button type="button" class="cp-close app-modal-close"[^>]*aria-label="Close component picker"[^>]*>&times;<\/button>/,
                 'accessible X button uses the existing close-button styling');
             let closed = 0, disposed = 0, lazyDestroyed = 0, cancelled = 0;
@@ -282,7 +301,7 @@ assert.equal(ModalManager.top(), null);
                 selectTool(tool) { changes.push(tool); onToolSelected(this, tool); },
                 cancelComponentPlacement() { cancelled++; setSchematicInteraction(this, 'placingComponent', null); },
             };
-            picker._disposeModel3dViewer = () => { disposed++; };
+            picker._model3dViewer = { dispose() { disposed++; } };
             picker.eventBus.emit = name => {
                 if (name === 'component:pickerClosed') {
                     assert.equal(picker.isOpen, false);
@@ -298,11 +317,7 @@ assert.equal(ModalManager.top(), null);
             app.selectTool('component');
             picker.lazyLoader = { destroy() { lazyDestroyed++; } };
             if (placing) {
-                picker._normalizeDefinition = value => value;
-                picker._updatePreview = () => {};
-                picker._setPlaceBtnLoading = () => {};
-                picker._setPreviewLoading = () => {};
-                picker._beginPlacement({ name: 'Resistor' });
+                beginPlacement(picker, { name: 'Resistor' });
                 assert.equal(app.currentTool, 'component', 'Place Component still starts placement, not Select');
                 assert.equal(picker.isOpen, true);
                 assert.equal(closed, 0);

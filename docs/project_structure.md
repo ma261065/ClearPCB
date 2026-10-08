@@ -31,8 +31,8 @@ clearpcb/
 │   │                           # shared path editing (path-*, arc-*, shape-join, axis-glow, …)
 │   ├── components/             # Component/symbol ingestion and preview (BuiltInComponents,
 │   │                           # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
-│   │                           # ComponentPicker, KiCadFetcher, kicad-index-format,
-│   │                           # LCSCFetcher, Model3D*, …)
+│   │                           # ComponentPicker plus picker/* owners, KiCadFetcher,
+│   │                           # kicad-index-format, LCSCFetcher, Model3D*, …)
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
 │   │   ├── 3d/                 # Arcball controller, model rendering
@@ -242,6 +242,27 @@ Project and documents:
 - `core/FileManager.js` — file identity, ZIP read/write, autosave and recents;
   `core/project-format.js`, `core/project-field-aliases.js` — validation and key aliases.
 - `core/CommandHistory.js` — undo/redo engine; `core/id-allocator.js` — entity IDs.
+
+Component library:
+
+- `components/ComponentPicker.js` — public picker facade: construction, public lifecycle
+  methods and wiring to picker owner modules.
+- `components/picker/dom.js` — picker DOM creation, control binding, modal lifecycle and
+  close/destroy cleanup.
+- `components/picker/search.js` — search mode, debounced online queries and KiCad index
+  progress/failure display.
+- `components/picker/results-list.js` — local, EasyEDA and KiCad result-list rendering,
+  lazy mini-preview loading and local selection.
+- `components/picker/online-selection.js` — EasyEDA/KiCad result selection, metadata
+  loading and placeable online definitions.
+- `components/picker/symbol-preview.js` — symbol SVGs, thumbnails, package choices and
+  preview metadata.
+- `components/picker/footprint-preview.js` — footprint SVGs, 3D model previews and
+  KiCad footprint-choice rendering/ranking.
+- `components/picker/ui-state.js` — exact-match helpers plus small picker loading,
+  empty-state and button render states.
+- `components/picker/placement.js` — the final placement hand-off event emitted from
+  the picker to the schematic editor.
 
 PCB editor:
 
