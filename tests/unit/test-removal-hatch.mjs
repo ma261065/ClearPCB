@@ -27,6 +27,7 @@ document.createElementNS = (_ns, tag) => element(tag);
 const { removalHatchFill, stripRemovalHatches } = await import('../../src/pcb/modules/removal-hatch.js');
 const { getBoardShapeElement, renderBoardShape } = await import('../../src/pcb/modules/board-shape-render.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
+const { createPcbLayerGroups } = await import('../../src/pcb/modules/layer-groups.js');
 
 const patternsIn = defs => defs.children.filter(child => child.tagName === 'pattern');
 const appWithDefs = (defs, scale = 4) => {
@@ -97,8 +98,9 @@ console.log('PASS removal shapes are filled with their hatch');
     const order = [];
     const app = Object.assign(Object.create(PCBApp.prototype), {
         _layerGroups: new Map(), viewport: { addContent: g => order.push(g.getAttribute('data-layer')) },
+        existingLayerGroups() { return this._layerGroups; },
     });
-    app._createLayerGroups();
+    createPcbLayerGroups(app);
     const hole = order.indexOf('hole');
     assert.ok(hole >= 0);
     for (const layer of ['top-copper', 'bottom-copper', 'top-copper-knockout', 'bottom-copper-knockout', 'top-silk']) {

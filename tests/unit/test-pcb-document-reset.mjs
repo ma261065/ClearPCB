@@ -40,7 +40,6 @@ function fixture(active) {
         ui: { gridSize: element('select') },
         initialize() {}, _retainRibbonHeight() {},
         _updateViewportStatus() {}, syncPcbViewToggles() {},
-        _syncFromSchematic() { setEditorStale(this, false); },
         setActiveRibbonTab(tab) { lifecycle.push(tab); },
         _showBoardDimensionsDialog() {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');

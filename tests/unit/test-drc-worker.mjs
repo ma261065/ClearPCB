@@ -49,6 +49,7 @@ document.getElementById = () => null;
 document.createElementNS = () => new Element();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
+const { renderRouteResult } = await import('../../src/pcb/modules/autorouter-actions.js');
 const rectangle = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 const ring = (x, y, r, count = 32) => Array.from({ length: count }, (_, index) => ({
     x: x + r * Math.cos(index * Math.PI * 2 / count), y: y + r * Math.sin(index * Math.PI * 2 / count),
@@ -516,7 +517,7 @@ try {
         app.refreshFills = () => false;
         app.clearProperties = () => {};
         app.status = {};
-        app._renderRouteResult({ tracks: [], vias: [], failedConnections: [
+        renderRouteResult(app, { tracks: [], vias: [], failedConnections: [
             { net: 'failed-again', from: { x: -0, y: Math.E }, to: { x: 8.123456789, y: 9.987654321 } },
         ] });
         assert.deepEqual(collectDrcRatlines(app), svg(), 'Actual autorouter failed-line producer publishes neutral data too');

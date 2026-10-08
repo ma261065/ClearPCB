@@ -848,12 +848,6 @@ export default class PCBApp {
         return renderPcbFootprint(geometry, placement);
     }
 
-    /** Legacy seam for tests. */
-    _renderFootprint(geometry, placement) {
-        return this.renderFootprint(geometry, placement);
-    }
-
-
     /**
      * Rebuild the ratsnest lines from the current netlist and placements.
      * @param {{nets?: Iterable<string>, skipFillRefresh?: boolean}} [opts]

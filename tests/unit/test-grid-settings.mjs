@@ -184,8 +184,8 @@ class TestViewport {
 /** A real PCB editor with a headless viewport and the canvas wiring it does not need. */
 function attachedEditor(pcbDocument, markDirty) {
     return pcbEditorFixture({ pcbDocument, viewport: null, canvasContainer: {},
-        _createViewport: () => new TestViewport(),
-        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
+        createViewport: () => new TestViewport(),
+        bindMouseEvents() {}, updateViewportStatus() {},
         markDirty });
 }
 for (const controlsFirst of [true, false]) {
