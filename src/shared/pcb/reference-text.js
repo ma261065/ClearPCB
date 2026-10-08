@@ -4,14 +4,25 @@ import { placementPose } from './board-geometry.js';
 export const REF_DEFAULT_SIZE = 0.9;
 export const REF_DEFAULT_STROKE = 0.15;
 
+/**
+ * @typedef {import('../../core/geometry.js').Point} Point
+ * @typedef {{x: number, y: number, width: number, height: number}} ReferenceOutline
+ * @typedef {{polylines: Point[][], size: number, strokeWidth: number, baseY: number, box: {bx: number, by: number, bw: number, bh: number, cx: number, cy: number}}} ReferenceTextLayout
+ * @typedef {{reference?: string, refVisible?: boolean, outline?: ReferenceOutline|null, refSize?: number, refStrokeWidth?: number, refRot?: number, refDx?: number, refDy?: number, mirror?: boolean, side?: string, x?: number, y?: number, rotation?: number}} ReferencePlacement
+ */
+
+/** @param {ReferenceOutline|null|undefined} outline */
 export function referenceAnchor(outline) {
     return { cx: outline ? outline.x + outline.width / 2 : 0, baseY: (outline ? outline.y : -2) - 0.8 };
 }
 
+/** @param {string} ref @param {number} cx @param {number} baseY @param {number} [size] @param {number} [strokeWidth] @returns {ReferenceTextLayout} */
 export function layoutReferenceText(ref, cx, baseY, size = REF_DEFAULT_SIZE, strokeWidth = REF_DEFAULT_STROKE) {
     const width = measureText(ref, size);
     const baseX = cx - width / 2;
-    const polylines = stringToPolylines(ref, baseX, baseY, size, false).filter(poly => poly.length >= 2);
+    /** @type {Point[][]} */
+    const rawPolylines = stringToPolylines(ref, baseX, baseY, size, false);
+    const polylines = rawPolylines.filter(poly => poly.length >= 2);
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const poly of polylines) {
         for (const point of poly) {
@@ -29,6 +40,7 @@ export function layoutReferenceText(ref, cx, baseY, size = REF_DEFAULT_SIZE, str
         box: { bx: minX, by: minY, bw: maxX - minX, bh: maxY - minY, cx, cy: (minY + maxY) / 2 } };
 }
 
+/** @param {ReferencePlacement|null|undefined} placement */
 export function resolveReferenceText(placement) {
     if (!placement?.reference || placement.refVisible === false) return null;
     const anchor = referenceAnchor(placement.outline);

@@ -9,7 +9,14 @@
 import { Track, sourceShapeRecord } from '../../shapes/track.js';
 import { normalizeShapeCopperMode, rectCornerRadius, shapeIsFilled } from './board-shape-geometry.js';
 
-/** Whether a board shape is a copper path that belongs in the Track model. */
+/**
+ * @typedef {import('../../core/geometry.js').Point} Point
+ * @typedef {import('./board-shape-geometry.js').BoardShape} BoardShape
+ * @typedef {import('./board-shape-geometry.js').NumberRecord} NumberRecord
+ * @typedef {BoardShape & {kind: 'line'|'rect'|'polygon', points: Point[], layer: string}} CopperPathShape
+ */
+
+/** Whether a board shape is a copper path that belongs in the Track model. @param {BoardShape|null|undefined} shape */
 export function isCopperPathShape(shape) {
     // Copper pours share the shape collection and kinds but are areas, not paths.
     if (shape?.type === 'fill') return false;
@@ -27,12 +34,13 @@ export function isCopperPathShape(shape) {
  * rounds with the same circular corners (see isTrackRectangleLoop). The source
  * shape's id and plating are kept so turning the track back into a shape (Fill,
  * a non-copper layer, a removal mode) can reuse them.
- * @param {any} shape
+ * @param {CopperPathShape} shape
  * @param {string} [net]
  */
 export function trackFromBoardShape(shape, net = shape?.net || '') {
     const count = shape.points.length;
     const edgeCount = shape.kind === 'line' ? count - 1 : count;
+    /** @param {NumberRecord|null|undefined} record */
     const byEdge = (record) => Object.fromEntries(Object.entries(record || {}).map(([index, value]) => [`e${index}`, value]));
     return new Track({
         net: String(net || '').trim(),
