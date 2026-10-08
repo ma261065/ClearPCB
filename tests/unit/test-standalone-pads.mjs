@@ -265,7 +265,7 @@ assert.equal(validateProject({
 }).pcb.pads[0].drill, 0, 'a pad without a hole is a valid project pad');
 
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
-const { boardCutoutEdgeRings, standalonePadEdgeMesh, standalonePadMesh } = await import('../../src/pcb/modules/board3d.js');
+const { boardCutoutEdgeRings, standalonePadEdgeMesh, standalonePadMesh } = await import('../../src/pcb/modules/board3d-layers.js');
 const { clipMeshToOutline } = await import('../../src/pcb/modules/board3d-mesh-ops.js');
 const exportPad = new Pad({ ...pad.captureState(), id: 'pad_export', y: -20, rotation: 37 });
 const files = exportGerbers({

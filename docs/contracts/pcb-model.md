@@ -367,8 +367,8 @@ The worker still completes the full surface batch before the viewer updates
 surfaces and component bodies together. Camera depth handling, artwork detail
 and hole subtraction are unchanged.
 
-The viewer closure only wires the scene to these module-level pieces, which run
-headless: `boardSurfaceFrame(app)` (outline, drills, inside/edge-crossing
+The viewer closure only wires the scene to these module-level pieces in
+`board3d-surfaces.js`, which run headless: `boardSurfaceFrame(app)` (outline, drills, inside/edge-crossing
 bores), `buildBoardSurfaceInputs(app, frame, silkArtworkMesh)` (per-layer worker
 inputs), `createSurfacePublisher()` (keeps a surface's GPU mesh while its
 finished buffers are the same object) and `createBoard3DSyncScheduler()` (one
@@ -377,7 +377,7 @@ rechecked when the frame runs; closing the viewer cancels it).
 
 ### Stationary 3D Silkscreen Caching
 
-`board3d.js` builds component silk and authored board artwork as separate
+`board3d-layers.js` builds component silk and authored board artwork as separate
 surfaces, using the same silk material, opacity, depth bias and layer order.
 `createSilkArtworkMeshCache()` belongs to one viewer and snapshots authored
 board shapes and silk color. Equal inputs reuse the expanded source mesh;

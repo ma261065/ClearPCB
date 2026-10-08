@@ -27,7 +27,7 @@ const { extractComponents } = await import('../../src/core/netlist.js');
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { generateFootprint } = await import('../../src/shared/pcb/footprint.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const { objModelToMesh: placedMesh } = await import('../../src/pcb/modules/board3d.js');
+const { objModelToMesh: placedMesh } = await import('../../src/pcb/modules/board3d-parts.js');
 const { hasAny3DModel } = await import('../../src/components/model3d-source.js');
 const { parseObjModel } = await import('../../src/shared/3d/model-rendering.js');
 const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d.js');
+const { punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d-mesh-ops.js');
 
 const mesh = {
     verts: [{ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 0, y: 0, z: 10 }],

@@ -4,7 +4,8 @@ globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test');
 installFakeDom();
 
 const { boardShapeFilledRemovalOutlines } = await import('../../src/shared/pcb/board-shape-geometry.js');
-const { boardSlabWithCutouts, punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d.js');
+const { boardSlabWithCutouts } = await import('../../src/pcb/modules/board3d-board.js');
+const { punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d-mesh-ops.js');
 const { loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');
 
 await loadClipper();

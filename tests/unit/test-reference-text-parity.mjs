@@ -40,7 +40,7 @@ assert.equal(resolveReferenceText({ reference: 'R1', refVisible: false }), null)
 assert.equal(resolveReferenceText({ reference: '' }), null);
 console.log('PASS reference baseline, SVG glyphs and independent side/mirror/rotation transforms');
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
-const { buildTextMesh } = await import('../../src/pcb/modules/board3d.js');
+const { buildTextMesh } = await import('../../src/pcb/modules/board3d-layers.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const near = (actual, expected, tolerance = 1e-9) => assert.ok(Math.abs(actual - expected) < tolerance,
     `Expected ${actual} to equal ${expected}`);

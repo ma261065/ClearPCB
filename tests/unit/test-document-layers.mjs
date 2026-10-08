@@ -6,8 +6,8 @@ installFakeDom();
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
-const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh, boardSurfaceFrame, buildBoardSurfaceInputs, createSilkArtworkMeshCache } =
-    await import('../../src/pcb/modules/board3d.js');
+const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh, createSilkArtworkMeshCache } = await import('../../src/pcb/modules/board3d-layers.js');
+const { boardSurfaceFrame, buildBoardSurfaceInputs } = await import('../../src/pcb/modules/board3d-surfaces.js');
 const { resolveSilk } = await import('../../src/shared/pcb/board-geometry.js');
 
 const fixtures = [

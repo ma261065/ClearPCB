@@ -4,8 +4,8 @@ import { buildSurfaceBuffers } from '../../src/pcb/modules/board3d-surface-build
 import { decodeSurfaceInputs } from '../../src/pcb/modules/board3d-surface-transfer.js';
 
 globalThis.window = { addEventListener() {} };
-const { buildMaskFaceMesh, collectMaskOpeningHoles, buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials,
-    publishBoardSurfaces } = await import('../../src/pcb/modules/board3d.js');
+const { buildMaskFaceMesh, collectMaskOpeningHoles } = await import('../../src/pcb/modules/board3d-layers.js');
+const { buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials, publishBoardSurfaces } = await import('../../src/pcb/modules/board3d-surfaces.js');
 const top = 'maskCoatTop', bottom = 'maskCoatBottom';
 const both = [top, bottom];
 const placement = { x: 3, y: 3, side: 'top', rotation: 0, padOffsets: [

@@ -13,7 +13,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
-const { buildFillMesh } = await import('../../src/pcb/modules/board3d.js');
+const { buildFillMesh } = await import('../../src/pcb/modules/board3d-layers.js');
 await loadClipper();
 
 const rectangle = (a, b) => [{ x: a, y: -a }, { x: b, y: -a }, { x: b, y: -b }, { x: a, y: -b }];

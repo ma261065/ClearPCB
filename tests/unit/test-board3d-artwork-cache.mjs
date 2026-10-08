@@ -6,8 +6,9 @@ import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { buildSilkMesh, createSilkArtworkMeshCache, buildBoardSurfaceInputs, getLayerStylesAppearance, setLayerStylesAppearance,
-    BOARD_SURFACE_ORDER, boardSurfaceMaterials } = await import('../../src/pcb/modules/board3d.js');
+const { buildSilkMesh, createSilkArtworkMeshCache } = await import('../../src/pcb/modules/board3d-layers.js');
+const { buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials } = await import('../../src/pcb/modules/board3d-surfaces.js');
+const { getLayerStylesAppearance, setLayerStylesAppearance } = await import('../../src/pcb/modules/board3d-params.js');
 const artworkMesh = createSilkArtworkMeshCache();
 const placement = { x: 5, y: 5, rotation: 0, side: 'top', silks: [
     { layer: 'top-silk', type: 'line', x1: -2, y1: 0, x2: 2, y2: 0, strokeWidth: 0.3 },

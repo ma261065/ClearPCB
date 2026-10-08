@@ -3,13 +3,9 @@ import { pointInPolygon } from '../../src/core/geometry.js';
 import { resolvePadMaskOpenings } from '../../src/shared/pcb/board-geometry.js';
 globalThis.window = { addEventListener() {} };
 const { buildCopperObstacles } = await import('../../src/pcb/modules/copper-obstacles.js');
-const {
-    board2DDataFromApp,
-    collectCopperSubtractHoles,
-    collectMaskOpeningHoles,
-    buildSilkMesh,
-    platedSurfaceRemovalHoles,
-} = await import('../../src/pcb/modules/board3d.js');
+const { board2DDataFromApp } = await import('../../src/pcb/modules/board3d.js');
+const { collectCopperSubtractHoles, collectMaskOpeningHoles, buildSilkMesh } = await import('../../src/pcb/modules/board3d-layers.js');
+const { platedSurfaceRemovalHoles } = await import('../../src/pcb/modules/board3d-surfaces.js');
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const line = { id: 'line', kind: 'line', layer: 'top-copper', filled: false, lineWidth: 0.2,

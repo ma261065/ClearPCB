@@ -3,7 +3,7 @@ import * as THREE from '../../assets/vendor/three.module.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { updateBoardCameraClipping } = await import('../../src/pcb/modules/board3d.js');
+const { updateBoardCameraClipping } = await import('../../src/pcb/modules/board3d-scene.js');
 
 // Bounds and chip height reproduced from 3ddebug.cpcb; no supplier mesh is needed.
 const bounds = new THREE.Box3(

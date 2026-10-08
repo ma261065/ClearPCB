@@ -7,7 +7,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 installFakeDom();
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
 globalThis.localStorage = { getItem() { return null; }, removeItem() {} };
-const { imageArtworkMesh } = await import('../../src/pcb/modules/board3d.js');
+const { imageArtworkMesh } = await import('../../src/pcb/modules/board3d-layers.js');
 const image = pictureShape({ width: 3, height: 1, rectangles: [
     { x: 0, y: 0, width: 1, height: 1 }, { x: 2, y: 0, width: 1, height: 1 },
 ] }, { widthMm: 3, layer: 'top-silk' });

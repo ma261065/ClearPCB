@@ -48,7 +48,9 @@ assert.equal(texture.colorSpace, 'srgb');
 assert.deepEqual(gradients[1], [256, 256, 0, 256, 256, Math.hypot(256, 256)]);
 
 const board2d = readFileSync(new URL('../../src/pcb/modules/board2d.js', import.meta.url), 'utf8');
-const board3d = readFileSync(new URL('../../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
+// The viewer (board3d.js) and its scene and window styles (board3d-scene.js).
+const board3d = ['board3d.js', 'board3d-scene.js']
+    .map(file => readFileSync(new URL(`../../src/pcb/modules/${file}`, import.meta.url), 'utf8')).join('\n');
 assert.match(board2d, /paintViewerBackground\(ctx, cv\.width, cv\.height\)/);
 assert.match(board3d, /this\.scene\.background = this\.backgroundTexture/);
 assert.doesNotMatch(board3d, /VIEWER_BACKGROUND\.css|cpcb3d-cover|setClearColor/,

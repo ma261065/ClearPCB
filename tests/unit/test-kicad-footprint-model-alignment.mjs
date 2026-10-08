@@ -6,7 +6,7 @@ document.body.contains = () => false;
 const { KiCadFetcher } = await import('../../src/components/KiCadFetcher.js');
 const { generateFootprint } = await import('../../src/shared/pcb/footprint.js');
 const { parseObjModel } = await import('../../src/shared/3d/model-rendering.js');
-const { objModelToMesh } = await import('../../src/pcb/modules/board3d.js');
+const { objModelToMesh } = await import('../../src/pcb/modules/board3d-parts.js');
 const { resolveObjFromModelUrl } = await import('../../src/components/model3d-source.js');
 
 // A KiCad footprint (Y-down, origin at pin 1) with an asymmetric pad set and a

@@ -294,6 +294,14 @@ PCB editor:
 - `pcb/modules/object-locks.js` — individual object locks alongside layer locks: the
   combined lock predicates every edit path uses, the undoable lock command, the lock
   icon's unlock menu and the Properties "Locked" row.
+- `pcb/modules/board3d.js` — the 3D viewer window (`openBoard3DViewer`): opening,
+  syncing with edits, the Appearance panel and exports. Its builders are split by
+  subject: `board3d-params.js` (dimensions, colours, appearance settings),
+  `board3d-board.js` (outline, holes, board slab), `board3d-parts.js` (component
+  bodies and pads), `board3d-layers.js` (copper, mask, silk, text and pictures),
+  `board3d-scene.js` (window styles, host and three.js scene), `board3d-surfaces.js`
+  (worker surface inputs, publishing and the sync scheduler) and `board3d-mesh-ops.js`
+  (mesh merging, outline clipping and hole punching).
 
 Schematic editor:
 

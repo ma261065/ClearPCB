@@ -141,7 +141,7 @@ const source = readFileSync(new URL('../../src/pcb/modules/board3d.js', import.m
 assert.ok(source.includes('surfaceBuilder.build(surfaces, { takeOwnership: true })'),
     'The viewer hands its freshly generated geometry to the builder');
 installFakeDom();
-const { createSurfacePublisher } = await import('../../src/pcb/modules/board3d.js');
+const { createSurfacePublisher } = await import('../../src/pcb/modules/board3d-surfaces.js');
 assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: BOARD_SURFACE_ORDER \}\);/,
     'The viewer publishes finished buffers through the shared surface publisher');
 let added = 0;

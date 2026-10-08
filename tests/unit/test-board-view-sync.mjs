@@ -137,7 +137,7 @@ assert.equal(delayed.is3DDirty(), false, 'A successful retry acknowledges the la
 assert.deepEqual(settled.map(item => [item.revision, item.applied]), [[2, false], [1, true], [2, true]]);
 console.log('PASS: visible-view refresh, deferred 3D catch-up, coalescing, retry, and reentrant invalidation');
 
-const { createBoard3DSyncScheduler } = await import('../../src/pcb/modules/board3d.js');
+const { createBoard3DSyncScheduler } = await import('../../src/pcb/modules/board3d-surfaces.js');
 const source = readFileSync(new URL('../../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
 assert.match(source, /panel\.closed = true;[\s\S]{0,200}syncScheduler\.cancel\(\);/,
     'Closing the view must cancel the pending animation frame');

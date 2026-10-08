@@ -1,7 +1,19 @@
 import earcut from '../../../assets/vendor/earcut.module.js';
 
-/** @returns {{verts:Array, faces:Array}} */
-const emptyMesh = () => ({ verts: [], faces: [] });
+/**
+ * A fresh empty `{verts, faces}` accumulator.
+ * @returns {{verts:Array, faces:Array}}
+ */
+export const emptyMesh = () => ({ verts: [], faces: [] });
+
+/** Append `src` mesh into `dst`, offsetting face indices. */
+export function appendMesh(dst, src) {
+    const base = dst.verts.length;
+    for (const v of src.verts) dst.verts.push(v);
+    for (const f of src.faces) {
+        dst.faces.push({ idx: f.idx.map((i) => i + base), color: f.color });
+    }
+}
 
 /** Signed area of a closed polygon in the x–z plane; its sign is the winding. */
 export function polygonAreaXZ(poly) {

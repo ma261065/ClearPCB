@@ -5,8 +5,9 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };
 installFakeDom();
 
-const { appendFlatStroke, collectCopperSubtractHoles, punchHolesInFlatMesh, updateBoardCameraClipping } =
-    await import('../../src/pcb/modules/board3d.js');
+const { appendFlatStroke, collectCopperSubtractHoles } = await import('../../src/pcb/modules/board3d-layers.js');
+const { punchHolesInFlatMesh } = await import('../../src/pcb/modules/board3d-mesh-ops.js');
+const { updateBoardCameraClipping } = await import('../../src/pcb/modules/board3d-scene.js');
 const { getBoard2DSolderMaskAppearance } = await import('../../src/pcb/modules/board2d.js');
 const { pointInPolygon } = await import('../../src/core/geometry.js');
 

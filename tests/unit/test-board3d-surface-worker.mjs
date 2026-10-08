@@ -126,7 +126,7 @@ for (const attribute of ['position', 'normal', 'color']) {
 }
 legacy.dispose();
 installFakeDom();
-const { surfaceBufferGeometry } = await import('../../src/pcb/modules/board3d.js');
+const { surfaceBufferGeometry } = await import('../../src/pcb/modules/board3d-surfaces.js');
 const reconstructed = surfaceBufferGeometry(expected.copper);
 for (const attribute of ['position', 'normal', 'color']) {
     assert.deepEqual(reconstructed.getAttribute(attribute).array, expected.copper[attribute]);

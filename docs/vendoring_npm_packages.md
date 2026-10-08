@@ -160,7 +160,7 @@ the dependency inventory from that exact build. Headless coverage:
 > environment map that gives the glossy solder mask its moving reflection — a
 > punctual light on the camera axis can't glint a flat face, so the board
 > reflects a world-fixed equirectangular env image instead. Orbit/pan/zoom is a
-> custom Shoemake arcball implemented directly in `board3d.js` (no three.js
+> custom Shoemake arcball in `src/shared/3d/ArcballController.js` (no three.js
 > controls addon is bundled). If the viewer starts using new three.js features
 > (e.g. `RoomEnvironment` / `PMREMGenerator` for prefiltered environment
 > reflections), add the symbols to the entry's export list and re-vendor. Full
