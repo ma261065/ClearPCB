@@ -6,21 +6,25 @@ picker.
 
 ## View Lifecycle
 
-`schematic/modules/schematic-view.js` is the schematic's view lifecycle, the
-counterpart of the PCB render modules. It owns `renderShapes()`, viewport
-culling policy and level of detail, refined-segment overlays, and the helpers that
-create, attach, redraw, re-pose, detach and discard entity SVG
+`schematic/modules/schematic-view.js` is the schematic view lifecycle. It is the
+only schematic editor module that creates, attaches, redraws, culls, detaches or
+discards entity SVG.
+
+The module owns `renderShapes()`, viewport culling policy, level of detail,
+refined-segment overlays and the lifecycle helpers
 (`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
-`withContentDetached`, …). Shape and component entities are model-only: shape
-SVG/anchor handles and component symbols/highlights/pin dots/lock icons are
-owned by renderers in `src/schematic/render/`, backed by WeakMap view state
-keyed by entity identity. Their viewport-culled flags live in the same
-`shape-view-state.js` store and are read through schematic-view accessors (and
-SelectionManager's editor-supplied `isCulled` predicate), not on model objects.
-Commands, file loading, clipboard ghosts, theme
-changes and inline text editing call the lifecycle/render helpers; none of them
-touch entity `element`, `anchorsGroup`, `pinElements`, `render()` or the
-viewport content layers.
+`withContentDetached`, ...). Shape and component entities are model-only.
+Renderers in `src/schematic/render/` own shape SVG, anchor handles, component
+symbols, highlights, pin dots and lock icons. Their WeakMap view state is keyed
+by entity identity in `shape-view-state.js`.
+
+Viewport-culled flags live in the same `shape-view-state.js` store. They are
+read through schematic-view accessors and SelectionManager's editor-supplied
+`isCulled` predicate, not on model objects. Commands, file loading and theme
+changes call lifecycle/render helpers for entity SVG. Transient UI modules own
+their own preview or overlay DOM, such as clipboard ghosts, drawing previews,
+label guides, text-edit overlays and tool ghosts, without writing entity
+`element`, `anchorsGroup`, `pinElements` or `render()` fields.
 Clean shapes only take the zoom fast path (stroke-width update) when the scale
 has changed since the previous `renderShapes()` pass, so hover frames do no
 per-shape view lookups.
@@ -43,22 +47,24 @@ progress derives from the table:
 the snapshot guard (`SchematicApp.isSectionEditing()`, with the Properties live
 preview), Escape (cancels the highest-priority interaction), Undo/Redo (drawing
 blocks it, inline text, paste and placement are only cancelled, pointer previews
-are cancelled and history still steps, as in the PCB editor), tool switching
+are cancelled and history then steps, as in the PCB editor), tool switching
 (cancels everything but inline text and a placement the Component tool keeps), New
 (cancels everything) and selection actions (delete, cut, paste, nudge, flip,
 rotate, select all wait while anything is in progress). `interactionState` in
-`draw-states.js` still drives pointer dispatch; `resolveState()` derives it from
+`draw-states.js` drives pointer dispatch; `resolveState()` derives it from
 the same registry store and owner-module predicates. Other modules read through
 owner intent APIs such as `getSchematicDrag`, `getPendingAnchorDrag`,
 `isSchematicDrawingActive`, `isPastingClipboard`, `getPlacingComponent` and
 `getSchematicTextEdit`. `test-schematic-interactions` checks the table, routes,
 guards and owner-only slot writes.
 
-Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as each
-PCB tool is in `pcb-tools.js`: its name, shortcut and ribbon label, what selecting it
-sets up (the component picker, the Net defaults, a placement ghost), and what a press,
-a move and a release do before and during a draw. A draw finishes the same three ways
-for every tool: a stationary right-click finishes it at the pointer
+Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as
+each PCB tool is in `pcb-tools.js`. The entry defines its name, shortcut, ribbon
+label, selection setup (the component picker, Net defaults or a placement ghost)
+and pointer handlers before and during a draw.
+
+A draw finishes the same three ways for every tool: a stationary right-click
+finishes it at the pointer
 (`finishAtPointer`), a double-click or Enter finishes it with the points already
 placed (`finishInPlace`), and releasing the button finishes single-click draws only
 (tools marked `multiClick` keep drawing). The `toolActive` and `drawing` mouse states,
@@ -66,13 +72,22 @@ the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read 
 entry (`test-schematic-tools`).
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
-`draw-states.js` keeps pending segment toggles and drag-click flags, `drag-gestures.js`
-the reusable drag scratch buffers, `drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire
-axis-lock and junction highlight state, `components.js` keeps component tooltip
-and placement preview state, `ribbon.js` keeps tab/height/toast handlers,
-`mouse.js` keeps right-click pan tracking, `tool-ghost.js` keeps tool ghosts,
-`label-attachment.js` keeps the label guide, and `schematic-view.js` keeps the
-refined segment-selection overlay.
+
+- `draw-states.js` owns the mouse state table, draw snap result, pending
+  shape-segment toggles, overlap-cycle adapter and drag/click flags.
+- `drag-gestures.js` owns drag start/update flows and reusable drag scratch
+  buffers; `drag.js` owns the registry slots and commit/cancel lifecycle.
+- `component-snap.js` owns pin snapping for component placement and component
+  drags.
+- `drawing.js` owns generic drawing sessions and one-shot draw snap data.
+- `wire.js` owns wire drawing preview state, axis lock, junction dots and snap
+  highlights. Cursor snapping lives in `wire-snap.js`; drag snap guides live in
+  `wire-drag-snap.js`; merge, split and connection reconciliation lives in
+  `wire-reconcile.js`; wire label and net-name rules live in `wire-labels.js`.
+- `components.js` owns component tooltip and placement preview state.
+- `ribbon.js`, `mouse.js`, `tool-ghost.js`, `label-attachment.js` and
+  `schematic-view.js` own ribbon handlers, right-click pan tracking, tool
+  ghosts, label guides and refined segment-selection overlays respectively.
 
 The mechanism behind a preview differs from the PCB editor's on purpose. PCB
 previews edit detached copies because pours, DRC, ratsnest and the 3D view would
@@ -87,8 +102,7 @@ everything it touched; `tests/browser/schematic-cancel-isolation.mjs` cancels ev
 gesture by Escape, tool switch and Undo and checks the model and history are
 unchanged, the counterpart of the PCB preview-isolation tests. Snapshots cannot
 see a half-finished edit because `ProjectDocument` refuses to snapshot while
-`isSectionEditing()` is true. Revisit copies if the schematic gains work that reads
-the model during a gesture (live electrical-rule checks, live PCB sync).
+`isSectionEditing()` is true.
 
 ## Object Locks
 
@@ -136,9 +150,14 @@ Schematic startup immediately starts KiCad index loading in the background,
 without awaiting the download, to minimize the wait on first picker use.
 Opening the Online picker or starting a search joins the shared in-flight load,
 uses its warmed result, or retries a failed load. Switching an open picker from
-Local to Online retains that behavior; Local mode does not add a separate request.
-The public fetcher owns the shared request state, while its `src/components/kicad/`
-index and network modules own cache hydration and stale-cache refresh.
+Local to Online retains that behavior; Local mode does not add a separate
+request.
+
+`ComponentPicker.js` owns the picker shell and delegates DOM, results, search,
+preview and placement behavior to `src/components/picker/`. `KiCadFetcher.js`
+owns the public fetcher state and delegates KiCad index, network, symbol and
+footprint work to `src/components/kicad/`. The index module owns cache
+hydration, in-flight loading and stale-cache refresh.
 A released site serves a prebuilt index (`assets/kicad-index.json`, see
 [releases.md](../releases.md#kicad-library-index)); the fetcher uses it, and its KiCad
 tag, before any cache or GitLab request, and falls back to them when it is absent or invalid.

@@ -1,4 +1,4 @@
-# Shared Shapes, Selection and Services
+# Shared Shapes, Selection, and Services
 
 Part of the [module contracts](../module-contracts.md). Services used by both
 editors (shape geometry and editing, previews, snapping, IDs, history, 3D) plus
@@ -7,11 +7,12 @@ and `src/pcb/modules/pcb-editor-api.js`.
 
 ## Shape Bounds and Selection
 
-Both editors use `canRoundPathNode` from `shapes/path-geometry.js` to decide
-whether Node Properties offers a corner-radius control. Open endpoints,
-straight/degenerate joins and nodes adjacent to curved edges do not offer it;
-eligible interior and closed-path corners retain the existing numeric editor.
-This presentation rule does not change stored radii or rendered geometry.
+Node Properties offers the corner-radius control only where the shared geometry
+allows it. Both editors use `canRoundPathNode` from `shapes/path-geometry.js` to
+decide eligibility. Open endpoints, straight or degenerate joins and nodes
+adjacent to curved edges do not offer the control; eligible interior and
+closed-path corners keep the numeric editor. This presentation rule does not
+change stored radii or rendered geometry.
 Deleting either endpoint of a two-node line removes the whole line, clears
 refinement/Properties and returns Home. Removing an endpoint from a longer
 line retains its surviving geometry and whole-object Properties.
@@ -35,24 +36,31 @@ enforces the rule for every PCB adapter kind: sampled around awkward geometry
 at three zooms, selected and unselected, `hitTest()` may only succeed inside
 the bounds `SelectionManager` pre-filters with.
 
-Selection and hover live only in `SelectionManager` (its `selected` id set and
-`hovered` id); entities carry no `selected`/`hovered` flags, so the logical
-selection and what is drawn cannot drift apart. Renderers ask
-`isSelected()`/`isHovered()` through the `selection` render option
-(`shapes/selection-view.js`; previews use `NO_SELECTION`). Selected-first hit
-testing visits only the selected entries, then scans the rest in z-order. When
-selection, hover or an ownership tint changes, the manager calls its
-`invalidateEntity` hook after updating its state; the schematic's hook
-(`refreshSelectionVisual()`) also redraws component highlights at once,
-because selection changes are not always followed by a render pass. Editor
-code changes the selection through the public API: `keepSelected()`
-re-asserts a tracked shape after an edit (silently; untracked shapes are
-ignored), `dropSelected()`/`dropHover()`/`forget()` release a shape leaving the
-document, editor-owned culling state is supplied through the optional
-`isCulled` predicate, `clearSelection({ notify: false })` and `notifyChanged()`
-batch a change into one notification, `invalidateHitCache()` discards cached
-hits, and `invalidateSelectionCache()` discards the selected-array cache after
-external registry synchronization.
+Selection and hover live only in `SelectionManager`. Its `selected` id set and
+`hovered` id are authoritative; entities carry no `selected` or `hovered`
+flags, so logical selection and rendered selection cannot drift apart.
+Renderers ask `isSelected()` and `isHovered()` through the `selection` render
+option (`shapes/selection-view.js`; previews use `NO_SELECTION`).
+
+Selected-first hit testing visits only the selected entries, then scans the
+rest in z-order. When selection, hover or an ownership tint changes, the
+manager calls its `invalidateEntity` hook after updating its state. The
+schematic hook (`refreshSelectionVisual()`) also redraws component highlights
+at once because selection changes are not always followed by a render pass.
+
+Editor code changes selection through the public API:
+
+- `keepSelected()` silently re-asserts a tracked shape after an edit; untracked
+  shapes are ignored.
+- `dropSelected()`, `dropHover()` and `forget()` release a shape leaving the
+  document.
+- The optional `isCulled` predicate supplies editor-owned culling state.
+- `clearSelection({ notify: false })` and `notifyChanged()` batch a change into
+  one notification.
+- `invalidateHitCache()` discards cached hits.
+- `invalidateSelectionCache()` discards the selected-array cache after external
+  registry synchronization.
+
 `test-selection-state-seam` checks the API, the hook ordering and hit
 priority, and fails on any entity flag use or private access outside the
 manager. `tests/browser/schematic-smoke.mjs` checks in a real browser that
@@ -69,7 +77,7 @@ and reference text, which is why only PCB uses a selection registry.
 - `shapes/rounded-path.js` owns corner clamping, entry/exit points, SVG paths,
   and sampling. Uniform rectangles use circular corners; polygon and per-node
   rounding use quadratic corners. `shared/pcb/board-geometry.js` re-exports
-  the helpers for existing consumers.
+  the helpers as PCB board geometry primitives.
 - `shapes/path-geometry.js` owns stroke decomposition, open-stroke hit tests,
   bounds accumulation, circle hit tests, and indexed/graph handle descriptors.
 - `shapes/path-operations.js` owns chain extraction, reversal, joining, closure,
@@ -81,8 +89,8 @@ and reference text, which is why only PCB uses a selection registry.
   context menus and floating-handle history remain editor adapters.
   Vertex deletion completes collinear cleanup in the same path mutation before
   either editor captures its after-state. Redundant equal-width straight nodes
-  disappear in the deletion's single undo step; width/curvature boundaries and
-  surviving node/edge metadata retain the existing cleanup rules.
+  disappear in the deletion's single undo step. Width/curvature boundaries and
+  surviving node/edge metadata preserve the cleanup rules.
   Numeric Bulge straightening in both editors also runs this cleanup at commit,
   not while previewing or passing through zero. Cleanup shares the curvature
   edit's history step and discards obsolete segment refinement; surviving
@@ -118,8 +126,9 @@ and reference text, which is why only PCB uses a selection registry.
   the temporary Shift override; both `Viewport.getSnappedPosition()` and PCB
   text/component/reference movement, paste, group movement and outline resize
   use it. PCB's `_snapToGrid()` is a magnetic adapter, not nearest-grid rounding.
-  Existing gesture anchors (including group deltas and local reference offsets)
-  and higher-priority pin/pad/alignment constraints are unchanged.
+  Gesture anchors, including group deltas and local reference offsets, keep
+  their authored coordinate frame. Higher-priority pin, pad and alignment
+  constraints continue to override the displayed-grid magnet.
 - `pcb/modules/path-edit.js` snaps PCB path edits. Track node, segment and
   bulge drags lock onto Pads (`pads` flag); board shapes (including holes) and
   copper-fill outlines use only grid, axis and collinear magnets, so moving one
@@ -153,7 +162,7 @@ and reference text, which is why only PCB uses a selection registry.
   field text just like change/blur. An empty or incomplete number cancels its
   pending preview rather than committing the last valid intermediate value.
   Completion preserves the caller's no-rebuild request and cannot disturb a
-  newer field; geometry finalization still forces structural rebuilds.
+  newer field; geometry finalization forces structural rebuilds.
   Specialized track, via, pad, text and board-dimension editors also validate
   their active field inside owner-driven completion, including pointer pickup
   and cross-field handoff. Invalid final text cancels the preceding preview
@@ -168,8 +177,8 @@ and reference text, which is why only PCB uses a selection registry.
   shared binding service, named domain commands and reference rendering, not the
   editor object. `edit-lifecycle.js` reaches the binding through that owner;
   `PCBApp` retains only the presentation adapters and forwarding entry points.
-  Independent owner tests cover retired controls and cleanup, while existing
-  reference-history tests retain exact rollback and command-replay coverage.
+  Independent owner tests cover retired controls and cleanup. Reference-history
+  tests retain exact rollback and command-replay coverage.
   Schematic discrete property application also prepares this owner before
   reading selection and recording its command, matching PCB Properties actions.
   Checkbox, text and dropdown changes therefore cannot enter a pending numeric
@@ -196,22 +205,22 @@ and reference text, which is why only PCB uses a selection registry.
   control within the editor's Properties container, including a newly focused
   field that has not received input yet. Commits after leaving that container,
   selection changes and structural edits (such as removing Bulge after
-  straightening) still rebuild.
+  straightening) rebuild.
   This covers shape/segment/node geometry, text size and reference rotation.
   Numeric input/change/Escape callbacks verify both the displayed control
   identity and current selection. Retired fields cannot restart edits after
   cancellation, a completed commit or panel replacement, or interfere with a
-  newer preview. An already-pending blur still finishes against its original
+  newer preview. An already-pending blur finishes against its original
   targets; the guard does not change that completion contract.
   Schematic panel instances have a current-render identity separate from
   numeric transaction ownership. Rebuilding or replacing the panel retires
   its checkbox/text/dropdown callbacks, clipboard/delete/transform actions and
   drawing defaults, even when the same objects remain selected. Pending
-  numeric completion retains its existing lifetime. PCB shape controls check
-  binding disposal before discrete callbacks can update controls or rebuild
-  the panel, not merely before they mutate the model.
+  numeric completion retains its transaction lifetime. PCB shape controls check
+  binding disposal before discrete callbacks can update controls or rebuild the
+  panel, not merely before they mutate the model.
 - Schematic focused Delete and shape context menus share node/segment deletion
-  actions; without refinement, Delete still removes the entire selection.
+  actions; without refinement, Delete removes the entire selection.
   Shape removal/replacement finishes selection and refinement cleanup after
   its command, then publishes one final selection notification even when the
   command already removed the selected IDs. Properties and other selection
@@ -225,16 +234,16 @@ and reference text, which is why only PCB uses a selection registry.
   state before notifying selection subscribers. Replacement selection,
   in-place conversion and corner decomposition each rebuild Properties through
   that notification, without a second direct panel refresh; floating curvature
-  edits retain their existing gesture and history ownership.
+  edits retain their gesture and history ownership.
   Standalone arc menus support conversion and deletion. Shape splits retain
   one pre-split snapshot and an optional temporary remainder; placement commits
   one batch and Escape restores the original without leaving a remainder.
-- Shared shape editing follows PCB behavior where the editors differed:
-  repeated segment clicks retain refinement, rounded corners keep the base
-  width during segment-width edits, circle radius denotes the outer edge,
-  and Shift suppresses shape snapping. Electrical wire/track connectivity,
-  layer restrictions, rendering chrome, history, and fabrication contours
-  remain editor-specific. Shared geometry must not import either editor.
+- Shared shape editing uses one rule set in both editors: repeated segment
+  clicks retain refinement, rounded corners keep the base width during
+  segment-width edits, circle radius denotes the outer edge, and Shift
+  suppresses shape snapping. Electrical wire/track connectivity, layer
+  restrictions, rendering chrome, history, and fabrication contours remain
+  editor-specific. Shared geometry must not import either editor.
 - `core/id-allocator.js` generates page-wide prefixed IDs (`shape_N`, `via_N`,
   `pad_N`, `fill_N`, `comp_N`): each kind owns one `IdAllocator`, constructors
   observe explicit IDs, and new IDs are one above the highest observed, so IDs
@@ -257,7 +266,7 @@ and reference text, which is why only PCB uses a selection registry.
 `node tools/test.mjs` runs every `tests/unit/test-*.mjs` in an isolated process.
 `node tools/regression.mjs` also checks import boundaries, editor service-access
 baselines and the autorouter clearance baseline. `node tools/typecheck.mjs`
-summarises `checkJs` errors for the everyday and the strict settings and locates TypeScript from `TSC` or the repo's
-git-ignored `node_modules`. `node tools/browser-test.mjs` runs
-`tests/browser/*.mjs` with Playwright from `PLAYWRIGHT` or the same git-ignored
-`node_modules`.
+summarises `checkJs` errors for the everyday and strict settings and locates
+TypeScript from `TSC` or the repo's git-ignored `node_modules`.
+`node tools/browser-test.mjs` runs `tests/browser/*.mjs` with Playwright from
+`PLAYWRIGHT` or the same git-ignored `node_modules`.
