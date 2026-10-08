@@ -12,7 +12,7 @@ import {
     hasTrackElements,
     removeViaElements,
 } from './track-render.js';
-import { reconcileRatsnest } from './track-draw.js';
+import { reconcileRatsnest } from './ratsnest.js';
 import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection, syncPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';

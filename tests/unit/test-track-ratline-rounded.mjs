@@ -11,7 +11,7 @@ document.createElementNS = () => {
     element.removeAttribute = name => { delete element.attributes[name]; };
     return element;
 };
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { resolveTrackSegments } = await import('../../src/shapes/track-geometry.js');
 const { distanceToSegment } = await import('../../src/core/geometry.js');

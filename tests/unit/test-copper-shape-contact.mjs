@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { copperShapesTouch } = await import('../../src/pcb/modules/track-contact-geometry.js');
 const circle = (options = {}) => ({ id: 'circle', kind: 'circle', x: 0, y: 0, radius: 2,
     filled: false, lineWidth: 0.2, layer: 'top-copper', net: 'GND', ...options });

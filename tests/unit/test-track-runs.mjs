@@ -7,7 +7,8 @@ const { Track } = await import('../../src/shapes/track.js');
 const { buildTrackLayerRuns } = await import('../../src/pcb/modules/track-render.js');
 const { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner,
     resolveTrackEdgePaths, resolveTrackSegments } = await import('../../src/shared/pcb/board-geometry.js');
-const { collectBondedCopper, reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { collectBondedCopper } = await import('../../src/pcb/modules/track-connections.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { getDrcPresentation } = await import('../../src/pcb/modules/drc-state.js');
 
 let failures = 0;

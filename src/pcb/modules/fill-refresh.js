@@ -5,7 +5,7 @@ import { getComputedFill, setComputedFill } from './computed-fill-cache.js';
 import { renderCopperFill } from './copper-fill-render.js';
 import { getPcbSelection, isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
-import { reconcileRatsnest } from './track-draw.js';
+import { reconcileRatsnest } from './ratsnest.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, onEditSettled, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';

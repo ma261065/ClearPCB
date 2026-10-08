@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
-import { getTrackDraw, hasTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
+import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
+import { hasTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { findNearbyPad, resolveTrackDrawSnap, startTrackDraw, updateTrackDraw, cancelTrackDraw } =
-    await import('../../src/pcb/modules/track-draw.js');
+const { findNearbyPad, resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
+const { startTrackDraw, updateTrackDraw, cancelTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const { startVertexDrag, updateVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
 const { snapPathPoint, snapPathTranslation } = await import('../../src/pcb/modules/path-edit.js');
 const { Track } = await import('../../src/shapes/track.js');

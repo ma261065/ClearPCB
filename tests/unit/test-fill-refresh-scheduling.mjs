@@ -37,7 +37,7 @@ function element() {
 const document = installFakeDom();
 document.createElementNS = () => element();
 const { scheduleFillRefresh } = await import('../../src/pcb/modules/fill-refresh.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
 const { batchDerivedUpdates } = await import('../../src/core/DerivedUpdates.js');

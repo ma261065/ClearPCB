@@ -18,7 +18,8 @@ import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
-import { showNetGuideLine, showTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
+import { showNetGuideLine } from '../../src/pcb/modules/ratsnest.js';
+import { showTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 

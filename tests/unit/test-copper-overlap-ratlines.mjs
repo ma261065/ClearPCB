@@ -3,7 +3,8 @@ import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { reconcileRatsnest, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
+const { collectBondedCopper } = await import('../../src/pcb/modules/track-connections.js');
 const { runDRC } = await import('../../src/pcb/modules/drc.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');

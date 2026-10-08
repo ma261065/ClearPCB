@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { expandCopperContactRoots } from '../../src/pcb/modules/track-draw.js';
+import { expandCopperContactRoots } from '../../src/pcb/modules/track-connections.js';
 const key = (a, b) => [a, b].sort((x, y) => x - y).join(':');
 const contact = (id, root = id, layer = 'top-copper') => ({
     root, layer, resolved: { id, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 } },

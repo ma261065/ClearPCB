@@ -1,6 +1,6 @@
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { commitDesignValue, renderDesignSettings } from './design-settings.js';
-import { resolveTrackSnap } from './track-draw.js';
+import { resolveTrackSnap } from './track-snap.js';
 import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } from './track-commands.js';
 import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-drag.js';
 import { Via } from '../../shapes/via.js';

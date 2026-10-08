@@ -25,7 +25,8 @@ const { Via } = await import('../../src/shapes/via.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { setPcbSelection, getPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
-const { collectBondedCopper, reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { collectBondedCopper } = await import('../../src/pcb/modules/track-connections.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand,
     ModifyViaCommand, ModifyViasCommand, ModifyTrackCommand, ModifyTrackGraphCommand,
     MoveVertexCommand, CompoundCommand } = await import('../../src/pcb/modules/track-commands.js');

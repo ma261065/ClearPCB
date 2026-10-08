@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spatialClusterMST } from '../../src/pcb/modules/cluster-mst.js';
 
 globalThis.window = { addEventListener() {} };
-const { _clusterMST } = await import('../../src/pcb/modules/track-draw.js');
+const { _clusterMST } = await import('../../src/pcb/modules/ratsnest.js');
 
 function closestPair(first, second) {
     let best = Infinity;

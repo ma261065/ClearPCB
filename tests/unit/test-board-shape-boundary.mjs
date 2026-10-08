@@ -33,7 +33,7 @@ const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeG
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     showBoardShapeContextMenu, setBoardShapeSegmentType, getBoardShapePropertyPreview } = await import('../../src/pcb/modules/board-shapes.js');
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { cancelPictureCopperRefresh } = await import('../../src/pcb/modules/picture-refresh.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
     await import('../../src/pcb/modules/selection-interaction.js');

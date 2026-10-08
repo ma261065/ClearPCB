@@ -40,7 +40,8 @@ import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modules/pcb-export.js';
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import { refreshTrackDrawPreview, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { refreshTrackDrawPreview } from '../pcb/modules/track-draw.js';
+import { reconcileRatsnest } from '../pcb/modules/ratsnest.js';
 import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import {
     getVertexDrag,

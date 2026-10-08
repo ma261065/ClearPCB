@@ -9,7 +9,7 @@ installFakeDom();
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShapeGeometry } = await import('../../src/pcb/modules/board-shapes.js');
 const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../../src/pcb/modules/fill-refresh.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { loadClipper, boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
 // The real clearance refresh runs during the drag, as in the app, where the geometry engine is loaded.
 await loadClipper();

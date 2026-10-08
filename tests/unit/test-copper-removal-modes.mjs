@@ -4,8 +4,10 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 const { collectCopper, runDRC } = await import('../../src/pcb/modules/drc.js');
-const { reconcileRatsnest, collectBondedCopper, resolveTrackDrawSnap, nearestPointOnNet, setTrackToolLayer } =
-    await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest, nearestPointOnNet } = await import('../../src/pcb/modules/ratsnest.js');
+const { collectBondedCopper } = await import('../../src/pcb/modules/track-connections.js');
+const { resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
+const { setTrackToolLayer } = await import('../../src/pcb/modules/track-draw.js');
 const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
 const { captureBoardShapeState } = await import('../../src/pcb/modules/board-shapes.js');
 const { ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');

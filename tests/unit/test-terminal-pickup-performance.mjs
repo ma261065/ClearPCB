@@ -7,7 +7,7 @@ import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
 
 globalThis.window = { addEventListener() {} };
 const { startViaDrag, startPadDrag } = await import('../../src/pcb/modules/track-drag.js');
-const { resolveTrackSnap } = await import('../../src/pcb/modules/track-draw.js');
+const { resolveTrackSnap } = await import('../../src/pcb/modules/track-snap.js');
 
 for (const kind of ['via', 'pad']) {
     const model = new PcbDocument();

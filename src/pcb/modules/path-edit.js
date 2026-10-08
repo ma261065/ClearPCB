@@ -1,5 +1,5 @@
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
-import { findNearbyPad, resolveGridMagnetSnap } from './track-draw.js';
+import { findNearbyPad, resolveGridMagnetSnap } from './track-snap.js';
 import { resolvePathPoint, resolvePathTranslation } from '../../shapes/path-snap.js';
 import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';

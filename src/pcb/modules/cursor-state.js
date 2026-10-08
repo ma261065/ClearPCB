@@ -1,4 +1,4 @@
-import { resolveTrackSnap } from './track-draw.js';
+import { resolveTrackSnap } from './track-snap.js';
 import { getVertexDrag } from './track-drag.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x:number,y:number}} Point */

@@ -16,7 +16,8 @@
 
 import { noteEditSettled } from './refresh-state.js';
 import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia, setTrackLabelsVisible } from './track-render.js';
-import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
+import { reconcileRatsnest } from './ratsnest.js';
+import { collectBondedCopper } from './track-connections.js';
 import { copperBoardWith } from './track-connections.js';
 import {
     hitTestTrackEdge,

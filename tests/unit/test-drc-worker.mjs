@@ -48,7 +48,7 @@ const document = installFakeDom();
 document.getElementById = () => null;
 document.createElementNS = () => new Element();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const rectangle = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
 const ring = (x, y, r, count = 32) => Array.from({ length: count }, (_, index) => ({
     x: x + r * Math.cos(index * Math.PI * 2 / count), y: y + r * Math.sin(index * Math.PI * 2 / count),

@@ -24,23 +24,10 @@ import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession }
 import { renderTrack, removeTrackElements, removeViaElements } from './track-render.js';
 import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { renderVia } from './track-render.js';
-import {
-    resolveTrackSnap,
-    reconcileRatsnest,
-    renderTrackAxisGlow,
-    renderTrackAxisGlowTop,
-    clearTrackAxisGlow,
-    showTrackSnapMarker,
-    clearTrackSnapMarker,
-    updateNetGuideLine,
-    clearNetGuideLine,
-    snapNodeToAxis,
-    snapNodeToCollinear,
-    applyAxisConstraint,
-    _axisAlignment,
-    COLLINEAR_SNAP_SCREEN_PX,
-    COLLINEAR_GLOW_ANGLE_TOL,
-} from './track-draw.js';
+import { resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, applyAxisConstraint, COLLINEAR_SNAP_SCREEN_PX, COLLINEAR_GLOW_ANGLE_TOL } from './track-snap.js';
+import { reconcileRatsnest, updateNetGuideLine, clearNetGuideLine } from './ratsnest.js';
+import { renderTrackAxisGlow, renderTrackAxisGlowTop, clearTrackAxisGlow, _axisAlignment } from './track-draw.js';
+import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { bondedExclusion, collectNodeConnections } from './track-connections.js';
 export { buildDrawnTrackCommands } from './track-commit.js';
 import { showBondedNetConflict } from './track-commit.js';

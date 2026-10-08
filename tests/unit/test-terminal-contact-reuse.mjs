@@ -21,7 +21,8 @@ function element(tag = 'g') {
 }
 const document = installFakeDom();
 document.createElementNS = (_namespace, tag) => element(tag);
-const { reconcileRatsnest, collectBondedCopper } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
+const { collectBondedCopper } = await import('../../src/pcb/modules/track-connections.js');
 const { adoptFillResults } = await import('../../src/pcb/modules/fill-refresh.js');
 
 const rectangle = (x, y, width, height) => [

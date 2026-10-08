@@ -12,7 +12,7 @@ installFakeDom();
 const { createBoardShapeSelectionAdapter } = await import('../../src/pcb/modules/board-shapes.js');
 const { trackFromBoardShape } = await import('../../src/shared/pcb/copper-path-tracks.js');
 const { createTrackSelectionAdapter } = await import('../../src/pcb/modules/track-select.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { resolveTrackSegments } = await import('../../src/shapes/track-geometry.js');
 const { distanceToSegment } = await import('../../src/core/geometry.js');
 

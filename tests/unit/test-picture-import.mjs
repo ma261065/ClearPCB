@@ -16,7 +16,8 @@ const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copp
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const { collectCopperArtwork } = await import('../../src/pcb/modules/copper-artwork.js');
 const { copperShapesTouch } = await import('../../src/pcb/modules/track-contact-geometry.js');
-const { resolveTrackDrawSnap, setTrackToolLayer } = await import('../../src/pcb/modules/track-draw.js');
+const { resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
+const { setTrackToolLayer } = await import('../../src/pcb/modules/track-draw.js');
 const gerberRegions = file => [...file.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(match =>
     [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(point =>
         ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 })));

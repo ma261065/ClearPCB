@@ -13,8 +13,7 @@ function element(tag) {
 }
 const document = installFakeDom();
 document.createElementNS = (_namespace, tag) => { allocations++; return element(tag); };
-const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrackDraw, finishTrackDraw }
-    = await import('../../src/pcb/modules/track-draw.js');
+const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrackDraw, finishTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });

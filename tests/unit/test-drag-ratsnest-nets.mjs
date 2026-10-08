@@ -5,7 +5,7 @@ globalThis.window = { addEventListener() {} };
 installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 const { setEditorActive } = await import('../../src/pcb/modules/pcb-editor-api.js');
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { storedDrcRatlines } = await import('../../src/pcb/modules/drc-state.js');
 const { setDragOverlaysDeferred } = await import('../../src/pcb/modules/refresh-state.js');
 const { startVertexDrag, updateVertexDrag, cancelVertexDrag, startViaDrag, startPadDrag, updateViaDrag,

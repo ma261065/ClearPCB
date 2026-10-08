@@ -25,7 +25,7 @@ import { renderCopperFill, removeCopperFillElements } from './copper-fill-render
 import { isLayerLocked, isLayerVisible, isViaLocked, isViaVisible, isCopperFillLocked, isCopperFillVisible } from './layers.js';
 import { getPcbSelectionEntries, setPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
-import { reconcileRatsnest } from './track-draw.js';
+import { reconcileRatsnest } from './ratsnest.js';
 import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';

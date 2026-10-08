@@ -13,7 +13,7 @@ if (!process.argv.includes('--worker')) {
     globalThis.window = { addEventListener() {} };
     const { Track } = await import('../../src/shapes/track.js');
     const { Via } = await import('../../src/shapes/via.js');
-    const { collectBondedCopper, collectNodeConnections } = await import('../../src/pcb/modules/track-draw.js');
+    const { collectBondedCopper, collectNodeConnections } = await import('../../src/pcb/modules/track-connections.js');
     const { copperShapesTouch } = await import('../../src/pcb/modules/track-contact-geometry.js');
     const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
     const artwork = offset => ({

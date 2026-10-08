@@ -14,8 +14,7 @@ const { Track } = await import('../../src/shapes/track.js');
 const { Via } = await import('../../src/shapes/via.js');
 const { Pad } = await import('../../src/shapes/pad.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
-const { startTrackDraw, addTrackWaypoint, cancelTrackDraw, toggleTrackLayer } =
-    await import('../../src/pcb/modules/track-draw.js');
+const { startTrackDraw, addTrackWaypoint, cancelTrackDraw, toggleTrackLayer } = await import('../../src/pcb/modules/track-draw.js');
 const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-drag.js');
 const { commitDrawnTracks } = await import('../../src/pcb/modules/track-commit.js');
 const { computeFillPolygons, loadClipper } = await import('../../src/pcb/modules/copper-fill-geom.js');

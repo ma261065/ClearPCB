@@ -4,7 +4,7 @@ import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { reconcileRatsnest } = await import('../../src/pcb/modules/track-draw.js');
+const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const rectangle = (left, top, right, bottom) => [
     { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },
 ];

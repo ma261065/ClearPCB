@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
-import { getTrackDraw, hasTrackSnapMarker, setTrackToolLayer, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
+import { getTrackDraw, setTrackToolLayer, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
+import { hasTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 
 installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
-const { startTrackDraw, updateTrackDraw, addTrackWaypoint, resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-draw.js');
+const { startTrackDraw, updateTrackDraw, addTrackWaypoint } = await import('../../src/pcb/modules/track-draw.js');
+const { resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
 const { applyNetToCopperSelection } = await import('../../src/pcb/modules/track-select.js');
 const { Via } = await import('../../src/shapes/via.js');
 
