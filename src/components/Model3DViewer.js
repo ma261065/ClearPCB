@@ -141,7 +141,7 @@ export class Model3DViewer {
         // gives each group a distinct stepped polygonOffset so coincident
         // markings/pads on the shell don't z-fight (see that helper). The board
         // view applies the identical fix to placed bodies.
-        const counts = /** @type {{groupVertCounts?: number[]}} */ (geo.userData).groupVertCounts || [];
+        const counts = geo.userData.groupVertCounts || [];
         if (counts.length > 1) {
             this._materials = makeComponentGroupMaterials(counts);
             meshMaterial = this._materials;

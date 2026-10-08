@@ -6,7 +6,6 @@ import { escapeHtml } from '../../core/ui-helpers.js';
 import { resolveObjFromModelUrl } from '../model3d-source.js';
 
 /** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
-/** @typedef {import('../ComponentPicker.js').KiCadFetcherLike} KiCadFetcherLike */
 /** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
 /** @typedef {import('../ComponentPicker.js').SymbolDefinitionLike} SymbolDefinitionLike */
 /** @typedef {import('../ComponentPicker.js').FootprintBox} FootprintBox */

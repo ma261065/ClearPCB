@@ -147,6 +147,7 @@ Schematic modules likewise type the editor as `SchematicEditor`
 it: `Point` in `core/geometry.js`, the tool options and restore data in
 `SchematicApp.js`, the interaction state next to `STATE_TABLE` in `draw-states.js`,
 pin snaps in `wire-snap.js`, open and save results in `FileManager.js`.
+Component domain types are owned by `Component.js` for definitions/symbols/pins/graphics, by `LCSCFetcher.js` for EasyEDA/LCSC metadata, and by the KiCad modules for search, footprint availability and footprint preview results.
 Modules call editor methods directly (`app.setPcbStatus(...)`, not
 `app.setPcbStatus?.(...)`): the editor always has them, so an optional call only hides
 a fake that lacks one, and `test-pcb-editor-api` and `test-schematic-editor-api` fail on

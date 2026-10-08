@@ -161,7 +161,8 @@ export function populateLCSCResults(/** @type {ComponentPicker} */ picker) {
             }
 
             // Format price
-            const priceStr = result.price != null ? `$${result.price.toFixed(4)}` : '';
+            const price = Number(result.price);
+            const priceStr = Number.isFinite(price) ? `$${price.toFixed(4)}` : '';
 
             // Format stock
             const stock = result.stock || 0;

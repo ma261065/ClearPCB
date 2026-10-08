@@ -10,14 +10,29 @@ import { selectBuiltInPackage } from './symbol-preview.js';
 import { showLCSCPrompt } from './ui-state.js';
 
 /** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {{element: HTMLElement, searchInput: HTMLInputElement, searchClearBtn: HTMLButtonElement, exactMatchInput: HTMLInputElement, categorySelect: HTMLSelectElement, body: HTMLElement, bodyEl: HTMLElement, listEl: HTMLElement, previewSvg: HTMLElement, previewLoadingOverlay: HTMLElement, previewLoadingText: HTMLElement, previewInfo: HTMLElement, packageRow: HTMLElement, packageSelect: HTMLSelectElement, previewImage: HTMLElement, previewFootprint: HTMLElement, previewFootprintInfo: HTMLElement, preview3d: HTMLElement, preview3dInfo: HTMLElement, placeBtn: HTMLButtonElement, modeButtons: NodeListOf<HTMLButtonElement>, categoriesEl: HTMLElement}} PickerDOMRefs */
+
+/**
+ * @template {Element} T
+ * @param {HTMLElement} root
+ * @param {string} selector
+ * @returns {T}
+ */
+function queryRequired(root, selector) {
+    const element = root.querySelector(selector);
+    if (!element) throw new Error(`Component picker element was not created: ${selector}`);
+    return /** @type {T} */ (element);
+}
 
 /**
  * Creates the DOM structure for the component picker panel.
+ * @param {{bindEvents?: boolean}} [options]
+ * @returns {PickerDOMRefs}
  */
-export function createPickerDOM(/** @type {ComponentPicker} */ picker) {
-    picker.element = document.createElement('div');
-    picker.element.className = 'component-picker';
-    picker.element.innerHTML = `
+export function createPickerDOM(/** @type {ComponentPicker} */ picker, options = {}) {
+    const element = document.createElement('div');
+    element.className = 'component-picker';
+    element.innerHTML = `
         <div class="cp-header">
             <span class="cp-title">Components</span>
             <button type="button" class="cp-close app-modal-close" title="Close component picker" aria-label="Close component picker">&times;</button>
@@ -71,34 +86,44 @@ export function createPickerDOM(/** @type {ComponentPicker} */ picker) {
         </div>
     `;
     
-    // Get references
-    picker.searchInput = /** @type {HTMLInputElement} */ (picker.element.querySelector('.cp-search-input'));
-    picker.searchClearBtn = /** @type {HTMLButtonElement} */ (picker.element.querySelector('.cp-search-clear'));
-    picker.exactMatchInput = /** @type {HTMLInputElement} */ (picker.element.querySelector('.cp-exact-match-input'));
-    picker.categorySelect = /** @type {HTMLSelectElement} */ (picker.element.querySelector('.cp-category-select'));
-    picker.body = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-body'));
-    picker.listEl = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-list'));
-    picker.previewSvg = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-svg'));
-    picker.previewLoadingOverlay = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-loading-overlay'));
-    picker.previewLoadingText = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-loading-text'));
-    picker.previewInfo = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-info'));
-    picker.packageRow = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-package-row'));
-    picker.packageSelect = /** @type {HTMLSelectElement} */ (picker.element.querySelector('.cp-package-select'));
-    picker.previewImage = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-image'));
-    picker.previewFootprint = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-footprint'));
-    picker.previewFootprintInfo = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-footprint-info'));
-    picker.preview3d = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-3d'));
-    picker.preview3dInfo = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-preview-3d-info'));
-    picker.placeBtn = /** @type {HTMLButtonElement} */ (picker.element.querySelector('.cp-place-btn'));
-    picker.bodyEl = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-body'));
-    picker.modeButtons = /** @type {NodeListOf<HTMLButtonElement>} */ (picker.element.querySelectorAll('.cp-mode-btn'));
-    picker.categoriesEl = /** @type {HTMLElement} */ (picker.element.querySelector('.cp-categories'));
-    // Start collapsed if configured
+    /** @type {PickerDOMRefs} */
+    const refs = {
+        element,
+        searchInput: queryRequired(element, '.cp-search-input'),
+        searchClearBtn: queryRequired(element, '.cp-search-clear'),
+        exactMatchInput: queryRequired(element, '.cp-exact-match-input'),
+        categorySelect: queryRequired(element, '.cp-category-select'),
+        body: queryRequired(element, '.cp-body'),
+        bodyEl: queryRequired(element, '.cp-body'),
+        listEl: queryRequired(element, '.cp-list'),
+        previewSvg: queryRequired(element, '.cp-preview-svg'),
+        previewLoadingOverlay: queryRequired(element, '.cp-preview-loading-overlay'),
+        previewLoadingText: queryRequired(element, '.cp-preview-loading-text'),
+        previewInfo: queryRequired(element, '.cp-preview-info'),
+        packageRow: queryRequired(element, '.cp-package-row'),
+        packageSelect: queryRequired(element, '.cp-package-select'),
+        previewImage: queryRequired(element, '.cp-preview-image'),
+        previewFootprint: queryRequired(element, '.cp-preview-footprint'),
+        previewFootprintInfo: queryRequired(element, '.cp-preview-footprint-info'),
+        preview3d: queryRequired(element, '.cp-preview-3d'),
+        preview3dInfo: queryRequired(element, '.cp-preview-3d-info'),
+        placeBtn: queryRequired(element, '.cp-place-btn'),
+        modeButtons: /** @type {NodeListOf<HTMLButtonElement>} */ (element.querySelectorAll('.cp-mode-btn')),
+        categoriesEl: queryRequired(element, '.cp-categories')
+    };
     if (!picker.isOpen) {
-        picker.element.classList.add('collapsed');
+        element.classList.add('collapsed');
     }
-    
-    // Bind events
+
+    Object.assign(picker, refs);
+    if (options.bindEvents !== false) bindPickerDOM(picker);
+    return refs;
+}
+
+/**
+ * Binds event handlers after the picker owns all DOM references.
+ */
+export function bindPickerDOM(/** @type {ComponentPicker} */ picker) {
     const closeBtn = /** @type {HTMLButtonElement|null} */ (picker.element.querySelector('.cp-close'));
     if (!closeBtn) throw new Error('Component picker close button was not created');
     closeBtn.addEventListener('click', () => closePicker(picker));

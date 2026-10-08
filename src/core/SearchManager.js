@@ -16,7 +16,10 @@
 import { storageManager } from './StorageManager.js';
 
 /** @typedef {import('../components/ComponentLibrary.js').ComponentLibrary} ComponentLibrary */
-/** @typedef {{local: any[], kicad: any[], lcsc: any[]}} SearchResults */
+/** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('../components/kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult */
+/** @typedef {import('../components/LCSCFetcher.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {{local: ComponentDefinition[], kicad: SymbolSearchResult[], lcsc: LCSCSearchResult[]}} SearchResults */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
@@ -71,7 +74,7 @@ export class SearchManager {
     /**
      * Search local library
      * @param {string} query
-     * @returns {any[]}
+     * @returns {ComponentDefinition[]}
      */
     searchLocal(query) {
         if (!query || query.length === 0) {
@@ -233,7 +236,7 @@ export class SearchManager {
     /**
      * Search KiCad library with caching
      * @param {string} query
-     * @returns {Promise<any[]>}
+     * @returns {Promise<SymbolSearchResult[]>}
      */
     async searchKiCad(query) {
         if (!this._isRemoteSearchQueryValid(query)) {
@@ -255,7 +258,7 @@ export class SearchManager {
     /**
      * Search LCSC with caching
      * @param {string} query
-     * @returns {Promise<any[]>}
+     * @returns {Promise<LCSCSearchResult[]>}
      */
     async searchLCSC(query) {
         if (!this._isRemoteSearchQueryValid(query)) {
@@ -280,7 +283,7 @@ export class SearchManager {
      * Tries: LCSC -> KiCad -> Local
      * @param {string} query
      * @param {'auto'|'local'|'online'} [mode]
-     * @returns {Promise<SearchResults|{local: any[]}>}
+     * @returns {Promise<SearchResults|{local: ComponentDefinition[]}>}
      */
     async search(query, mode = 'auto') {
         if (!query || query.length === 0) {
@@ -332,7 +335,7 @@ export class SearchManager {
     /**
      * Fetch and cache a component from LCSC
      * @param {string} lcscId
-     * @returns {Promise<any|null>}
+     * @returns {Promise<ComponentDefinition|null>}
      */
     async fetchFromLCSC(lcscId) {
         try {
@@ -349,7 +352,7 @@ export class SearchManager {
      * Fetch and cache a KiCad symbol
      * @param {string} library
      * @param {string} symbolName
-     * @returns {Promise<any|null>}
+     * @returns {Promise<ComponentDefinition|null>}
      */
     async fetchFromKiCad(library, symbolName) {
         try {
@@ -392,7 +395,7 @@ export class SearchManager {
     /**
      * Get cached component definition by name
      * @param {string} name
-     * @returns {any|null}
+     * @returns {ComponentDefinition|null}
      */
     getCachedComponent(name) {
         try {
@@ -406,7 +409,7 @@ export class SearchManager {
 
     /**
      * Cache a component definition
-     * @param {any} component
+     * @param {ComponentDefinition} component
      * @param {number} [ttl]
      */
     cacheComponent(component, ttl = ENTITY_CACHE_TTL_MS) {

@@ -87,6 +87,7 @@ export function parseObjModel(objText) {
  * in `userData.groupVertCounts`.
  * @param {ModelMesh} mesh
  * @param {boolean} [groupByColor]
+ * @returns {THREE.BufferGeometry & {userData: {groupVertCounts?: number[]}}}
  */
 export function meshToGeometry(mesh, groupByColor = false) {
     const col = new THREE.Color();

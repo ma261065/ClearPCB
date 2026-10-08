@@ -35,7 +35,7 @@ export function normalizeDefinition(/** @type {ComponentPicker} */ picker, defin
             name: definition.name || 'Component',
             description: definition.description || '',
             category: definition.category || 'Uncategorized',
-            symbol: definition
+            symbol: /** @type {import('../Component.js').ComponentSymbol} */ (/** @type {unknown} */ (definition))
         };
     }
 
@@ -265,7 +265,8 @@ export function updatePackageSelector(/** @type {ComponentPicker} */ picker, def
  * @param {string} packageId
  */
 export function selectBuiltInPackage(/** @type {ComponentPicker} */ picker, packageId) {
-    picker.selectedComponent = /** @type {PickerComponentDefinition} */ (withBuiltInPackage(/** @type {object} */ (picker.selectedComponent), packageId));
+    if (!picker.selectedComponent) return;
+    picker.selectedComponent = withBuiltInPackage(picker.selectedComponent, packageId);
     updatePreview(picker, picker.selectedComponent);
 }
 

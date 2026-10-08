@@ -6,8 +6,8 @@ import { getComponentLibrary } from './index.js';
 /**
  * @typedef {{x:number,y:number,z:number}} ModelVertex
  * @typedef {{vertices:ModelVertex[], faces:number[][], faceColors?:number[][]|null, bodyFaces?:boolean[]}} ModelMesh
- * @typedef {{model3dObj?:string, model3dUrl?:string, has3d?:boolean, footprintName?:string, footprint?:string, reference?:string, value?:string, source?:string, _source?:string, [key:string]: any}} Model3DSourceData
- * @typedef {{has3d?:boolean, modelUrl?:string}} KiCadFootprintAvailability
+ * @typedef {{model3dObj?: any, model3dUrl?: any, has3d?: any, footprintName?: any, footprint?: any, reference?: string, value?: string, source?: string, _source?: string, [key:string]: any}} Model3DSourceData
+ * @typedef {import('./kicad/footprints.js').FootprintAvailability} KiCadFootprintAvailability
  * @typedef {{corsProxy?:string, checkFootprintAvailability?:(footprintName:string)=>Promise<KiCadFootprintAvailability>}} KiCad3DFetcher
  */
 
@@ -16,16 +16,15 @@ const _modelObjCache = new Map();
 
 /**
  * True when a component/placement has some 3D source we can try to render.
- * @param {object|null|undefined} data
+ * @param {Model3DSourceData|null|undefined} data
  * @returns {boolean}
  */
 export function hasAny3DModel(data) {
     if (!data) return false;
-    const source = /** @type {Model3DSourceData} */ (data);
     return !!(
-        source.model3dObj
-        || source.model3dUrl
-        || (source.has3d && (source.footprintName || source.footprint))
+        data.model3dObj
+        || data.model3dUrl
+        || (data.has3d && (data.footprintName || data.footprint))
     );
 }
 
@@ -34,15 +33,14 @@ export function hasAny3DModel(data) {
  * optional — a missing reference/value is dropped, and the source suffix only
  * shows for known supplier sources (KiCad/LCSC/EasyEDA), uppercased. Falls back
  * to '3D Model' when nothing identifying is available.
- * @param {object|null|undefined} data
+ * @param {Model3DSourceData|null|undefined} data
  * @returns {string}
  */
 export function buildComponent3DTitle(data) {
-    const source = /** @type {Model3DSourceData|null|undefined} */ (data);
-    const ref = (source?.reference || '').trim();
-    const val = (source?.value || '').trim();
+    const ref = (data?.reference || '').trim();
+    const val = (data?.value || '').trim();
     let base = ref && val ? `${ref} \u2014 ${val}` : (ref || val);
-    const src = (source?.source || source?._source || '').trim();
+    const src = (data?.source || data?._source || '').trim();
     const label = /kicad/i.test(src) ? 'KICAD'
         : /lcsc/i.test(src) ? 'LCSC'
         : /easyeda/i.test(src) ? 'EASYEDA'
@@ -55,24 +53,23 @@ export function buildComponent3DTitle(data) {
  * Open the model pop-out for either OBJ-backed (EasyEDA) or KiCad model-backed
  * (KiCad URL/footprint) components.
  * @param {Object} opts
- * @param {object|null|undefined} opts.data component definition / placement-like object
+ * @param {Model3DSourceData|null|undefined} opts.data component definition / placement-like object
  * @param {string} [opts.title]
  * @returns {Promise<boolean>}
  */
 export async function openComponent3DFromData({ data, title = '3D Model' }) {
     if (!data) return false;
-    const source = /** @type {Model3DSourceData} */ (data);
 
-    let objText = source.model3dObj || '';
+    let objText = data.model3dObj || '';
     if (!objText) {
-        const modelUrl = await _resolveModelUrl(source);
+        const modelUrl = await _resolveModelUrl(data);
         if (!modelUrl) return false;
         objText = await _resolveObjFromModelUrl(modelUrl, _getProxyUrl());
         if (!objText) return false;
         // Cache on the object so subsequent opens are instant.
-        source.model3dObj = objText;
-        if (!source.model3dUrl) source.model3dUrl = modelUrl;
-        source.has3d = true;
+        data.model3dObj = objText;
+        if (!data.model3dUrl) data.model3dUrl = modelUrl;
+        data.has3d = true;
     }
 
     return openModel3DPopout({ objText, title });

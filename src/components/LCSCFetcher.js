@@ -23,6 +23,7 @@
  * @typedef {{title?: string, dataStr?: EasyEDADataStr, [key:string]: any}} EasyEDAPackageDetail
  * @typedef {{dataStr?: EasyEDADataStr, packageDetail?: EasyEDAPackageDetail, [key:string]: any}} EasyEDADetail
  * @typedef {{lcscPartNumber: string, mpn: string, manufacturer: string, description: string, category: string, package: string, stock: number, price: number|string|null|undefined, isBasic: boolean, isPreferred?: boolean, imageUrl: string, thumbUrl?: string, datasheet: string, productUrl: string, easyedaSymbolData?: EasyEDADataStr, easyedaSymbolBBox?: LCSCBoundingBox|null, hasEasyedaSymbol?: boolean, hasFootprint?: boolean, footprintName?: string, footprintShapes?: string[], footprintBBox?: LCSCBoundingBox|null, has3d?: boolean, model3dName?: string, model3dUrl?: string|null, model3dObj?: string, priceBreaks?: LCSCPriceBreak[], minOrderQty?: number, stockStatus?: string}} LCSCMetadata
+ * @typedef {LCSCMetadata & {error?: boolean, message?: string, _thumbPromise?: Promise<string|null>|null, _detailPromise?: Promise<LCSCMetadata|null>|null, _definitionPromise?: Promise<import('./Component.js').ComponentDefinition|null>|null, _detail?: LCSCMetadata|null}} LCSCSearchResult
  * @typedef {{result?: any, data?: any, list?: any, items?: any, productList?: any, success?: boolean, lists?: {lcsc?: any[], szlcs?: any[]}, [key:string]: any}} ApiResponseObject
  */
 

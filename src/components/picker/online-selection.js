@@ -17,6 +17,27 @@ import { setPlaceBtnLoading, setPreviewLoading } from './ui-state.js';
 /** @typedef {import('../ComponentPicker.js').SymbolDefinitionLike} SymbolDefinitionLike */
 
 /**
+ * @param {unknown} value
+ * @returns {value is SymbolDefinitionLike}
+ */
+function isSymbolDefinition(value) {
+    return !!value && typeof value === 'object'
+        && (Array.isArray(/** @type {{graphics?: unknown}} */ (value).graphics)
+            || Array.isArray(/** @type {{pins?: unknown}} */ (value).pins));
+}
+
+/**
+ * @param {KiCadDefinition|null|undefined} definition
+ * @returns {SymbolDefinitionLike|null}
+ */
+function extractKiCadSymbol(definition) {
+    if (!definition) return null;
+    if (isSymbolDefinition(definition.symbol)) return definition.symbol;
+    if (isSymbolDefinition(definition)) return definition;
+    return null;
+}
+
+/**
  * Handles selection of a KiCad search result and loads its preview.
  * @param {KiCadSearchResult} result - The selected KiCad result object.
  * @param {HTMLElement} itemEl - The clicked DOM element.
@@ -71,7 +92,7 @@ export async function loadKiCadFootprintStatus(/** @type {ComponentPicker} */ pi
     try {
         const kicadDefinition = await picker.searchManager.fetchFromKiCad(result.library, result.name);
         if (!picker.selectionRequestGate.isCurrent(selId)) return;
-        const kicadSymbol = kicadDefinition?.symbol || kicadDefinition;
+        const kicadSymbol = extractKiCadSymbol(kicadDefinition);
         const kicadProperties = kicadDefinition?.properties || kicadDefinition?.symbol?.properties || kicadSymbol?.properties;
         const footprintName = getPropertyValue(picker, kicadProperties, 'Footprint');
         const footprintFilters = getFootprintFilters(picker, kicadProperties);
@@ -282,7 +303,7 @@ export async function fetchAndPlaceKiCad(/** @type {ComponentPicker} */ picker, 
     try {
         // Use SearchManager to fetch from KiCad
         const kicadData = await picker.searchManager.fetchFromKiCad(result.library, result.name);
-        const kicadSymbol = kicadData?.symbol || kicadData;
+        const kicadSymbol = extractKiCadSymbol(kicadData);
         const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
         
         if (kicadData) {
@@ -358,8 +379,9 @@ export async function selectLCSCResult(/** @type {ComponentPicker} */ picker, re
     if (result.package) info += `<br><span style="color:var(--text-muted)">Package: ${result.package}</span>`;
     
     // Price breaks
-    if (result.price != null) {
-        info += `<br><span style="color:var(--schematic-component)">$${result.price.toFixed(4)}/pc</span>`;
+    const price = Number(result.price);
+    if (Number.isFinite(price)) {
+        info += `<br><span style="color:var(--schematic-component)">$${price.toFixed(4)}/pc</span>`;
     }
     
     // Stock
@@ -586,17 +608,18 @@ export async function placePrefetchedLCSC(/** @type {ComponentPicker} */ picker,
  * @returns {PickerComponentDefinition} A component definition suitable for placement.
  */
 export function buildKiCadDefinition(/** @type {ComponentPicker} */ picker, kicadData, result) {
-    const kicadSymbol = kicadData?.symbol || kicadData;
+    const kicadSymbol = extractKiCadSymbol(kicadData);
     const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
     const footprintName = getPropertyValue(picker, kicadProperties, 'Footprint');
     const footprintFilters = getFootprintFilters(picker, kicadProperties);
+    /** @type {PickerComponentDefinition} */
     const def = kicadData?.symbol
         ? { ...kicadData, _source: 'KiCad' }
         : {
             name: `KiCad_${result.name}`,
             description: `${result.name} from KiCad ${result.library} library`,
             category: 'KiCad',
-            symbol: kicadSymbol,
+            symbol: kicadSymbol || { graphics: [], pins: [] },
             _source: 'KiCad'
         };
     def.defaultValue = getPropertyValue(picker, kicadProperties, 'Value') || result.name;

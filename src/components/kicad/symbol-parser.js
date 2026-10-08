@@ -5,6 +5,11 @@
 
 import { SYMBOL_LIBRARY_MARKER } from './constants.js';
 
+/** @typedef {import('../Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('../Component.js').ComponentProperties} ComponentProperties */
+/** @typedef {import('../Component.js').ComponentSymbol} ComponentSymbol */
+/** @typedef {import('../Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic */
+/** @typedef {import('../Component.js').ComponentSymbolPin} ComponentSymbolPin */
 /** @typedef {import('./sexp-parser.js').SExprList} SExprList */
 
 
@@ -13,7 +18,7 @@ import { SYMBOL_LIBRARY_MARKER } from './constants.js';
      * Parse KiCad S-expression format and extract a symbol
      * @param {string} content - Library file content
      * @param {string} symbolName - Name of symbol to extract
-     * @returns {any} ClearPCB symbol definition
+     * @returns {ComponentDefinition|null} ClearPCB symbol definition
      */
 export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
     console.log(`Parsing library for symbol: ${symbolName}`);
@@ -68,6 +73,7 @@ export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
             if (upperName === searchName) {
                 console.log('Found exact match:', cleanName);
                 const symbol = fetcher._convertKiCadSymbol(item);
+                if (!symbol) continue;
                 symbol.kicadName = cleanName;
                 return symbol;
             }
@@ -76,6 +82,7 @@ export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
             if (upperName.endsWith(':' + searchName)) {
                 console.log('Found prefixed match:', cleanName);
                 const symbol = fetcher._convertKiCadSymbol(item);
+                if (!symbol) continue;
                 symbol.kicadName = cleanName;
                 return symbol;
             }
@@ -84,6 +91,7 @@ export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
             if (upperName.startsWith(searchName) || upperName.includes(searchName)) {
                 console.log('Found partial match:', cleanName);
                 const symbol = fetcher._convertKiCadSymbol(item);
+                if (!symbol) continue;
                 symbol.kicadName = cleanName;
                 return symbol;
             }
@@ -100,9 +108,9 @@ export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
      * If a parsed symbol has no pins or graphics, try to rebuild it
      * from its unit sub-symbols (e.g. `NE555_1_1`).
      * @param {SExprList} sexp - Parsed S-expression of the library
-     * @param {any} symbol - Already-converted symbol object
+     * @param {ComponentSymbol} symbol - Already-converted symbol object
      * @param {string} baseName - Symbol base name (without unit suffix)
-     * @returns {any} Original or rebuilt symbol
+     * @returns {ComponentSymbol} Original or rebuilt symbol
      */
 export function _rebuildSymbolFromUnitsIfNeeded(fetcher, sexp, symbol, baseName) {
     if ((symbol?.pins?.length || 0) > 0 || (symbol?.graphics?.length || 0) > 0) {
@@ -126,7 +134,7 @@ export function _rebuildSymbolFromUnitsIfNeeded(fetcher, sexp, symbol, baseName)
      * (e.g. `SymbolName_1_1`, `_1_2`, ...) from a library S-expression.
      * @param {SExprList} sexp - Parsed library S-expression
      * @param {string} baseName - Symbol base name
-     * @returns {any|null} Merged symbol or null
+     * @returns {ComponentSymbol|null} Merged symbol or null
      */
 export function _buildSymbolFromUnits(fetcher, sexp, baseName) {
     if (!Array.isArray(sexp) || !baseName) return null;
@@ -152,7 +160,7 @@ export function _buildSymbolFromUnits(fetcher, sexp, baseName) {
 
     console.log('KiCad unit symbols found for', cleanBase, unitSymbols.map(u => (typeof u[1] === 'string' ? u[1].replace(/^"|"$/g, '') : u[1])));
 
-    /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string }} */
+    /** @type {ComponentSymbol & {graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties: ComponentProperties}} */
     const symbol = {
         width: 20,
         height: 20,
@@ -227,12 +235,12 @@ export function _buildSymbolFromUnits(fetcher, sexp, baseName) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Convert KiCad symbol to ClearPCB format
      * @param {SExprList} symbolSexp - Parsed symbol S-expression
-     * @returns {any} ClearPCB symbol definition
+     * @returns {ComponentDefinition|null} ClearPCB symbol definition
      */
 export function _convertKiCadSymbol(fetcher, symbolSexp) {
     const name = symbolSexp[1].replace(/^"|"$/g, '');
 
-    /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string, _extends?: string }} */
+    /** @type {ComponentSymbol & {graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties: ComponentProperties}} */
     const symbol = {
         width: 20,
         height: 20,
@@ -436,12 +444,12 @@ export function _convertKiCadSymbol(fetcher, symbolSexp) {
      * top-level symbol S-expression. Deduplicates pins and normalises
      * coordinates to a shared origin.
      * @param {SExprList} symbolSexp - Top-level symbol S-expression
-     * @returns {any|null} Symbol with graphics, pins, and computed bounds
+     * @returns {ComponentDefinition|null} Symbol with graphics, pins, and computed bounds
      */
 export function _buildSymbolFromNestedUnits(fetcher, symbolSexp) {
     if (!Array.isArray(symbolSexp)) return null;
 
-    /** @type {{ width: number, height: number, origin: { x: number, y: number }, graphics: any[], pins: any[], properties: Record<string, any>, _source: string, _extends?: string }} */
+    /** @type {ComponentSymbol & {graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties: ComponentProperties}} */
     const symbol = {
         width: 20,
         height: 20,
@@ -540,17 +548,17 @@ export function _buildSymbolFromNestedUnits(fetcher, symbolSexp) {
      * Resolve an `extends` reference by fetching the base symbol and
      * copying its graphics/pins into the extending symbol.
      * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
-     * @param {any} result - Parsed symbol result from _convertKiCadSymbol
+     * @param {ComponentDefinition} result - Parsed symbol result from _convertKiCadSymbol
      * @param {string} library - Library name (e.g., "Timer")
      * @param {number} depth - Recursion depth guard
-     * @returns {Promise<any>} result with graphics/pins populated from base
+     * @returns {Promise<ComponentDefinition>} result with graphics/pins populated from base
      */
 export async function _resolveExtends(fetcher, result, library, depth = 0) {
     const extendsName = result?.symbol?._extends;
     if (!extendsName || depth > 3) return result;
 
     // Strip library prefix if present (e.g., "Timer:NE555" → "NE555")
-    const baseName = extendsName.includes(':') ? extendsName.split(':').pop() : extendsName;
+    const baseName = (extendsName.includes(':') ? extendsName.split(':').pop() : extendsName) || '';
     console.log(`KiCadFetcher: Resolving extends ${result.name} → ${baseName}`);
 
     // Try to fetch the base symbol from the same library's symdir
@@ -567,6 +575,7 @@ export async function _resolveExtends(fetcher, result, library, depth = 0) {
     }
 
     // Copy visual data from base, keep extending symbol's own properties
+    if (!result.symbol) return result;
     result.symbol.graphics = baseResult.symbol.graphics;
     result.symbol.pins = baseResult.symbol.pins;
     result.symbol.width = baseResult.symbol.width;
@@ -583,10 +592,10 @@ export async function _resolveExtends(fetcher, result, library, depth = 0) {
      * Process a single symbol unit sub-element, extracting its pins,
      * rectangles, polylines, circles and arcs, and tracking min/max bounds.
      * @param {SExprList} unitSexp - Unit S-expression
-     * @returns {{graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number}}
+     * @returns {{graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], minX: number, minY: number, maxX: number, maxY: number}}
      */
 export function _processSymbolUnit(fetcher, unitSexp) {
-    /** @type {{ graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number }} */
+    /** @type {{ graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], minX: number, minY: number, maxX: number, maxY: number }} */
     const result = {
         graphics: [],
         pins: [],

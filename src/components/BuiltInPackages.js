@@ -11,8 +11,6 @@ import { builtInPackageLayouts, getBuiltInModel3D } from './BuiltInModels3D.js';
  * @typedef {import('./BuiltInModels3D.js').BuiltInPackageLayout} BuiltInPackageLayout
  * @typedef {'Resistor'|'Resistor_IEC'|'Capacitor'|'Capacitor_Polarized'|'Inductor'|'Diode'|'LED'|'NPN'|'PNP'|'NMOS'|'PMOS'|'OpAmp'|'IC_DIP8'|'Conn_01x02'|'SW_Push'} BuiltInComponentName
  * @typedef {[string, string]} PackageChoice
- * @typedef {Partial<ComponentDefinition> & {name: string}} PackageDefinitionInput
- * @typedef {ComponentDefinition & {name: BuiltInComponentName, _source: 'Built-in'}} BuiltInDefinition
  * @typedef {{value: string, label: string}} BuiltInPackageOption
  * @typedef {{footprint: string, footprintName: string, hasFootprint: true, footprintShapes: string[], footprintBBox: {x: number, y: number, width: number, height: number}}} BuiltInFootprintPatch
  */
@@ -58,8 +56,8 @@ const defaultLabels = {
 };
 
 /**
- * @param {PackageDefinitionInput|null|undefined} definition
- * @returns {definition is BuiltInDefinition}
+ * @param {ComponentDefinition|null|undefined} definition
+ * @returns {definition is ComponentDefinition & {name: BuiltInComponentName, _source: 'Built-in'}}
  */
 function supported(definition) {
     return definition?._source === 'Built-in'
@@ -68,7 +66,7 @@ function supported(definition) {
 
 /**
  * Return fresh UI options, or [] for definitions outside this built-in catalogue.
- * @param {PackageDefinitionInput|null|undefined} definition
+ * @param {ComponentDefinition|null|undefined} definition
  * @returns {BuiltInPackageOption[]}
  */
 export function getBuiltInPackageOptions(definition) {
@@ -125,9 +123,9 @@ function variantFootprint(name, packageId, entry) {
  * Clone a built-in definition and select its package without changing the library.
  * 'default' always restores the canonical footprint, even from a modified instance.
  * All old footprint/model metadata is removed; OBJ generation remains lazy and cached.
- * @param {PackageDefinitionInput} definition
+ * @param {ComponentDefinition} definition
  * @param {string} packageId An option's value returned by getBuiltInPackageOptions.
- * @returns {PackageDefinitionInput & {packageId: string, has3d: true, model3dUrl: null, model3dName: string, model3dObj: string}} Independent definition with packageId and a lazy model3dObj getter.
+ * @returns {ComponentDefinition} Independent definition with packageId and a lazy model3dObj getter.
  * @throws {Error} For a non-built-in definition, unknown name, or unsupported package ID.
  */
 export function withBuiltInPackage(definition, packageId) {
@@ -157,7 +155,7 @@ export function withBuiltInPackage(definition, packageId) {
     Object.defineProperty(result, 'model3dObj', {
         enumerable: true,
         configurable: true,
-        get() { return getBuiltInModel3D(result.footprint); },
+        get() { return getBuiltInModel3D(result.footprint || ''); },
     });
-    return /** @type {PackageDefinitionInput & {packageId: string, has3d: true, model3dUrl: null, model3dName: string, model3dObj: string}} */ (result);
+    return result;
 }

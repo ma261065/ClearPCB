@@ -16,7 +16,12 @@ import * as KiCadSexpParser from './kicad/sexp-parser.js';
 import * as KiCadSymbolGraphics from './kicad/symbol-graphics.js';
 
 /** @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('./Component.js').ComponentSymbol} ComponentSymbol */
+/** @typedef {import('./Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic */
+/** @typedef {import('./Component.js').ComponentSymbolPin} ComponentSymbolPin */
 /** @typedef {import('./kicad-index-format.js').StaticKiCadIndex} StaticKiCadIndex */
+/** @typedef {import('./kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult */
+/** @typedef {import('./kicad/footprints.js').FootprintAvailability} FootprintAvailability */
 /** @typedef {import('./kicad/footprint-parser.js').FootprintPreview} FootprintPreview */
 /** @typedef {import('./kicad/sexp-parser.js').SExprList} SExprList */
 /** @typedef {{symbols: Record<string, string[]>}} KiCadLibraryIndex */
@@ -376,7 +381,7 @@ export class KiCadFetcher {
      * Fetch a specific symbol
      * @param {string} library - Library name (e.g., "Timer")
      * @param {string} symbolName - Symbol name (e.g., "NE555")
-     * @returns {Promise<any>} ClearPCB symbol definition
+     * @returns {Promise<ComponentDefinition|null>} ClearPCB symbol definition
      */
     fetchSymbol(library, symbolName) {
         return KiCadSymbolFetch.fetchSymbol(this, library, symbolName);
@@ -446,7 +451,7 @@ export class KiCadFetcher {
     /**
      * Search for a symbol by MPN or name
      * @param {string} query - Part number or name to search for
-     * @returns {Promise<Array<{library: string, name: string, fullName: string}>>} Matching symbols
+     * @returns {Promise<SymbolSearchResult[]>} Matching symbols
      */
     searchSymbols(query) {
         return KiCadSymbolIndex.searchSymbols(this, query);
@@ -514,7 +519,7 @@ export class KiCadFetcher {
     /**
      * Check whether a KiCad footprint file and its 3D STEP model exist on GitLab.
      * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
-     * @returns {Promise<{hasFootprint: boolean, has3d: boolean, footprintUrl?: string, modelUrl?: string}>}
+     * @returns {Promise<FootprintAvailability>}
      */
     checkFootprintAvailability(footprintName) {
         return KiCadFootprints.checkFootprintAvailability(this, footprintName);
@@ -642,7 +647,7 @@ export class KiCadFetcher {
      * Parse KiCad S-expression format and extract a symbol
      * @param {string} content - Library file content
      * @param {string} symbolName - Name of symbol to extract
-     * @returns {any} ClearPCB symbol definition
+     * @returns {ComponentDefinition|null} ClearPCB symbol definition
      */
     _parseSymbolFromLibrary(content, symbolName) {
         return KiCadSymbolParser._parseSymbolFromLibrary(this, content, symbolName);
@@ -665,9 +670,9 @@ export class KiCadFetcher {
      * If a parsed symbol has no pins or graphics, try to rebuild it
      * from its unit sub-symbols (e.g. `NE555_1_1`).
      * @param {SExprList} sexp - Parsed S-expression of the library
-     * @param {any} symbol - Already-converted symbol object
+     * @param {ComponentSymbol} symbol - Already-converted symbol object
      * @param {string} baseName - Symbol base name (without unit suffix)
-     * @returns {any} Original or rebuilt symbol
+     * @returns {ComponentSymbol} Original or rebuilt symbol
      */
     _rebuildSymbolFromUnitsIfNeeded(sexp, symbol, baseName) {
         return KiCadSymbolParser._rebuildSymbolFromUnitsIfNeeded(this, sexp, symbol, baseName);
@@ -680,7 +685,7 @@ export class KiCadFetcher {
      * (e.g. `SymbolName_1_1`, `_1_2`, ...) from a library S-expression.
      * @param {SExprList} sexp - Parsed library S-expression
      * @param {string} baseName - Symbol base name
-     * @returns {any|null} Merged symbol or null
+     * @returns {ComponentSymbol|null} Merged symbol or null
      */
     _buildSymbolFromUnits(sexp, baseName) {
         return KiCadSymbolParser._buildSymbolFromUnits(this, sexp, baseName);
@@ -702,7 +707,7 @@ export class KiCadFetcher {
     /**
      * Convert KiCad symbol to ClearPCB format
      * @param {SExprList} symbolSexp - Parsed symbol S-expression
-     * @returns {any} ClearPCB symbol definition
+     * @returns {ComponentDefinition|null} ClearPCB symbol definition
      */
     _convertKiCadSymbol(symbolSexp) {
         return KiCadSymbolParser._convertKiCadSymbol(this, symbolSexp);
@@ -715,7 +720,7 @@ export class KiCadFetcher {
      * top-level symbol S-expression. Deduplicates pins and normalises
      * coordinates to a shared origin.
      * @param {SExprList} symbolSexp - Top-level symbol S-expression
-     * @returns {any|null} Symbol with graphics, pins, and computed bounds
+     * @returns {ComponentDefinition|null} Symbol with graphics, pins, and computed bounds
      */
     _buildSymbolFromNestedUnits(symbolSexp) {
         return KiCadSymbolParser._buildSymbolFromNestedUnits(this, symbolSexp);

@@ -5,6 +5,8 @@
 
 import { circumcircle } from '../../core/geometry.js';
 
+/** @typedef {import('../Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic */
+/** @typedef {import('../Component.js').ComponentSymbolPin} ComponentSymbolPin */
 /** @typedef {import('./sexp-parser.js').SExprList} SExprList */
 
 
@@ -14,10 +16,10 @@ import { circumcircle } from '../../core/geometry.js';
      * Parse KiCad pin
      * (pin type shape (at x y angle) (length len) (name "name" ...) (number "num" ...))
      * @param {SExprList} pinSexp
-     * @returns {any}
+     * @returns {ComponentSymbolPin}
      */
 export function _parseKiCadPin(fetcher, pinSexp) {
-    /** @type {{ type: string, number: string, name: string, x: number, y: number, orientation: string, length: number, pinType: string, shape: string, hidden: boolean, kicadNameFontSize: number|null, kicadNumberFontSize: number|null, _coordKey?: string }} */
+    /** @type {ComponentSymbolPin} */
     const pin = {
         type: 'pin',
         number: '',
@@ -137,7 +139,7 @@ export function _parseKiCadProperty(fetcher, propSexp) {
      * Parse KiCad rectangle
      * (rectangle (start x1 y1) (end x2 y2) (stroke ...) (fill ...))
      * @param {SExprList} rectSexp
-     * @returns {any}
+     * @returns {ComponentSymbolGraphic}
      */
 export function _parseKiCadRectangle(fetcher, rectSexp) {
     let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
@@ -187,7 +189,7 @@ export function _parseKiCadRectangle(fetcher, rectSexp) {
      * Parse KiCad polyline
      * (polyline (pts (xy x y) (xy x y) ...) (stroke ...) (fill ...))
      * @param {SExprList} polySexp
-     * @returns {any}
+     * @returns {ComponentSymbolGraphic}
      */
 export function _parseKiCadPolyline(fetcher, polySexp) {
     /** @type {number[][]} */
@@ -237,7 +239,7 @@ export function _parseKiCadPolyline(fetcher, polySexp) {
      * Parse KiCad circle
      * (circle (center x y) (radius r) (stroke ...) (fill ...))
      * @param {SExprList} circleSexp
-     * @returns {any}
+     * @returns {ComponentSymbolGraphic}
      */
 export function _parseKiCadCircle(fetcher, circleSexp) {
     let cx = 0, cy = 0, r = 1;
@@ -285,7 +287,7 @@ export function _parseKiCadCircle(fetcher, circleSexp) {
      * Parse KiCad arc
      * (arc (start x y) (mid x y) (end x y) (stroke ...) (fill ...))
      * @param {SExprList} arcSexp
-     * @returns {any}
+     * @returns {ComponentSymbolGraphic}
      */
 export function _parseKiCadArc(fetcher, arcSexp) {
     let startX = 0, startY = 0;
@@ -429,7 +431,7 @@ export function _angleToOrientation(fetcher, angle) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Offset a graphic element
-     * @param {any} g
+     * @param {ComponentSymbolGraphic} g
      * @param {number} dx
      * @param {number} dy
      */
@@ -460,4 +462,3 @@ export function _offsetGraphic(fetcher, g, dx, dy) {
             break;
     }
 }
-

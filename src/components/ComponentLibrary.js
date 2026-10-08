@@ -21,22 +21,21 @@ import { storageManager } from '../core/StorageManager.js';
 
 /**
  * @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('./Component.js').ComponentSymbol} ComponentSymbol
+ * @typedef {import('./Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic
+ * @typedef {import('./Component.js').ComponentSymbolPin} ComponentSymbolPin
+ * @typedef {import('./Component.js').ComponentSymbolPinOrientation} ComponentSymbolPinOrientation
+ * @typedef {import('./Component.js').ComponentSymbolTextPosition} ComponentSymbolTextPosition
  * @typedef {import('./LCSCFetcher.js').LCSCMetadata} LCSCMetadata
  * @typedef {import('./LCSCFetcher.js').EasyEDADataStr} EasyEDADataStr
- * @typedef {import('./LCSCFetcher.js').LCSCBoundingBox} LCSCBoundingBox
- * @typedef {'left'|'right'|'up'|'down'} SymbolPinOrientation
- * @typedef {{x:number, y:number, rotation?:number, anchor?:'start'|'end'|'middle'|undefined, fontFamily?:string|null, fontSize?:number|null}} SymbolTextPosition
- * @typedef {{type:'line', x1:number, y1:number, x2:number, y2:number, stroke?:string, strokeWidth?:number, fill?:string}|{type:'rect', x:number, y:number, width:number, height:number, rx?:number, ry?:number, stroke?:string, strokeWidth?:number, fill?:string}|{type:'circle'|'arc', cx:number, cy:number, r:number, stroke?:string, strokeWidth?:number, fill?:string}|{type:'polyline'|'polygon', points:Array<[number, number]>, stroke?:string, strokeWidth?:number, fill?:string}|{type:'path', d:string, transform?:string, stroke?:string, strokeWidth?:number, fill?:string}|{type:'text', x:number, y:number, text:string, fontSize?:number, anchor?:string, baseline?:string, strokeWidth?:number}} ComponentSymbolGraphic
- * @typedef {{number:string, name:string, x:number, y:number, orientation:SymbolPinOrientation, length:number|null, type?:string, pinType?:string, shape:string, showNumber?:boolean, namePos?:SymbolTextPosition|null, numberPos?:SymbolTextPosition|null, _id?:string|null, _key?:string, _pathData?:string|null}} ComponentSymbolPin
- * @typedef {{width:number, height:number, origin:{x:number, y:number}, graphics:ComponentSymbolGraphic[], pins:ComponentSymbolPin[], _boundsIncludePins?:boolean, _easyedaRawShapes?:string[], _source?:string}} ComponentSymbol
- * @typedef {ComponentDefinition & {symbol?: ComponentSymbol, keywords?: string[], _source?: string, _easyedaParserVersion?: string, hasFootprint?: boolean, footprintName?: string, footprintShapes?: string[]|null, footprintBBox?: LCSCBoundingBox|null, model3dName?: string, model3dUrl?: string|null, model3dObj?: string|null, has3d?: boolean, priceBreaks?: import('./LCSCFetcher.js').LCSCPriceBreak[]}} LibraryComponentDefinition
+ * @typedef {import('./kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult
  */
 
 export class ComponentLibrary {
     /** Initialise the component library, loading built-in and user components. */
     constructor() {
         // Component definitions by name
-        /** @type {Map<string, LibraryComponentDefinition>} */
+        /** @type {Map<string, ComponentDefinition>} */
         this.definitions = new Map();
         
         // Categories for organization
@@ -64,7 +63,7 @@ export class ComponentLibrary {
      */
     _loadBuiltInComponents() {
         for (const def of BuiltInComponents) {
-            this.addDefinition(/** @type {LibraryComponentDefinition} */ (def), 'Built-in');
+            this.addDefinition(def, 'Built-in');
         }
     }
     
@@ -76,7 +75,7 @@ export class ComponentLibrary {
             const components = storageManager.get('clearpcb_user_components');
             if (components && Array.isArray(components)) {
                 for (const def of components) {
-                    this.addDefinition(/** @type {LibraryComponentDefinition} */ (def), 'User');
+                    this.addDefinition(/** @type {ComponentDefinition} */ (def), 'User');
                 }
             }
         } catch (e) {
@@ -89,7 +88,7 @@ export class ComponentLibrary {
      */
     _saveUserComponents() {
         try {
-            /** @type {LibraryComponentDefinition[]} */
+            /** @type {ComponentDefinition[]} */
             const userComponents = [];
             for (const [name, def] of this.definitions) {
                 if (def._source === 'User') {
@@ -104,9 +103,9 @@ export class ComponentLibrary {
     
     /**
      * Add a component definition to the library
-     * @param {LibraryComponentDefinition} definition
+     * @param {ComponentDefinition} definition
      * @param {string} [source='User']
-     * @returns {LibraryComponentDefinition}
+     * @returns {ComponentDefinition}
      */
     addDefinition(definition, source = 'User') {
         // Validate definition
@@ -152,7 +151,7 @@ export class ComponentLibrary {
     /**
      * Get a component definition by name
      * @param {string} name
-     * @returns {LibraryComponentDefinition|null}
+     * @returns {ComponentDefinition|null}
      */
     getDefinition(name) {
         return this.definitions.get(name) || null;
@@ -161,11 +160,11 @@ export class ComponentLibrary {
     /**
      * Get all definitions in a category
      * @param {string} category
-     * @returns {LibraryComponentDefinition[]}
+     * @returns {ComponentDefinition[]}
      */
     getByCategory(category) {
         const names = this.categories.get(category) || [];
-        return /** @type {LibraryComponentDefinition[]} */ (names.map(name => this.definitions.get(name)).filter(Boolean));
+        return /** @type {ComponentDefinition[]} */ (names.map(name => this.definitions.get(name)).filter(Boolean));
     }
     
     /**
@@ -178,7 +177,7 @@ export class ComponentLibrary {
     
     /**
      * Get all component definitions
-     * @returns {LibraryComponentDefinition[]}
+     * @returns {ComponentDefinition[]}
      */
     getAllDefinitions() {
         return Array.from(this.definitions.values());
@@ -187,7 +186,7 @@ export class ComponentLibrary {
     /**
      * Search local library
      * @param {string} query
-     * @returns {LibraryComponentDefinition[]}
+     * @returns {ComponentDefinition[]}
      */
     searchLocal(query) {
         const lowerQuery = query.toLowerCase();
@@ -265,7 +264,7 @@ export class ComponentLibrary {
     /**
      * Fetch a complete component from LCSC + KiCad
      * @param {string} lcscId - LCSC part number (e.g., "C46749")
-     * @returns {Promise<LibraryComponentDefinition>} Component definition with symbol and metadata
+     * @returns {Promise<ComponentDefinition>} Component definition with symbol and metadata
      */
     async fetchFromLCSC(lcscId) {
         // Check if already cached
@@ -779,7 +778,7 @@ export class ComponentLibrary {
         let number = headerNumber;
         let namePos = null;
         let numberPos = null;
-        /** @type {Array<{text:string, pos:SymbolTextPosition}>} */
+        /** @type {Array<{text:string, pos:ComponentSymbolTextPosition}>} */
         const labelEntries = [];
         for (const segment of segments.slice(1)) {
             if (typeof segment !== 'string' || !segment.includes('~')) continue;
@@ -865,7 +864,7 @@ export class ComponentLibrary {
      * Extract orientation and length from an EasyEDA pin path string.
      * Handles M...h, M...v, and M...L formats.
      * @param {string} path - SVG path data (e.g. 'M 0 0 h 10')
-     * @returns {{orientation: SymbolPinOrientation, length: number}|null}
+     * @returns {{orientation: ComponentSymbolPinOrientation, length: number}|null}
      */
     _parseEasyEDAPinPath(path) {
         const hMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)/i);
@@ -970,7 +969,7 @@ export class ComponentLibrary {
             case 'polygon':
                 return {
                     ...graphic,
-                    points: (graphic.points || []).map(p => [
+                    points: (graphic.points || []).map((/** @type {[number, number]} */ p) => [
                         (p[0] - offsetX) * scale,
                         (p[1] - offsetY) * scale
                     ]),
@@ -1007,8 +1006,10 @@ export class ComponentLibrary {
      * @returns {ComponentSymbolPin} Transformed pin
      */
     _transformEasyEDAPin(pin, offsetX, offsetY, scale) {
-        const scaleFont = (/** @type {SymbolTextPosition|null|undefined} */ pos) => {
-            if (!pos) return null;
+        const scaleFont = (/** @type {ComponentSymbolTextPosition|null|undefined} */ pos) => {
+            if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+            const x = Number(pos.x);
+            const y = Number(pos.y);
             const fontSize = Number.isFinite(pos.fontSize)
                 ? /** @type {number} */ (pos.fontSize) * scale
                 : null;
@@ -1019,8 +1020,8 @@ export class ComponentLibrary {
             const yShift = fontSize ? /** @type {number} */ (fontSize) * capHeightFraction : 0;
             return {
                 ...pos,
-                x: (pos.x - offsetX) * scale,
-                y: (pos.y - offsetY) * scale - yShift,
+                x: (x - offsetX) * scale,
+                y: (y - offsetY) * scale - yShift,
                 fontSize
             };
         };
@@ -1033,7 +1034,7 @@ export class ComponentLibrary {
             // Transform coordinates in path: M x y h dx, M x y v dy, M x y L x2 y2
             transformedPathData = transformedPathData.replace(
                 /M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/g,
-                (match, x, y) => {
+                (/** @type {string} */ match, /** @type {string} */ x, /** @type {string} */ y) => {
                     const tx = (Number(x) - offsetX) * scale;
                     const ty = (Number(y) - offsetY) * scale;
                     return `M ${tx} ${ty}`;
@@ -1042,7 +1043,7 @@ export class ComponentLibrary {
             // Transform h/v values
             transformedPathData = transformedPathData.replace(
                 /([hv])\s*(-?\d+(?:\.\d+)?)/gi,
-                (match, cmd, val) => {
+                (/** @type {string} */ match, /** @type {string} */ cmd, /** @type {string} */ val) => {
                     const tv = Number(val) * scale;
                     return `${cmd} ${tv}`;
                 }
@@ -1050,7 +1051,7 @@ export class ComponentLibrary {
             // Transform L coordinates
             transformedPathData = transformedPathData.replace(
                 /L\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/gi,
-                (match, x, y) => {
+                (/** @type {string} */ match, /** @type {string} */ x, /** @type {string} */ y) => {
                     const tx = (Number(x) - offsetX) * scale;
                     const ty = (Number(y) - offsetY) * scale;
                     return `L ${tx} ${ty}`;
@@ -1399,7 +1400,7 @@ export class ComponentLibrary {
     /**
      * Search KiCad libraries for symbols
      * @param {string} query - Search query (part name)
-     * @returns {Promise<Array<object>>} Matching symbols
+     * @returns {Promise<SymbolSearchResult[]>} Matching symbols
      */
     async searchKiCad(query) {
         return this.kicadFetcher.searchSymbols(query);
@@ -1427,7 +1428,7 @@ export class ComponentLibrary {
      * @returns {number}
      */
     importFromJSON(json) {
-        const components = /** @type {LibraryComponentDefinition[]} */ (JSON.parse(json));
+        const components = /** @type {ComponentDefinition[]} */ (JSON.parse(json));
         let imported = 0;
         
         for (const def of components) {

@@ -21,16 +21,53 @@ function _compactShapeStr(s) {
 }
 
 /**
+ * @typedef {Record<string, string|number|boolean|null|undefined>} ComponentProperties
+ * @typedef {{x: number, y: number, width: number, height: number}} ComponentFootprintBox
+ * @typedef {'left'|'right'|'up'|'down'} ComponentSymbolPinOrientation
+ * @typedef {{[key:string]: any, x?: number, y?: number, rotation?: number, anchor?: 'start'|'end'|'middle'|string|null, fontFamily?: string|null, fontSize?: number|null}} ComponentSymbolTextPosition
+ * @typedef {{[key:string]: any, type?: string}} ComponentSymbolGraphic
+ * @typedef {{[key:string]: any, number: string|number, name?: string, x: number, y: number, orientation?: ComponentSymbolPinOrientation|string}} ComponentSymbolPin
+ * @typedef {{width?: number, height?: number, origin?: {x:number, y:number}, graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties?: ComponentProperties, symbol?: ComponentSymbol, kicadName?: string, kicadTextOffset?: number, _boundsIncludePins?: boolean, _easyedaRawShapes?: string[], _kicadRaw?: any, _source?: string, _extends?: string}} ComponentSymbol
  * @typedef {{
  *   name: string,
- *   symbol: any,
+ *   symbol?: ComponentSymbol,
  *   category?: string,
  *   description?: string,
+ *   keywords?: string[],
  *   defaultReference?: string,
  *   defaultValue?: string,
- *   defaultProperties?: Object,
+ *   defaultProperties?: ComponentProperties,
+ *   properties?: ComponentProperties,
  *   supplier_part_numbers?: { LCSC?: string },
+ *   datasheet?: string,
+ *   mpn?: string,
+ *   manufacturer?: string,
+ *   package?: string,
+ *   packageId?: string,
+ *   footprint?: string,
+ *   footprintName?: string,
+ *   footprintFilters?: string[],
+ *   footprintShapes?: string[]|null,
+ *   footprintBBox?: ComponentFootprintBox|null,
+ *   hasFootprint?: boolean,
+ *   model3dName?: string|null,
+ *   model3dUrl?: string|null,
+ *   model3dObj?: string|null,
+ *   has3d?: boolean,
+ *   stock?: number,
+ *   price?: number|string|null|undefined,
+ *   priceBreaks?: import('./LCSCFetcher.js').LCSCPriceBreak[],
+ *   isBasic?: boolean,
+ *   isPreferred?: boolean,
+ *   productUrl?: string,
+ *   imageUrl?: string,
+ *   thumbUrl?: string,
+ *   lcscPartNumber?: string,
+ *   kicadName?: string,
  *   _source?: string,
+ *   _kicadRaw?: any,
+ *   _easyedaResolved?: boolean,
+ *   _easyedaParserVersion?: string,
  *   [key: string]: any
  * }} ComponentDefinition
  */
@@ -133,7 +170,7 @@ export class Component {
         this.attachedLabels = null;
     }
 
-    /** @returns {*} The symbol definition (graphics + pins). */
+    /** @returns {ComponentSymbol|undefined} The symbol definition (graphics + pins). */
     get symbol() { return this.definition.symbol; }
     /** @returns {string} The component definition name. */
     get name() { return this.definition.name; }
@@ -683,11 +720,11 @@ export class Component {
     /**
      * Look up a pin descriptor by its number.
      * @param {string|number} num - Pin number
-     * @returns {*}
+     * @returns {ComponentSymbolPin|null|undefined}
      */
     getPin(num) {
         const key = String(num);
-        return this.symbol?.pins?.find((/** @type {any} */ p) => String(p.number) === key);
+        return this.symbol?.pins?.find(p => String(p.number) === key);
     }
 
     /**

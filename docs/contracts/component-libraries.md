@@ -16,6 +16,7 @@ downloads. `kicad/sexp-parser.js` owns tokenizing and parsing KiCad S-expression
 syntax shared by symbol and footprint conversion. `kicad/symbol-parser.js` owns
 KiCad symbol conversion into ClearPCB symbol objects; `kicad/symbol-graphics.js`
 owns primitive pin, stroke, fill and graphic parsing used by that conversion.
+The shared component definition, symbol, pin and graphic typedefs live in `Component.js`; picker code aliases those instead of declaring local stand-ins.
 
 Footprint ownership is separate from symbol ownership. `kicad/footprints.js` owns
 footprint availability checks, footprint-name indexes, filter matching and raw

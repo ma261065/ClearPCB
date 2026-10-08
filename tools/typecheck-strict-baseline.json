@@ -1,8 +1,9 @@
 {
   "typescript": "5.9.3",
-  "total": 4,
+  "total": 3,
   "cleanFolders": [
     "src/core",
+    "src/components",
     "src/easyeda",
     "src/pcb",
     "src/schematic",
@@ -10,7 +11,6 @@
     "src/shared/3d"
   ],
   "files": {
-    "src/components/picker/symbol-preview.js": 1,
     "src/shared/pcb/board-shape-geometry.js": 3
   }
 }

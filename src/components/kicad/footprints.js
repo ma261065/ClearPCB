@@ -7,13 +7,15 @@ import { storageManager } from '../../core/StorageManager.js';
 import { CONTENT_CACHE_TTL_MS, KICAD_FULL_FOOTPRINT_INDEX_CACHE_KEY } from './constants.js';
 import { footprintNameFromPath, isLikelyValidFootprintIndex, KICAD_FOOTPRINTS_PROJECT_PATH } from '../kicad-index-format.js';
 
+/** @typedef {{hasFootprint: boolean, has3d: boolean, footprintUrl?: string, modelUrl?: string}} FootprintAvailability */
+
 
 
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Check whether a KiCad footprint file and its 3D STEP model exist on GitLab.
      * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
-     * @returns {Promise<{hasFootprint: boolean, has3d: boolean, footprintUrl?: string, modelUrl?: string}>}
+     * @returns {Promise<FootprintAvailability>}
      */
 export async function checkFootprintAvailability(fetcher, footprintName) {
     if (!footprintName || typeof footprintName !== 'string') {
@@ -365,4 +367,3 @@ export async function _fetchFootprintFile(fetcher, lib, name) {
 
     return null;
 }
-
