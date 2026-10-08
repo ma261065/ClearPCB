@@ -420,7 +420,8 @@ models retain their minimum-Z seating.
 
 ### KiCad Footprints and 3D Models
 
-KiCad `.kicad_mod` footprints are Y-down like ClearPCB, so
+KiCad `.kicad_mod` footprints are Y-down like ClearPCB, so the
+`src/components/kicad/footprint-parser.js` implementation behind
 `KiCadFetcher._parseFootprintPreview()` uses their coordinates as written (only
 `.kicad_sym` symbols, which are Y-up, are negated). Pad rotation is
 counter-clockwise on screen, so a slot's axis angle is `base − rotation` in

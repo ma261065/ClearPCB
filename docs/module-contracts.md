@@ -15,6 +15,7 @@ owns something, then read its area page here for how it behaves.
 | [Copper Pours, Ratsnest and DRC](contracts/pcb-pours-and-drc.md) | Pour commands and live computation, ratsnest traversal, DRC checking and panel |
 | [Autorouter](contracts/routing.md) | Routing session and router worker contracts |
 | [Schematic Editor](contracts/schematic.md) | Schematic view lifecycle, in-progress interactions and previews, startup, component picker |
+| [Component Libraries and KiCad Fetching](contracts/component-libraries.md) | Component library ownership, KiCad index loading, symbol/footprint parsing and model URL lookup |
 | [Shared Shapes, Selection and Services](contracts/shared-services.md) | Shape geometry and editing, selection, previews, snapping, IDs, history, extracted PCB services |
 | [UI Conventions](contracts/ui-conventions.md) | Grids, units, palette, ribbon height, Properties control order and labels |
 

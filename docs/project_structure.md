@@ -30,9 +30,15 @@ clearpcb/
 │   │                           # text, net, wire, noconnect, track, via, pad, copper-fill) and
 │   │                           # shared path editing (path-*, arc-*, shape-join, axis-glow, …)
 │   ├── components/             # Component/symbol ingestion and preview (BuiltInComponents,
-│   │                           # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
-│   │                           # ComponentPicker plus picker/* owners, KiCadFetcher,
-│   │                           # kicad-index-format, LCSCFetcher, Model3D*, …)
+│   │   ├── picker/             # Component picker owners: DOM, search, result list,
+│   │   │                       # online selection, symbol/footprint previews, UI state,
+│   │   │                       # placement hand-off (ComponentPicker.js is the entry point)
+│   │   ├── kicad/              # KiCad fetcher modules: network/cache, symbol and
+│   │   │                       # footprint indexes, S-expression parsing,
+│   │   │                       # symbol conversion and footprint preview parsing
+│   │   └── …                   # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
+│   │                           # ComponentPicker, KiCadFetcher, kicad-index-format,
+│   │                           # LCSCFetcher, Model3D*, …
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
 │   │   ├── 3d/                 # Arcball controller, model rendering

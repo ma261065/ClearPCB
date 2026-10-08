@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 857,
+  "total": 830,
   "cleanFolders": [
     "src/core",
     "src/easyeda",
@@ -14,7 +14,14 @@
     "src/components/BuiltInModels3D.js": 78,
     "src/components/BuiltInPackages.js": 34,
     "src/components/ComponentLibrary.js": 134,
-    "src/components/KiCadFetcher.js": 101,
+    "src/components/kicad/footprint-parser.js": 5,
+    "src/components/kicad/footprints.js": 1,
+    "src/components/kicad/sexp-parser.js": 3,
+    "src/components/kicad/symbol-fetch.js": 12,
+    "src/components/kicad/symbol-graphics.js": 13,
+    "src/components/kicad/symbol-index.js": 6,
+    "src/components/kicad/symbol-parser.js": 2,
+    "src/components/KiCadFetcher.js": 32,
     "src/components/LCSCFetcher.js": 70,
     "src/components/model3d-source.js": 7,
     "src/components/Model3DPopout.js": 2,
