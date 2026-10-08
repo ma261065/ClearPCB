@@ -255,6 +255,14 @@ connections. During rip-up, A\* penalizes paths through high-congestion cells
 with a weight that increases each pass (`0.3 × pass`). This spreads tracks
 across the board and resolves routing-order butterfly effects.
 
+## Tests
+
+Focused unit tests in `tests/unit/test-autorouter-geometry.mjs`,
+`tests/unit/test-autorouter-maze.mjs`, and
+`tests/unit/test-autorouter-pathfinder.mjs` cover the shared geometry/grid
+helpers and tiny router scenarios. The end-to-end fixture regression remains in
+`tools/regression.mjs` for whole-board baseline coverage.
+
 ## File Structure
 
 ```
