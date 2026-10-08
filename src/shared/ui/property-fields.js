@@ -45,6 +45,8 @@ export const MIXED_LABEL = 'Mixed';
  * @property {string} [placeholder] Shown for an empty text/net value; net defaults to `None`.
  * @property {string} [title] Tooltip.
  * @property {string} [error] Validation message shown by native controls.
+ * @property {string} [warning] Flags the row (e.g. its layer is locked) and becomes its tooltip;
+ *   unlike `error`, the value itself is valid.
  * @property {number} [min]
  * @property {number} [max]
  * @property {number} [step]
@@ -299,7 +301,10 @@ class Row {
             setAttr(this.label, 'for', field.type === 'readout' ? '' : field.id);
         }
         if (field.id) control.id = field.id;
-        setAttr(control, 'title', field.error || field.title);
+        setAttr(control, 'title', field.error || field.warning || field.title);
+        const classes = this.row.className.split(/\s+/).filter(name => name && name !== 'prop-row-warning');
+        if (field.warning) classes.push('prop-row-warning');
+        this.row.className = classes.join(' ');
         if (field.type === 'readout') {
             control.textContent = field.mixed ? MIXED_LABEL : String(field.value ?? '');
             return;

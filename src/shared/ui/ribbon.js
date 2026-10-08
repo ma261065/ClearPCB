@@ -329,6 +329,7 @@ function applyState(desc, node, control = node, context) {
     }
     const active = valueOf(desc.active);
     if (active !== undefined) toggleClass(node, 'active', !!active);
+    for (const [name, value] of Object.entries(desc.classes || {})) toggleClass(node, name, !!valueOf(value));
     if (desc.checked !== undefined) control.checked = !!valueOf(desc.checked);
     if (desc.value !== undefined) control.value = String(valueOf(desc.value));
     if (desc.title !== undefined && node.setAttribute) node.setAttribute('title', String(valueOf(desc.title)));
