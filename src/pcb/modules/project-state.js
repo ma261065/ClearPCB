@@ -13,6 +13,7 @@ import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
+import { isBoardShape } from '../../core/pcb-board-shapes.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors } from './edit-lifecycle.js';
 import { cancelPcbDrawingMode } from './tool-lifecycle.js';
 import { setHoveredBoardShape } from './board-shape-state.js';
@@ -120,7 +121,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (render) renderPad(pad, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
     for (const shape of prepared.boardShapes) {
-        if (!render || shape.type === 'fill' || shape.layer === 'board-outline') continue;
+        if (!render || !isBoardShape(shape) || shape.layer === 'board-outline') continue;
         renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
     if (render) app.updateCopperCuts();

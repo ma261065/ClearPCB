@@ -820,7 +820,7 @@ export default class PCBApp {
     }
 
     /**
-     * @param {unknown} geometry
+     * @param {import('../shared/pcb/footprint.js').FootprintGeometry} geometry
      * @param {Placement & {reference: string}} placement
      */
     renderFootprint(geometry, placement) {

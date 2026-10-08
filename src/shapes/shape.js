@@ -168,7 +168,7 @@ export class Shape {
      * Restore a previously captured state.
      * Override in subclasses if custom deep-copy logic is needed.
      */
-    /** @param {Record<string, unknown>} state */
+    /** @param {object} state */
     applyState(state) {
         const target = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (this));
         for (const [key, value] of Object.entries(state)) {

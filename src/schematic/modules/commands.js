@@ -2,6 +2,7 @@ import { Command } from '../../core/CommandHistory.js';
 import { editTargets } from '../../core/edit-guard.js';
 import { setComponentReference } from '../../core/SchematicDocument.js';
 import { Component } from '../../components/Component.js';
+import { applySchematicItemState } from '../../core/schematic-state.js';
 /**
  * CommandHistory - Manages undo/redo stack
  * 
@@ -31,7 +32,7 @@ import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, is
  * @typedef {import('./selection.js').ShapeState} ShapeState
  * @typedef {import('../../ui/SchematicApp.js').ShapeRestoreData} ShapeRestoreData
  * @typedef {{component: Component, index: number}} ComponentRestoreData
- * @typedef {{componentId?: string, pinNumber?: string|number, [key: string]: unknown}} PinConnection
+ * @typedef {{componentId: string, pinNumber: string|number, [key: string]: unknown}} PinConnection
  * @typedef {{wire: Wire, nodeId: string, conn: PinConnection}} RemovedPinConnection
  */
 
@@ -314,10 +315,10 @@ export class ModifyShapeCommand extends Command {
     _applyState(shape, state) {
         const oldRotation = shape instanceof Component ? shape.rotation : undefined;
         const oldMirror = shape instanceof Component ? shape.mirror : undefined;
-        shape.applyState(state);
+        applySchematicItemState(shape, state);
         if (shape instanceof Component) {
-            const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
-                || (state.mirror !== undefined && state.mirror !== oldMirror);
+            const rebuild = ('rotation' in state && state.rotation !== undefined && state.rotation !== oldRotation)
+                || ('mirror' in state && state.mirror !== undefined && state.mirror !== oldMirror);
             refreshComponentPose(shape, { rebuild });
         }
         // Sync field text changes back to parent component or wire

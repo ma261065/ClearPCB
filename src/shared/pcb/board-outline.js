@@ -3,12 +3,13 @@ import { validClosedShape } from '../../shapes/closed-outline.js';
 
 /**
  * @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShapeEntry} BoardShapeEntry
  * @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape
  * @typedef {Record<string, any>} BoardOutlineState Board outline helpers accept PCBApp, PcbDocument, and preview bags.
  * @typedef {BoardShape & {points: Point[], [key: string]: any}} BoardOutlineShape Dynamic board-outline shape union with legacy indexed fields.
  * @typedef {BoardOutlineState & {width: number, height: number, radius: number}} BoardDimensions
- * @typedef {BoardOutlineState & {model: {board: BoardDimensions, boardShapes: BoardShape[]}, original: BoardOutlineShape|null, originalBoard: BoardDimensions, before: BoardDimensions, board: BoardDimensions, outline: BoardOutlineShape, boardShapes: BoardShape[], previousSuspend: boolean, session: import('../../pcb/modules/drag-session.js').DragSession|null, wasDrawn: boolean}} BoardDimensionPreview
- * @typedef {BoardOutlineState & {boardShapes?: BoardShape[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions?: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
+ * @typedef {BoardOutlineState & {model: {board: BoardDimensions, boardShapes: BoardShapeEntry[]}, original: BoardOutlineShape|null, originalBoard: BoardDimensions, before: BoardDimensions, board: BoardDimensions, outline: BoardOutlineShape, boardShapes: BoardShapeEntry[], previousSuspend: boolean, session: import('../../pcb/modules/drag-session.js').DragSession|null, wasDrawn: boolean}} BoardDimensionPreview
+ * @typedef {BoardOutlineState & {boardShapes?: BoardShapeEntry[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions?: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
  */
 
 /** @type {WeakMap<BoardOutlineApp, BoardDimensionPreview>} */

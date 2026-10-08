@@ -17,6 +17,7 @@ import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSeg
 import { renderSchematicPropertyPanel } from './property-host.js';
 import { getSchematicTextEdit } from './text-edit.js';
 import { isComponentItem, isNetItem, isPolylineItem, isTextItem, isWireItem, isWireOrNetItem, isCircleItem } from '../../core/schematic-items.js';
+import { applySchematicItemState } from '../../core/schematic-state.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../components/Component.js').Component} Component */
@@ -413,7 +414,7 @@ function createNumberField(app, selection, desc, context) {
             capture: () => affected.map(item => usesGeometryState(item) ? item.captureState() : propertyValue(item, key)),
             restore: snapshot => {
                 affected.forEach((item, index) => {
-                    if (usesGeometryState(item)) item.applyState(snapshot[index]);
+                    if (usesGeometryState(item)) applySchematicItemState(item, /** @type {import('../../core/schematic-state.js').SchematicItemState} */ (snapshot[index]));
                     else setPropertyValue(item, key, snapshot[index]);
                     item.invalidate?.();
                 });
@@ -479,7 +480,7 @@ function createNumberField(app, selection, desc, context) {
             } else if (key === 'cornerRadius' && selectedNode) {
                 selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, next);
             } else affected.forEach((item, index) => {
-                if (geometryEdit && key === 'diameter') item.applyState(before[index]);
+                if (geometryEdit && key === 'diameter') applySchematicItemState(item, before[index]);
                 setPropertyValue(item, key, next);
                 if (isPolylineItem(item) && key === 'lineWidth') {
                     for (const edge of item.edges.values()) delete edge.width;

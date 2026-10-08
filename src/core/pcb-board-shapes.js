@@ -32,6 +32,7 @@ import { encodePictureArtwork, decodePictureArtwork } from '../shared/pcb/pictur
  *   plated: boolean,
  *   net: string,
  *   locked?: boolean,
+ *   visible?: boolean,
  *   segmentWidths?: BoardShapeNumberMap,
  *   segmentBulges?: BoardShapeNumberMap,
  *   nodeCornerRadii?: BoardShapeNumberMap,
@@ -80,6 +81,11 @@ const r4 = n => Math.round(n * 10000) / 10000;
 const pt = p => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 /** @param {Point} p */
 const clonePoint = p => ({ x: p.x, y: p.y });
+
+/** @param {BoardShapeEntry|null|undefined} shape @returns {shape is BoardShape} */
+export function isBoardShape(shape) {
+    return !!shape && shape.type !== 'fill';
+}
 
 /** Full-precision geometry snapshot for moves and edits. */
 /** @param {BoardShape} shape @returns {BoardShapeGeometry} */
@@ -160,13 +166,14 @@ export function applyShapeSnapshot(shape, state) {
 }
 
 /**
- * @param {{boardShapes?: BoardShape[]}} state
+ * @param {{boardShapes?: BoardShapeEntry[]}} state
  * @param {{compactArtwork?: boolean, roundGeometry?: boolean, parametricRectangles?: boolean}} [options]
  */
 export function serializeBoardShapes(state, { compactArtwork = true, roundGeometry = true, parametricRectangles = true } = {}) {
     const artworkIndices = new Map();
     return (state.boardShapes || []).map((s, index) => {
-        if (s?.type === 'fill') return /** @type {{toJSON: () => unknown}} */ (/** @type {unknown} */ (s)).toJSON();
+        if (!isBoardShape(s)) return /** @type {{toJSON: () => unknown}} */ (/** @type {unknown} */ (s)).toJSON();
+        const shape = s;
         /** @param {number} value */
         const number = value => roundGeometry && Number.isFinite(value) ? r4(value) : value;
         /** @param {Point} value */
@@ -175,39 +182,39 @@ export function serializeBoardShapes(state, { compactArtwork = true, roundGeomet
         const numbers = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, number(value)]));
         /** @type {BoardShapeBase} */
         const base = {
-            id: s.id,
-            kind: s.kind,
-            layer: s.layer,
-            lineWidth: number(/** @type {number} */ (s.lineWidth)),
-            filled: !!s.filled,
-            copperMode: normalizeShapeCopperMode(s.copperMode),
-            plated: !!s.plated,
-            net: String(s.net || ''),
+            id: shape.id,
+            kind: shape.kind,
+            layer: shape.layer,
+            lineWidth: number(/** @type {number} */ (shape.lineWidth)),
+            filled: !!shape.filled,
+            copperMode: normalizeShapeCopperMode(shape.copperMode),
+            plated: !!shape.plated,
+            net: String(shape.net || ''),
         };
-        if (s.locked) base.locked = true;
-        if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = numbers(/** @type {BoardShapeNumberMap} */ (s.segmentWidths));
-        if (Object.keys(s.segmentBulges || {}).length) base.segmentBulges = numbers(/** @type {BoardShapeNumberMap} */ (s.segmentBulges));
-        if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(/** @type {BoardShapeNumberMap} */ (s.nodeCornerRadii));
-        if (s.kind === 'rect') base.cornerRadius = number(rectCornerRadius(s));
-        else if (s.kind === 'polygon' || s.kind === 'line') base.cornerRadius = number(polygonCornerRadius(s));
-        if (s.kind === 'arc') return { ...base, start: point(s.start), end: point(s.end), bulge: point(s.bulge) };
-        if (s.kind === 'circle') return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
-        if (s.kind === 'image') {
-            const geometry = parametricRectangles ? rectangleFrameFromPoints(s.points)
-                : { points: s.points.map(clonePoint) };
-            if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), ...geometry };
-            const encoded = encodePictureArtwork(s.artwork);
+        if (shape.locked) base.locked = true;
+        if (Object.keys(shape.segmentWidths || {}).length) base.segmentWidths = numbers(/** @type {BoardShapeNumberMap} */ (shape.segmentWidths));
+        if (Object.keys(shape.segmentBulges || {}).length) base.segmentBulges = numbers(/** @type {BoardShapeNumberMap} */ (shape.segmentBulges));
+        if (Object.keys(shape.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(/** @type {BoardShapeNumberMap} */ (shape.nodeCornerRadii));
+        if (shape.kind === 'rect') base.cornerRadius = number(rectCornerRadius(shape));
+        else if (shape.kind === 'polygon' || shape.kind === 'line') base.cornerRadius = number(polygonCornerRadius(shape));
+        if (shape.kind === 'arc') return { ...base, start: point(shape.start), end: point(shape.end), bulge: point(shape.bulge) };
+        if (shape.kind === 'circle') return { ...base, x: number(shape.x), y: number(shape.y), radius: number(shape.radius) };
+        if (shape.kind === 'image') {
+            const geometry = parametricRectangles ? rectangleFrameFromPoints(shape.points)
+                : { points: shape.points.map(clonePoint) };
+            if (!compactArtwork) return { ...base, name: shape.name, artwork: structuredClone(shape.artwork), ...geometry };
+            const encoded = encodePictureArtwork(shape.artwork);
             const key = JSON.stringify(encoded);
             const previous = artworkIndices.get(key);
             const artwork = previous === undefined ? encoded : { encoding: 'reference-v1', index: previous };
             if (previous === undefined) artworkIndices.set(key, index);
-            return { ...base, name: s.name, artwork, ...geometry };
+            return { ...base, name: shape.name, artwork, ...geometry };
         }
-        if (s.kind === 'rect' && parametricRectangles) return { ...base, ...rectangleFrameFromPoints(s.points) };
-        const saved = { ...base, points: (s.points || []).map(point) };
-        if (roundGeometry && s.kind === 'polygon') {
+        if (shape.kind === 'rect' && parametricRectangles) return { ...base, ...rectangleFrameFromPoints(shape.points) };
+        const saved = { ...base, points: (shape.points || []).map(point) };
+        if (roundGeometry && shape.kind === 'polygon') {
             collapseRoundedPolygon(saved);
-            if (s.layer === 'board-outline' && !validBoardOutline(/** @type {BoardShape} */ (saved))) {
+            if (shape.layer === 'board-outline' && !validBoardOutline(/** @type {BoardShape} */ (saved))) {
                 throw new Error('Cannot save board outline: rounding leaves an invalid closed outline.');
             }
         }

@@ -15,7 +15,7 @@ import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 import { createPcbText } from './pcb-text.js';
 import { removeTextElement } from './pcb-text-render.js';
 import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
-import { cloneShapeGeometry, applyShapeGeometry } from '../../core/pcb-board-shapes.js';
+import { cloneShapeGeometry, applyShapeGeometry, isBoardShape } from '../../core/pcb-board-shapes.js';
 import { translateShapeGeometry } from './board-shapes.js';
 import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
 import { updateCursorForTool } from './tool-lifecycle.js';
@@ -40,9 +40,9 @@ import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
 /** @typedef {ReturnType<import('./pcb-text.js').createPcbText>} PcbText */
-/** @typedef {Track|Via|Pad|BoardShape|PcbText|CopperFill|any} PcbPasteItem */
-/** @typedef {{tracks:Track[], vias:Via[], pads:Pad[], shapes:any[], texts:any[], fills:CopperFill[], [kind:string]: PcbPasteItem[]}} PcbPastePayload Dynamic paste payloads include board shapes/text records recreated from clipboard JSON. */
-/** @typedef {Partial<Record<'tracks'|'vias'|'pads'|'shapes'|'texts'|'fills', any[]>>} PcbClipboardData Dynamic clipboard JSON is validated as objects are recreated. */
+/** @typedef {Track|Via|Pad|BoardShape|PcbText|CopperFill} PcbPasteItem */
+/** @typedef {{tracks:Track[], vias:Via[], pads:Pad[], shapes:BoardShape[], texts:PcbText[], fills:CopperFill[], [kind:string]: PcbPasteItem[]}} PcbPastePayload Dynamic paste payloads include board shapes/text records recreated from clipboard JSON. */
+/** @typedef {{tracks?: Record<string, unknown>[], vias?: import('../../shapes/via.js').ViaJSON[], pads?: Record<string, unknown>[], shapes?: Array<BoardShape|Record<string, unknown>>, texts?: Array<Partial<{id:string, content:string, x:number, y:number, size:number, rotation:number, layer:string, strokeWidth:number, border:boolean, locked:boolean}>>, fills?: Record<string, unknown>[]}} PcbClipboardData Dynamic clipboard JSON is validated as objects are recreated. */
 /** @typedef {import('./selection-registry.js').PcbSelectionValue} PcbSelectionValue */
 /** @typedef {import('./drag-session.js').DragSession} DragSession */
 /** @typedef {{track: Track, nodes: Map<string, Point>}} PcbPasteTrackSnapshot */
@@ -64,7 +64,9 @@ export function preparePcbPaste(app, clipboard) {
         return `pshape_${shapeId++}`;
     };
     // Copper paths copied as board shapes (older clipboards) paste as Tracks.
-    const copperPaths = (clipboard.shapes || []).filter(shape => isCopperPathShape(/** @type {BoardShape} */ (/** @type {unknown} */ (shape))));
+    const copperPaths = /** @type {import('../../shared/pcb/copper-path-tracks.js').CopperPathShape[]} */ (
+        (clipboard.shapes || []).filter(shape => isCopperPathShape(/** @type {BoardShape} */ (/** @type {unknown} */ (shape))))
+    );
     const payload = /** @type {PcbPastePayload} */ ({
         tracks: [...(clipboard.tracks || []).map(/** @param {Record<string, unknown>} data */ data => {
             const json = structuredClone(data);
@@ -72,13 +74,17 @@ export function preparePcbPaste(app, clipboard) {
             const track = createShape(json);
             if (!(track instanceof Track)) throw new Error('PCB clipboard contains an invalid track.');
             return track;
-        }), ...copperPaths.map(shape => trackFromBoardShape(structuredClone(/** @type {any} */ (shape))))],
-        vias: (clipboard.vias || []).map(/** @param {any} data */ data => Via.fromJSON({ ...data, id: undefined })),
+        }), ...copperPaths.map(shape => trackFromBoardShape(structuredClone(shape)))],
+        vias: (clipboard.vias || []).map(data => {
+            const json = structuredClone(data);
+            delete json.id;
+            return Via.fromJSON(json);
+        }),
         pads: (clipboard.pads || []).map(/** @param {Record<string, unknown>} data */ data => Pad.fromJSON({ ...data, id: undefined })),
-        shapes: (clipboard.shapes || []).filter(shape => !copperPaths.includes(shape)).map(/** @param {Record<string, unknown>} item */ ({ artwork, ...shape }) => ({
+        shapes: (clipboard.shapes || []).filter(shape => !copperPaths.some(path => path === shape)).map(/** @param {BoardShape|Record<string, unknown>} item */ ({ artwork, ...shape }) => /** @type {BoardShape} */ ({
             ...structuredClone(shape), ...(artwork ? { artwork } : {}), id: nextShapeId(),
         })),
-        texts: (clipboard.texts || []).map(/** @param {Record<string, unknown>} data */ data => createPcbText({ ...data, id: undefined })),
+        texts: (clipboard.texts || []).map(data => createPcbText({ ...data, id: undefined })),
         fills: (clipboard.fills || []).map(/** @param {Record<string, unknown>} data */ data => new CopperFill({ ...structuredClone(data), id: undefined })),
     });
     // Pasted copies are new objects, so they start unlocked.
@@ -94,7 +100,8 @@ function editable(payload) {
         && payload.vias.every(via => !via.locked && via.visible !== false && !isViaLocked() && isViaVisible())
         && payload.pads.every(pad => !pad.locked && pad.visible !== false
             && padLayers(pad).every(layer => !isLayerLocked(layer)) && padLayers(pad).some(isLayerVisible))
-        && [...payload.shapes, ...payload.texts].every(shape => !shape.locked && shape.visible !== false && layerEditable(shape.layer))
+        && payload.shapes.every(shape => !shape.locked && shape.visible !== false && layerEditable(shape.layer))
+        && payload.texts.every(text => !text.locked && layerEditable(text.layer))
         && payload.fills.every(fill => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
             && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
 }
@@ -147,7 +154,7 @@ function removeArtwork(app, payload) {
     for (const shape of payload.shapes) {
         removeBoardShapeElement(app, shape.id);
         const current = app.pcbDocument.boardShapes.find(item => item.id === shape.id && item !== shape);
-        if (current) renderBoardShape(app, current, { liveDrag: true, skipCopperUpdate: true });
+        if (isBoardShape(current)) renderBoardShape(app, current, { liveDrag: true, skipCopperUpdate: true });
     }
     for (const text of payload.texts) {
         removeTextElement(app, text.id);

@@ -15,7 +15,7 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 /** @typedef {import('../core/SchematicDocument.js').SchematicItem} TextParent */
 /** @typedef {any} TextAttachment Label/wire attachment payloads are built incrementally by legacy modules. */
 /** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
-/** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: 0|270, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
 /** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: TextAttachment}} TextJSON */
 
 /** @type {null | ((text: Text) => TextBBox|null|undefined)} */
@@ -262,7 +262,7 @@ export class Text extends Shape {
 
     /**
      * @override
-     * @param {import('../schematic/modules/selection.js').ShapeState} state
+     * @param {TextState} state
      */
     applyState(state) {
         super.applyState(state);

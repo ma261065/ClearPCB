@@ -17,7 +17,7 @@ import { isComponentItem, isTextItem } from '../../core/schematic-items.js';
 /** @typedef {import('../../shapes/shape.js').Shape} Shape */
 /** @typedef {{x: number, y: number}} Point */
 /**
- * @typedef {{[key: string]: unknown, id?: string|number, type?: string, x?: number, y?: number, w?: number, h?: number, nd?: Record<string, [number, number]>, pts?: number[], sp?: Point, ep?: Point, bp?: Point, ir?: boolean, cn?: unknown[], rot?: number, mir?: boolean, ref?: string, pkg?: string, val?: string, sr?: boolean, sv?: boolean, props?: import('../../components/Component.js').ComponentProperties, cid?: string, fk?: string, att?: unknown, lk?: boolean, locked?: boolean}} SerializedShapeData
+ * @typedef {{[key: string]: unknown, id?: string|number, type?: string, x?: number, y?: number, w?: number, h?: number, nd?: Record<string, [number, number]>, pts?: number[], sp?: Point, ep?: Point, bp?: Point, ir?: boolean, cn?: unknown[], rot?: number, mir?: boolean, ref?: string, pkg?: string, val?: string, sr?: boolean, sv?: boolean, props?: import('../../components/Component.js').ComponentProperties, cid?: string, fk?: string|null, att?: unknown, lk?: boolean, locked?: boolean}} SerializedShapeData
  * @typedef {SerializedShapeData & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData
  */
 /** @param {SchematicItem} item @returns {item is SchematicItem & {x: number, y: number}} */

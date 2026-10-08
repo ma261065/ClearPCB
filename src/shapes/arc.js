@@ -320,7 +320,7 @@ export class Arc extends Shape {
     }
     /**
      * @override
-     * @param {import('../schematic/modules/selection.js').ShapeState} state
+     * @param {ArcState} state
      */
     applyState(state) {
         const startPoint = /** @type {Point|undefined} */ (state.startPoint);

@@ -21,6 +21,7 @@ import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { appendArcToLineCommand } from './context-menu.js';
 import { refreshComponentPose } from './schematic-view.js';
 import { applyShapeState, captureShapeState } from './selection.js';
+import { applySchematicItemState } from '../../core/schematic-state.js';
 import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
@@ -214,7 +215,7 @@ function restoreMoveDragStates(app) {
     const states = getSchematicDrag(app)?.restoreStates;
     if (!states) return;
     for (const [entity, state] of states) {
-        entity.applyState(state);
+        applySchematicItemState(entity, state);
         if (isComponent(entity)) refreshComponentPose(entity);
     }
     getSchematicDrag(app).restoreStates = null;
@@ -248,8 +249,8 @@ export function cancelSchematicShapeConversion(app) {
  * Build a complete before-state map for all wires: combine pre-drag
  * snapshots with current state of unchanged wires.
  * @param {SchematicEditor} app
- * @param {Map<Wire, ShapeState>} preDragStates - Wire  state snapshots from drag start
- * @returns {Map<Wire, ShapeState>}
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>} preDragStates - Wire state snapshots from drag start
+ * @returns {Map<Wire, import('../../shapes/wire.js').WireState>}
  */
 function buildBeforeAllWireStates(app, preDragStates) {
     const beforeAll = new Map(preDragStates);
@@ -264,11 +265,11 @@ function buildBeforeAllWireStates(app, preDragStates) {
 /**
  * Capture label text states for all wires in the before-state map.
  * @param {SchematicEditor} app
- * @param {Map<Wire, ShapeState>} beforeAll - Wire  state map
- * @returns {Map<Text, ShapeState>}
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>} beforeAll - Wire state map
+ * @returns {Map<Text, import('../../shapes/text.js').TextState>}
  */
 function captureLabelTextStates(app, beforeAll) {
-    /** @type {Map<Text, ShapeState>} */
+    /** @type {Map<Text, import('../../shapes/text.js').TextState>} */
     const labelStates = new Map();
     for (const [w] of beforeAll) {
         if (w.labelText && app.shapes.includes(w.labelText)) {
@@ -284,9 +285,9 @@ function captureLabelTextStates(app, beforeAll) {
  *
  * @param {SchematicEditor} app
  * @param {Wire[]} changedWires - Wires that were modified by the drag
- * @param {Map<Wire, ShapeState>} beforeAll - Complete wire before-state map
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>} beforeAll - Complete wire before-state map
  * @param {string} label - Undo command label
- * @param {Map<Text, ShapeState>} labelTextBefore - Label text before-states
+ * @param {Map<Text, import('../../shapes/text.js').TextState>} labelTextBefore - Label text before-states
  * @returns {BatchCommand|null}
  */
 function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBefore) {
@@ -333,10 +334,10 @@ function pushBatchIfNonEmpty(app, batch) {
  * @param {SchematicEditor} app
  * @param {SchematicDrawable} dragShape - The shape being dragged
  * @param {ShapeState} beforeState - Shape state snapshot from drag start
- * @param {Map<Wire, ShapeState>|null} [anchorWireStates] - T-junction linked wire before-states
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>|null} [anchorWireStates] - T-junction linked wire before-states
  * @param {NoConnectLink[]|null} [ncLinks] - NoConnect shapes that moved with anchor
- * @param {Map<Wire, ShapeState>|null} [junctionBeforeWireStates] - Pre-junction-split wire states
- * @param {Map<Text, ShapeState>|null} [junctionBeforeLabelTextStates] - Pre-junction-split label states
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>|null} [junctionBeforeWireStates] - Pre-junction-split wire states
+ * @param {Map<Text, import('../../shapes/text.js').TextState>|null} [junctionBeforeLabelTextStates] - Pre-junction-split label states
  * @returns {boolean}
  */
 export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
@@ -360,7 +361,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         const after = dragShape.captureState();
         const remainder = getSchematicDrag(app).splitRemainder;
         cancelSchematicPathSplit(app);
-        dragShape.applyState(beforeState);
+        applySchematicItemState(dragShape, beforeState);
         const batch = new BatchCommand('Split shape');
         batch.add(new ModifyShapeCommand(app, dragShape, beforeState, after));
         if (remainder) batch.add(new AddShapeCommand(app, remainder));
@@ -372,7 +373,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 
     if (isArc(dragShape) && Math.abs(dragShape.bulge) < BULGE_EPS) {
         const after = dragShape.captureState();
-        dragShape.applyState(beforeState);
+        applySchematicItemState(dragShape, beforeState);
         const batch = new BatchCommand('Convert arc to line');
         const line = appendArcToLineCommand(app, batch, dragShape, /** @type {import('./context-menu.js').ArcLineState} */ (after));
         app.history.execute(batch);
@@ -392,7 +393,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         );
         if (!check.ok) {
                 app.alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
-            dragShape.applyState(beforeState);
+            applySchematicItemState(dragShape, beforeState);
             return false;
         }
     }
@@ -519,7 +520,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
     }
 
     if (wasRemoved || degenerate) {
-        dragShape.applyState(beforeState);
+        applySchematicItemState(dragShape, beforeState);
         if (!app.shapes.includes(dragShape)) app.shapes.push(dragShape);
         app.history.execute(new DeleteShapesCommand(app, [dragShape]));
     } else {
@@ -588,10 +589,10 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
  * @param {SchematicDrawable} dragShape
  * @param {ShapeState} beforeState
  * @param {boolean} didDrag
- * @param {Map<Wire, ShapeState>|null} [anchorWireStates]
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>|null} [anchorWireStates]
  * @param {NoConnectLink[]|null} [ncLinks]
- * @param {Map<Wire, ShapeState>|null} [junctionBeforeWireStates]
- * @param {Map<Text, ShapeState>|null} [junctionBeforeLabelTextStates]
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>|null} [junctionBeforeWireStates]
+ * @param {Map<Text, import('../../shapes/text.js').TextState>|null} [junctionBeforeLabelTextStates]
  * @returns {boolean}
  */
 export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
@@ -614,7 +615,7 @@ export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag,
  *
  * @param {SchematicEditor} app
  * @param {Wire} dragShape - The dragged wire
- * @param {Map<Wire, ShapeState>} wireStates - Before-states for all affected wires
+ * @param {Map<Wire, import('../../shapes/wire.js').WireState>} wireStates - Before-states for all affected wires
  * @param {NoConnectLink[]|null} [ncLinks] - NoConnect shapes that moved
  * @param {ShapeState|null} [labelBefore] - Label text before-state
  * @returns {boolean}
@@ -757,7 +758,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
             refreshNoConnectConnection(app, nc);
             const afterNC = captureShapeState(app, nc);
             if (!areCapturedStatesEqual(beforeNC, afterNC)) {
-                nc.applyState(beforeNC);
+                applySchematicItemState(nc, beforeNC);
                 ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
             }
         }
@@ -805,7 +806,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         if (!before) continue;
         const after = w.captureState();
         if (!areCapturedStatesEqual(before, after)) {
-            w.applyState(before);
+            applySchematicItemState(w, before);
             wireModCmds.push(new ModifyShapeCommand(app, w, before, after));
         }
     }

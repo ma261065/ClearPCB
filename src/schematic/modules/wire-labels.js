@@ -17,7 +17,7 @@ import { addShapeInternal } from './shape-management.js';
  *   _pendingLabelPosition?: LabelPosition
  * }} Wire
  * @typedef {{state: ShapeState, signature: string}} ShapeSnapshot
- * @typedef {Record<string, any>} ShapeState Dynamic snapshots cover wire and text label state bags.
+ * @typedef {import('../../core/schematic-state.js').SchematicItemState} ShapeState
  * @typedef {{label?: string, visible: boolean, position: LabelPosition|null}} WireLabelMeta
  */
 

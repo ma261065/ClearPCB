@@ -481,7 +481,7 @@ function _clearPreviewElements(ctx, keepCached = false) {
 /**
  * Shared Track and generic-shape H/V/45 glow renderer.
  * @param {PcbEditor} app
- * @param {unknown[]} segments
+ * @param {Array<object|import('../../shapes/axis-glow.js').AxisSegment>} segments
  */
 export function renderTrackAxisGlow(app, segments) {
     renderAxisGlow(app, segments);

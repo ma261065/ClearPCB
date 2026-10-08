@@ -15,6 +15,9 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 /** Half-size of the X mark in mm */
 const NC_HALF = 0.8;
 
+/** @typedef {{componentId: string, pinNumber: string|number}} PinConnection */
+/** @typedef {{x: number, y: number, pinConnection: PinConnection|null}} NoConnectState */
+
 export class NoConnect extends Shape {
     /** @type {'noconnect'} */
     type;

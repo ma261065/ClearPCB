@@ -14,9 +14,10 @@ import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
 export { COLLINEAR_EPSILON };
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {any} WireRecord Pin connection records are shared legacy bags across command/sticky-wire modules. */
+/** @typedef {{componentId: string, pinNumber: string|number, [key: string]: unknown}} WireRecord Pin connection records are shared legacy bags across command/sticky-wire modules. */
 /** @typedef {Record<string, unknown>} WireRecordInput */
 /** @typedef {import('./polyline-graph.js').PolylineGraphOptions & {net?: string, wireLabel?: string, labelOffset?: Point, graphNodes?: import('./polyline-graph.js').GraphNodeInput, graphEdges?: import('./polyline-graph.js').GraphEdgeInput, pinConnections?: Record<string, WireRecordInput>}} WireOptions */
+/** @typedef {import('./polyline-graph.js').PolylineGraphState & {pinConnections: Record<string, WireRecord>, net?: string, wireLabel?: string, labelOffset?: Point}} WireState */
 
 /** Default wire stroke color. */
 export const WIRE_COLOR = '#00cc66';
@@ -268,7 +269,7 @@ export class Wire extends PolylineGraph {
 
     /** @override — includes pinConnections, net, wireLabel, labelOffset. */
     captureState() {
-        /** @type {ReturnType<PolylineGraph['captureState']> & {pinConnections: Record<string, WireRecord>, net?: string, wireLabel?: string, labelOffset?: Point}} */
+        /** @type {WireState} */
         const s = { ...super.captureState(), pinConnections: {} };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
         s.net = this.net;
@@ -279,7 +280,7 @@ export class Wire extends PolylineGraph {
 
     /**
      * @override — restores pinConnections, net, wireLabel, labelOffset.
-     * @param {import('../schematic/modules/selection.js').ShapeState} state
+     * @param {WireState} state
      */
     applyState(state) {
         // Let base restore nodes/edges

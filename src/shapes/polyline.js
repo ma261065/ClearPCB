@@ -28,6 +28,7 @@ import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } fro
  * @typedef {number[] & Record<string|number, number>} EditableNumberMap
  * @typedef {import('./path-operations.js').PathShape & {points: Point[], nodeIds: Record<number, string>, edgeIds: Record<number, string>, segmentWidths: EditableNumberMap, segmentBulges: EditableNumberMap, nodeCornerRadii: EditableNumberMap}} EditablePath
  * @typedef {{anchorId: string, nodeIds: string[], points: Point[]}|null} RectAxisCache
+ * @typedef {import('./polyline-graph.js').PolylineGraphState & {isRect: boolean, lineWidth: number}} PolylineState
  */
 
 /** @param {PolylineOptions} options */
@@ -270,16 +271,16 @@ export class Polyline extends PolylineGraph {
 
     /** @override */
     captureState() {
-        /** @type {ReturnType<PolylineGraph['captureState']> & Partial<{isRect: boolean, lineWidth: number}>} */
+        /** @type {import('./polyline-graph.js').PolylineGraphState & Partial<{isRect: boolean, lineWidth: number}>} */
         const s = super.captureState();
         s.isRect = this.isRect;
         s.lineWidth = this.lineWidth;
-        return /** @type {ReturnType<PolylineGraph['captureState']> & {isRect: boolean, lineWidth: number}} */ (s);
+        return /** @type {PolylineState} */ (s);
     }
 
     /**
      * @override
-     * @param {import('../schematic/modules/selection.js').ShapeState} state
+     * @param {PolylineState} state
      */
     applyState(state) {
         super.applyState(/** @type {Partial<ReturnType<PolylineGraph['captureState']>>} */ (state));

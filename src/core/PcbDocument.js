@@ -7,7 +7,7 @@ import { Track } from '../shapes/track.js';
 import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
-import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
+import { isBoardShape, loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
 import { capturePcbGeometry } from './pcb-geometry-snapshot.js';
 import { validBoardOutline, getBoardOutline, rectangleBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
@@ -17,10 +17,11 @@ import { panelSettings } from './pcb-panelization.js';
 
 /** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
 /** @typedef {import('./pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('./pcb-board-shapes.js').BoardShapeEntry} BoardShapeEntry */
 /** @typedef {import('../shapes/copper-fill.js').CopperFill} CopperFill */
 /** @typedef {ReturnType<typeof createPcbText>} PcbText */
-/** @typedef {JsonRecord & {boardShapes?: Array<BoardShape|JsonRecord>, board?: {width?: number, height?: number, radius?: number}, tracks?: Array<Parameters<typeof createShape>[0]|JsonRecord>, vias?: Array<Parameters<typeof Via.fromJSON>[0]|JsonRecord>, pads?: Array<ConstructorParameters<typeof Pad>[0]|JsonRecord>, texts?: Array<Parameters<typeof createPcbText>[0]|JsonRecord>, panelization?: Parameters<typeof panelSettings>[0]|JsonRecord, design?: Record<string, unknown>, settings?: JsonRecord, placements?: Parameters<PcbPlacementState['load']>[0]}} PcbData */
-/** @typedef {{boardShapes: BoardShape[], shapeIdCounter: number, data: PcbData|null|undefined, tracks: Track[], vias: Via[], pads: Pad[], texts: PcbText[], panelization: ReturnType<typeof panelSettings>|null}} PcbPreparedData */
+/** @typedef {JsonRecord & {boardShapes?: Array<BoardShapeEntry|JsonRecord>, board?: {width?: number, height?: number, radius?: number}, tracks?: Array<Parameters<typeof createShape>[0]|JsonRecord>, vias?: Array<Parameters<typeof Via.fromJSON>[0]|JsonRecord>, pads?: Array<ConstructorParameters<typeof Pad>[0]|JsonRecord>, texts?: Array<Parameters<typeof createPcbText>[0]|JsonRecord>, panelization?: Parameters<typeof panelSettings>[0]|JsonRecord, design?: Record<string, unknown>, settings?: JsonRecord, placements?: Parameters<PcbPlacementState['load']>[0]}} PcbData */
+/** @typedef {{boardShapes: BoardShapeEntry[], shapeIdCounter: number, data: PcbData|null|undefined, tracks: Track[], vias: Via[], pads: Pad[], texts: PcbText[], panelization: ReturnType<typeof panelSettings>|null}} PcbPreparedData */
 
 /** @param {number} value */
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
@@ -44,9 +45,9 @@ export class PcbDocument {
         this.vias = [];
         /** @type {Pad[]} */
         this.pads = [];
-        /** @type {Map<string, PcbText> & {get(id: string): PcbText}} */
-        this.texts = /** @type {Map<string, PcbText> & {get(id: string): PcbText}} */ (new Map());
-        /** @type {BoardShape[]} Generic board shapes; fill entries are kept in this collection at runtime. */
+        /** @type {Map<string, PcbText>} */
+        this.texts = new Map();
+        /** @type {BoardShapeEntry[]} Generic board shapes; fill entries are kept in this collection at runtime. */
         this.boardShapes = [];
         this.shapeIdCounter = 1;
     }
@@ -71,7 +72,7 @@ export class PcbDocument {
                 throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
             }
         }
-        /** @type {{boardShapes: BoardShape[], shapeIdCounter: number}} */
+        /** @type {{boardShapes: BoardShapeEntry[], shapeIdCounter: number}} */
         const stage = { boardShapes: [], shapeIdCounter: 1 };
         loadBoardShapeData(stage, data?.boardShapes, { strict: true });
         const board = data?.board;
@@ -80,10 +81,11 @@ export class PcbDocument {
             if (stage.boardShapes.some(shape => shape.id === outline.id)) outline.id = `pshape_${stage.shapeIdCounter++}`;
             stage.boardShapes.push(outline);
         }
-        const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
+        const outlines = stage.boardShapes.filter(isBoardShape).filter(shape => shape.layer === 'board-outline');
         if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
         }
+        /** @type {Track[]} */
         const tracks = (data?.tracks || []).map(item => {
             const track = createShape(item);
             if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
@@ -91,11 +93,11 @@ export class PcbDocument {
         });
         // Copper paths that earlier versions saved as board shapes load as Tracks
         // (after the file's own tracks, so new ids never collide with theirs).
-        const copperPaths = stage.boardShapes.filter(isCopperPathShape);
+        const copperPaths = stage.boardShapes.filter(isBoardShape).filter(isCopperPathShape);
         if (copperPaths.length) {
-            const copperPathSet = /** @type {Set<BoardShape>} */ (new Set(copperPaths));
-            stage.boardShapes = stage.boardShapes.filter(shape => !copperPathSet.has(shape));
-            tracks.push(...copperPaths.map(shape => trackFromBoardShape(/** @type {Parameters<typeof trackFromBoardShape>[0]} */ (shape))));
+            const copperPathSet = new Set(copperPaths);
+            stage.boardShapes = stage.boardShapes.filter(shape => !(isBoardShape(shape) && isCopperPathShape(shape) && copperPathSet.has(shape)));
+            tracks.push(...copperPaths.map(shape => trackFromBoardShape(shape)));
         }
         const prepared = { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(/** @type {Parameters<typeof Via.fromJSON>[0]} */ (item))),
             pads: (data?.pads || []).map(item => new Pad(item)),

@@ -16,6 +16,7 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
  * @typedef {{x: number, y: number}} Point
  * @typedef {'t'|'gnd'|'arrow'|'chevron'} NetStyle
  * @typedef {'N'|'E'|'S'|'W'} NetOrientation
+ * @typedef {{x: number, y: number, net: string, fontSize: number, style: NetStyle, orientation: NetOrientation, textOffset: Point, border: boolean}} NetState
  * @typedef {ReturnType<Shape['toJSON']> & {
  *   x: number, y: number, n: string, fs?: number, nst?: NetStyle,
  *   no?: NetOrientation, bd?: boolean, nto?: number[]
@@ -647,7 +648,7 @@ export class Net extends Shape {
         return false;
     }
 
-    /** @param {import('../schematic/modules/selection.js').ShapeState} state */
+    /** @param {NetState} state */
     applyState(state) {
         super.applyState(state);
         this.syncLabelText();

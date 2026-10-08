@@ -9,7 +9,7 @@ import { serializePcbText } from './pcb-text.js';
  *   vias: Array<{id: string, x: number, y: number, diameter: number, drill: number, net: string}>,
  *   pads?: Array<{captureState(): unknown}>,
  *   texts: Map<string, import('./pcb-text.js').PcbText>,
- *   boardShapes: import('./pcb-board-shapes.js').BoardShape[],
+ *   boardShapes: import('./pcb-board-shapes.js').BoardShapeEntry[],
  * }} PcbGeometrySource
  */
 /**

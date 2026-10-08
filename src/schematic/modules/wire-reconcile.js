@@ -11,13 +11,14 @@ import { addShapeInternal, removeShapeInternal } from './shape-management.js';
 import { findNearbyPin } from './wire-snap.js';
 import { applyMergeLabelRules, applySplitLabelRules, applySplitNetRules, captureShapeSnapshot, getWireLabelPosition, getWireLabelVisibility, mergeNetNames, normalizeSnapshot, rehomeAttachedWireLabelsAfterSplit, snapshotChanged, transferAttachedLabelsOnMerge } from './wire-labels.js';
 import { isWireItem as isWire, isNetItem as isNet, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
+import { applySchematicItemState } from '../../core/schematic-state.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../shapes/wire.js').Wire} Wire */
 /** @typedef {import('../../shapes/net.js').Net} Net */
 /** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{state: object, signature?: string}} WireSnapshot */
+/** @typedef {{state: import('../../shapes/wire.js').WireState, signature: string}} WireSnapshot */
 
 /** Maximum iterations for pairwise merge loop. */
 const MAX_MERGE_ITERATIONS = 50;
@@ -373,7 +374,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * Reverts all wires to their before-state so batch.execute() replays correctly.
  *
  * @param {SchematicEditor} app
- * @param {Map<Wire, WireSnapshot | object>} beforeStates - captured states before mutation
+ * @param {Map<Wire, WireSnapshot | import('../../shapes/wire.js').WireState>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
  * @param {Map<any,any>|null} [labelTextBefore] - dynamic captured label-text states before mutation
@@ -391,7 +392,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
             // The removed wire object may have been mutated during merge
             // (e.g. temporary split node inserted before absorb). Restore
             // its pre-mutation state so undo re-adds the canonical geometry.
-            w.applyState(before);
+            applySchematicItemState(w, before);
             // Wire was removed during reconciliation (absorbed) → record deletion.
             // Store a snapshot command that can re-add on undo and re-delete on redo.
             batch.add(new DeleteShapesCommand(app, [w]));
@@ -448,7 +449,11 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
 export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     // Snapshot all wires BEFORE
     const allWires = app.shapes.filter(isWire);
-    const beforeStates = new Map(allWires.map(w => [w, captureShapeSnapshot(w)]));
+    /** @type {Map<Wire, WireSnapshot>} */
+    const beforeStates = new Map(allWires.map(w => {
+        const state = w.captureState();
+        return [w, { state, signature: JSON.stringify(state) }];
+    }));
 
     // Snapshot all wire label texts BEFORE
     const labelTextBefore = new Map();

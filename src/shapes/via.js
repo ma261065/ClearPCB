@@ -39,7 +39,7 @@ import { IdAllocator } from '../core/id-allocator.js';
  *   locked: boolean,
  *   visible: boolean,
  * }} ViaState
- * @typedef {{type: 'via', id: string, x: number, y: number, d: number, dr: number, n?: string, lk?: boolean, v?: boolean}} ViaJSON
+ * @typedef {{type: 'via', id?: string, x: number, y: number, d: number, dr: number, n?: string, lk?: boolean, v?: boolean}} ViaJSON
  */
 
 const viaIds = new IdAllocator('via');
