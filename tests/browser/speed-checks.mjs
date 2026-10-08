@@ -2,31 +2,35 @@ import assert from 'node:assert/strict';
 import { clickWorld, openPcb, screenPoint, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
 // Speed checks on a large board: pointer moves, Properties panel rebuilds, pour refresh
-// and picture import. Each measures main-thread task time with Chrome's own metrics, so
-// harness round trips and frame waits do not count, and fails past a budget about five
-// times what CI and a typical local machine take (they measure alike), with room for a
-// machine running the whole suite in parallel. They catch regressions of several times,
-// such as an accidentally quadratic walk, not noise. Repeatable measurements keep the
-// fastest of three runs, since a busy machine only ever adds time. Every run prints its
-// measurements, so CI logs show the trend.
+// and picture import. Each measures the main thread's CPU time with Chrome's own metrics,
+// so harness round trips, frame waits and time the thread spends descheduled do not
+// count: a machine busy running the whole suite in parallel, or CPU_THROTTLE, does not
+// change the measurement. Each fails past a budget about five times what CI and a typical
+// local machine take. They catch regressions of several times, such as an accidentally
+// quadratic walk, not noise. Repeatable measurements keep the fastest of three runs.
+// Every run prints its measurements, so CI logs show the trend.
 
-/** Budgets in milliseconds of main-thread time at normal speed. */
+/** Budgets in milliseconds of main-thread CPU time. */
 const BUDGET = {
-    load: 2000, hoverMove: 200, dragMove: 75, panelRebuild: 100,
+    hoverMove: 200, dragMove: 75, panelRebuild: 100,
     pourRefresh: 1000, picturePreview: 1500, picturePlace: 2000,
 };
-// CPU_THROTTLE (tools/browser-test.mjs) slows the page by that factor, and the budgets with it.
+/** Budget in milliseconds of wall time to load the board, at normal speed. */
+const LOAD_BUDGET = 2000;
+// CPU_THROTTLE (tools/browser-test.mjs) slows the page by that factor, so the wall-time
+// load budget scales with it; CPU time does not change.
 const SLOWDOWN = Number(process.env.CPU_THROTTLE) || 1;
 const BOARD = { width: 160, height: 110 };
 
 /** A main-thread meter on one DevTools session (detaching a session can reset CPU throttling). */
 async function mainThreadMeter(page) {
     const cdp = await page.context().newCDPSession(page);
-    await cdp.send('Performance.enable');
+    // In thread ticks, task durations count the thread's CPU time, not wall time.
+    await cdp.send('Performance.enable', { timeDomain: 'threadTicks' });
     const taskSeconds = async () => (await cdp.send('Performance.getMetrics')).metrics
         .find(metric => metric.name === 'TaskDuration').value;
     const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    /** Main-thread task time (ms) that `action` causes, including the frames it schedules. */
+    /** Main-thread CPU time (ms) that `action` causes, including the frames it schedules. */
     return async action => {
         await frames();
         const before = await taskSeconds();
@@ -43,8 +47,7 @@ async function fastest(count, measure) {
     return best;
 }
 
-function check(name, measured, normalBudget) {
-    const budget = normalBudget * SLOWDOWN;
+function check(name, measured, budget) {
     console.log(`  speed: ${name} ${measured.toFixed(1)} ms (budget ${budget} ms)`);
     assert.ok(measured <= budget, `${name} took ${measured.toFixed(1)} ms; the budget is ${budget} ms`);
 }
@@ -116,7 +119,7 @@ export const scenarios = [
         name: 'speed: pointer moves, panels, pours and pictures on a large board',
         async run(page, url) {
             await openPcb(page, url);
-            check('load (wall)', await fastest(3, () => loadLargeBoard(page)), BUDGET.load);
+            check('load (wall)', await fastest(3, () => loadLargeBoard(page)), LOAD_BUDGET * SLOWDOWN);
             const mainThreadMs = await mainThreadMeter(page);
 
             // Hovering with the Select tool diagonally across the whole board, back and forth.
@@ -176,26 +179,22 @@ export const scenarios = [
                 .getPcbSelection(window.bootstrap.pcbApp, 'fill').length), 1, 'the pour edge selects the pour');
             await measureDrag('pour drag move', pourEdge, pourOutline, 'pour');
 
-            // Rebuilding the Properties panel as the selection changes kind (median of 40).
-            const rebuild = await page.evaluate(async () => {
+            // Rebuilding the Properties panel as the selection changes kind, 40 times.
+            const rebuilds = 40;
+            const rebuild = await fastest(3, () => mainThreadMs(() => page.evaluate(async rebuilds => {
                 const { setPcbSelection } = await import('/src/pcb/modules/selection-registry.js');
                 const { showPcbSelectionProperties } = await import('/src/pcb/modules/selection-interaction.js');
                 const app = window.bootstrap.pcbApp;
                 const entries = [{ kind: 'via', object: app.vias[3] }, { kind: 'track', object: app.tracks[10] },
                     { kind: 'pad', object: app.pads[5] }, { kind: 'fill', object: app.copperFills[0] }];
-                const times = [];
-                for (let index = 0; index < 40; index++) {
-                    const started = performance.now();
+                for (let index = 0; index < rebuilds; index++) {
                     setPcbSelection(app, [entries[index % entries.length]]);
                     showPcbSelectionProperties(app);
                     void document.getElementById('pcbPropsItems')?.offsetHeight;
-                    times.push(performance.now() - started);
                 }
                 setPcbSelection(app, []);
-                times.sort((a, b) => a - b);
-                return times[Math.floor(times.length / 2)];
-            });
-            check('panel rebuild', rebuild, BUDGET.panelRebuild);
+            }, rebuilds)));
+            check('panel rebuild', rebuild / rebuilds, BUDGET.panelRebuild);
 
             // Recomputing both board-sized pours.
             const pour = await fastest(3, () => mainThreadMs(async () => {
