@@ -1,8 +1,11 @@
 # PCB Model and Geometry
 
-Part of the [module contracts](../module-contracts.md). The PCB document model
-and its commands, copper geometry, board shapes and outline, board/panel/design
-settings, fabrication capture, 3D data and the track/via model.
+Part of the [module contracts](../module-contracts.md). This page defines the PCB
+document model and its commands, copper geometry, board shapes and outline,
+board/panel/design settings, fabrication capture, 3D data and the track/via
+model. In this contract, a `BoardShape` is the discriminated union by `kind`
+defined in `core/pcb-board-shapes.js`; a fill is the authored `CopperFill`
+outline, and a pour is the computed copper generated from that outline.
 
 ## PcbDocument and Commands
 
@@ -22,19 +25,19 @@ It uses two shared phases: `loadContent()` adopts prepared entities, restores
 dimensions and ID counters, merges design settings and loads saved placements;
 `loadPanelization()` installs the prepared panel settings. The editor uses these
 same phases around rendering rather than implementing its own data adoption.
-`serializeEntities()` returns the entity collections using the existing
-entity serializers, preserving topology, metadata and save-boundary precision.
+`serializeEntities()` returns the entity collections through the entity
+serializers, preserving topology, metadata and save-boundary precision.
 `captureGeometry()` is a separate full-precision, detached snapshot of tracks,
 vias, pads, text, board artwork and resolved fill boundaries. It works without
 an editor or DOM and contains data only, not track-query functions or computed
 pours. The lightweight `core/pcb-geometry-snapshot.js` helper also supports
 explicit-collection consumers without constructing a document or duplicating
-the entity-copying contract. File serialization and its rounding remain unchanged.
+the entity-copying contract. File serialization keeps its save-boundary rounding.
 `clear()` empties entity collections and placement overrides in place, resets
-dimensions and panelization, discards loaded viewport preferences, and retains
-the last-used design settings, matching
-existing New behavior. Missing design sections also retain those settings; partial
-sections merge without rounding. Collection and submodel identities are preserved.
+dimensions and panelization, discards loaded viewport preferences, and preserves
+the last-used design settings used by New. Missing design sections also preserve
+those settings; partial sections merge without rounding. Collection and submodel
+identities are preserved.
 
 Standalone pad add/remove/move/modify operations live in
 `core/pcb-pad-commands.js`. Collection commands take `PcbDocument`; movement and
@@ -42,8 +45,8 @@ property commands operate directly on its `Pad` entities, without an editor or
 DOM. Pad removal changes the collection in place, and undo retains the same pad
 objects. Movement coordinates and flat property snapshots are copied at command
 creation, preserving full precision and insulating history from caller edits.
-The existing `pcb/modules/pad-commands.js` classes are presentation adapters that
-retain SVG updates, selection cleanup and the existing deferred refresh cadence.
+`pcb/modules/pad-commands.js` provides presentation adapters for SVG updates,
+selection cleanup and deferred refresh cadence.
 A pad's drill may be 0, meaning no hole (test pads): it has no bore in 2D, no
 drill-file entry and flat copper on its assigned face(s) in 3D. Any negative or
 missing drill still falls back to the 0.8 mm default.
@@ -52,11 +55,11 @@ Standalone via add/remove/move/modify and batch-modify operations live in
 `core/pcb-via-commands.js`. Collection commands take `PcbDocument`; property and
 movement commands operate on its `Via` entities without rendering or changing
 track geometry. Scalar property snapshots and batch membership are copied at
-construction, preserving IDs, full precision and the existing diameter/drill
-normalization. The existing exports in `pcb/modules/track-commands.js` remain
-editor adapters. Batch edits apply every via's state before rendering any of them,
-then refresh derived state once; compound batching and drag-time overlay deferral
-are preserved. Via moves retain caller-owned connectivity and pour refresh timing.
+construction, preserving IDs, full precision and diameter/drill normalization.
+`pcb/modules/track-commands.js` exports editor adapters. Batch
+edits apply every via's state before rendering any of them, then refresh derived
+state once. Compound batching and drag-time overlay deferral are preserved.
+Via moves keep caller-owned connectivity and pour refresh timing.
 Track coupling during compound gestures remains caller-owned.
 
 Track add/remove/scalar-edit/node-move/graph-edit operations live in
@@ -85,10 +88,11 @@ pads, vias and copper shapes), preserving schematic-pad Net authority. It reject
 incompatible named connections before committing. A segment merely crossing
 other copper does not trigger a Net-conflict popup or label that copper; physical
 short/clearance checking remains DRC's job. Drawing and dragging share the
-node-to-copper target query in `collectNodeConnections`; the existing graph and
-Net commands apply the validated connection. `collectBondedCopper` has no
+node-to-copper target query in `collectNodeConnections`
+(`pcb/modules/track-connections.js`); the graph and Net commands apply the
+validated connection. `collectBondedCopper` has no
 edit-specific crossing filter; physical-contact consumers, including
-ratsnest/DRC geometry, retain their existing rules. Post-drop adoption
+ratsnest/DRC geometry, use their own physical-contact rules. Post-drop adoption
 uses the validated contacts rebound to the final graph, so node merges and
 collinear cleanup neither lose intended adoption nor rediscover remote crossings.
 
@@ -153,10 +157,10 @@ fix the authority, not the consumer.
 
 Track bounds, hit tests and centreline distances use the shared copper paths in
 `shapes/track-geometry.js`, including per-edge widths, bulged edges and rounded
-corners. `shared/pcb/board-geometry.js` re-exports the same resolvers, so existing
-rendering, connectivity and export consumers retain their geometry and sampling
+corners. `shared/pcb/board-geometry.js` re-exports the same resolvers for
+rendering, connectivity and export consumers, so they share geometry and sampling
 tolerance. Model queries do not consult layer visibility; the editor's hit tests
-still filter hidden copper. Selection pruning reuses model bounds including
+filter hidden copper. Selection pruning reuses model bounds including
 stroke extents rather than a separate centreline-only box. Whole-track radius
 previews and pad-bond removal/restoration explicitly invalidate bounds: a bond
 change can enable or suppress rounding without moving any node.
@@ -165,54 +169,54 @@ change can enable or suppress rounding without moving any node.
 capture, including resolved per-edge widths/layers, bulges, corner radii and
 pad-bond records. Its result is transferable data without SVG state or methods;
 it neither rounds for file storage nor triangulates/formats for a consumer.
-Fabrication capture delegates to this model operation, then adds its existing
+Fabrication capture delegates to this model operation, then adds export-only
 edge-query methods over the detached graph. Gerber formatting, worker transfer
-and asynchronous pour preparation remain consumer responsibilities.
+and asynchronous pour preparation are consumer responsibilities.
 
 Standalone `Pad` exposes `getOutline()`, `getBounds()` and `hitTest()` through
 the pure helpers in `shapes/pad-geometry.js`. These helpers accept both model
 instances and detached plain pad data, do not mutate entities or cache geometry,
-and retain the existing rotation, sampling and drill-centre selection behavior.
-The pad selection adapter delegates geometric queries to the model while keeping
-layer visibility, locks, handles and drag interactions in the editor.
-Existing helper exports from `pcb/modules/pad.js` and
-`shared/pcb/board-geometry.js` remain available.
+and preserve rotation, sampling and drill-centre selection behavior. The pad
+selection adapter delegates geometric queries to the model while keeping layer
+visibility, locks, handles and drag interactions in the editor. Helper exports from
+`pcb/modules/pad.js` and `shared/pcb/board-geometry.js` are still public.
 
 Shared physical geometry is not shared output conversion. The model owns
 authored data; neutral helpers calculate physical outlines and bounds.
-SVG paths and drill cutouts remain in the SVG renderer, Canvas drawing remains
-in the 2D viewer, mesh construction remains in the 3D viewer, and aperture/region
-encoding and manufacturing coordinates remain in the Gerber exporter.
-The geometry helper's existing `padFlash` name denotes only a geometric aperture
-descriptor in millimetres, not a Gerber instruction. Consumer-specific sampling
-tolerances, mask expansion and drill treatment are unchanged.
+SVG paths and drill cutouts belong to the SVG renderer, Canvas drawing belongs to
+the 2D viewer, mesh construction belongs to the 3D viewer, and aperture/region
+encoding plus manufacturing coordinates belong to the Gerber exporter. The
+geometry helper's `padFlash` name denotes only a geometric aperture descriptor in
+millimetres, not a Gerber instruction. Consumers keep their own sampling
+tolerances, mask expansion and drill treatment.
 
 `Via.getBounds()` and `Via.hitTest()` share the small pure `viaBounds` and
 `viaHitTest` helpers in `shapes/via.js`, also accepting detached plain via data.
 Queries do not cache or mutate state; hit tests include the drill centre and
-default to zero extra tolerance. Selection, group pickup and drag pickup supply
-their existing six-pixel tolerance converted to world millimetres, while marquee
-containment uses the full physical bounds without extra tolerance. Layer policy,
+default to zero extra tolerance. Selection, group pickup and drag pickup supply a six-pixel tolerance converted to
+world millimetres, while marquee containment uses the full physical bounds without
+extra tolerance. Layer policy,
 lock-icon sampling, drawing and manufacturing conversion remain in consumers.
 
 The PCB track, via and standalone-pad renderers keep their SVG references in
 module-private weak maps keyed by entity identity, not in `_svgElements` fields
 on model objects. Rendering, redraw and removal work with frozen entities.
-Track selection asks the renderer to toggle existing net labels and still
-rebuilds labels omitted by a selected redraw. Cleanup retains the existing
-single-rendering-per-entity behavior, including detached/missing layers and
-repeated removal; equal IDs on different instances do not share SVG ownership.
-Inherited shape presentation methods and entity-level derived caches remain
-separate boundaries; this does not make every entity type presentation-free.
+Track selection asks the renderer to toggle net labels and rebuild labels omitted
+by a selected redraw. Cleanup keeps one rendering per entity, including
+detached/missing layers and repeated removal; equal IDs on different instances do
+not share SVG ownership. Inherited shape presentation methods and entity-level
+derived caches are separate boundaries; this does not make every entity type
+presentation-free.
 
 ## Board Shapes and Outline
 
 Generic board-shape add/remove/move/modify operations live in
-`core/pcb-shape-commands.js` and take `PcbDocument`, retaining its collection and
+`core/pcb-shape-commands.js` and take `PcbDocument`, preserving its collection and
 shape identities. Geometry and property snapshot/apply helpers live alongside
-persistence in `core/pcb-board-shapes.js`, which callers import directly. Commands own their full-precision geometry and nested
-property snapshots, while imported image artwork remains shared read-only.
-Generic add/remove commands retain the protected-outline no-op behavior.
+persistence in `core/pcb-board-shapes.js`, which owns the `BoardShape` type and
+which callers import directly. Commands own their full-precision geometry and
+nested property snapshots, while imported image artwork is shared read-only.
+Generic add/remove commands keep the protected-outline no-op behavior.
 Move/modify validate existing outline edits before mutation and return `false`
 for rejected edits, leaving no partial geometry behind. Accepted outline edits
 synchronize model-owned dimension metadata without rendering, including undo.
@@ -220,12 +224,12 @@ The editor adapters preserve selection cleanup, rendering, property controls,
 3D refresh and immediate versus deferred copper updates. Accepted commands and
 loading synchronize outline dimensions through `PcbDocument` before rendering.
 Pointer, property, group and generic-dimension previews use detached copies;
-canonical outline geometry and dimensions remain unchanged until acceptance.
+canonical outline geometry and dimensions change only on acceptance.
 Generic shape rendering, hover, selection and dedicated outline redraw do not
 write dimension metadata.
 Copper-fill region editing uses the same board-shape selection, focus, drag,
 topology and property-preview implementation through a fill edit profile. Fills
-remain `CopperFill` entities stored in `boardShapes` with `type: "fill"` and keep
+are `CopperFill` entities stored in `boardShapes` with `type: "fill"` and keep
 their own commands, copper-layer/net fields, file format and computed-pour
 pipeline; only the interactive outline-editing mechanics are shared.
 
@@ -243,36 +247,35 @@ adoption, retains an existing outline object and the model's collection/dimensio
 objects, and synchronizes dimension metadata from the actual boundary.
 `ensureBoardOutline()` creates a missing rectangle from current model dimensions
 without replacing an existing outline. Setup and undo therefore work without a
-renderer, including restoration of offset circles and curved polygons. As in the
-existing editor, undoing initial setup retains a rectangle at the previous
-dimensions rather than removing the board. Preparing a PCB section with
+renderer, including restoration of offset circles and curved polygons. Undoing
+initial setup retains a rectangle at the previous dimensions rather than removing
+the board. Preparing a PCB section with
 explicit dimensions but no outline creates and validates a rectangle in the
 model, reserving a unique ID if needed. Existing explicit outlines take precedence.
 Normalization leaves caller data untouched and works before editor activation.
 New/clear leaves the outline absent and retains the dimensions prompt;
 accepting defaults explicitly initializes the model before drawing.
-The editor command retains draw/input/pour refresh ordering and first-draw
-viewport fitting. Drawing alone neither creates geometry nor synchronizes model
-dimensions.
+The editor command owns draw/input/pour refresh ordering and first-draw viewport
+fitting. Drawing alone neither creates geometry nor synchronizes model dimensions.
 
 Board-shape decoding and serialization live in `core/pcb-board-shapes.js`,
 reusing pure geometry and artwork-codec helpers. The model owns the
 shape ID counter; the editor's `_shapeIdCounter` is an accessor, not a second
-counter. Rectangle frames, corner-point compatibility readers, image artwork encoding
-and deduplication, polygon save normalization and outline checks are unchanged.
-The compatibility `loadBoardShapes()` adapter stages data before appending and
-rendering it; its serializer re-export retains existing import paths.
-Manufacturing snapshots use the neutral serializer directly, with their existing
-unrounded geometry options. SVG, selection, copper-cut/pour caches and command
-presentation stay in the editor. Legacy saved board dimensions still create a
-model-owned outline without a later entity adoption clearing it.
+counter. Rectangle frames, corner-point compatibility readers, image artwork
+encoding and deduplication, polygon save normalization and outline checks are part
+of this codec. The compatibility `loadBoardShapes()` adapter stages data before
+appending and rendering it; its serializer re-export preserves import paths.
+Manufacturing snapshots use the neutral serializer directly with unrounded geometry
+options. SVG, selection, copper-cut/pour caches and command presentation stay in
+the editor. Saved board dimensions create a model-owned outline without a later
+entity adoption clearing it.
 An editor attached after headless loading recognizes that outline at construction,
 so direct activation and hidden preload restore it without prompting for new board
 dimensions. Fresh and metadata-only models without an outline still prompt.
 Active loads and schematic-driven rebuilds draw the outline once through its
 dedicated path; general artwork batches skip that already-rendered outline.
-Other board artwork still renders after footprints, and an outline not yet drawn
-through the dedicated path remains eligible for normal shape rendering.
+Other board artwork renders after footprints, and an outline not yet drawn through
+the dedicated path is eligible for normal shape rendering.
 
 ## Board, Panel and Design Settings
 
@@ -280,15 +283,15 @@ Saved board dimensions live in `PcbDocument.board`. Shared board-outline helpers
 own the detached dimension projection during generic numeric/resize previews and
 expose projected or canonical dimensions through `boardDimensions(app)`. The lazy
 projection holds reusable board/outline copies; rendering and property fields
-follow it without changing authored dimensions, outline geometry, serialization
-or settled-fill caches. Acceptance clears the projection before the existing
-board command. Cancellation, panel replacement,
+follow it without changing authored dimensions, outline geometry, serialization or
+settled-fill caches. Acceptance clears the projection before the board command.
+Cancellation, panel replacement,
 locks/hiding, loading/deactivation, replaced targets and failures clean up
 artwork without authored rollback. Repeated values and stationary pickup skip
 redraw/projection work. The dimensions dialog remains command-only. Loading
-restores dimension-only boards, while an
-existing outline's bounds and corner radius override saved dimension metadata.
-Clearing restores the existing 100 x 80 mm, zero-radius defaults without replacing
+restores dimension-only boards, while an outline's bounds and corner radius
+override saved dimension metadata. Clearing restores the 100 x 80 mm, zero-radius
+defaults without replacing
 the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
 four decimals. `boardBoundary()` also accepts the neutral model directly.
 Outline drawing, viewport fitting and property-panel presentation remain in the
@@ -299,17 +302,17 @@ service for page/test readiness. Constructing a view does not reset loaded
 dimensions.
 
 Panel settings live in `PcbDocument.panelization`. Defaults and validation are
-data-only helpers in `core/pcb-panelization.js`; the existing geometry module
-re-exports them for compatibility. Preparation validates saved settings before
+data-only helpers in `core/pcb-panelization.js`; the geometry module re-exports
+them for compatibility. Preparation validates saved settings before
 live content is replaced. `loadPanelization()` and `serializePanelization()`
 produce detached normalized settings without additional rounding, preserving
 `noteCreated`. Clearing resets panelization, but `loadContent()` does not
 install prepared panel settings: the adapter installs them after artwork and
 pours are restored, before the final active preview. Hidden loads install the
 settings without rendering; a headless `load()` performs both phases without
-rendering. Existing panel commands still create ordinary
-authored note texts and retain their undo/redo behavior; model operations do not
-generate notes. Preview SVG and its lifecycle remain editor-owned.
+rendering. Panel commands create ordinary authored note texts and keep their undo/redo
+behavior; model operations do not generate notes. Preview SVG and its lifecycle
+are editor-owned.
 Panel positioning holes use the shared hole geometry and ordinary hole border
 style, with even-odd vector cutouts through the support artwork so the actual
 grid remains visible in either theme.
@@ -329,22 +332,21 @@ Track-to-pad connection records are copied along with their maps before any
 asynchronous pour preparation; snapshot and live metadata cannot mutate each other.
 Standalone text capture reuses the neutral `serializePcbText()` snapshot rather
 than cloning the entire live object. Authored text fields retain full precision;
-editor metadata is neither copied nor traversed. The model's omitted false-border
-default retains the same fabrication geometry. Worker transfer and Gerber output
-remain consumer-owned.
+editor metadata is neither copied nor traversed. The model's omitted false-border default produces the same fabrication geometry as
+`false`. Worker transfer and Gerber output are consumer-owned.
 
 When a PCB model is attached, fabrication reads routing dimensions, board
 dimensions and panel settings directly from `PcbDocument`, rather than through
 editor projections. These inputs are captured at full precision before any
-asynchronous pour work. Model-less callers retain the existing explicit-input
-contract; an attached model's errors do not fall back to editor values. Outline
-precedence, origin handling and Gerber coordinate conversion are unchanged.
+asynchronous pour work. Model-less callers use the explicit-input contract; an attached model's errors do
+not fall back to editor values. Outline precedence, origin handling and Gerber
+coordinate conversion keep their established rules.
 Fabrication capture and its content check also read tracks, vias, pads, text,
 board shapes and fills directly from the attached model, without consulting
 editor collection getters. Entity assembly delegates once to `captureGeometry()`;
 the adapter adds detached track queries and export-only pour results. Model-less
-callers use the same neutral collection-capture helper. Document-only artwork retains its existing exclusion
-from the content check. Entity geometry is detached before asynchronous work;
+callers use the same neutral collection-capture helper. Document-only artwork is excluded from the content check. Entity geometry is
+detached before asynchronous work;
 resolved component placements and netlist inputs still come from the caller.
 Headless callers can supply the model and `ProjectDocument.resolvePcbLayout()`
 result without constructing an editor.
@@ -356,15 +358,15 @@ result without constructing an editor.
 `src/pcb/modules/board3d-mesh-ops.js` triangulates concave board outlines and
 clips each surface against those convex regions. A bounded spatial grid over
 region bounds assigns only overlapping source faces to each region, in original
-face order. Bounds are inclusive, and candidate faces still use the unchanged
+face order. Bounds are inclusive, and candidate faces use the standard
 per-triangle bounds check and exact clipping calculations. Vertices, face
-winding/order, interpolated heights and material colors match the exhaustive
-path; convex outlines retain their existing direct path.
+winding/order, interpolated heights and material colors match the exhaustive path;
+convex outlines use the direct path.
 
 The index is local to one clipping call and owns no mutable model/cache state.
 The worker still completes the full surface batch before the viewer updates
-surfaces and component bodies together. Camera depth handling, artwork detail
-and hole subtraction are unchanged.
+surfaces and component bodies together. Camera depth handling, artwork detail and
+hole subtraction keep their viewer rules.
 
 The viewer closure only wires the scene to these module-level pieces in
 `board3d-surfaces.js`, which run headless: `boardSurfaceFrame(app)` (outline, drills, inside/edge-crossing
@@ -384,39 +386,36 @@ component movement does not rebuild or compare hundreds of thousands of
 generated artwork triangles. Each generated silk mesh owns its color snapshot,
 so palette changes cannot mutate cached inputs.
 
-The existing surface builder compares the artwork mesh together with current
-drills and outline. Unchanged artwork reuses completed worker buffers and its
-GPU mesh. Hole/outline changes reclip it; artwork/layer/color changes regenerate
-the source as required. Deletion yields an empty surface, and reopening creates
-a fresh viewer cache. Both silk surfaces and component bodies still publish in
-the same completed update, never as separate asynchronous visual steps.
+The surface builder compares the artwork mesh together with current drills and
+outline. Equal artwork inputs reuse completed worker buffers and the GPU mesh. Hole/outline changes reclip it; artwork/layer/color changes regenerate the source
+as required. Deletion yields an empty surface, and reopening creates a fresh
+viewer cache. Silk surfaces and component bodies publish in the same completed
+update, never as separate asynchronous visual steps.
 
 ### Independent 3D Solder-Mask Faces
 
 The viewer submits `maskCoatTop` and `maskCoatBottom` separately to the existing
 surface cache. Each input contains the same board outline and shared drills,
 but only that side's mask openings. Moving a top-side SMD component therefore
-reuses the bottom face's worker buffers and GPU mesh, and vice versa. Shared
-drill/cutout or outline changes still invalidate both faces. Generated face
+reuses the bottom face's worker buffers and GPU mesh, and vice versa. Shared drill/cutout or outline changes invalidate both faces. Generated face
 meshes own detached solder-mask color snapshots so palette edits also invalidate
 both faces without mutating retained cache inputs.
 
-Both faces share the existing mask material, opacity, depth bias and render
-order. Hole subtraction and concave clipping are unchanged; completed surfaces
-and component bodies still publish together. Side changes update the affected
+Both faces share the mask material, opacity, depth bias and render order. Hole
+subtraction and concave clipping use the shared board-surface path; completed
+surfaces and component bodies publish together. Side changes update the affected
 openings on both sides rather than moving a stale cached surface.
 
 ### Built-In Component 3D Models
 
 `BuiltInModels3D.js` authors package bodies relative to the mounting plane
 Z = 0. Through-hole pins extend to Z = -2.1 mm: through the viewer's 1.6 mm
-board and 0.5 mm beyond its opposite face. Surface-mount models, lead XY
-positions, footprints and drill dimensions are unchanged.
+board and 0.5 mm beyond its opposite face. Surface-mount models keep their lead XY positions, footprints and drill
+dimensions.
 The OBJ parser identifies the procedural-package header as source `builtin`;
 the board viewer preserves that authored mounting plane rather than raising
-the model by its lowest pin tip. Top/bottom placement, mirroring, rotation and
-explicit model height offsets retain their normal behavior. Imported EasyEDA
-models retain their minimum-Z seating.
+the model by its lowest pin tip. Top/bottom placement, mirroring, rotation and explicit model height offsets use
+the normal placement behavior. Imported EasyEDA models use their minimum-Z seating.
 
 ### KiCad Footprints and 3D Models
 
@@ -442,16 +441,17 @@ at 0°/90°, VRML units and named VRML materials.
 ### Board-Shape Geometry Contract
 
 `resolveBoardShapeGeometry()` in `src/shared/pcb/board-shape-geometry.js` is the
-single source of truth for generic PCB shape semantics across lines,
-rectangles, polygons, arcs, and circles. It resolves:
+single source of truth for generic PCB shape semantics across the `BoardShape`
+`kind` values `line`, `rect`, `polygon`, `arc`, `circle` and `image`. It
+resolves:
 
 - normalized line width and copper mode;
 - centerline geometry and whether it is closed;
 - filled-area geometry expanded through the outside half of the outline;
 - circle centerline and outer radii;
 - stroke polygons used by copper-removal clipping;
-- layer policies that force fillable mask and hole shapes to areas, while document graphics honor their fill setting
-  while lines remain strokes.
+- layer policies that force fillable mask and hole shapes to areas, while
+  document graphics honor their `filled` setting and lines remain strokes.
 
 The SVG editor, Canvas 2D preview, Three.js board view, and Gerber exporter
 consume this descriptor. Backends may choose native output primitives (for
@@ -462,10 +462,9 @@ radius expansion, or copper-mode aliases.
 `board-shape-geometry.js` also owns outline/path generation, physical removal
 contours, bounds, hit tests, and effective width/radius queries. It accepts
 plain PCB shape data in SVG-Y-down millimetres and has no editor, selection,
-history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers
-and the existing image-contour utilities; PCB layer and copper-mode rules
-remain PCB-owned. `board-geometry.js` continues to own footprint and track
-geometry, rather than accumulating unrelated shape editing behavior.
+history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers and image-contour utilities;
+PCB layer and copper-mode rules are PCB-owned. `board-geometry.js` owns footprint
+and track geometry rather than unrelated shape editing behavior.
 
 Rectangle and polygon `physicalContours` (Clipper offsets that cost
 milliseconds) are memoised per shape object, keeping the last two results
@@ -482,22 +481,28 @@ with Clipper before emitting compound paths. This bounds acute joins, keeps
 retraced/crossing strokes solid, and preserves genuine interior islands.
 Hole paths use even-odd filling, like copper-removal paths. Per-segment widths,
 curves and authored corner rounding come from the shared geometry descriptor;
-native round-stroke 2D/3D and manufacturing output remain unchanged.
+native round-stroke 2D/3D and manufacturing output use their own output paths.
 Hole borders are clipped inside the physical path with a user-space SVG clip;
 they do not enlarge the cutout when switching from copper or silk. The shared
 `insideStrokeGroup()` renderer keeps the clip and artwork in one disposable
 subtree and preserves the visible border width. Panel positioning holes use
 the same treatment; geometry, hit tests and exports are not inset.
 
-`board-shapes.js` owns mutation, previews and the selection adapter, with SVG
-rendering in `board-shape-render.js`, drawing in `board-shape-draw.js`, dragging in
-`board-shape-drag.js` and Track conversion in `track-shape-conversion.js`;
-`board-shape-properties.js` owns the
-Properties panel (its description, and committing edits through previews and
-commands; `shared/ui/property-fields.js` renders it). Neither re-exports geometry functions. All geometry
-consumers, including editor adapters and tests, import directly from
-`board-shape-geometry.js`. Consumers that also need editor operations use
-separate imports for the two responsibilities.
+Board-shape editor responsibilities are split from geometry:
+
+- `board-shapes.js` owns mutation helpers, previews and the selection adapter.
+- `board-shape-render.js` owns SVG rendering, hover and net-hover state.
+- `board-shape-draw.js` owns drawing sessions.
+- `board-shape-drag.js` owns shape drag sessions.
+- `track-shape-conversion.js` owns Track/shape conversion commands and selection
+  handoff.
+- `board-shape-properties.js` owns the Properties panel description and commits
+  edits through previews and commands; `shared/ui/property-fields.js` renders it.
+
+These modules do not re-export geometry functions. Geometry consumers, including
+editor adapters and tests, import directly from `board-shape-geometry.js`.
+Consumers that also need editor operations use separate imports for the two
+responsibilities.
 
 For headless tools and board-design agents:
 
@@ -516,14 +521,14 @@ Queries do not mutate their inputs, but returned descriptors are not detached
 snapshots: physical contours are evaluated lazily, and image data/contours may
 be borrowed or cached. Treat results as read-only, consume them before mutating
 the source shape, and resolve again after edits. Replace image artwork rather
-than mutating it in place to respect the existing artwork cache. This API
+than mutating it in place to respect the artwork cache. This API
 assumes valid shape data; it does not replace project validation, DRC, or the
-command layer used to apply a design to the editor.
+command layer that applies a design to the editor.
 
 The editor's clearance-halo cache includes per-segment curvature alongside
 widths, corner radii and other geometry/style fields. Curvature edits invalidate
-the cached contours even when endpoints stay fixed; unchanged shapes and pure
-translations continue to reuse the existing halo geometry.
+the cached contours even when endpoints stay fixed; equal shapes and pure
+translations reuse halo geometry.
 Enabled track clearance outlines likewise stay visible during whole-track,
 segment, node, split/midpoint and curvature drags. The live path replaces only
 the edited track's ID-keyed halo elements, using its detached preview runs and
@@ -532,9 +537,9 @@ layer visibility are preserved; unrelated halos and copper SVG are not scanned
 or rebuilt. Toggle-off remains off during movement, and cancellation restores
 the canonical outline even inside an outer overlay deferral. Full-board fill
 and DRC work remains deferred independently of this visible outline update.
-Simple board-shape edits also refresh their own clearance during node, segment,
-midpoint and bulge drags; the copper-refresh debounce no longer hides those
-outlines. Expensive picture/text geometry retains its existing deferred policy.
+Simple board-shape edits refresh their own clearance during node, segment,
+midpoint and bulge drags, independently of the copper-refresh debounce. Expensive
+picture/text geometry uses the deferred policy.
 Via drags update the moved via's ring and each attached track's preview halo.
 The via cache tracks contributors by ID and centre, preserving the largest
 ring for coincident vias while refreshing only affected centres. Cancellation
@@ -583,16 +588,16 @@ every move.
   node. Tracks never carry implicit vias.
 - Decoupling: dragging a Track vertex moves only the vertex; any
   colocated Via stays put. Dragging a Via also moves its attached Track nodes.
-- Sources of Vias: interactive draw (`track-draw.js` emits a Via at
-  each layer-change node on finish), autorouter
-  (`autorouter-adapter.js` emits standalone Vias deduped by position),
-  and explicit user placement.
+- Sources of Vias: interactive drawing (`track-draw.js` creates a Via at each
+  layer-change node and commits it through `track-commit.js`), autorouting
+  (`autorouter-adapter.js` emits standalone Vias deduped by position), and
+  explicit user placement.
 - In the PCB editor, Vias use a dedicated **Via** display layer. Its
   visibility and lock state are session preferences and are not serialized
   into `.cpcb` files; the Hole layer applies only to routed board holes and
   cutouts. Via is not an assignable shape layer: creation, single-selection
   and multi-selection properties exclude it. Starting a shape while Via is
-  active prefers Top Silk, following the existing non-graphic-layer fallback.
+  active prefers Top Silk, following the non-graphic-layer fallback.
   Locked destinations in shape/image layer dropdowns show a monochrome text lock and
   use native disabled options (greyed out). Layer-panel lock changes update
   these options in place without rebuilding the shape property form.
@@ -601,7 +606,7 @@ every move.
   says why, and its Properties flags the layer with an Unlock or Show action (see
   [placing on a locked or hidden layer](pcb-editing.md)). Lock and visibility
   changes refresh an idle drawing tool's layer-dependent controls; unlocking the
-  layer makes drawing available immediately. Existing shape assignments and
-  in-progress drawing layers are not reassigned.
+  layer makes drawing available immediately. Shape assignments and in-progress
+  drawing layers are not reassigned.
 - Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
   read vias exclusively from `PCBApp.vias`.
