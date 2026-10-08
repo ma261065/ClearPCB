@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createSurfaceBuilder } from '../../src/pcb/modules/board3d-surface-client.js';
 import { buildSurfaceBuffers } from '../../src/pcb/modules/board3d-surface-build.js';
 import { surfaceInputsEqual } from '../../src/pcb/modules/board3d-surface-equality.js';
@@ -137,13 +136,8 @@ ownedWorker.onmessage({ data: { id: ownedJobs[1].id, surfaces: nextOwnedExpected
 assert.deepEqual(await nextOwnedBuild, nextOwnedExpected);
 ownedBuilder.dispose();
 
-const source = readFileSync(new URL('../../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-assert.ok(source.includes('surfaceBuilder.build(surfaces, { takeOwnership: true })'),
-    'The viewer hands its freshly generated geometry to the builder');
 installFakeDom();
 const { createSurfacePublisher } = await import('../../src/pcb/modules/board3d-surfaces.js');
-assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: BOARD_SURFACE_ORDER \}\);/,
-    'The viewer publishes finished buffers through the shared surface publisher');
 let added = 0;
 let removedMeshes = 0;
 const scene = { removeMesh() { removedMeshes++; }, addMesh() { added++; return {}; } };

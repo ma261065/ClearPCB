@@ -1,32 +1,33 @@
 # Release Readiness
 
-Open items before a release, and the working agreements for changes. Completed
-milestones are recorded in the git history.
+What stands between `dev` and the next stable release, and how changes are made.
+Finished work is recorded in the git history, not here; the state of the code
+(what is enforced, what is unfinished) is in the
+[developer guide](developer-guide.md#handover-where-things-stand).
 
 ## Open items
 
-| Milestone | Status | Evidence required / remaining work |
+| Item | Status | What remains |
 | --- | --- | --- |
-| Hosted checks and merge protection | Hosted checks passing; merge protection pending | **Regression Checks** runs the Regression gate, Type check and the four Browser tests shards on every push to `dev` and on pull requests (see [releases](releases.md#automated-regression-gate)). The type-check baseline is empty, so any type error fails. Remaining: require those checks in the `dev`/`release_*` branch rulesets (see [releases](releases.md#branch-protection)). |
-| Live-session rollback checkpoints | Deferred by user decision | Open recovery stays serialized: it keeps rounding/normalization and loses Undo and selection on rollback. Exact editing-session recovery is not a release requirement. |
-| Separation of duties and maintainability | In place | In place: one registry of in-progress interactions per editor (`pcb-interactions.js`, `schematic-interactions.js`), through which the PCB routes pointer moves, releases and cancels and the schematic routes cancels; public editor services (`pcb-editor-api.js`, `schematic-editor-api.js`); module-owned state (e.g. `property-editors.js`, `refresh-state.js`, `board-shape-state.js`, `drc-state.js`, `shape-focus.js`, `clearance-overlay.js`, `picture-refresh.js`, `track-select.js`, `track-draw.js`, `track-connections.js`, `track-commit.js`, `save-toast.js`, `svg-defs.js`, `layers.js`, and the schematic's owner modules); shared code in `src/shared/` with no import violations; one entity ID allocator; PCB model commands separate from editor commands; PCB tools, mouse, keyboard, overlays and dialogs in `pcb/modules`, with `PCBApp` keeping thin seams. All source is type-checked with no opt-outs. The gate enforces import directions and both editors' private-access checks, whose baselines are empty: no module uses an editor's private members (the PCB's 287 accesses and the schematic's are gone). Modules call owning modules' functions directly and reach what the editor hosts (viewport, dirty state, autorouter session, component selection, Properties panels) through its services. Schematic previews edit authored entities by design (see [schematic contracts](contracts/schematic.md)). Avoid generic frameworks and mechanical file splitting. |
-| Planned hardening | Done | The browser scenarios run on every push in CI (four parallel shards, offline), and locally with `node tools/browser-test.mjs`. The project validator runs on open and recovery, and on every save and autosave, which refuse to write a project that would not reopen (see [project contracts](contracts/project-and-document.md)). Speed checks (`tests/browser/speed-checks.mjs`) measure main-thread CPU time on a large board (600 tracks, 200 vias, 200 pads, two board-sized pours) for hover and drag moves, Properties panel rebuilds, pour refresh and picture import, and fail past budgets about five times what CI takes (a busy machine or `CPU_THROTTLE` does not change CPU time). They found hover re-walking the connected net quadratically, now indexed, and track, via and pad drags rebuilding every net's ratlines on each move; those drags now redo only the nets they move, about three times faster on that board. Pour drags no longer rebuild ratlines at all until the drop (their copper only moves then), halving their move time. |
-| Rendered via-drag handler benchmark | Isolated browser evidence | A native-pointer fixture rendered all 201 tracks (8,002 graph nodes) with normal snapping and actual SVG, without app bootstrap or user data. Pickup measured 1.3 ms; first move 7.2 ms; 50 moves had median 1.7 ms/max 7.2 ms. Canonical serialization remained identical throughout, and cancellation retained empty history and exactly 201 track polylines without duplicates. Clearance/pour hooks and the ratline layer were intentionally absent: this measures pickup/snap/preview-SVG handler work, not full PCBApp or end-to-end frame latency. |
-| KiCad index loading and failure recovery | Implemented | Schematic startup starts loading the KiCad index without awaiting it, hiding download latency before the first picker use. Opening or searching joins the pending request or uses its result; cache hydration and stale refresh stay in the fetcher. Exhausted refs reject explicitly instead of leaving Connecting active, and first-search initialization stays inside the normal error path. Focused tests cover startup while downloading, one shared startup/picker request, progress, visible failures, retry and cached reopening. Stable releases publish a prebuilt index (`assets/kicad-index.json`) that the app loads first, falling back to live loading; a weekly workflow reports when it is missing or behind KiCad (see [releases](releases.md#kicad-library-index)). Not yet verified on clearpcb.org: the first release that includes it will. |
-| Current documentation and distribution notices | Documentation reviewed against the code; distribution review pending | README, architecture, contracts and format docs were reviewed against the code and outdated material removed (2026-10-05). Standalone licence/notices and distribution approval remain separate release work. |
-| Final release acceptance | Pending | Run the full gate on the final revision, complete user-led real-board/browser acceptance and independent manufacturing-output review, record limitations, and obtain release approval. |
+| Merge protection | Checks pass; protection not enabled | **Regression Checks** runs the regression gate, the type check and four browser-test shards on every push to `dev` and on pull requests (see [releases](releases.md#automated-regression-gate)). Require those checks in the `dev` and `release_*` branch rulesets (see [releases](releases.md#branch-protection)). |
+| Prebuilt KiCad index on the live site | Implemented, not yet verified | Stable releases publish `assets/kicad-index.json`, which the app loads before falling back to fetching the index live; a weekly workflow reports when it is missing or behind KiCad (see [releases](releases.md#kicad-library-index)). The first release that includes it verifies it on clearpcb.org. |
+| Licence and notices | Pending | A standalone licence and third-party notices file for the distributed site, and approval to distribute. |
+| Release acceptance | Pending | Run the gate, type check and browser tests on the final revision; test real boards in the browser; have the manufacturing output (Gerber, drill, BOM, pick-and-place) reviewed independently; record known limitations; approve the release. |
 
-## Working agreements
+Decided against for now: exact recovery of a live editing session. Recovery
+restores the last serialized project, so Undo history and the selection are not
+restored after a crash.
 
-- Keep verified milestones separate and commit when authorized; do not push,
-  tag or publish without authorization. Do not modify the user's board files.
-- Retain existing minimum behaviour and user contracts while tightening ownership.
-  A failing test is investigated, not weakened simply to make a gate pass.
-- Report completed work, remaining risks and the next proposed milestone after
-  each stage; ask when a behavioural decision is needed.
-- Separate locally verified implementation from hosted, browser or manufacturing
-  evidence that has not been obtained. No browser testing/debugging by the agent
-  without authorization.
-- Release acceptance covers architecture, consistency, model, responsibilities,
-  performance, reliability, documentation and maintainability. A green test count
-  alone is not sufficient, and zero defects cannot be guaranteed.
+## How changes are made
+
+- Keep changes to one concern per commit, with a message that says what changed
+  and why. Push only what has passed the routine in the
+  [developer guide](developer-guide.md#before-you-commit), and check that CI is
+  green afterwards.
+- Keep existing behaviour and user-facing contracts unless the change is meant to
+  alter them, and then update the contract page in the same commit. A failing test
+  is investigated, not weakened to make the gate pass.
+- Do not modify users' board files, and do not tag or publish a release without
+  the owner's approval.
+- A green test run is necessary but not sufficient for a release: review the
+  change for consistency with the architecture, performance and the docs.

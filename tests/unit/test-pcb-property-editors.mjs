@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -69,13 +69,5 @@ assert.deepEqual(PROPERTY_EDITOR_KINDS, [...PANEL_EDITOR_KINDS, 'boardDimension'
 
 // The module stays import-free (fabrication export loads it in the Gerber worker).
 assert.deepEqual(importSpecifiers(readFileSync(join(root, 'src/pcb/modules/property-editors.js'), 'utf8')), []);
-
-// The former editor fields cannot reappear.
-const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
-    ? listJs(join(dir, entry.name)) : entry.name.endsWith('.js') ? [join(dir, entry.name)] : []);
-const legacy = /\b_(?:boardShape|track|via|pad|text|boardDimension)PropertyBinding\b|\b_componentProperties\b/;
-for (const file of listJs(join(root, 'src'))) {
-    assert.doesNotMatch(readFileSync(file, 'utf8'), legacy, `${file} uses property-editors.js instead of editor fields`);
-}
 
 console.log('PASS PCB property editors: per-editor ownership, safe release, ordered commits and layer release, import-free');

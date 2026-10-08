@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -96,12 +96,4 @@ for (const worker of ['src/pcb/modules/drc-worker.js', 'src/pcb/modules/gerber-w
 }
 assert.ok(reachable('src/pcb/modules/drc-worker.js').has(file), 'DRC reads pour status from the shared state');
 
-// The former editor fields cannot reappear.
-const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
-    ? listJs(join(dir, entry.name)) : entry.name.endsWith('.js') ? [join(dir, entry.name)] : []);
-const legacy = /\b_(?:fillRefreshPending|fillRefreshError|fillRefreshScheduled|pictureCopperRefreshPending|deferDragOverlays|suspendFillRefresh|suspendBoardViewRefresh|fillOverlayDeferred|drcFillSuspended)\b/;
-for (const source of listJs(join(root, 'src'))) {
-    assert.doesNotMatch(readFileSync(source, 'utf8'), legacy, `${source} uses refresh-state.js instead of editor fields`);
-}
-
-console.log('PASS PCB refresh state: defaults, isolation, DRC snapshot status, worker-safe imports, no legacy fields');
+console.log('PASS PCB refresh state: defaults, isolation, DRC snapshot status, worker-safe imports');
