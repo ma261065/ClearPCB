@@ -128,7 +128,13 @@ export function fakeElement(tagName = 'div') {
         get className() { return [...classes].join(' '); },
         set className(value) { classes.clear(); for (const name of String(value).split(/\s+/).filter(Boolean)) classes.add(name); },
         get firstChild() { return element.children[0] || null; },
-        get valueAsNumber() { return element.value?.trim?.() === '' ? NaN : Number(element.value); },
+        get lastChild() { return element.children.at(-1) || null; },
+        get childNodes() { return element.children; },
+        get childElementCount() { return element.children.length; },
+        get previousSibling() {
+            const siblings = element.parentNode?.children || [];
+            return siblings[siblings.indexOf(element) - 1] || null;
+        },
         get nextSibling() {
             const siblings = element.parentNode?.children || [];
             return siblings[siblings.indexOf(element) + 1] || null;
@@ -193,6 +199,31 @@ export function fakeElement(tagName = 'div') {
             return child;
         },
         remove() { element.parentNode?.removeChild(element); },
+        prepend(...nodes) {
+            for (const node of nodes.reverse()) element.insertBefore(node, element.firstChild);
+        },
+        replaceChildren(...nodes) {
+            for (const child of element.children) child.parentNode = null;
+            element.children = [];
+            element.append(...nodes);
+        },
+        replaceWith(...nodes) {
+            const parent = element.parentNode;
+            if (!parent) return;
+            for (const node of nodes) parent.insertBefore(node, element);
+            parent.removeChild(element);
+        },
+        /** A copy with the same tag, attributes, classes, data and style; children too when deep. */
+        cloneNode(deep = false) {
+            const copy = fakeElement(element.tagName);
+            for (const [name, value] of attributes) copy.setAttribute(name, value);
+            copy.className = element.className;
+            Object.assign(copy.dataset, element.dataset);
+            Object.assign(copy.style, element.style);
+            if (element.tagName === '#text') copy.textContent = text;
+            if (deep) for (const child of element.children) copy.appendChild(child.cloneNode(true));
+            return copy;
+        },
         contains(node) {
             for (let current = node; current; current = current.parentNode) if (current === element) return true;
             return false;
