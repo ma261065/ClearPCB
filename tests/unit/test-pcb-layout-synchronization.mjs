@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { Component } from '../../src/components/Component.js';
 import { Track } from '../../src/shapes/track.js';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -101,28 +102,38 @@ for (const pose of [
 }
 
 globalThis.window = { addEventListener() {} };
-const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
+const fakeDocument = installFakeDom();
+fakeDocument.createElementNS = (_ns, tag) => fakeElement(tag);
+const { syncFromSchematic, setSchematicSyncHasContent } = await import('../../src/pcb/modules/schematic-sync.js');
 {
     const { project, tracks } = fixture({ side: 'bottom', rotation: 37.123456789 });
     let persistentRenders = 0, footprintRenders = 0;
+    const groups = new Map();
     const app = {
-        project, boardShapes: [], _hasContent: true, ensureViewport() {},
-        _clearPCBContent() {
-            assert.equal(tracks[1].padConnections.size, 0, 'Bond updates precede even clearing the old presentation');
+        project, boardShapes: [], texts: new Map(), tracks: project.pcbDocument.tracks,
+        vias: project.pcbDocument.vias, pads: project.pcbDocument.pads, copperFills: [],
+        placements: new Map(), ensureViewport() {}, getRoutingParams: () => ({}),
+        existingLayerGroups() { return groups; },
+        getLayerGroup(id) {
+            if (!groups.has(id)) groups.set(id, fakeElement('g'));
+            return groups.get(id);
         },
-        _renderPersistentObjects() {
+        refreshFills() {}, updateCopperCuts() {},
+        renderFootprint(_geometry, placement) {
+            footprintRenders++;
+            assert.equal(placement.side, 'bottom');
+            return new Map([['top-copper', fakeElement('g')]]);
+        },
+        refreshClearanceHalos() {
             persistentRenders++;
             const pad = project.resolvePcbLayout().placements.get('part').pads.get('1');
             assert.deepEqual(tracks[0].nodes.get('n0'), { x: pad.x, y: pad.y },
                 'Persistent tracks render directly at their synchronized endpoints');
         },
-        _placeFootprints(placements) {
-            footprintRenders++;
-            assert.equal(placements.get('part').side, 'bottom');
-        },
-        getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {}, setStatus() {},
+        updateRatsnest() {}, setStatus() {},
     };
-    PCBApp.prototype._syncFromSchematic.call(app);
+    setSchematicSyncHasContent(app, true);
+    syncFromSchematic(app);
     assert.equal(persistentRenders, 1);
     assert.equal(footprintRenders, 1);
     assert.deepEqual(app.netlist, project.getNetlist());

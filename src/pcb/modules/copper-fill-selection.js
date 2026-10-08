@@ -1,7 +1,9 @@
 import { createBoardShapeSelectionAdapter } from './board-shapes.js';
 import { fillEditProfile } from './copper-fill-edit.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
-import { registerPcbSelectionAdapter } from './selection-registry.js';
+import { getPcbSelection, isPcbSelected, registerPcbSelectionAdapter, setPcbSelection } from './selection-registry.js';
+import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { renderCopperFill } from './copper-fill-render.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
 /** @typedef {{x: number, y: number}} Point */
@@ -34,6 +36,30 @@ export function hitTestFill(app, worldPos) {
         }
     }
     return null;
+}
+
+/**
+ * Select (or clear) the active pour and refresh its highlight.
+ * @param {PcbEditor} app
+ * @param {CopperFill|null} fill
+ */
+export function selectPcbFill(app, fill) {
+    const previous = getPcbSelection(app, 'fill')[0] || null;
+    if (previous === fill) {
+        if (fill) renderPcbSelectionAnchors(app);
+        return;
+    }
+    const next = fill || null;
+    setPcbSelection(app, next ? [{ kind: 'fill', object: next }] : []);
+    app.syncClipboardButtons();
+    const getGroup = /** @param {string} id */ (id) => app.getLayerGroup(id);
+    if (previous) {
+        renderCopperFill(previous, getGroup, { selected: false });
+    }
+    if (next) {
+        renderCopperFill(next, getGroup, { selected: true });
+        if (isPcbSelected(app, 'fill', next)) renderPcbSelectionAnchors(app);
+    }
 }
 
 registerPcbSelectionAdapter('fill', createCopperFillSelectionAdapter);

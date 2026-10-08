@@ -71,7 +71,8 @@ worker communicate via `postMessage`:
 ### RouteInput
 
 `buildRouteInput(app)` in `pcb/modules/route-input.js` builds this payload.
-`PCBApp._buildRouteInput()` delegates to that module.
+`pcb/modules/autorouter-actions.js` consumes it for routing sessions, unless a
+loaded test board supplied a stored `RouteInput`.
 
 | Field             | Type                | Description                         |
 |-------------------|---------------------|-------------------------------------|
@@ -296,9 +297,9 @@ src/pcb/modules/
 │
 └── autorouter-worker.js      # Web Worker wrapper
 
-src/ui/
-└── PCBApp.js                 # UI integration
-    ├── _getAutorouter()
-    ├── _buildRouteInput()
-    └── _renderRouteResult()
+src/pcb/modules/
+└── autorouter-actions.js     # UI integration
+    ├── getAutorouter()
+    ├── runAutoRoute()
+    └── renderRouteResult()
 ```

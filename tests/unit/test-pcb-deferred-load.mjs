@@ -4,6 +4,7 @@ import { PANEL_DEFAULTS } from '../../src/core/pcb-panelization.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
+import { syncFromSchematic, setSchematicSyncHasContent } from '../../src/pcb/modules/schematic-sync.js';
 import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
@@ -267,21 +268,20 @@ for (const withComponents of [false, true]) {
         project: { schematicDocument: {},
             synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
         activate: PCBApp.prototype.activate, preload: PCBApp.prototype.preload,
-        _syncFromSchematic: PCBApp.prototype._syncFromSchematic,
-        _renderPersistentObjects: PCBApp.prototype._renderPersistentObjects,
         initialize() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
         viewport: viewportStub({ _onResize: record('viewport-resize') }),
         setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
-        _placeFootprints: record('footprints'), updateRatsnest: record('ratsnest'),
+        renderFootprint() { calls.push('footprints'); return new Map(); }, updateRatsnest: record('ratsnest'),
         _showBoardDimensionsDialog: record('dimensions-dialog'),
     });
+    setSchematicSyncHasContent(app, true);
     setBoardViewPanel(app, { refresh: record('3d') });
     Object.defineProperty(app, 'copperFills', { get: () => app.boardShapes.filter(shape => shape.type === 'fill') });
     load(app, data, PcbDocument.prepare(data));
     calls.length = 0;
-    app._syncFromSchematic();
+    syncFromSchematic(app);
     assert.deepEqual(calls, [], 'a queued sync must not render a hidden board');
     assert.equal(isEditorStale(app), true);
     const beforePreloadCuts = app.cutRefreshes;
@@ -334,7 +334,7 @@ for (const pcb of [
             refreshPcbRibbon() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
             getLayerGroup: layerGroups(),
-            _placeFootprints: record('footprints'), _fitToPlacedContent() {},
+            renderFootprint() { calls.push('footprints'); return new Map(); }, _fitToPlacedContent() {},
             refreshClearanceHalos() {}, updateRatsnest() {}, updateCopperCuts() {},
             _showBoardDimensionsDialog: record('dimensions-dialog'),
             viewport: viewportStub({ _onResize() {} }),
@@ -449,15 +449,20 @@ const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 const project = new ProjectDocument();
 let syncs = 0, placed = new Map();
+const syncGroups = new Map();
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
-    project: null, boardShapes: [],
-    ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
-    _placeFootprints(items) { placed = items; }, getLayerGroup: () => null,
-    refreshClearanceHalos() {}, updateRatsnest() {}, _fitToPlacedContent() {}, setStatus() {},
+    project: null, boardShapes: project.pcbDocument.boardShapes, texts: project.pcbDocument.texts,
+    tracks: project.pcbDocument.tracks, vias: project.pcbDocument.vias, pads: project.pcbDocument.pads,
+    copperFills: project.pcbDocument.copperFills, placements: placed,
+    ensureViewport() { syncs++; }, renderFootprint() { return new Map(); },
+    existingLayerGroups() { return syncGroups; },
+    getLayerGroup(id) { if (!syncGroups.has(id)) syncGroups.set(id, fakeElement('g')); return syncGroups.get(id); },
+    getRoutingParams: () => ({}), updateCopperCuts() {},
+    refreshClearanceHalos() {}, updateRatsnest() {}, setStatus() {},
 });
 setEditorStale(pcb, true);
-pcb._syncFromSchematic();
+syncFromSchematic(pcb);
 assert.equal(isEditorStale(pcb), true, 'Missing project must not acknowledge a pending sync');
 assert.equal(syncs, 0);
 const notifications = [];
@@ -470,8 +475,8 @@ project.registerView('pcb', pcb);
 Object.defineProperty(project, 'schematic', {
     get() { assert.fail('PCB sync must not discover or inspect the schematic editor'); },
 });
-pcb._syncFromSchematic();
-assert.equal(placed.get('owned').reference, 'U1', 'Model synchronization works without a schematic view');
+syncFromSchematic(pcb);
+assert.equal(pcb.placements.get('owned').reference, 'U1', 'Model synchronization works without a schematic view');
 assert.equal(isEditorStale(pcb), false);
 syncs = 0;
 const schematic = Object.assign(Object.create(SchematicApp.prototype), pcbEditorStubs(), {
@@ -512,7 +517,7 @@ try {
     project.schematicDocument.components[0].reference = 'U2';
     flush();
     assert.equal(syncs, 1);
-    assert.equal(placed.get('owned').reference, 'U2', 'Sync consumes the latest project model data');
+    assert.equal(pcb.placements.get('owned').reference, 'U2', 'Sync consumes the latest project model data');
     assert.equal(pcb.netlist[0].net, 'OWNED');
     assert.equal(isEditorStale(pcb), false);
     project.fileManager.setDirty(false);
@@ -522,7 +527,7 @@ try {
     assert.equal(syncs, 1, 'A queued rebuild must not render after the PCB is hidden');
     assert.equal(isEditorStale(pcb), true);
     setEditorActive(pcb, true);
-    pcb._syncFromSchematic();
+    syncFromSchematic(pcb);
     assert.equal(syncs, 2);
     assert.equal(isEditorStale(pcb), false);
     const revision = project.fileManager.revision;

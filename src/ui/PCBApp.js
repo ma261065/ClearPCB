@@ -1,21 +1,18 @@
 // PCBApp.js - PCB Editor Application
 
 import { serializePcb, preparePcb, loadPcb } from '../pcb/modules/project-state.js';
-import { AutorouterSession } from '../pcb/modules/autorouter-session.js';
-import { ComponentProperties } from '../pcb/modules/component-properties.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
+import { ensurePcbViewport } from '../pcb/modules/viewport-host.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
 import { errorMessage } from '../core/errors.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { showAlert } from '../shared/ui/modal.js';
-import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
-import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
+import { updateGridDropdown, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { pcbLayerName, isLayerLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
-import { exportDSN, importSES } from '../pcb/modules/dsn.js';
+import { isLayerVisible, pcbLayerName } from '../pcb/modules/layers.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import {
     disposeDrc,
@@ -23,36 +20,23 @@ import {
     initDrc,
     peekDrcPresentation,
     scheduleDrc,
-    setDrcRatlines,
 } from '../pcb/modules/drc-state.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
-import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { showSaveToast } from '../pcb/modules/save-toast.js';
 import { cancelPcbDrawingMode, syncPcbToolBlocks, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
-import { pcbToolLayer, pcbToolTip, refreshPcbToolFollow } from '../pcb/modules/pcb-tools.js';
-import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
-import { buildRouteInput } from '../pcb/modules/route-input.js';
-import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
-import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
-import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber-export.js';
-import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
+import { pcbToolLayer, pcbToolTip } from '../pcb/modules/pcb-tools.js';
+import { renderPanelPreview } from '../pcb/modules/panelization-ui.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
-import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modules/pcb-export.js';
-import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
+import { savePcbPdf, printPcb } from '../pcb/modules/pcb-export.js';
 import { refreshTrackDrawPreview } from '../pcb/modules/track-draw.js';
 import { reconcileRatsnest } from '../pcb/modules/ratsnest.js';
 import { refreshTrackSelectionHalo } from '../pcb/modules/copper-halos.js';
-import { getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { getVertexDrag } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
-import { serializePcbText } from '../core/pcb-text.js';
+import { AddTrackCommand, FlipPlacementCommand, RotatePlacementCommand } from '../pcb/modules/track-commands.js';
 import { RemoveTextCommand, EditTextCommand } from '../pcb/modules/text-commands.js';
 import { cancelShapeDraw } from '../pcb/modules/board-shape-draw.js';
-import { renderBoardShape } from '../pcb/modules/board-shape-render.js';
 import { renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
-import { boardShapeLocked, createPcbHistory, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
+import { boardShapeLocked, createPcbHistory } from '../pcb/modules/object-locks.js';
 import { renderPropertyActions, renderPropertyFields } from '../shared/ui/property-fields.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -60,44 +44,42 @@ import {
     refreshBoxSelectionHighlights,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
+import { selectAllPcbObjects, selectPcbComponent, selectPcbText } from '../pcb/modules/selection-actions.js';
+import { hasPcbClipboardData, canCopyCutPcbSelection, copyPcbSelection, cutPcbSelection, pastePcbSelection } from '../pcb/modules/pcb-clipboard.js';
 import {
     showPcbSelectionProperties,
     finishSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
-import { getPcbSelection, isPcbSelected, setPcbSelection } from '../pcb/modules/selection-registry.js';
+import { getPcbSelection, isPcbSelected } from '../pcb/modules/selection-registry.js';
 import { worldToPlacementLocal } from '../pcb/modules/ref-text-geometry.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
-import { CopperFill } from '../shapes/copper-fill.js';
-import { renderPad } from '../pcb/modules/pad.js';
 import '../pcb/modules/pad-selection.js';
-import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
-import { updateCopperCuts, clearCopperCuts, hasCopperCuts } from '../pcb/modules/copper-cuts.js';
+import { updateCopperCuts } from '../pcb/modules/copper-cuts.js';
 import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
 import { bindPcbMouseEvents } from '../pcb/modules/mouse.js';
 import '../pcb/modules/layer-changes.js';
-import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
-import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart } from '../pcb/modules/copper-fill-edit.js';
-import { openComponent3DPopout, resetPlacementCullView, showComponentPopup, updatePcbCulling } from '../pcb/modules/component-selection.js';
-import { clearTextElements, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
-import { drawRefOverlay, endRefDrag, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, SetRefStyleCommand } from '../pcb/modules/ref-text-selection.js';
-import { cancelHoverUpdate } from '../pcb/modules/pcb-hover.js';
+import { ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, deleteSelectedFill as deleteFocusedOrSelectedFill } from '../pcb/modules/copper-fill-edit.js';
+import { updatePcbCulling } from '../pcb/modules/component-selection.js';
+import { refreshText as refreshPcbText } from '../pcb/modules/pcb-text-render.js';
+import { drawRefOverlay, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand } from '../pcb/modules/ref-text-selection.js';
 import { displayedCollection } from '../pcb/modules/displayed-collections.js';
-import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
+import { isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
+import { scheduleSchematicPcbSync, syncFromSchematic, renderPcbFootprint, applyPlacementOverrides as applyPlacementOverridesFromSchematic, initializeSchematicSyncState } from '../pcb/modules/schematic-sync.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
-import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, noteEditSettled, onRefreshSuspended, refreshBoardViewPanel, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
+import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
-    drawBoardOutline,
     initializeBoardOutlineState,
     isBoardOutlineDrawn as boardOutlineDrawn,
-    renderBoardOutlineHandles,
     showBoardDimensionsDialog,
     showBoardOutlineProperties,
 } from '../pcb/modules/board-outline-resize.js';
 import { showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
+import { getComponentProperties } from '../pcb/modules/component-properties-host.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, updatePadPreview } from '../pcb/modules/pad-tool.js';
 import { clearViaPreview, clearViaRing } from '../pcb/modules/via-tool.js';
@@ -105,6 +87,8 @@ import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
 import { showClearances, refreshClearanceHalos, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 import { hideNetTooltip } from '../pcb/modules/net-tooltip.js';
+import { isAutorouterActive, runAutoRoute as runAutoRouteAction, cancelAutoRoute as cancelAutoRouteAction, disposeAutorouter, clearRoutes as clearPcbRoutes } from '../pcb/modules/autorouter-actions.js';
+import { selectPcbFill } from '../pcb/modules/copper-fill-selection.js';
 
 /**
  * Padding (mm) added around a reference designator's tight glyph bounding box
@@ -149,15 +133,10 @@ function showFootprintCrosshair(app, pl) {
  * @typedef {import('../core/ProjectDocument.js').ProjectDocument} ProjectDocument
  * @typedef {import('../core/pcb-placement-geometry.js').Placement} Placement
  * @typedef {import('../core/pcb-placement-geometry.js').PadOffset} PadOffset
- * @typedef {import('../core/pcb-placement-geometry.js').BoardPad} BoardPad
  * @typedef {import('../core/netlist.js').NetlistEntry} NetlistEntry
  * @typedef {import('../core/pcb-text.js').PcbText} PcbText
- * @typedef {import('../pcb/modules/autorouter-common.js').RouteInput} RouteInput
- * @typedef {import('../pcb/modules/autorouter-common.js').RouteResult} RouteResult
- * @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'text'|'fill'} PcbSelectionKind
+ * @typedef {import('../shapes/copper-fill.js').CopperFill} CopperFill
  * @typedef {import('../pcb/modules/selection-registry.js').PcbSelectionValue} PcbSelectionEntry
- * @typedef {{tracks: ReturnType<Track['toJSON']>[], vias: ReturnType<Via['toJSON']>[], pads: ReturnType<Pad['toJSON']>[],
- *   shapes: any[], texts: ReturnType<typeof serializePcbText>[], fills: ReturnType<CopperFill['captureState']>[]}} PcbClipboardPayload
  * @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, strokeWidth: number, layer: string, [key: string]: any}} InlineTextModel
  * @typedef {{componentId?: string|null, isNewPlacement?: boolean, select?: () => void, prepare?: () => void,
  *   render?: () => void, transform?: () => string, localX?: (point: Point) => number, [key: string]: any}} InlineTextOptions
@@ -222,7 +201,7 @@ export default class PCBApp {
         /** @type {Viewport|null} */
         this.viewport = null;
         /** @type {number|undefined} Last zoom scale used to size selected-track halos. */
-        this._lastHaloScale = undefined;
+        this.lastHaloScale = undefined;
         /** @type {(() => void)|null} Refresh the ribbon's view toggles (set by controls.js). */
         this.syncPcbViewToggles = null;
         this.currentTool = 'select';
@@ -234,10 +213,6 @@ export default class PCBApp {
         /** @type {(() => void)|null} Retains the measured PCB ribbon height. */
         this.retainPcbRibbonHeight = null;
 
-        /** @type {SVGGElement|null} Group containing all placed footprints */
-        this._footprintGroup = null;
-        /** @type {SVGGElement|null} Group containing ratsnest lines */
-        this._ratsnestGroup = null;
         /**
          * SVG <g> elements keyed by layer id.
          * @type {Map<string, SVGGElement>}
@@ -267,17 +242,12 @@ export default class PCBApp {
         /** Currently selected CopperFill, or null. */
         /** True when the schematic has changed since last PCB rebuild */
         setEditorStale(this, true);
-        /** @type {number|null} Debounce timer for live rebuilds while PCB pane is active */
-        this._syncTimer = null;
-        /** True after the first sync (governs fitToBounds) */
-        this._hasContent = false;
+        initializeSchematicSyncState(this);
         initializeBoardOutlineState(this, !!getBoardOutline(this));
         /** @type {Record<string, HTMLElement|undefined>|null} Ribbon control elements (set by controls.js) */
         this.ui = null;
 
         // ── Selection & drag state ────────────────────────────
-        /** @type {PcbClipboardPayload|null} In-memory PCB clipboard payload. */
-        this._pcbClipboard = null;
         // Board-shape SVG elements, hover, node/segment focus and tool defaults live in the board-shape modules.
 
         /**
@@ -296,12 +266,8 @@ export default class PCBApp {
             onChanged: () => this._onHistoryChanged(),
             onRefused: error => showSaveToast(this, errorMessage(error)),
         });
-        /** @type {AutorouterSession|null} Lazily created owner of routing session and temporary presentation. */
-        this._autorouter = null;
         /** Document-change hook installed by ProjectDocument. @type {(() => void)|null} */
         this.onDocumentChanged = null;
-        /** @type {RouteInput|null} Stored test board RouteInput for direct routing. */
-        this._testBoardRouteInput = null;
     }
 
     initialize() {
@@ -323,7 +289,7 @@ export default class PCBApp {
         this.ensureViewport();
         setEditorActive(this, true);
         try {
-            this._syncFromSchematic();
+            syncFromSchematic(this);
         } finally {
             setEditorActive(this, false);
         }
@@ -356,7 +322,7 @@ export default class PCBApp {
         updateGridDropdown(this);
 
         // Rebuild if schematic changed while we were away
-        if (isEditorStale(this)) this._syncFromSchematic();
+        if (isEditorStale(this)) syncFromSchematic(this);
         if (isFillRefreshPending(this)) this.refreshFills();
         if (peekDrcPresentation(this)?.pending || drcShouldRun(this)) scheduleDrc(this);
 
@@ -366,7 +332,7 @@ export default class PCBApp {
         }
 
         // Board outline setup. The outline is part of the document and is
-        // (re)drawn by _renderPersistentObjects whenever the layer DOM is
+        // (re)drawn by schematic-sync whenever the layer DOM is
         // built or rebuilt. If no dimensions exist yet this is a brand-new
         // board, so prompt the user for them.
         if (!boardOutlineDrawn(this)) {
@@ -386,7 +352,7 @@ export default class PCBApp {
     }
 
     dispose() {
-        this._autorouter?.dispose();
+        disposeAutorouter(this);
         disposeFillRefresh(this, { terminal: true });
         disposeDrc(this);
     }
@@ -413,76 +379,20 @@ export default class PCBApp {
         this.refreshPcbRibbon?.();
     }
 
-    /** Whether there is any pasteable payload on the PCB clipboard. */
-    _hasPcbClipboardData() {
-        const c = this._pcbClipboard;
-        return !!c && (
-            (c.tracks?.length || 0) > 0
-            || (c.vias?.length || 0) > 0
-            || (c.pads?.length || 0) > 0
-            || (c.shapes?.length || 0) > 0
-            || (c.texts?.length || 0) > 0
-            || (c.fills?.length || 0) > 0
-        );
-    }
 
     hasPcbClipboardData() {
-        return this._hasPcbClipboardData();
-    }
-
-    /** Whether current selection can be copied/cut from PCB. */
-    _canCopyCutPcbSelection() {
-        return getPcbSelection(this, 'track').length > 0
-            || getPcbSelection(this, 'via').length > 0
-            || getPcbSelection(this, 'pad').length > 0
-            || getPcbSelection(this, 'shape').some(/** @param {any} shape */ (shape) => shape.layer !== 'board-outline')
-            || getPcbSelection(this, 'text').length > 0
-            || getPcbSelection(this, 'fill').length > 0;
+        return hasPcbClipboardData(this);
     }
 
     canCopyCutPcbSelection() {
-        return this._canCopyCutPcbSelection();
+        return canCopyCutPcbSelection(this);
     }
 
     canUndoPcbHistory() {
         return isPcbPasteActive(this) || !!this.history?.canUndo?.();
     }
-    /** Select every visible PCB object not on a locked layer; individually locked objects are included. */
     selectAll() {
-        window.getSelection?.()?.removeAllRanges();
-        /** @type {PcbSelectionEntry[]} */
-        const selected = [];
-        /**
-         * @param {PcbSelectionKind} kind
-         * @param {any} object
-         */
-        const add = (kind, object) => {
-            if (!isPcbObjectLayerLocked(this, kind, object)) selected.push({ kind, object });
-        };
-        for (const [componentId] of this.placements) add('component', componentId);
-        for (const track of this.tracks) {
-            if (trackIsSelectable(track)) add('track', track);
-        }
-        if (isViaVisible()) {
-            for (const via of this.vias) if (via.visible !== false) add('via', via);
-        }
-        for (const pad of this.pads || []) {
-            if (pad.visible !== false) add('pad', pad);
-        }
-        for (const shape of this.boardShapes) {
-            if (shape?.type === 'fill') {
-                if (shape.visible !== false && isCopperFillVisible(shape.layer)) add('fill', shape);
-            } else if (shape && isLayerVisible(shape.layer)) {
-                add('shape', shape);
-            }
-        }
-        for (const text of this.texts.values()) {
-            if (isLayerVisible(text.layer)) add('text', text);
-        }
-        setPcbSelection(this, selected);
-        refreshBoxSelectionHighlights(this);
-        showPcbSelectionProperties(this);
-        this.syncClipboardButtons();
+        selectAllPcbObjects(this);
     }
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
@@ -490,81 +400,26 @@ export default class PCBApp {
         this.refreshPcbRibbon?.();
     }
 
-    /**
-     * Build a clipboard payload from current PCB selection.
-     * Components/reference labels are intentionally excluded.
-     * @param {{unlockedOnly?: boolean}} [options] Cut copies only what it can remove.
-     */
-    _capturePcbClipboardSelection({ unlockedOnly = false } = {}) {
-        /** @type {PcbClipboardPayload} */
-        const payload = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
-        /**
-         * @param {PcbSelectionKind} kind
-         * @returns {any[]}
-         */
-        const selected = kind => getPcbSelection(this, kind)
-            .filter(/** @param {any} object */ (object) => !unlockedOnly || !isPcbObjectLocked(this, kind, object));
-        for (const track of selected('track')) payload.tracks.push(track.toJSON());
-        for (const via of selected('via')) payload.vias.push(via.toJSON());
-        for (const pad of selected('pad')) payload.pads.push(pad.toJSON());
-        for (const shape of selected('shape')) {
-            if (shape.layer !== 'board-outline') payload.shapes.push(JSON.parse(JSON.stringify(shape)));
-        }
-        for (const text of selected('text')) payload.texts.push(serializePcbText(text));
-        for (const fill of selected('fill')) payload.fills.push(fill.captureState());
-        if (!payload.tracks.length && !payload.vias.length && !payload.pads.length && !payload.shapes.length
-            && !payload.texts.length && !payload.fills.length) return null;
-        return payload;
-    }
 
-    /**
-     * Copy currently-selected PCB entities (except components).
-     * @param {{unlockedOnly?: boolean}} [options]
-     */
     copySelection(options) {
-        const payload = this._capturePcbClipboardSelection(options);
-        if (!payload) {
-            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
-            if (componentId) {
-                showComponentPopup(this, componentId,
-                    "Components can't be copied from PCB. Copy them in the schematic editor.");
-            }
-            this.syncClipboardButtons();
-            return false;
-        }
-        this._pcbClipboard = payload;
-        this.syncClipboardButtons();
-        return true;
+        return copyPcbSelection(this, options);
     }
 
-    /** Cut currently-selected PCB entities (copy + remove). */
     cutSelection() {
-        if (isPcbPasteActive(this)) { cancelPcbPaste(this); return true; }
-        if (!this.copySelection({ unlockedOnly: true })) return false;
-        const deleted = deleteBoxSelection(this);
-        if (deleted) this.clearProperties();
-        this.syncClipboardButtons();
-        return deleted;
+        return cutPcbSelection(this);
     }
 
-    /** Stage the current PCB clipboard payload at the cursor without authoring it. */
     pasteSelection() {
-        if (!this._hasPcbClipboardData()) {
-            this.syncClipboardButtons();
-            return false;
-        }
-        const pasted = preparePcbPaste(this, this._pcbClipboard);
-        const started = beginPcbPaste(this, pasted);
-        this.syncClipboardButtons();
-        return started;
+        return pastePcbSelection(this);
     }
 
-    /**
-     * Create the canvas viewport; headless tests substitute their own.
-     * @param {HTMLElement} container
-     */
-    _createViewport(container) {
+    createViewport(container) {
         return new Viewport(container);
+    }
+
+    /** Legacy seam for tests. */
+    _createViewport(container) {
+        return this.createViewport(container);
     }
 
     /** After every history change: refresh derived pours, dirty state, buttons and selection overlays. */
@@ -575,133 +430,31 @@ export default class PCBApp {
         refreshBoxSelectionHighlights(this);
     }
 
-    /** Panning dismisses the net tooltip; clearance halos stay visible throughout. */
+    bindViewportPanHooks() {
+        this.viewport.onPanStart = () => {
+            hideNetTooltip(this);
+        };
+    }
+
+    /** Legacy seam for tests. */
     _bindViewportPanHooks() {
-        /** @type {Viewport} */ (this.viewport).onPanStart = () => {
-            hideNetTooltip(this);
-        };
+        this.bindViewportPanHooks();
     }
 
-    /** Create the canvas viewport on first use; loading may render before the tab is shown. */
     ensureViewport() {
-        if (this.viewport || !this.canvasContainer) return;
-
-        this.viewport = this._createViewport(this.canvasContainer);
-
-        this.viewport.onMouseMove = (worldPos, snappedPos) => {
-            if (!isEditorActive(this)) return;
-            if (this.status.cursorPos) {
-                this.status.cursorPos.textContent = `${worldPos.x.toFixed(2)}, ${(-worldPos.y).toFixed(2)} mm`;
-            }
-            if (this.status.gridSnap) {
-                this.status.gridSnap.textContent = `${snappedPos.x.toFixed(2)}, ${(-snappedPos.y).toFixed(2)} mm`;
-            }
-        };
-
-        /** @type {{scaleChanged?: boolean, boundsChanged?: boolean}|null} */
-        let pendingView = null;
-        let viewRaf = 0;
-        const flushViewUpdate = () => {
-            viewRaf = 0;
-            const view = pendingView;
-            pendingView = null;
-            if (!view || !isEditorActive(this)) return;
-
-            // Selection halo node handles are sized in screen pixels, so they
-            // must be redrawn when the zoom scale changes to stay constant on
-            // screen. (Pan doesn't change scale, so skip the churn then.)
-            const sc = this.viewport?.scale || 1;
-            if (sc !== this._lastHaloScale && (getSelectedTrack(this) || getSelectedVia(this))) {
-                this._lastHaloScale = sc;
-                refreshTrackSelectionHalo(this);
-            }
-            if (view.scaleChanged && getPcbSelection(this).length) {
-                refreshBoxSelectionHighlights(this);
-            }
-            if (view.scaleChanged) {
-                renderBoardOutlineHandles(this);
-                refreshAxisGlow(this);
-                refreshTrackDrawPreview(this);
-            }
-            refreshPcbToolFollow(this);
-            updatePcbCulling(this);
-            if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
-            if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this)?.updateConnector();
-        };
-
-        this.viewport.onInteractionStart = (kind) => {
-            cancelHoverUpdate(this);
-            if (kind !== 'pointer' && viewRaf) {
-                cancelAnimationFrame(viewRaf);
-                viewRaf = 0;
-            }
-            hideNetTooltip(this);
-        };
-
-        this.viewport.onViewChanged = (view) => {
-            if (!isEditorActive(this)) return;
-            // A track context menu is anchored to a screen position but refers
-            // to a board location; any zoom or pan (wheel, +/- keys, arrow-key
-            // pan, buttons, drag) makes it stale, so dismiss it on view change.
-            // Guard on an actual move: endPan() fires this callback even for a
-            // zero-distance right-click, which would otherwise instantly close
-            // the context menu the right-click just opened.
-            if (!view || view.scaleChanged || view.boundsChanged) dismissTrackContextMenu();
-            // The net tooltip is anchored to a screen point over hovered copper;
-            // any pan/zoom invalidates that screen anchor, so dismiss on view move.
-            if (!view || view.scaleChanged || view.boundsChanged) hideNetTooltip(this);
-            this._updateViewportStatus();
-            pendingView = pendingView
-                ? {
-                    ...view,
-                    scaleChanged: pendingView.scaleChanged || view.scaleChanged,
-                    boundsChanged: pendingView.boundsChanged || view.boundsChanged,
-                }
-                : view;
-            if (!viewRaf) viewRaf = requestAnimationFrame(flushViewUpdate);
-        };
-
-        // Throttled footprint culling during an active pan (Viewport rAF).
-        this.viewport.onViewportCull = () => {
-            if (!isEditorActive(this)) return;
-            updatePcbCulling(this);
-            // Keep the copper-removal clip rectangle following the viewport
-            // during a live pan (viewBox moves without firing onViewChanged).
-            if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
-            // The viewBox moves continuously during a pan without firing
-            // onViewChanged, so keep the DRC leader anchored here too.
-            if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this)?.updateConnector();
-        };
-
-        this._bindViewportPanHooks();
-
-        // Bind mouse events for panning
-        this._bindMouseEvents();
-        this.viewport.svg.addEventListener('unlock-shape', (event) => {
-            const { shape: owner, clientX, clientY } = /** @type {CustomEvent} */ (event).detail || {};
-            if (owner?.kind) showUnlockMenu(this, owner.kind, owner.object, clientX, clientY);
-        });
-
-        // Create SVG layer groups (one <g> per PCB layer, in z-order)
-        this._createLayerGroups();
-
-        // Push any restored eye/lock state (from a prior session) into the
-        // freshly-created render groups so the artwork matches the panel.
-        applyLayerPrefsToRender(this);
-
-        restoreGridSettings(this, this.pcbDocument.settings || {});
-
-        // Apply current theme to the viewport
-        this.viewport.updateTheme();
-        this._updateViewportStatus();
+        ensurePcbViewport(this);
     }
 
-    /** Wire the canvas's mouse events (pcb/modules/mouse.js); a seam tests bind through. */
-    _bindMouseEvents() {
+    bindMouseEvents() {
         bindPcbMouseEvents(this);
     }
 
-    _updateViewportStatus() {
+    /** Legacy seam for tests and tools. */
+    _bindMouseEvents() {
+        this.bindMouseEvents();
+    }
+
+    updateViewportStatus() {
         if (!this.viewport) return;
         if (this.status.viewportInfo) {
             this.status.viewportInfo.textContent = `${this.viewport.viewBox.width.toFixed(0)} × ${this.viewport.viewBox.height.toFixed(0)} mm`;
@@ -709,11 +462,11 @@ export default class PCBApp {
         if (this.status.zoomPercent) {
             this.status.zoomPercent.textContent = `${Math.round(this.viewport.zoom * 100)}%`;
         }
-        // Hide net-name labels on tracks below 200% zoom — at low zoom
-        // they're tiny and just add visual noise.
-        if (this.viewport.svg) {
-            this.viewport.svg.classList.toggle('pcb-zoom-low', this.viewport.zoom < 2);
-        }
+    }
+
+    /** Legacy seam for tests. */
+    _updateViewportStatus() {
+        this.updateViewportStatus();
     }
 
     _clearViaRing() {
@@ -833,7 +586,7 @@ export default class PCBApp {
 
     /** Pending previews must finish before a user-visible save/export snapshot. */
     isSectionEditing() {
-        return !!this._autorouter?.active || hasPcbEditInProgress(this);
+        return isAutorouterActive(this) || hasPcbEditInProgress(this);
     }
 
     /**
@@ -883,71 +636,6 @@ export default class PCBApp {
         updateGridDropdown(this);
     }
 
-    /**
-     * Create an SVG <g> for every PCB layer and add them to the viewport
-     * in bottom-to-top z-order.  The groups persist across syncs — only
-     * their children are cleared and rebuilt.
-     */
-    _createLayerGroups() {
-        if (this._layerGroups.size > 0) return;  // already created
-
-        // Layer z-order (bottom to top): outline, masks, paste, copper, silk, doc, holes, rats
-        const zOrder = [
-            'board-outline',
-            'bottom-mask', 'top-mask',
-            'bottom-paste', 'top-paste',
-            // Copper pours sit directly beneath their copper layer so
-            // tracks and pads paint on top of the flood fill.
-            'bottom-fill', 'bottom-copper',
-            // Pad numbers sit just above their copper layer so a track routed
-            // to a pad never hides its number (visibility follows the copper).
-            'bottom-pad-numbers',
-            // Copper-removal "knockouts" (circles set to remove copper) sit
-            // above all copper/pads on that side so they visually cut the
-            // copper — a track passing through reads as removed, matching the
-            // 2D/3D board views.
-            'bottom-copper-knockout',
-            'top-fill', 'top-copper',
-            'top-pad-numbers',
-            'top-copper-knockout',
-            'bottom-copper-pad-drills', 'top-copper-pad-drills',
-            'vias',
-            // Track labels remain readable where a connected track terminates
-            // beneath a via, while still following copper-layer visibility.
-            'bottom-copper-track-labels',
-            'top-copper-track-labels',
-            'bottom-silk', 'top-silk',
-            // Level-of-detail placeholders: one solid rect per footprint, shown
-            // (in place of the footprint's full geometry) when zoomed out far
-            // enough that the detail is sub-pixel. Sits above copper/silk so the
-            // block reads clearly; hidden whenever the real geometry is shown.
-            'fp-lod',
-            'bottom-document',
-            'top-document',
-            // Board cutouts must cover every board-art layer, including vias.
-            'hole',
-            'ratlines',
-            // Overlays — non-editable visual aids drawn on top of everything
-            // (clearance halos, etc.). Must be last in z-order.
-            'clearance-overlay',
-            // Selection-overlay — track node handles etc. sit above ALL
-            // copper, vias and overlays so they stay visible
-            // even when a via covers the node they mark.
-            'selection-overlay',
-            // DRC-overlay — design-rule violation markers (dotted leaders /
-            // rings) sit above everything else so they're always visible.
-            'drc-overlay',
-        ];
-
-        for (const id of zOrder) {
-            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            g.setAttribute('class', `pcb-layer-${id}`);
-            g.setAttribute('data-layer', id);
-            /** @type {Viewport} */ (this.viewport).addContent(g);
-            this._layerGroups.set(id, g);
-        }
-    }
-
 
     /**
      * The layer and overlay groups created so far, by id (read-only; use getLayerGroup
@@ -974,8 +662,6 @@ export default class PCBApp {
         }
         return g;
     }
-
-
 
 
     fitToContent() {
@@ -1112,41 +798,10 @@ export default class PCBApp {
         showBoardOutlineProperties(this);
     }
 
-    /** @returns {ComponentProperties} */
-    _getComponentProperties() {
-        const editor = getPropertyEditor(this, 'component');
-        if (editor instanceof ComponentProperties) return editor;
-        return /** @type {ComponentProperties} */ (setPropertyEditor(this, 'component', new ComponentProperties({
-            getPlacement: /** @param {string} id */ (id) => this.placements.get(id),
-            isActive: () => isEditorActive(this),
-            isSelected: /** @param {string} kind @param {string} id */ (kind, id) => isPcbSelected(this, kind, id),
-            openPanel: (panel, owner) => this.openPropertyPanel(panel, owner),
-            refreshPanel: panel => this.refreshPropertyPanel(panel),
-            layerLabel: /** @param {string} layer */ (layer) => this.layerLabel(layer),
-            bindStrokeText: (model, spec) => this._bindStrokeTextProps(model, spec),
-            rotate: (id, before, after) => this.history.execute(new RotatePlacementCommand(this, id, before, after)),
-            setLocked: (id, locked) => {
-                finishSelectionInteraction(this, false);
-                this.history.execute(new SetPlacementLockedCommand(this, id, locked));
-            },
-            setReferenceVisible: /** @param {string} id @param {boolean} visible */ (id, visible) => this._setComponentRefVisible(id, visible),
-            setSide: /** @param {string} id @param {string} side */ (id, side) => this._setPlacementSide(id, /** @type {'top'|'bottom'} */ (side)),
-            flip: /** @param {string} id @param {string} axis */ (id, axis) => this.flipComponent(id, /** @type {'H'|'V'} */ (axis)),
-            open3D: /** @param {string} id */ (id) => openComponent3DPopout(this, id),
-            renderReference: /** @param {string} id */ (id) => this.rerenderRef(id),
-            drawReferenceOverlay: (id, tether) => this.drawRefOverlay(id, tether),
-            setReferenceStyle: (id, before, after) => this.history.execute(new SetRefStyleCommand(this, id, before, after)),
-        })));
-    }
 
-    /**
-     * Show properties for a single placed component.
-     * @param {string} compId
-     */
     showComponentProperties(compId) {
-        return PCBApp.prototype._getComponentProperties.call(this).showComponent(compId);
+        return getComponentProperties(this).showComponent(compId);
     }
-
 
     /**
      * Rotate a component by ±90° (dir: 'L' or 'R') via the history stack.
@@ -1173,30 +828,6 @@ export default class PCBApp {
         this.history.execute(new FlipPlacementCommand(this, compId, axis));
     }
 
-    /**
-     * Move a component to the top or bottom copper side via the history stack.
-     * @param {string} compId
-     * @param {'top'|'bottom'} side
-     */
-    _setPlacementSide(compId, side) {
-        const pl = this.placements.get(compId);
-        if (!pl || pl.locked) return;
-        const cur = pl.side === 'bottom' ? 'bottom' : 'top';
-        if (cur === side) return;
-        this.history.execute(new SetPlacementSideCommand(this, compId, side));
-    }
-
-    /**
-     * Show or hide a component's reference designator via the history stack.
-     * @param {string} compId
-     * @param {boolean} visible
-     */
-    _setComponentRefVisible(compId, visible) {
-        const pl = this.placements.get(compId);
-        if (!pl || pl.locked) return;
-        if ((pl.refVisible !== false) === !!visible) return;
-        this.history.execute(new SetPlacementRefVisibleCommand(this, compId, !!visible));
-    }
 
     _bindThemeToggle() {
         window.addEventListener('clearpcb-theme-changed', () => {
@@ -1208,250 +839,20 @@ export default class PCBApp {
 
     // ── Schematic → PCB sync ──────────────────────────────────────
 
-    /**
-     * Mark the PCB as needing a rebuild.  If the PCB pane is currently
-     * active the rebuild is scheduled via a short debounce so rapid
-     * schematic edits don't cause per-keystroke rebuilds.
-     */
     onSchematicChanged() {
-        this.cancelAutoRoute?.('Routing cancelled because the schematic changed.');
-        setEditorStale(this, true);
-        if (!isEditorActive(this)) return;
-
-        // Debounce: rebuild after 300 ms of inactivity
-        if (this._syncTimer !== null) clearTimeout(this._syncTimer);
-        this._syncTimer = setTimeout(() => this._syncFromSchematic(), 300);
+        scheduleSchematicPcbSync(this);
     }
 
-    /**
-     * Rebuild the PCB content from the current schematic state.
-     */
-    _syncFromSchematic() {
-        if (!isEditorActive(this)) {
-            setEditorStale(this, true);
-            if (this._syncTimer !== null) clearTimeout(this._syncTimer);
-            return;
-        }
-        if (this._syncTimer !== null) clearTimeout(this._syncTimer);
 
-        const project = this.project;
-        const schematic = project?.schematicDocument;
-        if (!schematic) {
-            setEditorStale(this, true);
-            return;
-        }
-        setEditorStale(this, false);
-
-        this.ensureViewport();
-
-        const { placements, netlist } = project.synchronizePcbLayout();
-        this.netlist = netlist;
-
-        // Clear previous PCB content
-        this._clearPCBContent();
-
-        // Re-render persistent model objects that _clearPCBContent wiped
-        // from the layer groups but whose models survive the rebuild
-        // (texts, tracks, vias — e.g. restored from an autosave, or a
-        // routed test board with no schematic components). This must run
-        // BEFORE the components-empty early-return below, otherwise a
-        // component-less board (e.g. test board) leaves recovered tracks
-        // in the model — they hit-test on hover but stay invisible.
-        this._renderPersistentObjects({ renderShapes: placements.size === 0 });
-
-        if (placements.size === 0) {
-            // Persistent copper shapes can carry nets without any schematic
-            // components. Their SVG was restored above, so rebuild their
-            // ratlines before this component-less-board early return.
-            this.refreshClearanceHalos();
-            this.updateRatsnest();
-            this.setStatus('No components in schematic');
-            refreshBoardViewPanel(this);
-            return;
-        }
-
-        // Ratsnest goes to its own layer group
-        this._ratsnestGroup = this.getLayerGroup('ratlines');
-
-        // Place footprints (elements distributed to correct layer groups)
-        this._placeFootprints(placements);
-
-        // Keep free-standing board shapes above freshly placed footprint
-        // artwork after a schematic-driven rebuild.
-        for (const s of this.boardShapes) {
-            if (s.type === 'fill' || (boardOutlineDrawn(this) && s.layer === 'board-outline')) continue;
-            renderBoardShape(this, s, { skipCopperUpdate: true });
-        }
-        this.updateCopperCuts?.();
-
-        // Draw ratsnest
-        this.refreshClearanceHalos();
-        this.updateRatsnest();
-
-        // Only fit-to-content on the first sync so we don't
-        // reset the user's pan/zoom on every change
-        if (!this._hasContent) {
-            this._fitToPlacedContent();
-            this._hasContent = true;
-        }
-
-        const netCount = netlist.length;
-        this.setStatus(`${placements.size} component(s), ${netCount} net(s)`);
-
-        // A schematic-driven rebuild (e.g. a component added or deleted) does
-        // not pass through the PCB history, so refresh any open 3D view here.
-        refreshBoardViewPanel(this);
+    renderFootprint(geometry, placement) {
+        return renderPcbFootprint(geometry, placement);
     }
 
-    /**
-     * Re-render the persistent board model (texts, tracks, vias) into the
-     * layer groups. Their SVG is wiped by _clearPCBContent on every
-     * schematic rebuild, but the underlying models survive (and may have
-     * been restored from an autosave before the first sync). Without this
-     * the objects exist in the model — hit-testing/hover still work — but
-     * are invisible. Idempotent: removes any stale SVG first.
-     */
-    _renderPersistentObjects({ renderShapes = true } = {}) {
-        const getGroup = /** @param {string} id */ (id) => this.getLayerGroup(id);
-
-        // Board outline. Its model (width/height/radius) survives the rebuild
-        // but its SVG is wiped by _clearPCBContent, so redraw it here.
-        if (boardOutlineDrawn(this)) {
-            drawBoardOutline(this);
-        }
-
-        // Free-standing texts.
-        clearTextElements(this);
-        for (const t of this.texts.values()) {
-            renderText(this, t);
-        }
-
-        // Tracks and vias.
-        const routeParams = this.getRoutingParams?.();
-        for (const t of this.tracks) {
-            removeTrackElements(t);
-            renderTrack(t, getGroup, {
-                viaDiameter: routeParams?.viaDiameter,
-                viaDrill: routeParams?.viaDrill,
-                hideNetLabel: t === getSelectedTrack(this) || t === getVertexDrag(this)?.track,
-            });
-        }
-        for (const v of this.vias) {
-            removeViaElements(v);
-            renderVia(v, getGroup);
-        }
-        for (const pad of this.pads || []) renderPad(pad, getGroup);
-        // Free-standing board shapes; CopperFill entries render separately.
-        for (const s of this.boardShapes) {
-            if (!renderShapes || s.type === 'fill'
-                || (boardOutlineDrawn(this) && s.layer === 'board-outline')) continue;
-            renderBoardShape(this, s, { skipCopperUpdate: true });
-        }
-        if (renderShapes) this.updateCopperCuts?.();
-        if (getPcbSelection(this).length) refreshBoxSelectionHighlights(this);
-
-        // Copper pours. Their model (copperFills) survives the rebuild but
-        // their SVG is wiped by _clearPCBContent, so re-pour them here. This
-        // is coalesced to one recompute on the next frame, by which point any
-        // footprint placement in the same sync pass has finished, so the pour
-        // clips against the up-to-date obstacles.
-        if (this.copperFills.length) {
-            this.refreshFills();
-        }
-    }
-
-    /**
-     * Remove all PCB footprint and ratsnest content from layer groups.
-     */
-    _clearPCBContent() {
-        disposeDrcRefresh(this);
-        setDrcRatlines(this, []);
-        // Clear children of layer groups (but keep the groups themselves)
-        for (const [, g] of this._layerGroups) {
-            while (g.firstChild) g.removeChild(g.firstChild);
-        }
-        // Drop any reference-text selection/overlay tied to the old placements.
-        endRefDrag(this, false);
-        drawRefOverlay(this, null, false);
-        this._footprintGroup = null;
-        this._ratsnestGroup = null;
-        this.placements.clear();
-        clearCopperCuts(this);
-    }
-
-    /**
-     * Render model-resolved footprints on the PCB canvas.
-     * @param {Map<string, Placement & {geometry: any}>} placements - Resolved physical placements and footprint geometry.
-     */
-    _placeFootprints(placements) {
-        for (const [compId, resolved] of placements) {
-            const { geometry: fpGeom, ...placement } = resolved;
-            // Render SVG (returns Map<layerId, SVGGElement>)
-            const fpLayers = this._renderFootprint(fpGeom, /** @type {Placement & {reference: string}} */ (placement));
-
-            // Distribute each layer's group to the correct SVG layer
-            /** @type {SVGGElement[]} */
-            const elements = [];
-            for (const [layerId, layerGroup] of fpLayers) {
-                this.getLayerGroup(layerId).appendChild(layerGroup);
-                elements.push(layerGroup);
-            }
-
-            this.placements.set(compId, {
-                ...placement, elements,
-                bounds: fpGeom.courtyard || fpGeom.outline,
-                model3dPlacement: fpGeom.model3d || null,
-            });
-            this._buildLodPlaceholder(compId);
-        }
-
-        // Apply mirror / bottom-side overrides now that all elements exist
-        // (rotation and position were baked into renderFootprint above).
-        for (const compId of placements.keys()) {
-            const pl = this.placements.get(compId);
-            if (!pl) continue;
-            if (pl.side === 'bottom') renderPlacementSide(this, compId, 'bottom');
-            if (pl.refVisible === false) applyPlacementRefVisible(this, compId, false);
-            // Pads and track bonds are already synchronized by the model.
-            if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) {
-                renderPlacementPose(this, compId);
-            }
-            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this.rerenderRef(compId);
-        }
-    }
-
-    /**
-     * Render one resolved footprint's SVG layer groups (a seam for headless tests).
-     * @param {any} geometry
-     * @param {Placement & {reference: string}} placement
-     */
+    /** Legacy seam for tests. */
     _renderFootprint(geometry, placement) {
-        return renderFootprint(geometry, placement.reference, placement.x, placement.y, placement.rotation);
+        return this.renderFootprint(geometry, placement);
     }
 
-    /**
-     * Create (once) the single level-of-detail placeholder rect for a
-     * placement, covering its footprint bounds. Hidden by default; the cull
-     * pass reveals it (and hides the real geometry) when the footprint is too
-     * small to show detail. Re-created if it doesn't yet exist.
-     * @param {string} compId
-     */
-    _buildLodPlaceholder(compId) {
-        const pl = this.placements.get(compId);
-        if (!pl || !pl.bounds) return;
-        const NS = 'http://www.w3.org/2000/svg';
-        const rect = document.createElementNS(NS, 'rect');
-        rect.setAttribute('class', 'pcb-fp-lod culled');
-        rect.setAttribute('x', String(pl.bounds.x));
-        rect.setAttribute('y', String(pl.bounds.y));
-        rect.setAttribute('width', String(pl.bounds.width));
-        rect.setAttribute('height', String(pl.bounds.height));
-        rect.setAttribute('pointer-events', 'none');
-        rect.setAttribute('transform', placementTransform(pl));
-        this.getLayerGroup('fp-lod').appendChild(rect);
-        pl.lodEl = rect;
-        resetPlacementCullView(pl);
-    }
 
     /**
      * Rebuild the ratsnest lines from the current netlist and placements.
@@ -1465,30 +866,6 @@ export default class PCBApp {
         reconcileRatsnest(this, /** @type {{nets?: Set<string>, skipFillRefresh?: boolean}|undefined} */ (opts));
     }
 
-    /**
-     * Fit the viewport to show all placed content.
-     */
-    _fitToPlacedContent() {
-        if (!this.viewport || !this.placements.size) return;
-
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const [, pl] of this.placements) {
-            for (const [, pad] of pl.pads) {
-                minX = Math.min(minX, pad.x - 2);
-                minY = Math.min(minY, pad.y - 2);
-                maxX = Math.max(maxX, pad.x + 2);
-                maxY = Math.max(maxY, pad.y + 2);
-            }
-        }
-
-        if (!Number.isFinite(minX)) return;
-
-        const padding = 10;
-        this.viewport.fitToBounds(
-            minX - padding, minY - padding,
-            maxX + padding, maxY + padding
-        );
-    }
 
     /**
      * Show a modal message, as the schematic editor's alert does.
@@ -1542,20 +919,8 @@ export default class PCBApp {
         return worldToPlacementLocal(worldPos, pl);
     }
 
-    /**
-     * Restore saved placement models, then replace only their footprint artwork.
-     * Used when overrides are loaded after footprints were already rendered.
-     */
     applyPlacementOverrides() {
-        const project = /** @type {ProjectDocument} */ (this.project);
-        const placements = project.restorePcbPlacementOverrides(this.placements.keys());
-        for (const compId of placements.keys()) {
-            const pl = /** @type {Placement} */ (this.placements.get(compId));
-            for (const element of pl.elements || []) element.remove();
-            pl.lodEl?.remove();
-        }
-        this._placeFootprints(placements);
-        this.updateRatsnest?.();
+        applyPlacementOverridesFromSchematic(this);
     }
 
     /**
@@ -1571,62 +936,8 @@ export default class PCBApp {
         this.markDirty();
     }
 
-    /**
-     * Select a component (or deselect if null).
-     * Adds/removes a highlight outline on all layer groups for that component.
-     * @param {string|null} compId
-     */
     selectComponent(compId) {
-        const previousCompId = getPcbSelection(this, 'component')[0] || null;
-        if (previousCompId === compId) {
-            if (!compId) renderPcbSelectionAnchors(this);
-            return;
-        }
-        // Remove old selection highlight
-        if (previousCompId) {
-            const oldPl = this.placements.get(previousCompId);
-            if (oldPl?.elements) {
-                for (const el of oldPl.elements) {
-                    el.querySelector('.pcb-selection-highlight')?.remove();
-                }
-            }
-        }
-
-        setPcbSelection(this, compId ? [{ kind: 'component', object: compId }] : []);
-        this.syncClipboardButtons?.();
-
-        if (!compId) {
-            renderPcbSelectionAnchors(this);
-            /** @type {Viewport} */ (this.viewport).svg.style.cursor = 'default';
-            return;
-        }
-
-        // Add highlight rect to the first layer group (usually top-copper)
-        const pl = this.placements.get(compId);
-        if (!pl?.elements?.length) return;
-
-        // Use the stored footprint bounds (courtyard or outline)
-        const b = pl.bounds;
-        if (!b) return;
-
-        const NS = 'http://www.w3.org/2000/svg';
-        const highlight = document.createElementNS(NS, 'rect');
-        highlight.setAttribute('class', 'pcb-selection-highlight');
-        highlight.setAttribute('x', String(b.x));
-        highlight.setAttribute('y', String(b.y));
-        highlight.setAttribute('width', String(b.width));
-        highlight.setAttribute('height', String(b.height));
-        highlight.setAttribute('fill', 'rgba(51,153,255,0.15)');
-        highlight.setAttribute('stroke', '#3399ff');
-        highlight.setAttribute('stroke-width', '0.2');
-        highlight.setAttribute('pointer-events', 'none');
-        pl.elements[0].appendChild(highlight);
-        renderPcbSelectionAnchors(this);
-
-        /** @type {Viewport} */ (this.viewport).svg.style.cursor = pl.locked ? 'default' : 'grab';
-        // Ensure the selected footprint shows full detail even when zoomed out
-        // far enough that it would otherwise be collapsed to its LOD placeholder.
-        updatePcbCulling(this);
+        selectPcbComponent(this, compId);
     }
 
     // ── Text annotations ─────────────────────────────────────────
@@ -1648,22 +959,8 @@ export default class PCBApp {
         refreshPcbText(this, id);
     }
 
-    /**
-     * Select/deselect a text. Pass null to clear.
-     * @param {object|null} text
-     */
     selectText(text) {
-        const prev = /** @type {PcbText|null} */ (getPcbSelection(this, 'text')[0] || null);
-        const next = /** @type {PcbText|null} */ (text || null);
-        // No-op when selection doesn't change — important because
-        // refreshText removes & re-creates the SVG element, which
-        // breaks the browser's same-target requirement for `dblclick`.
-        if (prev === next || (prev && next && prev.id === next.id)) return;
-        setPcbSelection(this, next ? [{ kind: 'text', object: next }] : []);
-        this.syncClipboardButtons?.();
-        if (prev && (!next || prev.id !== next.id)) this.refreshText(prev.id);
-        if (next) this.refreshText(next.id);
-        else renderPcbSelectionAnchors(this);
+        selectPcbText(this, text);
     }
 
     // ── Reference-designator move / rotate ────────────────────
@@ -1746,16 +1043,9 @@ export default class PCBApp {
         return bindStrokeTextProps(this, model, spec);
     }
 
-    /**
-     * Show the properties panel for a selected reference designator. Mirrors
-     * the Text-object panel (Type/Layer/Size/Rotation/Line W) and reuses the
-     * same field-binding helper, but the Reference string and Layer are
-     * read-only — only Size, Rotation and Line W can be edited.
-     * @param {string|null} compId
-     */
     showRefProperties(compId) {
         if (!compId) return false;
-        return PCBApp.prototype._getComponentProperties.call(this).showReference(compId);
+        return getComponentProperties(this).showReference(compId);
     }
 
     /** @param {string|null} compId */
@@ -1840,215 +1130,15 @@ export default class PCBApp {
         refreshBoxSelectionHighlights(this);
     }
 
-    /** Routing adapters expose model operations, never the application itself. */
-    _getAutorouter() {
-        if (!this._autorouter) this._autorouter = new AutorouterSession({
-            readBoard: () => ({
-                active: isEditorActive(this),
-                editing: hasPcbEditInProgress(this) || isPcbDrawing(this),
-                model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
-                undo: this.history.undoStack, redo: this.history.redoStack,
-                rules: this.getRoutingParams(),
-            }),
-            takeRouteInput: () => {
-                const testInput = this._testBoardRouteInput;
-                const input = testInput || this._buildRouteInput();
-                this._testBoardRouteInput = null;
-                if (testInput) input.copperObstacles = buildCopperObstacles(this);
-                return input;
-            },
-            getRouterMode: () => this._getRouterMode(),
-            adoptResult: result => this._renderRouteResult(/** @type {RouteResult} */ (result)),
-            reconcileRatsnest: () => reconcileRatsnest(this),
-            sessionEnded: () => noteEditSettled(this),
-            setStatus: message => this.setStatus(message),
-            presentation: {
-                getProgressHost: () => this.status.modeStatus,
-                getLayerGroup: id => this.getLayerGroup(id),
-                getSvg: () => /** @type {SVGElement|null} */ (this.viewport?.svg),
-                getRoutingParams: () => this.getRoutingParams(),
-                refreshClearanceHalos: () => this.refreshClearanceHalos(),
-            },
-        });
-        return this._autorouter;
-    }
 
-    runAutoRoute() { return this._getAutorouter().run(); }
+    runAutoRoute() { return runAutoRouteAction(this); }
 
-    /** @param {string|null} [message] */
     cancelAutoRoute(message = null) {
-        const autorouter = this._autorouter;
-        if (autorouter) /** @type {(message?: string|null) => void} */ (autorouter.cancel).call(autorouter, message);
+        cancelAutoRouteAction(this, message);
     }
 
     // ── Auto Router ───────────────────────────────────────────────
 
-    /**
-     * Load a test board JSON file and auto-route it.
-     * Bypasses the normal placement/netlist pipeline — feeds RouteInput
-     * directly to the autorouter and renders the results.
-     * @param {string} filename - test board filename (e.g. 'test-board.json')
-     */
-    async loadTestBoard(filename) {
-        try {
-            const resp = await fetch(filename);
-            if (!resp.ok) throw new Error(`Failed to fetch ${filename}: ${resp.status}`);
-            const routeInput = /** @type {RouteInput} */ (await resp.json());
-
-            // Clear existing board state
-            this.clearRoutes();
-            this._clearAllPlacements();
-
-            // Render pads as visual indicators
-            this._renderTestBoardPads(routeInput);
-
-            // Set up netlist/placements so ratsnest works
-            this._setupTestBoardState(routeInput);
-
-            // Rebuild ratsnest
-            if (!this._ratsnestGroup) {
-                this._ratsnestGroup = this.getLayerGroup('ratlines');
-            }
-            this.refreshClearanceHalos();
-            this.updateRatsnest();
-
-            // Fit viewport to board bounds
-            if (routeInput.bounds && this.viewport) {
-                const b = routeInput.bounds;
-                const margin = 5;
-                this.viewport.fitToBounds(
-                    b.minX - margin, b.minY - margin,
-                    b.maxX + margin, b.maxY + margin
-                );
-            }
-
-            this.setStatus(`Loaded ${filename} — ${routeInput.connections.length} nets, click Auto Route to route`);
-
-            // Store the original route input so runAutoRoute uses it directly
-            // instead of rebuilding from placements/netlist
-            this._testBoardRouteInput = routeInput;
-
-        } catch (err) {
-            this.setStatus(`Error loading test board: ${errorMessage(err)}`);
-            console.error(err);
-        }
-    }
-
-    /**
-     * Render test board pads as SVG rectangles for visual reference.
-     * @param {RouteInput} routeInput
-     */
-    _renderTestBoardPads(routeInput) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const topCopper = this.getLayerGroup('top-copper');
-        const bottomCopper = this.getLayerGroup('bottom-copper');
-        const pads = routeInput.allObstaclePads || [];
-        for (const pad of pads) {
-            const rect = document.createElementNS(NS, 'rect');
-            rect.setAttribute('class', 'pcb-test-pad');
-            rect.setAttribute('x', String(pad.x - pad.width / 2));
-            rect.setAttribute('y', String(pad.y - pad.height / 2));
-            rect.setAttribute('width', String(pad.width));
-            rect.setAttribute('height', String(pad.height));
-            rect.setAttribute('fill', pad.layer === 'bottom' ? '#0066ff' : '#ff6633');
-            rect.setAttribute('opacity', '0.8');
-            const parent = pad.layer === 'bottom' ? bottomCopper : topCopper;
-            parent.appendChild(rect);
-        }
-    }
-
-    /**
-     * Set up internal state (placements, netlist) from a RouteInput
-     * so that ratsnest and auto-route work correctly.
-     * @param {RouteInput} routeInput
-     */
-    _setupTestBoardState(routeInput) {
-        this.placements = new Map();
-        this.netlist = [];
-
-        // Build minimal placements from allObstaclePads
-        // Group pads into a single virtual component
-        // Pad layers follow the footprint/autorouter convention:
-        // 'top' | 'bottom' | 'both' (short form). Track layers use the
-        // long SVG-layer-id form ('top-copper'/'bottom-copper').
-        const padOffsets = /** @type {PadOffset[]} */ ((routeInput.allObstaclePads || []).map((p, i) => ({
-            number: String(i),
-            dx: p.x,
-            dy: p.y,
-            width: p.width,
-            height: p.height,
-            layer: p.layer === 'bottom' ? 'bottom' : p.layer === 'both' ? 'both' : 'top',
-        })));
-        /** @type {Map<string|number, BoardPad>} */
-        const padMap = new Map();
-        for (const off of padOffsets) {
-            padMap.set(off.number, { x: off.dx, y: off.dy });
-        }
-        this.placements.set('TestBoard', {
-            x: 0, y: 0, name: 'TestBoard',
-            pads: padMap,
-            padOffsets,
-            elements: [],
-            bounds: routeInput.bounds || { minX: 0, minY: 0, maxX: 100, maxY: 100 },
-        });
-
-        // Build netlist from connections
-        for (const conn of routeInput.connections) {
-            const pins = conn.pads.map(p => {
-                // Find matching pad index
-                const allPads = routeInput.allObstaclePads || [];
-                const idx = allPads.findIndex(op =>
-                    Math.abs(op.x - p.x) < 0.01 && Math.abs(op.y - p.y) < 0.01
-                );
-                return { componentId: 'TestBoard', pinNumber: String(idx >= 0 ? idx : 0) };
-            });
-            this.netlist.push({ net: conn.net, pins });
-        }
-    }
-
-    /**
-     * Remove all placement SVG elements.
-     */
-    _clearAllPlacements() {
-        if (!this.viewport?.svg) return;
-        for (const el of this.viewport.svg.querySelectorAll('.pcb-test-pad')) {
-            el.remove();
-        }
-    }
-
-    /**
-     * Convert placements + netlist into the input format for our A* router.
-     * @returns {import('../pcb/modules/autorouter-common.js').RouteInput}
-     */
-    _buildRouteInput() {
-        return buildRouteInput(this);
-    }
-
-    /**
-     * Dump the current route input as JSON to clipboard (for test board generation).
-     * Usage:  bootstrap.pcbApp.dumpRouteInput()
-     * Then paste into a file.
-     */
-    async dumpRouteInput(filename = 'route-input.json') {
-        const input = this._testBoardRouteInput || this._buildRouteInput();
-        const json = JSON.stringify(input);
-        try {
-            await navigator.clipboard.writeText(json);
-            const obstaclePads = /** @type {NonNullable<RouteInput['allObstaclePads']>} */ (input.allObstaclePads);
-            console.log(`Route input copied to clipboard (${input.connections.length} nets, ${obstaclePads.length} pads). Paste into ${filename}`);
-        } catch (e) {
-            const w = window.open('', '_blank');
-            if (w) {
-                // Use DOM APIs (never document.write with interpolated JSON)
-                // so any special characters in the payload can't break out
-                // of the <pre>.
-                const pre = w.document.createElement('pre');
-                pre.textContent = json;
-                w.document.body.appendChild(pre);
-            }
-            console.log(`Clipboard failed — opened in new tab. Save as ${filename}`);
-        }
-    }
 
     /**
      * Toggle a faint ghost halo showing the clearance band around every
@@ -2126,31 +1216,8 @@ export default class PCBApp {
     }
 
 
-
-    /**
-     * Select (or clear) the active pour and refresh its highlight.
-     * @param {CopperFill|null} fill
-     */
     selectFill(fill) {
-        const prev = getPcbSelection(this, 'fill')[0] || null;
-        if (prev === fill) {
-            if (fill) renderPcbSelectionAnchors(this);
-            return;
-        }
-        const next = fill || null;
-        setPcbSelection(this, next ? [{ kind: 'fill', object: next }] : []);
-        this.syncClipboardButtons?.();
-        // Re-render the previously- and newly-selected fills to update the
-        // boundary highlight.
-        const getGroup = /** @param {string} id */ (id) => this.getLayerGroup(id);
-        if (prev) {
-            renderCopperFill(prev, getGroup, { selected: false });
-        }
-        if (next) {
-            renderCopperFill(next, getGroup,
-                { selected: true });
-            if (isPcbSelected(this, 'fill', next)) renderPcbSelectionAnchors(this);
-        }
+        selectPcbFill(this, fill);
     }
 
     /**
@@ -2178,15 +1245,8 @@ export default class PCBApp {
         endFillEdit(this, commit);
     }
 
-    /** Delete the selected pour (Delete/Backspace). */
     deleteSelectedFill() {
-        const fill = getPcbSelection(this, 'fill')[0] || null;
-        if (!fill) return false;
-        if (fill.locked || isLayerLocked(fill.layer)
-            || isCopperFillLocked(fill.layer)) return false;
-        if (deleteFocusedFillPart(this, fill)) return true;
-        this.history.execute(new RemoveFillCommand(this, fill));
-        return true;
+        return deleteFocusedOrSelectedFill(this);
     }
 
     /**
@@ -2195,43 +1255,10 @@ export default class PCBApp {
      * nets are cleared) and its copper layer. Both commit through a single
      * ModifyFillCommand for clean undo/redo.
      */
-    /**
-     * Render routing result onto copper layers and hide routed ratlines.
-     *
-     * Converts the autorouter's raw {tracks, vias} payload into Track and
-     * Via model instances stored on this.tracks / this.vias, then renders
-     * those via the track-render module. All downstream selection/edit/
-     * undo operations operate on the model, not on raw SVG.
-     *
-     * @param {import('../pcb/modules/autorouter-common.js').RouteResult} result
-     */
-    _renderRouteResult(result) {
-        const params = this.getRoutingParams();
-        const { tracks, vias } = tracksFromAutorouterResult(result, {
-            trackWidth: params.trackWidth,
-            viaDiameter: params.viaDiameter,
-            viaDrill: params.viaDrill,
-            placements: this.placements,
-        });
-        // Locked copper was routed around as fixed copper; keep it alongside the result.
-        const kept = lockedRoutedCopper(this);
-        this.history.execute(new ReplaceRoutesCommand(this, [...kept.tracks, ...tracks], [...kept.vias, ...vias],
-            result.failedConnections));
-    }
 
-    /**
-     * Clear routed tracks/vias and restore ratlines. Locked copper stays.
-     */
+
     clearRoutes() {
-        this.cancelAutoRoute();
-
-        const kept = lockedRoutedCopper(this);
-        const command = new ReplaceRoutesCommand(this, kept.tracks, kept.vias);
-        command.description = 'Clear routed copper';
-        if (this.pcbDocument.tracks.length > kept.tracks.length || this.pcbDocument.vias.length > kept.vias.length) {
-            this.history.execute(command);
-        } else renderRoutedCopper(this);
-        this.setStatus(kept.tracks.length || kept.vias.length ? 'Routes cleared; locked copper kept' : 'Routes cleared');
+        clearPcbRoutes(this);
     }
 
     // ── PDF / Print ───────────────────────────────────────────────
@@ -2254,131 +1281,6 @@ export default class PCBApp {
 
     // ── Specctra DSN / SES ────────────────────────────────────────
 
-    /**
-     * Export the current board as a Specctra DSN file and trigger download.
-     */
-    exportDSN() {
-        if (!this.placements.size || !this.netlist.length) {
-            this.setStatus('Nothing to export');
-            return;
-        }
-
-        const params = this.getRoutingParams();
-        const dsn = exportDSN({
-            placements: this.placements,
-            netlist: this.netlist,
-            trackWidth: params.trackWidth,
-            clearance: params.clearance,
-            viaDiameter: params.viaDiameter,
-        });
-
-        const blob = new Blob([dsn], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'board.dsn';
-        a.click();
-        URL.revokeObjectURL(url);
-
-        this.setStatus('DSN exported — open in Freerouting, then Import SES');
-    }
-
-    /**
-     * Export the current board as a ZIP of Gerber + Excellon drill files.
-     * Files included: top/bottom copper, top silkscreen, board outline,
-     * and an Excellon drill file.
-     */
-    openPanelize() {
-        this.ensureViewport();
-        openPanelizeDialog(this);
-    }
-
-    async exportGerber() {
-        if (this._exportGerberPending) return;
-        if (!hasFabricationContent(this)) {
-            this.setStatus('Nothing to export');
-            return;
-        }
-        this._exportGerberPending = true;
-        const suggestedName = `${projectBaseName(this, 'untitled')}-gerber.zip`;
-        try {
-            let fileCount = 0;
-            const saved = await savePcbBlob(async () => {
-                const result = await generateGerberArchive(this);
-                fileCount = result.fileCount;
-                /** @type {(label: string|null, value?: number|null) => void} */ (showGerberProgress)('Saving ZIP', 100);
-                return result.blob;
-            }, suggestedName, {
-                description: 'Gerber ZIP archive',
-                accept: { 'application/zip': ['.zip'] },
-            });
-            if (saved) this.setStatus(`Gerbers exported (${fileCount} files)`);
-        } catch (err) {
-            console.error('Gerber export failed:', err);
-            this.setStatus(`Gerber export failed: ${errorMessage(err)}`);
-        } finally {
-            showGerberProgress(/** @type {string} */ (/** @type {unknown} */ (null)));
-            this._exportGerberPending = false;
-        }
-    }
-
-    /**
-     * Export the Bill of Materials as a CSV file.
-     */
-    exportBOM() {
-        if (!this.placements.size) {
-            this.setStatus('No components to export');
-            return;
-        }
-        let blob;
-        try {
-            const csv = generateBOM(this.placements);
-            blob = new Blob([csv], { type: 'text/csv' });
-        } catch (err) {
-            console.error('BOM export failed:', err);
-            this.setStatus(`BOM export failed: ${errorMessage(err)}`);
-            return;
-        }
-        const suggestedName = `${projectBaseName(this, 'untitled')}-bom.csv`;
-        savePcbBlob(blob, suggestedName, {
-            description: 'CSV file',
-            accept: { 'text/csv': ['.csv'] },
-        }).then(saved => {
-            if (saved) this.setStatus(`BOM exported (${this.placements.size} parts)`);
-        }).catch(err => {
-            console.error('BOM save failed:', err);
-            this.setStatus(`BOM save failed: ${errorMessage(err)}`);
-        });
-    }
-
-    /**
-     * Export the Pick-and-Place (centroid) file as a CSV.
-     */
-    exportPickAndPlace() {
-        if (!this.placements.size) {
-            this.setStatus('No components to export');
-            return;
-        }
-        let blob;
-        try {
-            const csv = generatePickAndPlace(this.placements);
-            blob = new Blob([csv], { type: 'text/csv' });
-        } catch (err) {
-            console.error('Pick-and-place export failed:', err);
-            this.setStatus(`Pick-and-place export failed: ${errorMessage(err)}`);
-            return;
-        }
-        const suggestedName = `${projectBaseName(this, 'untitled')}-pick-and-place.csv`;
-        savePcbBlob(blob, suggestedName, {
-            description: 'CSV file',
-            accept: { 'text/csv': ['.csv'] },
-        }).then(saved => {
-            if (saved) this.setStatus(`Pick-and-place exported (${this.placements.size} parts)`);
-        }).catch(err => {
-            console.error('Pick-and-place save failed:', err);
-            this.setStatus(`Pick-and-place save failed: ${errorMessage(err)}`);
-        });
-    }
 
     /**
      * Toggle the interactive 3D board visualiser. The toolbar 3D View button
@@ -2425,44 +1327,5 @@ export default class PCBApp {
         openBoard3DViewer(this, { view: side });
     }
 
-    /**
-     * Prompt user to select an SES file and import routed tracks.
-     */
-    importSES() {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.ses';
-        input.addEventListener('change', () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                const text = /** @type {string} */ (reader.result);
-                const result = importSES(text);
-                if (!result.tracks.length) {
-                    this.setStatus('No routes found in SES file');
-                    return;
-                }
-                this.cancelAutoRoute();
-                // Log first track for debugging coordinates
-                if (result.tracks.length) {
-                    const t = result.tracks[0];
-                    console.log(`[SES] First track: net=${t.net} layer=${t.layer} pts=${t.points.length}`, t.points);
-                    // Log placement coords for comparison
-                    for (const [, pl] of this.placements) {
-                        for (const [num, pos] of pl.pads) {
-                            console.log(`[SES] Pad ${pl.reference}-${num} at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})`);
-                            break;
-                        }
-                        break;
-                    }
-                }
-                // Render imported tracks (and their vias)
-                this._renderRouteResult({ tracks: result.tracks, vias: result.vias || [], failed: [] });
-                this.setStatus(`Imported ${result.tracks.length} track(s), ${result.vias?.length || 0} via(s) from SES`);
-            };
-            reader.readAsText(file);
-        });
-        input.click();
-    }
+
 }

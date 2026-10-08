@@ -4,6 +4,7 @@ import { Component } from '../../src/components/Component.js';
 import { Track } from '../../src/shapes/track.js';
 import { capturePlacementOverride } from '../../src/core/PcbPlacementState.js';
 import { captureResolvedPlacement } from '../../src/core/pcb-placement-geometry.js';
+import { applyPlacementOverrides, placeFootprints, renderPcbFootprint } from '../../src/pcb/modules/schematic-sync.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 const definition = distance => ({
@@ -104,7 +105,6 @@ function element(tag = 'g') {
 }
 const fakeDocument = installFakeDom();
 fakeDocument.createElementNS = (_, tag) => element(tag);
-const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { placementTransform } = await import('../../src/pcb/modules/track-commands.js');
 const { project, state, tracks } = fixture({ side: 'top' });
 const groups = new Map();
@@ -116,13 +116,12 @@ const app = {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },
-    updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
+    updateRatsnest: () => refreshes++, rerenderRef() {},
+    renderFootprint: renderPcbFootprint,
+    applyPlacementOverrides() { applyPlacementOverrides(this); },
 };
-for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', 'rerenderRef', 'applyPlacementOverrides']) {
-    app[method] = PCBApp.prototype[method];
-}
 const initial = project.resolvePcbLayout();
-app._placeFootprints(initial.placements);
+placeFootprints(app, initial.placements);
 const untouched = app.placements.get('outside');
 const automatic = app.placements.get('automatic');
 state.overrides.delete('outside');

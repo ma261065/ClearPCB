@@ -9,6 +9,7 @@ import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { clearRoutes, getAutorouter, runAutoRoute } from '../../src/pcb/modules/autorouter-actions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -39,6 +40,7 @@ function fixture() {
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(), placements: new Map([['part', { pads: new Map() }]]),
         netlist: [{ net: 'ORIGINAL', pins: [] }], currentTool: 'select', status: { modeStatus: null },
+        designSettings: { values: { router: 'maze' } },
         _layerGroups: new Map(),
         _shapeElements: new Map(),
         getLayerGroup(id) {
@@ -48,8 +50,6 @@ function fixture() {
             return this._layerGroups.get(id);
         },
         getRoutingParams: () => ({ trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 }),
-        _getRouterMode: () => 'maze',
-        _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
         setStatus(message) { this.lastStatus = message; },
         refreshClearanceHalos() {},
         refreshFills: () => false, ensureViewport() {}, updateCopperCuts() {},
@@ -69,12 +69,12 @@ for (const stopped of [false, true]) {
     let disposed = false;
     setPcbSelection(app, [{ kind: 'track', object: track }, { kind: 'via', object: via }]);
     setPropertyEditor(app, 'via', { active: false, dispose() { disposed = true; setPropertyEditor(app, 'via', null); } });
-    const run = app.runAutoRoute(), worker = workers.at(-1);
+    const run = runAutoRoute(app), worker = workers.at(-1);
     assert.equal(app.isSectionEditing(), true, 'Saving cannot capture temporary routing presentation');
     assert.deepEqual(app.pcbDocument.captureGeometry(), before, 'Routing never clears authored copper at startup');
     assert.equal(app.isSectionDirty(), false);
     if (stopped) {
-        app._getAutorouter().stop();
+        getAutorouter(app).stop();
         for (const poll of intervals.values()) poll();
         assert.equal(worker.jobs.at(-1).type, 'cancel', 'Stop requests a cooperative partial result');
     }
@@ -100,7 +100,7 @@ for (const stopped of [false, true]) {
 
 for (const operation of ['command', 'document', 'clear-document', 'deactivate', 'dispose', 'preview', 'drawing', 'rules', 'schematic']) {
     const { app, track } = fixture();
-    const run = app.runAutoRoute(), worker = workers.at(-1);
+    const run = runAutoRoute(app), worker = workers.at(-1);
     const manual = new Track({ net: 'MANUAL', points: [{ x: 20, y: 20 }, { x: 30, y: 20 }] });
     if (operation === 'command') app.history.execute(new AddTrackCommand(app, manual));
     if (operation === 'document') {
@@ -122,7 +122,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     await run;
     assert.deepEqual(app.pcbDocument.captureGeometry(), expected, `${operation}: old results never overwrite newer state`);
     assert.equal(worker.terminated, true);
-    assert.equal(app._getAutorouter().active, false);
+    assert.equal(getAutorouter(app).active, false);
     assert.equal(intervals.size, 0);
     if (operation === 'command') {
         assert.equal(app.history.undoStack.length, 1);
@@ -133,10 +133,10 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
 
 {
     const { app } = fixture();
-    const first = app.runAutoRoute(), old = workers.at(-1);
+    const first = runAutoRoute(app), old = workers.at(-1);
     const lateMessage = old.listeners.get('message');
     const lateError = old.listeners.get('error');
-    const second = app.runAutoRoute(), current = workers.at(-1);
+    const second = runAutoRoute(app), current = workers.at(-1);
     assert.notEqual(old, current);
     assert.equal(old.terminated, true);
     old.finish(routed);
@@ -152,8 +152,8 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
 {
     const { app, track } = fixture();
     let finishPresentation;
-    app._getAutorouter().presentation.finishRipupPhases = () => new Promise(resolve => { finishPresentation = resolve; });
-    const run = app.runAutoRoute();
+    getAutorouter(app).presentation.finishRipupPhases = () => new Promise(resolve => { finishPresentation = resolve; });
+    const run = runAutoRoute(app);
     workers.at(-1).finish(routed);
     await Promise.resolve();
     const manual = new Track({ net: 'LATE', points: [{ x: 5, y: 6 }, { x: 7, y: 8 }] });
@@ -166,8 +166,8 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
 
 {
     const { app, track, via } = fixture();
-    const run = app.runAutoRoute(), worker = workers.at(-1);
-    app.clearRoutes();
+    const run = runAutoRoute(app), worker = workers.at(-1);
+    clearRoutes(app);
     worker.finish(routed);
     await run;
     assert.equal(app.tracks.length, 0);
@@ -185,12 +185,12 @@ for (const mode of ['error', 'messageerror', 'post', 'constructor', 'capture', '
     try {
         if (mode === 'constructor') globalThis.Worker = class { constructor() { throw new Error('Constructor failed'); } };
         if (mode === 'post') globalThis.Worker = class extends FakeWorker { postMessage() { throw new Error('Post failed'); } };
-        if (mode === 'capture') app._buildRouteInput = () => { throw new Error('Capture failed'); };
-        const run = app.runAutoRoute();
+        if (mode === 'capture') app.placements = null;
+        const run = runAutoRoute(app);
         if (mode === 'error') workers.at(-1).emit({ type: 'error', error: 'Router failed' });
         if (mode === 'messageerror') workers.at(-1).listeners.get('messageerror')();
         if (mode === 'progress') {
-            app._getAutorouter().presentation.showProgress = () => { throw new Error('Progress render failed'); };
+            getAutorouter(app).presentation.showProgress = () => { throw new Error('Progress render failed'); };
             workers.at(-1).emit({ type: 'progress', done: 1, total: 3 });
         }
         await run;

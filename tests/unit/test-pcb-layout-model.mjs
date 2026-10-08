@@ -160,6 +160,7 @@ const fakeDocument = installFakeDom();
 fakeDocument.createElementNS = element;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { placementTransform } = await import('../../src/pcb/modules/track-commands.js');
+const { placeFootprints, renderPcbFootprint } = await import('../../src/pcb/modules/schematic-sync.js');
 const slotsBeforeAttachment = structuredClone([...autoSlots]);
 new PCBApp(project);
 assert.deepEqual([...autoSlots], slotsBeforeAttachment, 'Attaching an editor does not reset model-derived layout');
@@ -171,11 +172,11 @@ const app = {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },
-    _buildLodPlaceholder() {}, rerenderRef() {}, _renderFootprint: PCBApp.prototype._renderFootprint,
+    rerenderRef() {}, renderFootprint: renderPcbFootprint,
 };
 const expectedPlacements = new Map([...resolved.placements].map(([id, placement]) =>
     [id, captureResolvedPlacement(placement)]));
-PCBApp.prototype._placeFootprints.call(app, resolved.placements);
+placeFootprints(app, resolved.placements);
 for (const [id, placement] of app.placements) {
     assert.deepEqual(captureResolvedPlacement(placement), expectedPlacements.get(id),
         'The actual editor adapter preserves the model-resolved physical placement');

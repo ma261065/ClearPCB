@@ -10,9 +10,12 @@ import { capturePlacementOverride } from '../../src/core/PcbPlacementState.js';
 import * as placementCommands from '../../src/pcb/modules/track-commands.js';
 import { ensureComponentView } from '../../src/schematic/render/shape-view-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { syncFromSchematic, setSchematicSyncHasContent } from '../../src/pcb/modules/schematic-sync.js';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
+import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
+installFakeDom().createElementNS = (_ns, tag) => fakeElement(tag);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { runPcbHistoryAction } = await import('../../src/pcb/modules/editor-actions.js');
 const definition = {
@@ -86,15 +89,17 @@ for (const [name, args] of [
     const pcb = {
         ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
+        vias: project.pcbDocument.vias, pads: project.pcbDocument.pads, texts: project.pcbDocument.texts,
+        copperFills: project.pcbDocument.copperFills,
         placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
-        history: new CommandHistory(), ensureViewport() {}, _renderPersistentObjects() {},
-        _placeFootprints(placements) { this.placements = placements; },
-        getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {},
-        setStatus() {}, _hasContent: true,
-        _clearPCBContent: PCBApp.prototype._clearPCBContent,
-        _syncFromSchematic: PCBApp.prototype._syncFromSchematic,
+        history: new CommandHistory(), ensureViewport() {}, renderFootprint() { return new Map(); },
+        getLayerGroup(id) { if (!this._layerGroups.has(id)) this._layerGroups.set(id, fakeElement('g')); return this._layerGroups.get(id); },
+        getRoutingParams: () => ({}), updateCopperCuts() {},
+        refreshClearanceHalos() {}, updateRatsnest() {},
+        setStatus() {},
         onSchematicChanged: PCBApp.prototype.onSchematicChanged,
     };
+    setSchematicSyncHasContent(pcb, true);
     project.registerView('pcb', pcb);
     const earlier = new Track({ points: [{ x: 100, y: 100 }, { x: 105, y: 100 }] });
     pcb.history.execute(new AddTrackCommand(project.pcbDocument, earlier));
@@ -105,7 +110,7 @@ for (const [name, args] of [
     const schematicHistory = new CommandHistory({ onChanged: () => project.notifySchematicChanged() });
     schematicHistory.execute(new DeleteComponentsCommand(schematic, [part]));
     setEditorActive(pcb, true);
-    pcb._syncFromSchematic();
+    syncFromSchematic(pcb);
     assert.equal(pcb.placements.size, 0);
     for (let cycle = 0; cycle < 2; cycle++) {
         assert.equal(runPcbHistoryAction(pcb, 'undo'), true);
@@ -120,7 +125,7 @@ for (const [name, args] of [
         assert.equal(project.resolvePcbLayout().placements.size, 0);
     }
     schematicHistory.undo();
-    pcb._syncFromSchematic();
+    syncFromSchematic(pcb);
     assert.deepEqual(bonded.nodes.get('n0'), padPoint(project.resolvePcbLayout(), 'part'),
         'Schematic undo restores the component at its independently redone PCB pose');
 }

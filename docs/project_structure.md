@@ -291,6 +291,10 @@ PCB editor:
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
   with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
+- `pcb/modules/schematic-sync.js` — schematic-to-PCB rebuilds, persistent model
+  re-rendering, footprint placement rendering and first-sync fit-to-placed-content.
+- `pcb/modules/viewport-host.js` — PCB viewport creation and view-change hooks;
+  `pcb/modules/layer-groups.js` — SVG layer/overlay group construction and z-order.
 - `pcb/modules/board-shapes.js` — board shapes' document-backed ID allocation, the
   shared path-edit/profile machinery also used by copper fills, live previews, the
   selection adapter, handles, node and segment edits, deletion and copper cuts;
@@ -335,6 +339,8 @@ PCB editor:
   rendering and in-place refresh live in `copper-fill-edit.js`; Via defaults and
   preview rings live in `via-tool.js`; Pad and Text defaults live with their
   Properties modules.
+- `pcb/modules/component-properties-host.js` — the per-editor component/reference
+  Properties editor instance and its command wiring.
 - `pcb/modules/ref-text-selection.js` — reference-designator selection, hit-test
   adapter, drag gestures, overlay group, highlight refresh, glyph rerendering and
   reference-specific command adapters. Reference boxes remain pure geometry in
@@ -345,6 +351,9 @@ PCB editor:
 - `pcb/modules/component-selection.js` — component hit-testing, hover outline state,
   footprint culling/LOD, component-net lookup, 3D context-menu entry point and
   movement/rotation selection adapter.
+- `pcb/modules/selection-actions.js` — editor service entry points for select-all,
+  component selection and free-text selection; `pcb/modules/pcb-clipboard.js` —
+  PCB copy/cut/paste payload capture and in-memory clipboard state.
 - `pcb/modules/copper-fill-selection.js` — copper-fill selection adapter and legacy
   outline hit-testing for right-click and select-tool press paths.
 - `pcb/modules/pcb-hover.js` — select-tool hover scheduling, pointer coalescing and
@@ -431,11 +440,15 @@ Derived PCB work:
 - `pcb/modules/drc-state.js` — DRC presentation ownership, ratline cache and
   lifecycle; `drc-refresh.js` — scheduled DRC (worker); `drc-presentation.js` —
   DRC panel, markers and status.
-- `pcb/modules/autorouter-session.js` — routing session, worker and result adoption;
+- `pcb/modules/autorouter-actions.js` — autorouter editor entry points, session
+  factory, route-result adoption, route-input diagnostics and test-board loading;
+  `pcb/modules/autorouter-session.js` — routing session, worker and lifecycle;
   `route-input.js` — the router input built from placements, netlist and copper.
 - `pcb/modules/copper-model.js`, `copper-connectivity.js` — physical pads, nets and
   clusters; `fill-context.js`, `copper-artwork.js` — pour inputs and DRC artwork.
-- `pcb/modules/fabrication-snapshot.js` — detached export inputs and readiness guard.
+- `pcb/modules/fabrication-actions.js` — Gerber/BOM/Pick-and-place/DSN/SES and
+  panelization UI actions; `pcb/modules/fabrication-snapshot.js` — detached
+  export inputs and readiness guard.
 
 Shared geometry:
 

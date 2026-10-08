@@ -635,9 +635,9 @@ the board-outline selection/drawing hooks that tests and project-state code call
 
 `pcb/modules/route-input.js` owns autorouter `RouteInput` construction from the
 editor's public board state: placements, netlist, filled copper terminals,
-obstacle pads, fixed copper obstacles, design rules and routing bounds. The
-editor seam `_buildRouteInput()` delegates to it; stored test inputs are consumed
-before a fresh board input is built.
+obstacle pads, fixed copper obstacles, design rules and routing bounds.
+`pcb/modules/autorouter-actions.js` consumes stored test inputs before building
+fresh board input.
 
 Editor command adapters coordinate model commands with rendering and derived
 refreshes; some entity types retain inherited presentation methods and caches.

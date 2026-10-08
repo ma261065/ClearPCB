@@ -7,7 +7,7 @@ import { validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
-import { isPcbSelected, setPcbSelection } from './selection-registry.js';
+import { getPcbSelection, isPcbSelected, setPcbSelection } from './selection-registry.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, pcbLayerOption } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
 import { pathContextActions, showPathContextMenu } from './path-edit.js';
@@ -145,6 +145,19 @@ export function fillEditProfile() {
             }
         },
     };
+}
+
+/**
+ * Delete the selected pour or focused pour part.
+ * @param {PcbEditor} app
+ */
+export function deleteSelectedFill(app) {
+    const fill = getPcbSelection(app, 'fill')[0] || null;
+    if (!fill) return false;
+    if (fill.locked || isLayerLocked(fill.layer) || isCopperFillLocked(fill.layer)) return false;
+    if (deleteFocusedFillPart(app, fill)) return true;
+    app.history.execute(new RemoveFillCommand(app, fill));
+    return true;
 }
 
 /**

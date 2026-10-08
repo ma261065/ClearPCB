@@ -218,6 +218,7 @@ for (const name of ['app', 'bootstrap']) Object.defineProperty(window, name, {
 });
 const ownedProject = { fileManager: { fileName: 'owned.rev2.cpcb' } };
 const { projectBaseName, savePcbBlob } = await import('../../src/pcb/modules/pcb-export.js');
+const { exportBOM, exportGerber, exportPickAndPlace, isGerberExportPending } = await import('../../src/pcb/modules/fabrication-actions.js');
 assert.equal(projectBaseName({ project: ownedProject }, 'untitled'), 'owned.rev2');
 assert.equal(projectBaseName({}, 'untitled'), 'untitled');
 for (const [fileName, expected] of [['owned.rev2.cpcb', 'owned.rev2'], ['board', 'board']]) {
@@ -239,8 +240,8 @@ window.showSaveFilePicker = async ({ suggestedName }) => {
     csvNames.push(suggestedName);
     return { createWritable: async () => ({ write(blob) { assert.ok(blob instanceof Blob); }, close() {} }) };
 };
-PCBApp.prototype.exportBOM.call(csvApp);
-PCBApp.prototype.exportPickAndPlace.call(csvApp);
+exportBOM(csvApp);
+exportPickAndPlace(csvApp);
 await Promise.resolve();
 assert.deepEqual(csvNames, ['owned.rev2-bom.csv', 'owned.rev2-pick-and-place.csv']);
 delete window.showSaveFilePicker;
@@ -293,15 +294,15 @@ const exportApp = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: exportPcbDocument, placements: new Map(), project: ownedProject,
     setStatus(message) { events.push(message); },
 });
-const saving = exportApp.exportGerber();
+const saving = exportGerber(exportApp);
 assert.deepEqual(events, ['picker'], 'Picker opens synchronously before fabrication preparation');
-assert.equal(exportApp._exportGerberPending, true);
-await exportApp.exportGerber();
+assert.equal(isGerberExportPending(exportApp), true);
+await exportGerber(exportApp);
 assert.equal(events.filter(event => event === 'picker').length, 1, 'Duplicate export is blocked');
 finishWrite();
 await saving;
 assert.deepEqual(events, ['picker', 'prepare', 'createWritable', 'write', 'close', 'Gerbers exported (1 files)']);
-assert.equal(exportApp._exportGerberPending, false);
+assert.equal(isGerberExportPending(exportApp), false);
 assert.equal(workerSnapshots.length, 1, 'One fabrication snapshot is sent to the worker');
 assert.equal(workerSnapshots[0].tracks.length, 1, 'The snapshot carries the board copper');
 assert.equal(typeof workerSnapshots[0].tracks[0].getEdgeWidth, 'undefined', 'Snapshot tracks are plain data');
@@ -317,9 +318,9 @@ window.showSaveFilePicker = async () => {
     events.push('cancel');
     throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
 };
-await exportApp.exportGerber();
+await exportGerber(exportApp);
 assert.deepEqual(events, ['cancel'], 'Cancelling does not prepare or save fabrication data');
-assert.equal(exportApp._exportGerberPending, false);
+assert.equal(isGerberExportPending(exportApp), false);
 assert.equal(workerSnapshots.length, 1, 'Cancelling sends nothing to the worker');
 assert.equal(progressHost.hidden, true, 'Cancellation leaves no progress indicator');
 assert.ok(progressLabels.every(entry => entry === null), 'Cancellation never shows progress');

@@ -24,15 +24,15 @@ document.createElement = tag => {
 };
 globalThis.FileReader = class { readAsText(text) { this.result = text; this.onload(); } };
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
-let displayed, rendered;
+const { importSES } = await import('../../src/pcb/modules/fabrication-actions.js');
+let displayed;
 const editor = pcbEditorFixture({
     setStatus: message => { displayed = message; }, cancelAutoRoute() {},
-    _renderRouteResult: result => { rendered = result; },
 });
 const quietLog = console.log;
 console.log = () => {};
 try {
-    editor.importSES();
+    importSES(editor);
     assert.equal(picker.clicked, 1, 'Import opens the file picker');
     picker.files = [`(session fixture (routes (resolution mm 1000) (network_out (net N1
         (wire (path F.Cu 200 0 0 1000 0)) (wire (path B.Cu 200 1000 0 1000 1000)) (via via_default 1000 0)))))`];
@@ -40,7 +40,8 @@ try {
 } finally {
     console.log = quietLog;
 }
-assert.equal(rendered.tracks.length, 2);
+assert.equal(editor.tracks.length, 2);
+assert.equal(editor.vias.length, 1);
 assert.equal(displayed, 'Imported 2 track(s), 1 via(s) from SES');
 
 const { routingSummary } = await import('../../tools/routing-summary.mjs');

@@ -9,6 +9,8 @@ import { pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-
 import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool } from './pcb-tools.js';
 import { placementBlockMessage } from './layers.js';
 import { peekDrcPresentation } from './drc-state.js';
+import { clearRoutes, loadTestBoard, runAutoRoute } from './autorouter-actions.js';
+import { exportBOM, exportDSN, exportGerber, exportPickAndPlace, importSES, openPanelize } from './fabrication-actions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {Record<string, any>} RibbonNode */
 
@@ -337,10 +339,10 @@ export function createPcbRibbonDescription(app) {
                         B('pcbThemeToggle', () => getThemeIcon(getSavedTheme()), 'Toggle Dark/Light Mode', { className: 'theme-toggle', run: () => { toggleSharedTheme(); app.refreshPcbRibbon?.(); } }),
                     ] },
                     { title: 'Fabrication', items: [
-                        B('pcbPanelize', [E('span', { attrs: { 'aria-hidden': 'true' } }, '▦'), ' Panelize'], 'Configure board panel, rails and separation', { run: () => app.openPanelize() }),
-                        B('pcbExportGerber', '📁 Export Gerber', 'Export Gerber + drill files as ZIP', { run: () => app.exportGerber() }),
-                        B('pcbExportBOM', '📋 Export BOM', 'Export Bill of Materials as CSV', { run: () => app.exportBOM() }),
-                        B('pcbExportPnP', '📍 Export P&P', 'Export Pick-and-place (centroid) file as CSV', { run: () => app.exportPickAndPlace() }),
+                        B('pcbPanelize', [E('span', { attrs: { 'aria-hidden': 'true' } }, '▦'), ' Panelize'], 'Configure board panel, rails and separation', { run: () => openPanelize(app) }),
+                        B('pcbExportGerber', '📁 Export Gerber', 'Export Gerber + drill files as ZIP', { run: () => exportGerber(app) }),
+                        B('pcbExportBOM', '📋 Export BOM', 'Export Bill of Materials as CSV', { run: () => exportBOM(app) }),
+                        B('pcbExportPnP', '📍 Export P&P', 'Export Pick-and-place (centroid) file as CSV', { run: () => exportPickAndPlace(app) }),
                     ] },
                 ],
             },
@@ -389,21 +391,21 @@ export function createPcbRibbonDescription(app) {
                     },
                     { title: 'Design Rules', items: [E('div', { id: 'pcbDrcControl', className: 'drc-control' }, [B('pcbDrcStatus', [E('span', { id: 'pcbDrcIcon', className: 'drc-status-icon' }, '…'), E('span', { id: 'pcbDrcLabel', className: 'drc-status-label' }, 'Checking…')], 'Design Rule Check — click to view problems', { className: 'drc-status drc-status-pending', attrs: { 'aria-haspopup': 'true', 'aria-expanded': 'false' } })])] },
                     { title: 'Auto Router', itemsClassName: 'ribbon-group-items auto-router-controls', items: [
-                        B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => app.runAutoRoute() }),
+                        B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => runAutoRoute(app) }),
                         { kind: 'select', id: 'pcbRouterMode', className: 'auto-router-mode', title: 'Router algorithm', attrs: { 'aria-label': 'Router algorithm' },
                             value: () => app.designSettings.values.router,
                             /** @param {string} value */
                             onChange: value => { if (app.designSettings.update({ router: value })) { saveDesignDefaults(app); app.markDirty(); } },
                             options: [{ value: 'maze', label: 'Maze', selected: true }, { value: 'pathfinder', label: 'Pathfinder' }] },
-                        B('pcbClearRoutes', '✕ Clear Routes', 'Clear all tracks and restore ratlines', { run: () => app.clearRoutes() }),
+                        B('pcbClearRoutes', '✕ Clear Routes', 'Clear all tracks and restore ratlines', { run: () => clearRoutes(app) }),
                     ] },
                     { title: 'Test Boards', items: [
-                        B('pcbTestDense', '🔬 Dense', 'Load dense test board (42×40mm, 76 connections)', { run: () => app.loadTestBoard('test-board.json') }),
-                        B('pcbTestSpread', '🔬 Spread', 'Load spread test board (102×84mm, 76 connections)', { run: () => app.loadTestBoard('test-board-spread.json') }),
+                        B('pcbTestDense', '🔬 Dense', 'Load dense test board (42×40mm, 76 connections)', { run: () => loadTestBoard(app, 'test-board.json') }),
+                        B('pcbTestSpread', '🔬 Spread', 'Load spread test board (102×84mm, 76 connections)', { run: () => loadTestBoard(app, 'test-board-spread.json') }),
                     ] },
                     { title: 'External Routing', items: [
-                        B('pcbExportDSN', '📤 Export DSN', 'Export Specctra DSN for external router', { run: () => app.exportDSN() }),
-                        B('pcbImportSES', '📥 Import SES', 'Import Specctra SES routed session', { run: () => app.importSES() }),
+                        B('pcbExportDSN', '📤 Export DSN', 'Export Specctra DSN for external router', { run: () => exportDSN(app) }),
+                        B('pcbImportSES', '📥 Import SES', 'Import Specctra SES routed session', { run: () => importSES(app) }),
                         specctraFlyout,
                     ] },
                 ],

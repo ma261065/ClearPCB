@@ -12,9 +12,8 @@ import { PCB_EDITOR_SERVICES } from '../../../src/pcb/modules/pcb-editor-api.js'
 const MODULE_CALLED_METHODS = [
     'syncPcbHistoryButtons', 'showClearances', 'isSectionEditing', 'drawRefOverlay', 'rerenderRef',
     'currentBoardView', 'canCopyCutPcbSelection', 'hasPcbClipboardData', 'open2DView', 'last2DSide',
-    'open3DView', 'canUndoPcbHistory', 'cutSelection', 'copySelection', 'pasteSelection', 'openPanelize',
-    'exportGerber', 'exportBOM', 'exportPickAndPlace', 'runAutoRoute', 'clearRoutes', 'loadTestBoard',
-    'exportDSN', 'importSES', 'showRefProperties',
+    'open3DView', 'canUndoPcbHistory', 'cutSelection', 'copySelection', 'pasteSelection',
+    'runAutoRoute', 'clearRoutes', 'showRefProperties',
 ];
 
 const quiet = () => undefined;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../../src/pcb/modules/board-view-sync.js';
 import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
+import { renderPersistentObjects } from '../../src/pcb/modules/schematic-sync.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -37,7 +38,7 @@ globalThis.cancelAnimationFrame = () => {};
     const live = () => groups.get('board-outline')?.children || [];
     for (const renderShapes of [true, false, true]) {
         renders.clear();
-        board._renderPersistentObjects({ renderShapes });
+        renderPersistentObjects(board, { renderShapes });
         assert.equal(renders.get('board-outline'), 1, 'Each rebuild renders the outline only once');
         assert.equal(renders.get('top-silk') || 0, renderShapes ? 1 : 0);
         assert.equal(live().length, 1,
@@ -46,7 +47,7 @@ globalThis.cancelAnimationFrame = () => {};
     }
     setBoardOutlineDrawn(board, false);
     renders.clear();
-    board._renderPersistentObjects();
+    renderPersistentObjects(board);
     assert.equal(renders.get('board-outline'), 1, 'An outline not drawn by the dedicated path still renders');
     const rectanglePath = live()[0].getAttribute('d');
     outline.kind = 'polygon';

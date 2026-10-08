@@ -5,6 +5,7 @@ import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
+const { createPcbLayerGroups } = await import('../../src/pcb/modules/layer-groups.js');
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh, createSilkArtworkMeshCache } = await import('../../src/pcb/modules/board3d-layers.js');
@@ -83,10 +84,9 @@ globalThis.document.querySelector = () => null;
 globalThis.document.querySelectorAll = () => [];
 globalThis.document.documentElement = { getAttribute: () => 'dark' };
 globalThis.document.addEventListener = () => {};
-const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const editorGroups = { _layerGroups: new Map(), viewport: { addContent() {} } };
-PCBApp.prototype._createLayerGroups.call(editorGroups);
-for (const [owner, ids] of [['PDF/print export', exportIds], ['editor', [...editorGroups._layerGroups.keys()]]]) {
+const editorGroups = { groups: new Map(), viewport: { addContent() {} }, existingLayerGroups() { return this.groups; } };
+createPcbLayerGroups(editorGroups);
+for (const [owner, ids] of [['PDF/print export', exportIds], ['editor', [...editorGroups.groups.keys()]]]) {
     assert.ok(!ids.includes('document'), `The ${owner} must not register a combined document layer`);
     assert.ok(ids.includes('top-document') && ids.includes('bottom-document'), `The ${owner} has both document layers`);
 }

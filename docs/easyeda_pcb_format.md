@@ -265,7 +265,7 @@ from pad data.
 2. KiCad fetcher generates `PAD~`, `HOLE~` and `SILK~` strings via `_parseFootprintPreview`
 3. `footprint.js` `generateFromShapes()` parses both formats
 4. `renderFootprint()` returns a `Map<layerId, SVGGElement>` for per-layer rendering
-5. `PCBApp._placeFootprints()` distributes layer groups to the correct SVG layer
+5. `pcb/modules/schematic-sync.js` `placeFootprints()` distributes layer groups to the correct SVG layer
 
 ### KiCad Mechanical Holes
 

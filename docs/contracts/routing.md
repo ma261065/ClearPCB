@@ -69,8 +69,8 @@ and `'pathfinder'`.
 ### Router I/O Contract
 
 `RouteInput` is built by `pcb/modules/route-input.js` through
-`buildRouteInput(app)`. `PCBApp._buildRouteInput()` is only the editor
-delegator used by the routing session.
+`buildRouteInput(app)`. `pcb/modules/autorouter-actions.js` is the editor-facing
+routing session owner that consumes fresh inputs or stored test-board inputs.
 
 ```js
 {

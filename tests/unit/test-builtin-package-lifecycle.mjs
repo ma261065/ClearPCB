@@ -31,7 +31,7 @@ const { validateProject } = await import('../../src/core/project-format.js');
 const { extractComponents } = await import('../../src/core/netlist.js');
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { generateFootprint } = await import('../../src/shared/pcb/footprint.js');
-const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
+const { placeFootprints } = await import('../../src/pcb/modules/schematic-sync.js');
 const { objModelToMesh: placedMesh } = await import('../../src/pcb/modules/board3d-parts.js');
 const { hasAny3DModel } = await import('../../src/components/model3d-source.js');
 const { parseObjModel } = await import('../../src/shared/3d/model-rendering.js');
@@ -199,18 +199,17 @@ assert.equal(pasteCommand.components[0].reference, 'R2');
 assert.equal(resistor.packageId, '0805');
 
 const renderedFootprints = new Map();
-const place = PCBApp.prototype._placeFootprints;
 const pcbProject = new ProjectDocument();
 pcbProject.schematicDocument.components.push(resistor);
 pcbProject.pcbDocument.placementState.record(resistor.id, { x: 23, y: -17 });
 const board = {
     placements: new Map(),
-    _buildLodPlaceholder() {}, rerenderRef() {}, getLayerGroup: () => new Element(),
-    _renderFootprint(geometry, placement) { renderedFootprints.set(placement.reference, geometry); return new Map(); },
+    rerenderRef() {}, getLayerGroup: () => new Element(),
+    renderFootprint(geometry, placement) { renderedFootprints.set(placement.reference, geometry); return new Map(); },
 };
 for (const packageId of ['default', '0603', '0805']) {
     resistor.packageId = packageId;
-    place.call(board, pcbProject.resolvePcbLayout().placements);
+    placeFootprints(board, pcbProject.resolvePcbLayout().placements);
     const placement = board.placements.get(resistor.id);
     const footprint = pcbProject.getPcbFootprint(resistor.id);
     assert.deepEqual(renderedFootprints.get(resistor.reference), footprint.geometry, 'Rendering receives the same geometry as headless resolution');

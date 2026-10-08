@@ -21,6 +21,7 @@ const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, l
 const { deleteBoxSelection, selectEnclosed, beginGroupDrag, updateGroupDrag, endGroupDrag } =
     await import('../../src/pcb/modules/box-select.js');
 const { preparePcbPaste } = await import('../../src/pcb/modules/pcb-paste.js');
+const { capturePcbClipboardSelection } = await import('../../src/pcb/modules/pcb-clipboard.js');
 const { getPcbSelection, setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { multiPropertyCapabilities } = await import('../../src/pcb/modules/multi-selection-properties.js');
 
@@ -210,10 +211,9 @@ function fixture() {
     app.history.undo();
     assert.deepEqual(free.points[0], { x: 0, y: 0 });
 
-    const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-    const cut = PCBApp.prototype._capturePcbClipboardSelection.call(app, { unlockedOnly: true });
+    const cut = capturePcbClipboardSelection(app, { unlockedOnly: true });
     assert.deepEqual(cut.shapes.map(shape => shape.id), ['pshape_2'], 'Cut copies only what it can remove');
-    const copy = PCBApp.prototype._capturePcbClipboardSelection.call(app);
+    const copy = capturePcbClipboardSelection(app);
     assert.equal(copy.shapes.length, 2, 'Copy still takes locked objects');
 
     setPcbSelection(app, [{ kind: 'shape', object: locked }, { kind: 'shape', object: free }]);
