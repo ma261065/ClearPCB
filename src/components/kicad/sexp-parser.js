@@ -3,6 +3,9 @@
  * syntax shared by symbol and footprint conversion.
  */
 
+/** @typedef {string|number|SExprList} SExpr */
+/** @typedef {Array<any>} SExprList */
+
 
 
 
@@ -11,20 +14,23 @@
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse S-expression string into nested arrays
      * @param {string} str - S-expression string
-     * @returns {Array<any>} Parsed structure
+     * @returns {SExprList|null} Parsed structure
      */
 export function _parseSExp(fetcher, str) {
     const tokens = fetcher._tokenize(str);
     let pos = 0;
 
+    /** @returns {SExpr|null} */
     const parse = () => {
         if (pos >= tokens.length) return null;
 
         const token = tokens[pos++];
 
         if (token === '(') {
+            /** @type {SExprList} */
             const list = [];
             while (pos < tokens.length && tokens[pos] !== ')') {
+                /** @type {SExpr|null} */
                 const item = parse();
                 if (item !== null) list.push(item);
             }
@@ -39,7 +45,7 @@ export function _parseSExp(fetcher, str) {
         }
     };
 
-    return parse();
+    return /** @type {SExprList|null} */ (parse());
 }
 
 
@@ -49,8 +55,11 @@ export function _parseSExp(fetcher, str) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Tokenize S-expression string
+     * @param {string} str - S-expression string
+     * @returns {string[]} Tokens
      */
 export function _tokenize(fetcher, str) {
+    /** @type {string[]} */
     const tokens = [];
     let i = 0;
 

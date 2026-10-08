@@ -15,6 +15,14 @@ import * as KiCadSymbolParser from './kicad/symbol-parser.js';
 import * as KiCadSexpParser from './kicad/sexp-parser.js';
 import * as KiCadSymbolGraphics from './kicad/symbol-graphics.js';
 
+/** @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('./kicad-index-format.js').StaticKiCadIndex} StaticKiCadIndex */
+/** @typedef {import('./kicad/footprint-parser.js').FootprintPreview} FootprintPreview */
+/** @typedef {import('./kicad/sexp-parser.js').SExprList} SExprList */
+/** @typedef {{symbols: Record<string, string[]>}} KiCadLibraryIndex */
+/** @typedef {{loaded: number, total: number, message: string}} KiCadIndexProgress */
+/** @typedef {(progress: KiCadIndexProgress) => void} KiCadIndexProgressCallback */
+
 export class KiCadFetcher {
     static KEYWORD_ALIASES = KEYWORD_ALIASES;
 
@@ -30,24 +38,42 @@ export class KiCadFetcher {
         ];
 
         // Cache fetched data
+        /** @type {Map<string, ComponentDefinition>} */
         this.symbolCache = new Map();
+        /** @type {Map<string, string>} */
         this.footprintCache = new Map();
+        /** @type {Map<string, boolean>} */
         this.footprintExistsCache = new Map();
+        /** @type {Map<string, boolean>} */
         this.model3dExistsCache = new Map();
+        /** @type {Map<string, FootprintPreview>} */
         this.footprintPreviewCache = new Map();
+        /** @type {Map<string, string[]>} */
         this.footprintFilterSearchCache = new Map();
+        /** @type {Map<string, string[]>} */
         this.footprintLibraryNamesCache = new Map();
+        /** @type {Map<string, string[]>} */
         this._symdirCache = new Map();
+        /** @type {KiCadLibraryIndex|null} */
         this.libraryIndex = null;
+        /** @type {string[]|null} */
         this.footprintNameIndex = null;
+        /** @type {Promise<void>|null} */
         this._indexLoadPromise = null;
+        /** @type {Promise<void>|null} */
         this._footprintIndexLoadPromise = null;
+        /** @type {KiCadIndexProgress|null} */
         this._indexProgress = null;
+        /** @type {Record<string, string>|null} */
         this.libraryPathIndex = null;
         this.fetchFailed = false;
+        /** @type {string|null} */
         this._latestRelease = null;
+        /** @type {Promise<string>|null} */
         this._latestReleasePromise = null;
+        /** @type {Promise<StaticKiCadIndex|null>|null} */
         this._staticIndexPromise = null;
+        /** @type {KiCadIndexProgressCallback|null} */
         this._onProgress = null;
     }
 
@@ -360,6 +386,8 @@ export class KiCadFetcher {
 
     /**
      * Fetch a library file from GitLab (with caching)
+     * @param {string} library
+     * @returns {Promise<string>}
      */
     _fetchLibraryFile(library) {
         return KiCadSymbolFetch._fetchLibraryFile(this, library);
@@ -381,6 +409,8 @@ export class KiCadFetcher {
     /**
      * List the contents of a .kicad_symdir directory via GitLab tree API.
      * Results are cached per library name.
+     * @param {string} library
+     * @returns {Promise<string[]>}
      */
     _listSymdirContents(library) {
         return KiCadSymbolFetch._listSymdirContents(this, library);
@@ -391,6 +421,9 @@ export class KiCadFetcher {
     /**
      * Find a symbol file in a symdir by exact or prefix match.
      * Returns the actual filename (without .kicad_sym) or null.
+     * @param {string} library
+     * @param {string} symbolName
+     * @returns {Promise<string|null>}
      */
     _findMatchingSymbolInDir(library, symbolName) {
         return KiCadSymbolFetch._findMatchingSymbolInDir(this, library, symbolName);
@@ -413,7 +446,7 @@ export class KiCadFetcher {
     /**
      * Search for a symbol by MPN or name
      * @param {string} query - Part number or name to search for
-     * @returns {Promise<Array>} Matching symbols
+     * @returns {Promise<Array<{library: string, name: string, fullName: string}>>} Matching symbols
      */
     searchSymbols(query) {
         return KiCadSymbolIndex.searchSymbols(this, query);
@@ -427,6 +460,8 @@ export class KiCadFetcher {
      * Otherwise fetches from GitLab (blocking). Callers can pass an onProgress
      * callback to show progress: onProgress({ loaded, total, message }).
      * Multiple concurrent callers share the same in-flight promise.
+     * @param {KiCadIndexProgressCallback} [onProgress]
+     * @returns {Promise<void>|undefined}
      */
     ensureIndexLoaded(onProgress) {
         return KiCadSymbolIndex.ensureIndexLoaded(this, onProgress);
@@ -490,7 +525,7 @@ export class KiCadFetcher {
     /**
      * Fetch and parse a `.kicad_mod` footprint file into a pad-shape preview.
      * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
-     * @returns {Promise<{shapes: Array, bbox: Object}|null>}
+     * @returns {Promise<FootprintPreview|null>}
      */
     fetchFootprintPreview(footprintName) {
         return KiCadFootprints.fetchFootprintPreview(this, footprintName);
@@ -582,7 +617,7 @@ export class KiCadFetcher {
      * KiCad footprint files are Y-down like ClearPCB, so coordinates are used as
      * written (unlike `.kicad_sym` symbols, which are Y-up).
      * @param {string} content - Raw `.kicad_mod` file content
-     * @returns {{shapes: Array, bbox: Object}|null}
+     * @returns {FootprintPreview|null}
      */
     _parseFootprintPreview(content) {
         return KiCadFootprintParser._parseFootprintPreview(this, content);
@@ -618,7 +653,7 @@ export class KiCadFetcher {
     /**
      * Parse S-expression string into nested arrays
      * @param {string} str - S-expression string
-     * @returns {Array<any>} Parsed structure
+     * @returns {SExprList|null} Parsed structure
      */
     _parseSExp(str) {
         return KiCadSexpParser._parseSExp(this, str);
@@ -629,7 +664,7 @@ export class KiCadFetcher {
     /**
      * If a parsed symbol has no pins or graphics, try to rebuild it
      * from its unit sub-symbols (e.g. `NE555_1_1`).
-     * @param {Array<any>} sexp - Parsed S-expression of the library
+     * @param {SExprList} sexp - Parsed S-expression of the library
      * @param {any} symbol - Already-converted symbol object
      * @param {string} baseName - Symbol base name (without unit suffix)
      * @returns {any} Original or rebuilt symbol
@@ -643,7 +678,7 @@ export class KiCadFetcher {
     /**
      * Build a complete symbol by locating and merging all unit sub-symbols
      * (e.g. `SymbolName_1_1`, `_1_2`, ...) from a library S-expression.
-     * @param {Array<any>} sexp - Parsed library S-expression
+     * @param {SExprList} sexp - Parsed library S-expression
      * @param {string} baseName - Symbol base name
      * @returns {any|null} Merged symbol or null
      */
@@ -655,6 +690,8 @@ export class KiCadFetcher {
 
     /**
      * Tokenize S-expression string
+     * @param {string} str
+     * @returns {string[]}
      */
     _tokenize(str) {
         return KiCadSexpParser._tokenize(this, str);
@@ -664,7 +701,7 @@ export class KiCadFetcher {
 
     /**
      * Convert KiCad symbol to ClearPCB format
-     * @param {Array<any>} symbolSexp - Parsed symbol S-expression
+     * @param {SExprList} symbolSexp - Parsed symbol S-expression
      * @returns {any} ClearPCB symbol definition
      */
     _convertKiCadSymbol(symbolSexp) {
@@ -677,7 +714,7 @@ export class KiCadFetcher {
      * Build a symbol from nested `(symbol ...)` unit elements within a
      * top-level symbol S-expression. Deduplicates pins and normalises
      * coordinates to a shared origin.
-     * @param {Array<any>} symbolSexp - Top-level symbol S-expression
+     * @param {SExprList} symbolSexp - Top-level symbol S-expression
      * @returns {any|null} Symbol with graphics, pins, and computed bounds
      */
     _buildSymbolFromNestedUnits(symbolSexp) {
@@ -706,8 +743,8 @@ export class KiCadFetcher {
     /**
      * Process a single symbol unit sub-element, extracting its pins,
      * rectangles, polylines, circles and arcs, and tracking min/max bounds.
-     * @param {Array<any>} unitSexp - Unit S-expression
-     * @returns {{graphics: Array, pins: Array, minX: number, minY: number, maxX: number, maxY: number}}
+     * @param {SExprList} unitSexp - Unit S-expression
+     * @returns {{graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number}}
      */
     _processSymbolUnit(unitSexp) {
         return KiCadSymbolParser._processSymbolUnit(this, unitSexp);
@@ -718,6 +755,7 @@ export class KiCadFetcher {
     /**
      * Parse KiCad pin
      * (pin type shape (at x y angle) (length len) (name "name" ...) (number "num" ...))
+     * @param {SExprList} pinSexp
      */
     _parseKiCadPin(pinSexp) {
         return KiCadSymbolGraphics._parseKiCadPin(this, pinSexp);
@@ -727,7 +765,7 @@ export class KiCadFetcher {
 
     /**
      * Parse a `(property "Name" "Value")` S-expression.
-     * @param {Array<any>} propSexp
+     * @param {SExprList} propSexp
      * @returns {{name: string|null, value: string|null}|null}
      */
     _parseKiCadProperty(propSexp) {
@@ -739,6 +777,7 @@ export class KiCadFetcher {
     /**
      * Parse KiCad rectangle
      * (rectangle (start x1 y1) (end x2 y2) (stroke ...) (fill ...))
+     * @param {SExprList} rectSexp
      */
     _parseKiCadRectangle(rectSexp) {
         return KiCadSymbolGraphics._parseKiCadRectangle(this, rectSexp);
@@ -749,6 +788,7 @@ export class KiCadFetcher {
     /**
      * Parse KiCad polyline
      * (polyline (pts (xy x y) (xy x y) ...) (stroke ...) (fill ...))
+     * @param {SExprList} polySexp
      */
     _parseKiCadPolyline(polySexp) {
         return KiCadSymbolGraphics._parseKiCadPolyline(this, polySexp);
@@ -759,6 +799,7 @@ export class KiCadFetcher {
     /**
      * Parse KiCad circle
      * (circle (center x y) (radius r) (stroke ...) (fill ...))
+     * @param {SExprList} circleSexp
      */
     _parseKiCadCircle(circleSexp) {
         return KiCadSymbolGraphics._parseKiCadCircle(this, circleSexp);
@@ -769,6 +810,7 @@ export class KiCadFetcher {
     /**
      * Parse KiCad arc
      * (arc (start x y) (mid x y) (end x y) (stroke ...) (fill ...))
+     * @param {SExprList} arcSexp
      */
     _parseKiCadArc(arcSexp) {
         return KiCadSymbolGraphics._parseKiCadArc(this, arcSexp);
@@ -778,6 +820,7 @@ export class KiCadFetcher {
 
     /**
      * Parse stroke properties
+     * @param {SExprList} strokeSexp
      */
     _parseStroke(strokeSexp) {
         return KiCadSymbolGraphics._parseStroke(this, strokeSexp);
@@ -787,6 +830,7 @@ export class KiCadFetcher {
 
     /**
      * Parse fill properties
+     * @param {SExprList} fillSexp
      */
     _parseFill(fillSexp) {
         return KiCadSymbolGraphics._parseFill(this, fillSexp);
@@ -796,6 +840,7 @@ export class KiCadFetcher {
 
     /**
      * Convert angle to orientation string
+     * @param {number} angle
      */
     _angleToOrientation(angle) {
         return KiCadSymbolGraphics._angleToOrientation(this, angle);
@@ -805,6 +850,9 @@ export class KiCadFetcher {
 
     /**
      * Offset a graphic element
+     * @param {any} g
+     * @param {number} dx
+     * @param {number} dy
      */
     _offsetGraphic(g, dx, dy) {
         return KiCadSymbolGraphics._offsetGraphic(this, g, dx, dy);

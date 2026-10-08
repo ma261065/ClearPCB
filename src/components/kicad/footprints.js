@@ -54,7 +54,7 @@ export async function checkFootprintAvailability(fetcher, footprintName) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Fetch and parse a `.kicad_mod` footprint file into a pad-shape preview.
      * @param {string} footprintName - e.g. 'Resistor_SMD:R_0603_1608Metric'
-     * @returns {Promise<{shapes: Array, bbox: Object}|null>}
+     * @returns {Promise<import('./footprint-parser.js').FootprintPreview|null>}
      */
 export async function fetchFootprintPreview(fetcher, footprintName) {
     if (!footprintName || typeof footprintName !== 'string') {
@@ -63,7 +63,7 @@ export async function fetchFootprintPreview(fetcher, footprintName) {
 
     const cacheKey = `fp_preview:${footprintName}`;
     if (fetcher.footprintPreviewCache.has(cacheKey)) {
-        return fetcher.footprintPreviewCache.get(cacheKey);
+        return /** @type {import('./footprint-parser.js').FootprintPreview} */ (fetcher.footprintPreviewCache.get(cacheKey));
     }
 
     const [lib, name] = footprintName.split(':');
@@ -102,7 +102,7 @@ export async function findFootprintCandidatesByFilters(fetcher, filters, options
 
     const cacheKey = `fp_filters:${normalized.join('|').toLowerCase()}:${limit}`;
     if (fetcher.footprintFilterSearchCache.has(cacheKey)) {
-        return fetcher.footprintFilterSearchCache.get(cacheKey);
+        return /** @type {string[]} */ (fetcher.footprintFilterSearchCache.get(cacheKey));
     }
 
     await fetcher._ensureFootprintIndexLoaded();
@@ -158,7 +158,7 @@ export async function _getFootprintNamesForLibrary(fetcher, libName) {
     const key = String(libName || '').trim();
     if (!key) return [];
     if (fetcher.footprintLibraryNamesCache.has(key)) {
-        return fetcher.footprintLibraryNamesCache.get(key);
+        return /** @type {string[]} */ (fetcher.footprintLibraryNamesCache.get(key));
     }
 
     const names = new Set();

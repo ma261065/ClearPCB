@@ -7,13 +7,17 @@ import { storageManager } from '../../core/StorageManager.js';
 import { KEYWORD_ALIASES, KICAD_FULL_SYMBOL_INDEX_CACHE_KEY, SEARCH_CACHE_TTL_MS } from './constants.js';
 import { addSymbolTreeEntries, isLikelyValidSymbolIndex, KICAD_SYMBOLS_PROJECT_PATH, REQUIRED_LIBRARY_NAMES } from '../kicad-index-format.js';
 
+/** @typedef {{library: string, name: string, fullName: string}} SymbolSearchResult */
+/** @typedef {{loaded: number, total: number, message: string}} KiCadIndexProgress */
+/** @typedef {(progress: KiCadIndexProgress) => void} KiCadIndexProgressCallback */
+
 
 
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Search for a symbol by MPN or name
      * @param {string} query - Part number or name to search for
-     * @returns {Promise<Array>} Matching symbols
+     * @returns {Promise<SymbolSearchResult[]>} Matching symbols
      */
 export async function searchSymbols(fetcher, query) {
     // Check search result cache first (skip empty arrays — may be stale)
@@ -101,6 +105,8 @@ export async function searchSymbols(fetcher, query) {
      * Otherwise fetches from GitLab (blocking). Callers can pass an onProgress
      * callback to show progress: onProgress({ loaded, total, message }).
      * Multiple concurrent callers share the same in-flight promise.
+     * @param {KiCadIndexProgressCallback} [onProgress]
+     * @returns {Promise<void>}
      */
 export async function ensureIndexLoaded(fetcher, onProgress) {
     if (fetcher.libraryIndex) return;
@@ -228,6 +234,11 @@ export async function _fetchFullSymbolIndex(fetcher) {
     const parallelPages = 8;
     const minCompletionRatio = 0.9;
 
+    /**
+     * @param {unknown} entries
+     * @param {Record<string, string[]>} index
+     * @returns {number}
+     */
     const processEntries = (entries, index) => {
         if (!Array.isArray(entries)) {
             return 0;
@@ -237,6 +248,7 @@ export async function _fetchFullSymbolIndex(fetcher) {
     };
 
     for (const ref of refs) {
+        /** @type {Record<string, string[]>} */
         const index = {};
         let totalEntries = 0;
         let totalExpected = 0;

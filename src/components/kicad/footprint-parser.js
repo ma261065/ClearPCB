@@ -5,6 +5,8 @@
 
 import { FOOTPRINT_MARKER } from './constants.js';
 
+/** @typedef {{shapes: string[], bbox: {x: number, y: number, width: number, height: number}}} FootprintPreview */
+
 
 
     /**
@@ -14,7 +16,7 @@ import { FOOTPRINT_MARKER } from './constants.js';
      * KiCad footprint files are Y-down like ClearPCB, so coordinates are used as
      * written (unlike `.kicad_sym` symbols, which are Y-up).
      * @param {string} content - Raw `.kicad_mod` file content
-     * @returns {{shapes: Array, bbox: Object}|null}
+     * @returns {FootprintPreview|null}
      */
 export function _parseFootprintPreview(fetcher, content) {
     if (!content) return null;
@@ -24,12 +26,19 @@ export function _parseFootprintPreview(fetcher, content) {
         return null;
     }
 
+    /** @type {string[]} */
     const shapes = [];
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} w
+     * @param {number} h
+     */
     const includeRect = (x, y, w, h) => {
         const rx = x - w / 2;
         const ry = y - h / 2;

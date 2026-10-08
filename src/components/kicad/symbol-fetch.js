@@ -7,6 +7,8 @@ import { storageManager } from '../../core/StorageManager.js';
 import { KICAD_LIBRARY_INDEX_CACHE_KEY, CONTENT_CACHE_TTL_MS } from './constants.js';
 import { KICAD_SYMBOLS_PROJECT_PATH } from '../kicad-index-format.js';
 
+/** @typedef {{type?: string, path?: string, name?: string}} GitLabTreeEntry */
+
 
 
     /**
@@ -111,6 +113,8 @@ export async function fetchSymbol(fetcher, library, symbolName) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Fetch a library file from GitLab (with caching)
+     * @param {string} library
+     * @returns {Promise<string>}
      */
 export async function _fetchLibraryFile(fetcher, library) {
     // Check storage cache first (with 7-day TTL)
@@ -176,6 +180,7 @@ export async function _loadLibraryPathIndex(fetcher, force = false) {
     const refs = fetcher._getGitRefs();
 
     for (const ref of refs) {
+        /** @type {Record<string, string>} */
         const index = {};
         let page = 1;
         let hasMore = true;
@@ -228,10 +233,12 @@ export async function _loadLibraryPathIndex(fetcher, force = false) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * List the contents of a .kicad_symdir directory via GitLab tree API.
      * Results are cached per library name.
+     * @param {string} library
+     * @returns {Promise<string[]>}
      */
 export async function _listSymdirContents(fetcher, library) {
     if (fetcher._symdirCache.has(library)) {
-        return fetcher._symdirCache.get(library);
+        return /** @type {string[]} */ (fetcher._symdirCache.get(library));
     }
 
     const symDirPath = `${library}.kicad_symdir`;
@@ -247,9 +254,9 @@ export async function _listSymdirContents(fetcher, library) {
         });
         if (!Array.isArray(data) || data.length === 0) continue;
 
-        const files = data
-            .filter(f => f.type === 'blob' && f.name.endsWith('.kicad_sym'))
-            .map(f => f.name.replace(/\.kicad_sym$/, ''));
+        const files = /** @type {GitLabTreeEntry[]} */ (data)
+            .filter(f => f.type === 'blob' && typeof f.name === 'string' && f.name.endsWith('.kicad_sym'))
+            .map(f => /** @type {string} */ (f.name).replace(/\.kicad_sym$/, ''));
 
         if (files.length > 0) {
             fetcher._symdirCache.set(library, files);
@@ -267,6 +274,9 @@ export async function _listSymdirContents(fetcher, library) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Find a symbol file in a symdir by exact or prefix match.
      * Returns the actual filename (without .kicad_sym) or null.
+     * @param {string} library
+     * @param {string} symbolName
+     * @returns {Promise<string|null>}
      */
 export async function _findMatchingSymbolInDir(fetcher, library, symbolName) {
     const files = await fetcher._listSymdirContents(library);

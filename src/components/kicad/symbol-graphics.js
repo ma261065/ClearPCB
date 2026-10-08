@@ -5,12 +5,16 @@
 
 import { circumcircle } from '../../core/geometry.js';
 
+/** @typedef {import('./sexp-parser.js').SExprList} SExprList */
+
 
 
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse KiCad pin
      * (pin type shape (at x y angle) (length len) (name "name" ...) (number "num" ...))
+     * @param {SExprList} pinSexp
+     * @returns {any}
      */
 export function _parseKiCadPin(fetcher, pinSexp) {
     /** @type {{ type: string, number: string, name: string, x: number, y: number, orientation: string, length: number, pinType: string, shape: string, hidden: boolean, kicadNameFontSize: number|null, kicadNumberFontSize: number|null, _coordKey?: string }} */
@@ -29,6 +33,10 @@ export function _parseKiCadPin(fetcher, pinSexp) {
         kicadNumberFontSize: null
     };
 
+    /**
+     * @param {unknown} node
+     * @returns {number|null}
+     */
     const extractFontSize = (node) => {
         if (!Array.isArray(node)) return null;
         for (const child of node) {
@@ -103,7 +111,7 @@ export function _parseKiCadPin(fetcher, pinSexp) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse a `(property "Name" "Value")` S-expression.
-     * @param {Array<any>} propSexp
+     * @param {SExprList} propSexp
      * @returns {{name: string|null, value: string|null}|null}
      */
 export function _parseKiCadProperty(fetcher, propSexp) {
@@ -128,6 +136,8 @@ export function _parseKiCadProperty(fetcher, propSexp) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse KiCad rectangle
      * (rectangle (start x1 y1) (end x2 y2) (stroke ...) (fill ...))
+     * @param {SExprList} rectSexp
+     * @returns {any}
      */
 export function _parseKiCadRectangle(fetcher, rectSexp) {
     let x1 = 0, y1 = 0, x2 = 0, y2 = 0;
@@ -176,8 +186,11 @@ export function _parseKiCadRectangle(fetcher, rectSexp) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse KiCad polyline
      * (polyline (pts (xy x y) (xy x y) ...) (stroke ...) (fill ...))
+     * @param {SExprList} polySexp
+     * @returns {any}
      */
 export function _parseKiCadPolyline(fetcher, polySexp) {
+    /** @type {number[][]} */
     const points = [];
     let stroke = 'var(--sch-symbol-outline)';
     let strokeWidth = 0.254;
@@ -223,6 +236,8 @@ export function _parseKiCadPolyline(fetcher, polySexp) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse KiCad circle
      * (circle (center x y) (radius r) (stroke ...) (fill ...))
+     * @param {SExprList} circleSexp
+     * @returns {any}
      */
 export function _parseKiCadCircle(fetcher, circleSexp) {
     let cx = 0, cy = 0, r = 1;
@@ -269,6 +284,8 @@ export function _parseKiCadCircle(fetcher, circleSexp) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse KiCad arc
      * (arc (start x y) (mid x y) (end x y) (stroke ...) (fill ...))
+     * @param {SExprList} arcSexp
+     * @returns {any}
      */
 export function _parseKiCadArc(fetcher, arcSexp) {
     let startX = 0, startY = 0;
@@ -335,6 +352,8 @@ export function _parseKiCadArc(fetcher, arcSexp) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse stroke properties
+     * @param {SExprList} strokeSexp
+     * @returns {{color: string, width: number}}
      */
 export function _parseStroke(fetcher, strokeSexp) {
     // Use CSS variable for theme-aware colors
@@ -367,6 +386,8 @@ export function _parseStroke(fetcher, strokeSexp) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Parse fill properties
+     * @param {SExprList} fillSexp
+     * @returns {string}
      */
 export function _parseFill(fetcher, fillSexp) {
     for (const item of fillSexp) {
@@ -391,6 +412,8 @@ export function _parseFill(fetcher, fillSexp) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Convert angle to orientation string
+     * @param {number} angle
+     * @returns {string}
      */
 export function _angleToOrientation(fetcher, angle) {
     const normalized = ((angle % 360) + 360) % 360;
@@ -406,6 +429,9 @@ export function _angleToOrientation(fetcher, angle) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Offset a graphic element
+     * @param {any} g
+     * @param {number} dx
+     * @param {number} dy
      */
 export function _offsetGraphic(fetcher, g, dx, dy) {
     switch (g.type) {
@@ -420,7 +446,7 @@ export function _offsetGraphic(fetcher, g, dx, dy) {
             break;
         case 'polyline':
         case 'polygon':
-            g.points = g.points.map(p => [p[0] + dx, p[1] + dy]);
+            g.points = /** @type {number[][]} */ (g.points).map(p => [p[0] + dx, p[1] + dy]);
             break;
         case 'line':
             g.x1 += dx;

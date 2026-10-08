@@ -5,6 +5,8 @@
 
 import { SYMBOL_LIBRARY_MARKER } from './constants.js';
 
+/** @typedef {import('./sexp-parser.js').SExprList} SExprList */
+
 
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
@@ -97,7 +99,7 @@ export function _parseSymbolFromLibrary(fetcher, content, symbolName) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * If a parsed symbol has no pins or graphics, try to rebuild it
      * from its unit sub-symbols (e.g. `NE555_1_1`).
-     * @param {Array<any>} sexp - Parsed S-expression of the library
+     * @param {SExprList} sexp - Parsed S-expression of the library
      * @param {any} symbol - Already-converted symbol object
      * @param {string} baseName - Symbol base name (without unit suffix)
      * @returns {any} Original or rebuilt symbol
@@ -122,7 +124,7 @@ export function _rebuildSymbolFromUnitsIfNeeded(fetcher, sexp, symbol, baseName)
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Build a complete symbol by locating and merging all unit sub-symbols
      * (e.g. `SymbolName_1_1`, `_1_2`, ...) from a library S-expression.
-     * @param {Array<any>} sexp - Parsed library S-expression
+     * @param {SExprList} sexp - Parsed library S-expression
      * @param {string} baseName - Symbol base name
      * @returns {any|null} Merged symbol or null
      */
@@ -224,7 +226,7 @@ export function _buildSymbolFromUnits(fetcher, sexp, baseName) {
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Convert KiCad symbol to ClearPCB format
-     * @param {Array<any>} symbolSexp - Parsed symbol S-expression
+     * @param {SExprList} symbolSexp - Parsed symbol S-expression
      * @returns {any} ClearPCB symbol definition
      */
 export function _convertKiCadSymbol(fetcher, symbolSexp) {
@@ -433,7 +435,7 @@ export function _convertKiCadSymbol(fetcher, symbolSexp) {
      * Build a symbol from nested `(symbol ...)` unit elements within a
      * top-level symbol S-expression. Deduplicates pins and normalises
      * coordinates to a shared origin.
-     * @param {Array<any>} symbolSexp - Top-level symbol S-expression
+     * @param {SExprList} symbolSexp - Top-level symbol S-expression
      * @returns {any|null} Symbol with graphics, pins, and computed bounds
      */
 export function _buildSymbolFromNestedUnits(fetcher, symbolSexp) {
@@ -580,8 +582,8 @@ export async function _resolveExtends(fetcher, result, library, depth = 0) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Process a single symbol unit sub-element, extracting its pins,
      * rectangles, polylines, circles and arcs, and tracking min/max bounds.
-     * @param {Array<any>} unitSexp - Unit S-expression
-     * @returns {{graphics: Array, pins: Array, minX: number, minY: number, maxX: number, maxY: number}}
+     * @param {SExprList} unitSexp - Unit S-expression
+     * @returns {{graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number}}
      */
 export function _processSymbolUnit(fetcher, unitSexp) {
     /** @type {{ graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number }} */
