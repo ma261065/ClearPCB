@@ -6,8 +6,10 @@ const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 const {
     PCB_TOOLS, PCB_TOOL_PRESETS, PCB_PLACEMENT_TOOLS, PCB_SHAPE_TOOLS, PCB_RIBBON_PLACEMENT_TOOLS,
-    normalizePcbTool, pcbToolLayer, pcbToolTargets, pressPcbTool,
+    normalizePcbTool, pcbToolLayer, pcbToolTargets, pcbToolTip, pressPcbTool,
 } = await import('../../src/pcb/modules/pcb-tools.js');
+const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
+const { Pad } = await import('../../src/shapes/pad.js');
 
 // pcb-tools.js holds one entry per PCB tool, and pressPcbTool hands a canvas press to the
 // active tool, refusing to start a placement on a locked or hidden layer.
@@ -78,5 +80,19 @@ assert.deepEqual(pcbToolTargets(app, 'hole'), [{ id: 'hole' }], 'a preset has ta
 assert.deepEqual(pcbToolTargets(app, 'select'), []);
 assert.equal(pcbToolLayer(app, 'text'), pcbToolTargets(app, 'text')[0].id, 'the status bar names the layer the tool places on');
 assert.equal(pcbToolLayer(app, 'via'), 'top-silk', 'a tool without its own layer shows the active layer');
+
+// Each tool's status-bar tip comes from its entry.
+assert.match(pcbToolTip(app, 'track'), /SPACE to insert a via/);
+assert.match(pcbToolTip(app, 'pad'), /castellation/);
+assert.equal(pcbToolTip(app, 'via'), '', 'a tool without a tip shows none');
+app.activeLayer = 'hole';
+assert.match(pcbToolTip(app, 'circle'), /hole is just a circle/, 'the Hole button is the Circle tool on the Hole layer');
+app.activeLayer = 'top-silk';
+assert.equal(pcbToolTip(app, 'circle'), '');
+assert.equal(pcbToolTip(app, 'select'), '', 'nothing selected, no tip');
+const pad = new Pad({ x: 0, y: 0 });
+app.pcbDocument.pads.push(pad);
+setPcbSelection(app, [{ kind: 'pad', object: pad }]);
+assert.match(pcbToolTip(app, 'select'), /castellation/, 'a selected pad shows the pad tip');
 
 console.log('PASS PCB tools: one entry per tool, and presses refused only when starting on a blocked layer');

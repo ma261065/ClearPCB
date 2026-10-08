@@ -154,7 +154,7 @@ preview-then-commit-once pattern above. Drive it in a unit test with the fake DO
    crosshair and its own "New …" Properties panel, `showProperties`, and presses
    refused with the reason on a locked or hidden layer), `drawing` if presses
    continue a draw, `hover` or `follow` for pointer movement, the `layer` the
-   status bar names, and its ribbon `button`. The ribbon places the button with
+   status bar names, its status-bar `tip`, and its ribbon `button`. The ribbon places the button with
    `toolButton(id)` in `ribbon-description.js`. Multi-click drawing finishes like
    the others: double-click or Enter with the corners placed, a stationary
    right-click with the cursor as the last corner.

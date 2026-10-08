@@ -217,7 +217,7 @@ PCB editor:
 - `pcb/modules/drag-session.js` — what every drag or live preview defers while it runs
   (overlays, optionally the board view), the ratlines it keeps live, and restoring both.
 - `pcb/modules/pcb-tools.js` — the tool catalog: one entry per tool (press, hover,
-  target layers, status layer, Properties, ribbon button) and the press dispatcher;
+  target layers, status layer and tip, Properties, ribbon button) and the press dispatcher;
   `select-tool.js` — the select tool's press phases and hover.
 - `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points;
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),

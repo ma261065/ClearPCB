@@ -19,8 +19,8 @@ import { pressFillTool, showFillToolProperties } from './copper-fill-edit.js';
 import { fillToolDefaults, getFillDraw } from './copper-fill-draw.js';
 import { getLastCrosshairWorld, updateCursorCrosshair } from './cursor-state.js';
 import { refuseBlockedPlacement } from './layers.js';
-import { getPadPreviewWorld, getPadToolDefaults, pressPadTool, showPadToolProperties, updatePadPreview } from './pad-tool.js';
-import { hoverSelectTool, pressSelectTool } from './select-tool.js';
+import { PAD_TIP, getPadPreviewWorld, getPadToolDefaults, pressPadTool, showPadToolProperties, updatePadPreview } from './pad-tool.js';
+import { hoverSelectTool, pressSelectTool, selectToolTip } from './select-tool.js';
 import { getTextToolDefaults, pressTextTool, showTextToolProperties } from './text-properties.js';
 import { getTrackDraw, getTrackToolLayer, hoverTrackTool, pressTrackTool, showTrackDrawProperties } from './track-draw.js';
 import { getViaPreviewWorld, pressViaTool, showViaToolProperties, updateViaPreview } from './via-tool.js';
@@ -45,6 +45,7 @@ import { getViaPreviewWorld, pressViaTool, showViaToolProperties, updateViaPrevi
  * @property {(app: any, worldPos: WorldPoint) => void} [follow] - keep its cursor preview under the pointer
  * @property {(app: any) => WorldPoint|null} [followPoint] - where `follow` last drew
  * @property {(app: any) => void} [showProperties] - show its Properties panel
+ * @property {(app: any) => string} [tip] - the status-bar tip while the tool is active ('' for none)
  */
 
 /** @param {(app: any) => string} layer */
@@ -65,6 +66,8 @@ function shapeTool(kind, title, content, icon) {
         drawing: app => getShapeDraw(app)?.kind === kind,
         press: (app, _e, worldPos) => shapeDrawClick(app, kind, worldPos),
         showProperties: app => showBoardShapeToolProperties(app, kind),
+        // The Hole button is this tool on the Hole layer.
+        tip: app => (kind === 'circle' && layer(app) === 'hole' ? 'Tip: A hole is just a circle on the hole layer' : ''),
     };
 }
 
@@ -79,13 +82,14 @@ const fillLayer = app => getFillDraw(app)?.layer || fillToolDefaults(app).layer;
 export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} */ ([
     {
         id: 'select', button: { id: 'pcbToolSelect', title: 'Select (V)', content: '⊹ Select' },
-        press: pressSelectTool, hover: hoverSelectTool,
+        press: pressSelectTool, hover: hoverSelectTool, tip: selectToolTip,
     },
     {
         id: 'track', button: { id: 'pcbToolTrack', title: 'Route Track', content: '⏤ Track' },
         layer: trackLayer, targets: onLayer(trackLayer), drawing: app => !!getTrackDraw(app),
         press: (app, _e, worldPos) => pressTrackTool(app, worldPos), hover: hoverTrackTool,
         showProperties: showTrackDrawProperties,
+        tip: () => 'Tip: Press SPACE to insert a via and switch to the other layer',
     },
     {
         id: 'via', button: { id: 'pcbToolVia', title: 'Place Via', content: '◉ Via' },
@@ -98,6 +102,7 @@ export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} 
         targets: app => padLayers(getPadToolDefaults(app)).map(id => ({ id })),
         press: (app, _e, worldPos) => pressPadTool(app, worldPos),
         follow: updatePadPreview, followPoint: getPadPreviewWorld, showProperties: showPadToolProperties,
+        tip: () => PAD_TIP,
     },
     shapeTool('line', 'Draw Line', '/ Line', '/'),
     shapeTool('circle', 'Draw Circle', '◯ Circle', '◯'),
@@ -164,6 +169,16 @@ export function pcbToolTargets(app, tool = app.currentTool) {
  */
 export function pcbToolLayer(app, tool = app.currentTool) {
     return PCB_TOOLS[tool]?.layer?.(app) || app.activeLayer;
+}
+
+/**
+ * The status-bar tip for the active tool, or ''.
+ * @param {any} app
+ * @param {string} [tool]
+ * @returns {string}
+ */
+export function pcbToolTip(app, tool = app.currentTool) {
+    return PCB_TOOLS[tool]?.tip?.(app) || '';
 }
 
 /**

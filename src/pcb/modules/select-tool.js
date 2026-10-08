@@ -7,23 +7,26 @@
  * then selecting what is under the pointer (tracks and vias before shapes, text and
  * components, since smaller targets win).
  */
+import { PAD_TIP } from './pad-tool.js';
+import { canonicalTrack } from './track-commands.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from './board-shape-state.js';
 import { hitTestBoardOutline, selectBoardOutline, showBoardOutlineProperties } from './board-outline-resize.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
-import { hitTestBoardShape, hitTestBoardShapeVertex, selectBoardShape, startBoardShapeDrag } from './board-shapes.js';
+import { hitTestBoardShape, hitTestBoardShapeVertex, selectBoardShape, startBoardShapeDrag, getBoardShapeDrag } from './board-shapes.js';
 import { armBoxSelect, beginGroupDrag, clearBoxSelection, hasBoxSelection, maybeStartBoxSelect, toggleBoxShapeSelection } from './box-select.js';
 import { beginComponentDrag, hitTestComponent, hoverComponent } from './component-selection.js';
 import { showFillProperties, startFillEditAt } from './copper-fill-edit.js';
 import { hitTestFill } from './copper-fill-selection.js';
 import { updateVertexDragCrosshair } from './cursor-state.js';
 import { hideNetTooltip } from './net-tooltip.js';
-import { scheduleHoverUpdate } from './pcb-hover.js';
+import { scheduleHoverUpdate, hoverOverlapHitCount } from './pcb-hover.js';
 import { hitTestText } from './pcb-text-render.js';
 import { beginTextDrag } from './pcb-text-selection.js';
 import { beginRefTextDrag, hitTestReferenceText, selectRefText } from './ref-text-selection.js';
 import { beginSelectionInteraction, getSelectionInteraction, selectionInteractionCursor } from './selection-interaction.js';
 import { getPcbSelection } from './selection-registry.js';
 import { commitCollinearCleanup, getVertexDrag, setSegmentClickEdgeId, setVertexDragDownScreen, startVertexDrag, startViaDrag } from './track-drag.js';
-import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, setHoverHighlight } from './track-select.js';
+import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, setHoverHighlight, getTrackEdit } from './track-select.js';
 
 /**
  * @typedef {object} SelectPress
@@ -333,6 +336,28 @@ function pressNewTarget(app, press) {
         armBoxSelect(app, { x: e.clientX, y: e.clientY }, worldPos);
     }
     return true;
+}
+
+/**
+ * The status-bar tip for the select tool, from what is selected or under the pointer.
+ * @param {any} app
+ * @returns {string}
+ */
+export function selectToolTip(app) {
+    const selection = getPcbSelection(app);
+    if (selection.length === 1 && getPcbSelection(app, 'reftext').length === 1) return 'Tip: Use SPACE to rotate text';
+    if (getPcbSelection(app, 'pad').length === 1) return PAD_TIP;
+    if (hoverOverlapHitCount(app) > 1) return 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection';
+    const shape = getPcbSelection(app, 'shape');
+    const track = getPcbSelection(app, 'track');
+    const refinable = selection.length === 1
+        && !['vertex', 'segment'].includes(getBoardShapeDrag(app)?.mode)
+        && !getVertexDrag(app)
+        && ((shape.length === 1 && ['line', 'rect', 'polygon'].includes(shape[0]?.kind)
+            && getBoardShapeSegmentFocus(app)?.shapeId !== shape[0]?.id
+            && getBoardShapeNodeFocus(app)?.shapeId !== shape[0]?.id)
+            || (track.length === 1 && getTrackEdit(app)?.track !== canonicalTrack(app, track[0])));
+    return refinable ? 'Tip: Click again to select a segment or node' : '';
 }
 
 /** The press phases in priority order; each returns true when it handled the press. */

@@ -132,3 +132,6 @@ export function pressPadTool(app, worldPos) {
     app.showPadProperties(pad);
     refreshBoxSelectionHighlights(app);
 }
+
+/** The status-bar tip for the Pad tool and for a selected pad. */
+export const PAD_TIP = 'Tip: Place a pad on the board edge to make a castellation';

@@ -28,7 +28,7 @@ import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { showSaveToast } from '../pcb/modules/save-toast.js';
 import { cancelPcbDrawingMode, syncPcbToolBlocks, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
-import { pcbToolLayer, refreshPcbToolFollow } from '../pcb/modules/pcb-tools.js';
+import { pcbToolLayer, pcbToolTip, refreshPcbToolFollow } from '../pcb/modules/pcb-tools.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -40,12 +40,11 @@ import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modul
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { refreshTrackDrawPreview, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable, getTrackEdit } from '../pcb/modules/track-select.js';
-import { getBoardShapeDrag } from '../pcb/modules/board-shapes.js';
+import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import {
     getVertexDrag,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
+import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { serializePcbText } from '../core/pcb-text.js';
 import { RemoveTextCommand, EditTextCommand } from '../pcb/modules/text-commands.js';
 import { cancelShapeDraw, renderBoardShape } from '../pcb/modules/board-shapes.js';
@@ -81,7 +80,7 @@ import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart } f
 import { openComponent3DPopout, showComponentPopup, updatePcbCulling } from '../pcb/modules/component-selection.js';
 import { clearTextElements, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
 import { drawRefOverlay, endRefDrag, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, SetRefStyleCommand } from '../pcb/modules/ref-text-selection.js';
-import { cancelHoverUpdate, hoverOverlapHitCount } from '../pcb/modules/pcb-hover.js';
+import { cancelHoverUpdate } from '../pcb/modules/pcb-hover.js';
 import { displayedCollection } from '../pcb/modules/displayed-collections.js';
 import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
@@ -95,7 +94,6 @@ import {
     showBoardDimensionsDialog,
     showBoardOutlineProperties,
 } from '../pcb/modules/board-outline-resize.js';
-import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 import { showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, updatePadPreview } from '../pcb/modules/pad-tool.js';
@@ -378,39 +376,10 @@ export default class PCBApp {
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layer = pcbToolLayer(this, rawTool);
         const layerLabel = layer ? pcbLayerName(layer) : 'Top Copper';
-        const selectedShape = getPcbSelection(this, 'shape');
-        const selectedTrack = getPcbSelection(this, 'track');
-        const showSegmentTip = rawTool === 'select'
-            && getPcbSelection(this).length === 1
-            && !['vertex', 'segment'].includes(getBoardShapeDrag(this)?.mode)
-            && !getVertexDrag(this)
-            && ((selectedShape.length === 1
-                && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
-                && getBoardShapeSegmentFocus(this)?.shapeId !== selectedShape[0]?.id
-                && getBoardShapeNodeFocus(this)?.shapeId !== selectedShape[0]?.id)
-                || (selectedTrack.length === 1 && getTrackEdit(this)?.track !== canonicalTrack(this, selectedTrack[0])));
-        const showHoleTip = rawTool === 'circle' && layer === 'hole';
-        const showOverlapTip = rawTool === 'select' && hoverOverlapHitCount(this) > 1;
-        const showTrackTip = rawTool === 'track';
-        const showPadTip = rawTool === 'pad'
-            || (rawTool === 'select' && getPcbSelection(this, 'pad').length === 1);
-        const showReferenceTip = rawTool === 'select'
-            && getPcbSelection(this).length === 1
-            && getPcbSelection(this, 'reftext').length === 1;
         if (this.status.tipStatus) {
-            this.status.tipStatus.hidden = !showOverlapTip && !showHoleTip && !showSegmentTip
-                && !showTrackTip && !showPadTip && !showReferenceTip;
-            this.status.tipStatus.textContent = showTrackTip
-                ? 'Tip: Press SPACE to insert a via and switch to the other layer'
-                : showReferenceTip
-                ? 'Tip: Use SPACE to rotate text'
-                : showPadTip
-                ? 'Tip: Place a pad on the board edge to make a castellation'
-                : showOverlapTip
-                ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
-                : showHoleTip
-                ? 'Tip: A hole is just a circle on the hole layer'
-                : showSegmentTip ? 'Tip: Click again to select a segment or node' : '';
+            const tip = pcbToolTip(this, rawTool);
+            this.status.tipStatus.hidden = !tip;
+            this.status.tipStatus.textContent = tip;
         }
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
         this.syncClipboardButtons?.();

@@ -106,7 +106,7 @@ with no interaction under way to its hover (`hoverPcbTool`).
 
 `pcb/modules/pcb-tools.js` holds one entry per tool (`PCB_TOOLS`): its press, its
 hover or cursor preview (`follow`), the layers it places on (`targets`), the layer
-the status bar names, its Properties panel and its ribbon button. The press, hover,
+the status bar names and the tip it shows, its Properties panel and its ribbon button. The press, hover,
 status bar, ribbon, Properties and placement checks all read that entry, and each
 tool's press lives in its owner module (`pressViaTool` in `via-tool.js`,
 `pressTextTool` in `text-properties.js`, …). `pressPcbTool` refuses to start a
