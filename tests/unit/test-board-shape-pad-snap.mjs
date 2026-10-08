@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName) => fakeElement(tagName);
@@ -21,7 +22,7 @@ function fixture() {
         id: 'hole_1', kind: 'polygon', layer: 'hole', lineWidth: 0.2, filled: true,
         points: [{ x: -6.2848, y: -47.8597 }, { x: 9, y: -69 }, { x: 18, y: -31 }],
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], pads, placements: new Map(), _shapeElements: new Map(),
         viewport: { scale: SCALE, gridSize: 1, gridVisible: true, setCrosshair() {}, getEffectiveGridSize: () => 1 },
         getLayerGroup() { return overlay; },

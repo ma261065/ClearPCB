@@ -121,7 +121,7 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
         if (deselectHiddenPcbSelection(app)) showPcbSelectionProperties(app);
         setHoverHighlight(app, null);
     }
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     saveLayerPrefs();
     refreshPcbToolLayerState(app);
 }
@@ -168,7 +168,7 @@ export function onLayerLockChanged(app, layerId, locked) {
     refreshPcbToolLayerState(app);
     const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     if (checkbox) checkbox.checked = locked;
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     if (getPcbSelectionEntries(app).some((/** @type {SelectionEntry} */ entry) => pcbObjectLayers(app, String(entry.kind), entry.object).includes(layerId))) {
         showPcbSelectionProperties(app);
     }
@@ -198,7 +198,7 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
     if (!visible && groupDragsPourOn(app, copperLayerId)) cancelPcbPosePreviews(app);
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.display = visible ? '' : 'none';
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     saveLayerPrefs();
     refreshPcbToolLayerState(app);
 }
@@ -215,7 +215,7 @@ export function onCopperFillLockChanged(app, copperLayerId, locked) {
     if (locked && groupDragsPourOn(app, copperLayerId)) cancelPcbPosePreviews(app);
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.opacity = locked ? '0.4' : '';
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     if (getPcbSelection(app, 'fill').some((/** @type {{layer:string}} */ fill) => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
     saveLayerPrefs();
     refreshPcbToolLayerState(app);

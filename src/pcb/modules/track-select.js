@@ -132,7 +132,7 @@ export function createTrackSelectionAdapter(app, track, id) {
      */
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, /** @type {any} */ (options));
-        app.setPcbStatus?.();
+        app.setPcbStatus();
         return started;
     };
     /** @param {Point} worldPos */
@@ -150,7 +150,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         if (!commit) {
             cancelVertexDrag(app);
             if ((app.pcbDocument?.tracks || app.tracks).includes(track)) showTrackSelectionProperties(app, track);
-            app.setPcbStatus?.();
+            app.setPcbStatus();
             return;
         }
         const drag = getVertexDrag(app);
@@ -163,7 +163,7 @@ export function createTrackSelectionAdapter(app, track, id) {
                 if (selectedTrack === track && track.nodes.has(nodeId)) selectTrackNode(app, track, nodeId);
                 else selectTrackOrVia(app, { type: 'track', track: selectedTrack });
             }
-            app.setPcbStatus?.();
+            app.setPcbStatus();
             return;
         }
         const clickedNodeId = options.moved ? null : drag?.mode === 'node' ? drag.nodes[0].nodeId
@@ -172,7 +172,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         if (getSelectedTrack(app) === track && clickedNodeId != null && track.nodes.has(clickedNodeId)) {
             selectTrackNode(app, track, clickedNodeId);
         } else if (getSelectedTrack(app) === track && getTrackEdit(app)?.nodeId != null) showTrackSelectionProperties(app, track);
-        app.setPcbStatus?.();
+        app.setPcbStatus();
     };
     return {
         id,
@@ -431,8 +431,8 @@ export function selectTrackOrVia(app, hit) {
     // don't stack.
     clearHoverHighlight(app);
     if (!hit) {
-        app.clearProperties?.();
-        app.syncClipboardButtons?.();
+        app.clearProperties();
+        app.syncClipboardButtons();
         return;
     }
     if (hit.type === 'track') {
@@ -446,7 +446,7 @@ export function selectTrackOrVia(app, hit) {
         showViaProperties(app, hit.via);
     }
     renderPcbSelectionAnchors(app);
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /**
@@ -474,8 +474,8 @@ export function selectTrackSegment(app, track, edgeId) {
     drawSegmentHalo(app, track, edgeId);
     showTrackSegmentProperties(app, track, edgeId);
     renderPcbSelectionAnchors(app);
-    app.setPcbStatus?.();
-    app.syncClipboardButtons?.();
+    app.setPcbStatus();
+    app.syncClipboardButtons();
 }
 
 /**
@@ -489,7 +489,7 @@ export function selectTrackNode(app, track, nodeId) {
     setTrackEdit(app, { track, nodeId });
     showTrackNodeProperties(app, track, nodeId);
     refreshTrackSelectionHalo(app);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
 }
 
 /**
@@ -508,12 +508,12 @@ export function clearTrackSelection(app) {
         const restored = setTrackLabelsVisible(prev, true);
         if (!restored) {
             renderTrack(prev, (id) => app.getLayerGroup(id), {
-                viaDiameter: app.getRoutingParams?.()?.viaDiameter,
-                viaDrill: app.getRoutingParams?.()?.viaDrill,
+                viaDiameter: app.getRoutingParams()?.viaDiameter,
+                viaDrill: app.getRoutingParams()?.viaDrill,
             });
         }
     }
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /**
@@ -542,7 +542,7 @@ export function deleteSelectedTrack(app) {
             clearTrackEdit(app);
             if (app.tracks.includes(track)) showTrackSelectionProperties(app, track);
             else clearTrackSelection(app);
-            app.setPcbStatus?.();
+            app.setPcbStatus();
             return;
         }
         deleteTrackSegmentAt(app, track, edgeId);

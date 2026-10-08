@@ -65,11 +65,11 @@ export function selectionInteractionCursor(app) {
 /** @param {PcbEditor} app */
 export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
-    app.selectComponent?.(null);
+    app.selectComponent(null);
     selectBoardOutline(app, false);
-    app.selectText?.(null);
+    app.selectText(null);
     selectRefText(app, null);
-    app.selectFill?.(null);
+    app.selectFill(null);
     selectBoardShape(app, null);
 }
 
@@ -79,20 +79,20 @@ export function clearSelectionInteractionUi(app) {
  */
 function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
-        app.selectComponent?.(/** @type {string} */ (entry.object));
-        app.showComponentProperties?.(entry.object);
+        app.selectComponent(/** @type {string} */ (entry.object));
+        app.showComponentProperties(entry.object);
     } else if (entry.kind === 'text') {
-        app.selectText?.(entry.object);
-        app.showTextProperties?.(entry.object);
+        app.selectText(entry.object);
+        app.showTextProperties(entry.object);
     } else if (entry.kind === 'reftext') {
         selectRefText(app, /** @type {string} */ (entry.object));
-        app.showRefProperties?.(/** @type {string} */ (entry.object));
+        app.showRefProperties(/** @type {string} */ (entry.object));
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'track') showTrackSelectionProperties(app, /** @type {import('../../shapes/track.js').Track} */ (entry.object));
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
-    else if (entry.kind === 'pad') app.showPadProperties?.(entry.object);
+    else if (entry.kind === 'pad') app.showPadProperties(entry.object);
     else if (entry.kind === 'fill') {
-        app.selectFill?.(entry.object);
+        app.selectFill(entry.object);
         showFillProperties(app, entry.object);
     }
 }
@@ -104,7 +104,7 @@ function showSingleProperties(app, entry) {
 export function showPcbSelectionProperties(app) {
     const selected = /** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app));
     if (!selected.length) {
-        app.clearProperties?.();
+        app.clearProperties();
         return;
     }
     if (selected.length === 1) {
@@ -117,15 +117,15 @@ export function showPcbSelectionProperties(app) {
     // shared capability panel, which applies edits to the unlocked members only.
     const anyLocked = selected.some(entry => entry.locked);
     if (anyLocked) {
-        app.showMultiSelectionProperties?.(selected);
+        app.showMultiSelectionProperties(selected);
     } else if (kinds.size === 1 && selected[0].kind === 'shape') {
         showBoardShapeProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'via') {
         showViaProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'pad') {
-        app.showPadProperties?.(selected[0].object);
+        app.showPadProperties(selected[0].object);
     } else {
-        app.showMultiSelectionProperties?.(selected);
+        app.showMultiSelectionProperties(selected);
     }
 }
 

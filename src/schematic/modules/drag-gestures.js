@@ -181,7 +181,7 @@ function finalizeDragInteraction(app, options = {}) {
 
     clearDragState(app);
     app.renderShapes(true);
-    if (options.refreshTextEdit && hasSchematicTextEdit(app)) app.updateTextEditOverlay?.();
+    if (options.refreshTextEdit && hasSchematicTextEdit(app)) app.updateTextEditOverlay();
 }
 
 // ─── Drag session setup ────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { getNetGuideLine } from '../../src/pcb/modules/ratsnest.js';
 import { getTrackDraw, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
 import { storedDrcRatlines } from '../../src/pcb/modules/drc-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element() {
     const classes = new Set();
@@ -33,7 +34,7 @@ const { pictureShape } = await import('../../src/shared/pcb/picture-raster.js');
 const board = () => {
     const ratLayer = element(), svg = element();
     svg.appendChild(ratLayer);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [], ratLayer,
         getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
         viewport: { svg, scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },

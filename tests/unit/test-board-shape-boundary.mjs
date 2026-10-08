@@ -8,6 +8,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -51,7 +52,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(shape);
     const commands = [];
-    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
+    const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
         texts: new Map(), viewport: { scale: 20, hideCrosshair() {}, setCrosshair() {} },
         getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -129,7 +130,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         this.children.push(element);
         element.remove = () => { this.children.splice(this.children.indexOf(element), 1); };
     } };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         ...shapeModel(shape, remote), placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
@@ -239,7 +240,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
             'Segment highlights stay below node and midpoint handles');
         return elements[0].getAttribute('d');
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         ...shapeModel(shape), placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
@@ -341,6 +342,7 @@ console.log('PASS line and polygon segments support undoable curved geometry and
 
 {
     const makeApp = shape => ({
+        ...pcbEditorStubs(),
         ...shapeModel(shape), _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(), texts: new Map(),
         viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup() { return null; },
@@ -440,7 +442,7 @@ for (const cornerRadius of [0, 2]) {
     assert.equal(bounds.maxY, 16.5);
     const before = cloneShapeGeometry(shape);
     let panel = null;
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         openPropertyPanel(next) { panel = next; return true; },
         refreshPropertyPanel(next) { panel = next; } };
     showBoardShapeProperties(app, shape);
@@ -500,7 +502,7 @@ for (const commit of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const before = cloneShapeGeometry(shape);
     const commands = [];
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
@@ -533,7 +535,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
         assert.deepEqual(model.board, { width: bounds.w, height: bounds.h, radius: outline.cornerRadius || 0 },
             'Edit paths synchronize canonical dimensions before rendering or derived refresh');
     };
-    const app = { pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [],
+    const app = { ...pcbEditorStubs(), pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [],
         texts: new Map(), placements: new Map(), _shapeElements: new Map(),
         getLayerGroup() { assertDimensions(); return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
@@ -651,7 +653,7 @@ for (const reversed of [false, true]) {
     if (reversed) points.reverse();
     const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-silk', lineWidth: 1, points };
     const commands = [];
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.midpoint && anchor.y === 0);
@@ -666,7 +668,7 @@ for (const reversed of [false, true]) {
     commands[0].undo();
     commands[0].execute();
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+    const restored = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(restored, saved, { render: false });
     assert.ok(!('strokeSide' in saved[0]));
     assert.deepEqual(resolveBoardShapeGeometry(restored.boardShapes[0]).physicalContours,

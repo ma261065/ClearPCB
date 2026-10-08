@@ -144,7 +144,7 @@ export function resetPcbTool(app) {
     app.currentTool = 'select';
     updateCursorForTool(app);
     app.refreshPcbRibbon?.();
-    app.setPcbStatus?.();
+    app.setPcbStatus();
 }
 
 /**
@@ -165,7 +165,7 @@ export function selectPcbTool(app, tool) {
     }
     app.refreshPcbRibbon?.();
     updateCursorForTool(app);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
     showPcbToolProperties(app, next);
 }
 

@@ -19,6 +19,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element() {
     return fakeElement('g');
@@ -58,7 +59,7 @@ function fixture(mixed) {
             return append.call(this, child);
         };
     }
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         placements, history: new CommandHistory(), vias: [], pads: [], boardShapes: [],
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1,

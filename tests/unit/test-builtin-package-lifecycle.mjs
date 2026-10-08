@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 class Element {
     constructor(tag = 'div') { return fakeElement(tag); }
@@ -77,6 +78,7 @@ const capacitor = new Component(definitions.get('Capacitor'), { reference: 'C1',
 const history = new CommandHistory();
 let alerts = 0;
 const app = {
+    ...schematicEditorStubs(),
     components: [resistor, capacitor], shapes: [], componentLibrary: library, history,
     selection: { getSelection: () => app.components },
     viewport: { gridSize: 1, gridStyle: 'dots', gridVisible: true, snapToGrid: true, units: 'mm' },

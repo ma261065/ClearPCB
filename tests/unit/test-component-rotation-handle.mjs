@@ -15,6 +15,7 @@ import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mj
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const ids = new Map(), frames = new Map();
 let frameId = 0;
@@ -79,7 +80,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         if (name === 'transform') renders++;
     };
     placement.elements = [footprintElement];
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         vias: [], texts: new Map(), boardShapes: [],

@@ -21,6 +21,7 @@ import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handl
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 class Element {
@@ -60,7 +61,7 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
     model.boardShapes.push(shape, ...unrelated);
     const groups = new Map([layer, 'top-silk'].map(id => [id, new Element('g')]));
     let fills = 0, clearances = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {}, setCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; },

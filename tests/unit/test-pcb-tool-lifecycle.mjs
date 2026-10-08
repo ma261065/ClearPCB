@@ -14,6 +14,7 @@ import { getHoveredComponent, hoverComponent } from '../../src/pcb/modules/compo
 import { selectRefText } from '../../src/pcb/modules/ref-text-selection.js';
 import { getPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -44,7 +45,7 @@ function fixture() {
         querySelector: selector => selector === '.ribbon-tab.active'
             ? tabs.find(tab => tab.classList.contains('active')) : null,
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper',
         placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
             elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),

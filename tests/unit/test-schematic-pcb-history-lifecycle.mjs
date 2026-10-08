@@ -10,6 +10,7 @@ import { capturePlacementOverride } from '../../src/core/PcbPlacementState.js';
 import * as placementCommands from '../../src/pcb/modules/track-commands.js';
 import { ensureComponentView } from '../../src/schematic/render/shape-view-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -83,6 +84,7 @@ for (const [name, args] of [
     project.pcbDocument.tracks.push(bonded);
     const baseline = bonded.captureState();
     const pcb = {
+        ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
         placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
         history: new CommandHistory(), ensureViewport() {}, _renderPersistentObjects() {},

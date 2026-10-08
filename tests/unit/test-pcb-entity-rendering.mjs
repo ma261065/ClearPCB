@@ -6,6 +6,7 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import { renderPad, removePadElements } from '../../src/pcb/modules/pad.js';
 import { selectTrackOrVia, clearTrackSelection } from '../../src/pcb/modules/track-select.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element(tag = 'g') {
     const node = Object.assign(fakeElement(tag), { attributes: new Map() });
@@ -92,7 +93,7 @@ for (const [create, render, remove] of [
 {
     const track = makeTrack();
     const layers = groups();
-    const app = { tracks: [track], vias: [], pads: [], boardShapes: [], texts: new Map(),
+    const app = { ...pcbEditorStubs(), tracks: [track], vias: [], pads: [], boardShapes: [], texts: new Map(),
         placements: new Map(), getLayerGroup: id => layers.get(id) };
     const labels = () => children(layers).filter(element => element.getAttribute('class') === 'pcb-track-label');
     renderTrack(track, app.getLayerGroup);

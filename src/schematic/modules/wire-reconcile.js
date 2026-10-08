@@ -82,7 +82,7 @@ export function refreshWireConnections(app, wire) {
                         freeNetName(wire.net);
                         wire.net = netName;
                         bumpNetNameCounter(netName);
-                        app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+                        app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
                     }
                 }
             }
@@ -95,7 +95,7 @@ export function refreshWireConnections(app, wire) {
         if (!_isNetNameStillConnected(app, wire, oldNet)) {
             freeNetName(wire.net);
             wire.net = nextNetName();
-            app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+            app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
         }
     }
 }

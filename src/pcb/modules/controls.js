@@ -48,5 +48,5 @@ export function bindPcbControls(app) {
 export function bindPcbHistoryButtons(app, undoBtn, redoBtn) {
     undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
     redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));
-    app.syncPcbHistoryButtons?.();
+    app.syncPcbHistoryButtons();
 }

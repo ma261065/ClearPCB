@@ -11,6 +11,7 @@ import { Via } from '../../src/shapes/via.js';
 import { PCB_COPPER_FILLS, PCB_LAYERS } from '../../src/pcb/modules/layers.js';
 
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
@@ -233,7 +234,7 @@ function fixture() {
     const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-commit.js');
     const copper = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
         .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
-    const app = Object.assign(Object.create(copper), {
+    const app = Object.assign(Object.create(copper), pcbEditorStubs(), {
         pcbDocument: new PcbDocument(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [],
         netlist: [], placements: new Map(),
         getLayerGroup() { return null; }, _shapeElements: new Map(), alert() {},
@@ -252,7 +253,7 @@ function fixture() {
     assert.ok(app.tracks.includes(locked));
 
     const free = segment(0, 10);
-    const control = Object.assign(Object.create(copper), { ...app, pcbDocument: new PcbDocument(),
+    const control = Object.assign(Object.create(copper), pcbEditorStubs(), { ...app, pcbDocument: new PcbDocument(),
         tracks: [free], vias: [], pads: [], boardShapes: [] });
     buildDrawnTrackCommands(control, [segment(10, 20)]).execute();
     assert.equal(control.tracks.length, 1, 'An unlocked track still absorbs the drawn track');

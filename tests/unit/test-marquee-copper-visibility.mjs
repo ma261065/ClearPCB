@@ -6,6 +6,7 @@ import { armBoxSelect, maybeStartBoxSelect, finishBoxSelect, refreshBoxSelection
 import { getPcbSelection, setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { showPcbSelectionProperties } from '../../src/pcb/modules/selection-interaction.js';
 import { createTrackSelectionAdapter, selectTrackSegment } from '../../src/pcb/modules/track-select.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 class Element {
     attributes = new Map();
@@ -47,6 +48,7 @@ function fixture(tracks) {
     const layers = new Map(['top-copper', 'bottom-copper', 'selection-overlay']
         .map(layer => [layer, new Element()]));
     return {
+        ...pcbEditorStubs(),
         tracks, vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _layerGroups: layers, existingLayerGroups: () => layers, getLayerGroup: id => layers.get(id),
         viewport: { scale: 10, contentLayer: new Element() },

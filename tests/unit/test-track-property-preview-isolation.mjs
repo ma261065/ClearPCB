@@ -23,6 +23,7 @@ import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0, inputs = new Map();
 const document = installFakeDom();
@@ -60,7 +61,7 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
     const items = element('div');
     const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, element('g')]));
     let fills = 0, clearances = 0;
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }

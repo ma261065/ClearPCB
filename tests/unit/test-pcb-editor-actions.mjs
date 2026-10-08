@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
+import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { bindPcbControls, bindPcbHistoryButtons } from '../../src/pcb/modules/controls.js';
 import { savePcbProject } from '../../src/pcb/modules/editor-actions.js';
 import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
@@ -10,6 +11,7 @@ import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const elements = new Map();
 const document = installFakeDom();
@@ -45,7 +47,8 @@ function fixture() {
     }
     history.undo();
     events.length = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
+        pcbDocument: new PcbDocument(),
         currentTool: 'select', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
         getLayerGroup: () => null, _layerGroups: new Map(),

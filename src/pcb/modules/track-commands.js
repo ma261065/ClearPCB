@@ -381,7 +381,7 @@ export function finishPlacementPreview(app, commit) {
         }
         if (preview && commit && !committed) {
             refreshEditedTrackClearance(app);
-            app.updateRatsnest?.();
+            app.updateRatsnest();
         }
     }
     return !!preview;
@@ -405,13 +405,13 @@ function deselectRemovedTrack(app, track) {
     clearTrackSelection(app);
     togglePcbSelection(app, 'track', track);
     refreshTrackSelectionHalo(app);
-    app.clearProperties?.();
+    app.clearProperties();
 }
 
 /** @param {PcbEditor} app */
 function refreshEditedTrackClearance(app) {
     if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
-    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
+    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos();
 }
 
 /**
@@ -420,8 +420,8 @@ function refreshEditedTrackClearance(app) {
  */
 function _opts(app, track) {
     return {
-        viaDiameter: app.getRoutingParams?.()?.viaDiameter,
-        viaDrill: app.getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams()?.viaDiameter,
+        viaDrill: app.getRoutingParams()?.viaDrill,
         hideNetLabel: _shouldHideNetLabel(app, track),
     };
 }
@@ -645,7 +645,7 @@ export function renderRoutedCopper(app, failedRatlines = []) {
     syncPcbSelection(app);
     app.refreshSelectionHighlights();
     showPcbSelectionProperties(app);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
 
     app.refreshClearanceHalos();
     scheduleDrc(app);
@@ -841,11 +841,11 @@ function presentPlacementPose(app, compId, result) {
         renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
     }
     refreshEditedTrackClearance(app);
-    app.markDirty?.();
-    app.updateRatsnest?.();
-    app.refreshFills?.();
+    app.markDirty();
+    app.updateRatsnest();
+    app.refreshFills();
     refreshBoardView(app);
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
 }
 
 export class MovePlacementCommand extends ModelMovePlacementCommand {
@@ -893,15 +893,15 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
         const saved = super._apply(locked);
         const pl = this.app.placements?.get(this.compId);
         if (pl) pl.locked = saved.locked;
-        this.app.markDirty?.();
-        this.app.refreshSelectionHighlights?.();
+        this.app.markDirty();
+        this.app.refreshSelectionHighlights();
         if (getPcbSelection(this.app, 'component').includes(this.compId)) {
             if (this.app.viewport?.svg) {
                 this.app.viewport.svg.style.cursor = locked ? 'default' : 'grab';
             }
-            this.app.showComponentProperties?.(this.compId);
+            this.app.showComponentProperties(this.compId);
         }
-        if (getPcbSelection(this.app, 'reftext').includes(this.compId)) this.app.showRefProperties?.(this.compId);
+        if (getPcbSelection(this.app, 'reftext').includes(this.compId)) this.app.showRefProperties(this.compId);
         return saved;
     }
 }
@@ -955,7 +955,7 @@ export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCo
     _apply(v) {
         const saved = super._apply(v);
         applyPlacementRefVisible(this.app, this.compId, saved.refVisible);
-        this.app.markDirty?.();
+        this.app.markDirty();
         refreshBoardView(this.app);
         return saved;
     }
@@ -1023,7 +1023,7 @@ export function renderPlacementSide(app, compId, side) {
         const base = el.getAttribute('data-fp-layer');
         if (!base) continue;
         const target = flip ? (FP_LAYER_FLIP[base] || base) : base;
-        const group = app.getLayerGroup?.(target);
+        const group = app.getLayerGroup(target);
         if (group && el.parentNode !== group) group.appendChild(el);
         // Recolour SMD pads to the copper colour of the side they now sit on
         // (top = red, bottom = blue). Through-hole pads stay gold.
@@ -1073,7 +1073,7 @@ export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
         super._apply(s);
         drawBoardOutline(this.app);
         syncBoardOutlineInputs(this.app);
-        this.app.refreshFills?.();
+        this.app.refreshFills();
     }
 }
 

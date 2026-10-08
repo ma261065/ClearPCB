@@ -10,6 +10,7 @@ import { Via } from '../../src/shapes/via.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { buildFillContext } = await import('../../src/pcb/modules/fill-context.js');
@@ -222,7 +223,7 @@ project.schematicDocument.components.push(new Component({
     footprintShapes: ['PAD~RECT~2~1~1~1~1~both~1~0~0.5'],
 }, { id: 'U1' }));
 model.placementState.record('U1', { x: 0, y: 0, rotation: 0 });
-const dragApp = {
+const dragApp = { ...pcbEditorStubs(),
     ...board(), project, pcbDocument: model, placements: project.resolvePcbLayout().placements,
     get tracks() { return getGroupPreview(this)?.tracks || getPlacementPreviewTracks(this) || model.tracks; },
     get vias() { return getGroupPreview(this)?.vias || model.vias; },

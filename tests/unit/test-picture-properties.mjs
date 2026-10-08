@@ -5,6 +5,7 @@ import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-sta
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { renderPropertyFields, propertyField } = await import('../../src/shared/ui/property-fields.js');
@@ -37,7 +38,7 @@ const { setPcbSelection } = await import('../../src/pcb/modules/selection-regist
 const { copperCutState } = await import('../../src/pcb/modules/copper-cuts.js');
 const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }] },
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };
-const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+const app = { ...pcbEditorStubs(), boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} },
     history: new CommandHistory(), openPropertyPanel(panel) { syncPanel(panel); return true; },
     refreshPropertyPanel(panel) { syncPanel(panel); }, snapToGrid(point) { return point; } };

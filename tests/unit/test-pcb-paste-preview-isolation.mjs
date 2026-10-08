@@ -22,6 +22,7 @@ import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-rende
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 function element(tag = 'g') {
@@ -72,7 +73,7 @@ function fixture(deferred = false) {
     const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'top-silk', 'hole',
         'selection-overlay', 'clearance-overlay'].map(id => [id, element()]));
     let derived = 0, crosshairs = 0;
-    const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [],
+    const app = { ...pcbEditorStubs(), project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [],
         _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
         viewport: { scale: 10, gridVisible: false, svg: element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },

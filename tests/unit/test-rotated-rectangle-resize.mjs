@@ -12,6 +12,8 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 installFakeDom();
 const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
@@ -93,6 +95,8 @@ function appFor(shape) {
     const selection = new SelectionManager();
     selection.setShapes([shape]);
     return {
+        ...schematicEditorStubs(),
+        ...pcbEditorStubs(),
         selection,
         pcbDocument, boardShapes: pcbDocument.boardShapes, shapes: [shape], components: [], _shapeElements: new Map(),
         placements: new Map(), tracks: [], vias: [], texts: new Map(),

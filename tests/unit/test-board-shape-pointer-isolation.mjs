@@ -14,6 +14,7 @@ import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlays
 import { setBoardShapeNodeFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 class Element {
@@ -60,7 +61,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     model.boardShapes.push(...unrelated);
     let fills = 0;
     const group = new Element();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument: model, project, placements: new Map(), netlist: [], history: new CommandHistory(),
         _shapeElements: new Map(),
         _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },

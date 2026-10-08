@@ -364,7 +364,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         vertexBefore: cloneShapeGeometry(shape),
         session: beginDragSession(app, { nets: profile.dragRatsnestNets?.(shape) }),
     }));
-    app.setPcbStatus?.();
+    app.setPcbStatus();
     if (profile.kind === 'shape' && (mode === 'vertex' || mode === 'segment')) schedulePictureCopperRefresh(app, shape);
     const vertex = midpointMatch ? shape.points[handle] : handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
@@ -485,7 +485,7 @@ export function endBoardShapeDrag(app, commit) {
     const interaction = getSelectionInteraction(app);
     if (interaction?.adapter?.kind === profile.kind
         || (interaction?.mode === 'move-adapter' && interaction.entry.kind === profile.kind)) setSelectionInteraction(app, null);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
     app.viewport?.hideCrosshair?.();
     clearPolygonAxisIndicators(app);
     releaseDragSession(app, d.session);

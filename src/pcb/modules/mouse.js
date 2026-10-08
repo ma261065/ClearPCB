@@ -173,7 +173,7 @@ function onMouseDown(app, e) {
         && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
         const activeTab = app.ribbon?.querySelector('.ribbon-tab.active');
         if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
-            app.setActiveRibbonTab?.('pcb-home');
+            app.setActiveRibbonTab('pcb-home');
         }
     }
     // Inline text edit: any left-click on the canvas commits the current edit (right-click

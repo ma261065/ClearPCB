@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 class Element {
     attributes = new Map();
@@ -41,7 +42,7 @@ for (const count of [1, 2]) {
     const rectangle = { id: 'rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 20, y: 0 }, { x: 25, y: 0 }, { x: 25, y: 5 }, { x: 20, y: 5 }] };
     const layers = new Map(['top-copper', 'bottom-copper', 'top-silk', 'hole', 'selection-overlay'].map((name) => [name, new Element()]));
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument: { tracks, vias: [], pads: [], boardShapes: [rectangle], texts: new Map() },
         get tracks() { return getGroupPreview(this)?.tracks || tracks; },
         get boardShapes() { return getGroupPreview(this)?.boardShapes || this.pcbDocument.boardShapes; },

@@ -40,7 +40,7 @@ export function updateViaPreview(app, worldPos) {
     app.viewport.setCrosshair({ x: snap.x, y: snap.y });
     const svg = app.viewport?.svg;
     if (!svg) return;
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     const viaDiameter = p.viaDiameter;
     const viaDrill = p.viaDrill;
     const dia = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;
@@ -110,7 +110,7 @@ export function clearViaPreview(app) {
  */
 export function showViaToolProperties(app) {
     let diameterError = '', drillError = '';
-    const routing = () => /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const routing = () => /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     const currentDiameter = () => {
         const p = routing();
         const diameter = p.viaDiameter;
@@ -178,7 +178,7 @@ export function showViaToolProperties(app) {
  */
 export function pressViaTool(app, worldPos) {
     const snap = resolveTrackSnap(app, worldPos, {});
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     const viaDiameter = p.viaDiameter;
     const viaDrill = p.viaDrill;
     const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;

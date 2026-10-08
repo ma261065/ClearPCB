@@ -73,7 +73,7 @@ export function runSchematicEscapeAction(app) {
     const activeTab = (document.getElementById('ribbonSchematic') || document)
         .querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
-        app.setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab('home');
         return;
     }
 
@@ -102,7 +102,7 @@ export function runSchematicHistoryAction(app, action) {
     // revision, so the unsaved-changes warning and autosave see the restored state.
     if (changed) app.fileManager.setDirty(true);
     if (changed) app.renderShapes(true);
-    if (changed || cancelledProperty) app.updatePropertiesPanel?.(app.selection.getSelection());
+    if (changed || cancelledProperty) app.updatePropertiesPanel(app.selection.getSelection());
     return true;
 }
 

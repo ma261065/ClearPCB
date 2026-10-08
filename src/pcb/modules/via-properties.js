@@ -13,7 +13,6 @@ import { getPcbSelection } from './selection-registry.js';
 import { setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { refreshTrackSelectionHalo } from './copper-halos.js';
-import { copperNetNames } from './track-properties.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
@@ -223,13 +222,13 @@ export function showViaProperties(app, via) {
             fields: /** @type {PropertyField[]} */ ([
                 lock.field,
                 { key: 'net', id: 'pcbPropViaNet', type: 'net', label: 'Net',
-                    value: shown(via).net || '', mixed: mixed('net'), disabled: readOnly, nets: copperNetNames(app),
+                    value: shown(via).net || '', mixed: mixed('net'), disabled: readOnly, nets: app.netNames(),
                     commit: applyNet },
                 numberField('diameter', 'pcbPropViaDia', 'Diameter (mm)'),
                 numberField('drill', 'pcbPropViaDrill', 'Drill (mm)'),
             ]).map(field => field.key === 'locked' ? field : { ...field, disabled: field.disabled || readOnly }),
         };
     }
-    if (!app.openPropertyPanel?.(describe(), via)) { binding.dispose(); return; }
+    if (!app.openPropertyPanel(describe(), via)) { binding.dispose(); return; }
     setPropertyEditor(app, 'via', binding);
 }

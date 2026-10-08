@@ -36,14 +36,14 @@ const fillsFor = app => /** @type {CopperFill[]} */ (app.pcbDocument.copperFills
 /** @param {PcbEditor} app */
 const deferred = app => {
     const status = refreshStatus(app);
-    return status.pictureCopperPending || status.overlaysDeferred || status.fillSuspended || app.isSectionEditing?.();
+    return status.pictureCopperPending || status.overlaysDeferred || status.fillSuspended || app.isSectionEditing();
 };
 
 /** @param {PcbEditor} app @param {string} message @param {any} error */
 function reportFailure(app, message, error) {
     setFillRefreshError(app, error);
     console.error(message, error);
-    app.setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
+    app.setStatus(`${message} ${error instanceof Error ? error.message : String(error)}`);
 }
 
 /** @param {FillRefreshState} state */

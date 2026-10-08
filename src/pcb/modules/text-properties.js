@@ -77,7 +77,7 @@ export function setTextToolDefaults(app, defaults) {
 export function showTextToolProperties(app) {
     const defaults = getTextToolDefaults(app);
     const hold = pictureRefreshHold(app);
-    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const refresh = () => app.refreshPropertyPanel(describe());
     /**
      * @param {string} key
      * @param {string} id
@@ -105,7 +105,7 @@ export function showTextToolProperties(app) {
                 options: TEXT_LAYERS.map(layer => pcbLayerOption(layer, app.layerLabel(layer))),
                 commit: value => {
                     if (TEXT_LAYERS.includes(value)) defaults.layer = value;
-                    app.setPcbStatus?.();
+                    app.setPcbStatus();
                     refresh();
                 } },
             number('fontSize', 'pcbPropTextToolSize', 'Text Size (mm)', 'size',
@@ -119,7 +119,7 @@ export function showTextToolProperties(app) {
                 value: defaults.border, commit: value => { defaults.border = value; refresh(); } },
         ],
     });
-    app.openPropertyPanel?.(describe());
+    app.openPropertyPanel(describe());
 }
 
 /**
@@ -184,7 +184,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
         },
     });
     const refresh = () => {
-        if (!disposed) app.refreshPropertyPanel?.(describe());
+        if (!disposed) app.refreshPropertyPanel(describe());
     };
     /** @returns {PropertyPanel} */
     const describe = () => {
@@ -217,7 +217,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
         disposed = true;
         dispose();
     })(binding.dispose);
-    if (!app.openPropertyPanel?.(describe())) {
+    if (!app.openPropertyPanel(describe())) {
         binding.dispose();
         return;
     }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
@@ -13,7 +14,7 @@ const polygon = (left, top, right, bottom, options = {}) => ({
 });
 function ratlines(shapes) {
     const lines = [];
-    const app = { boardShapes: shapes, copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
+    const app = { ...pcbEditorStubs(), boardShapes: shapes, copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
         getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }) };
     reconcileRatsnest(app);
     return lines.length;

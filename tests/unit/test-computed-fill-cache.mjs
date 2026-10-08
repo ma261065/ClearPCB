@@ -10,6 +10,7 @@ import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-sn
 import { fillRefreshError, isFillRefreshPending, setBoardViewPanel, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
 import { getDrcPresentation } from '../../src/pcb/modules/drc-state.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { Board2D } = await import('../../src/pcb/modules/board2d.js');
@@ -27,7 +28,7 @@ Object.freeze(fill);
 let checks = 0, previews = 0;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 globalThis.requestAnimationFrame = () => { checks++; return checks; };
-const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
+const app = { ...pcbEditorStubs(), placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], board: { width: 10, height: 10, radius: 0 },
     pcbDocument: model,
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,

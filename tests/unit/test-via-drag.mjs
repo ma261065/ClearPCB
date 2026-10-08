@@ -7,6 +7,7 @@ import { areDragOverlaysDeferred, setBoardViewPanel, setDragOverlaysDeferred } f
 import { beginPcbPaste, cancelPcbPaste, getPcbPaste, updatePcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 document.createElementNS = (_namespace, tag = 'g') => {
@@ -59,7 +60,7 @@ function appFor(via) {
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     const crosshairs = [];
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument,
         placementState: pcbDocument.placementState,
         tracks: pcbDocument.tracks,
@@ -100,7 +101,7 @@ function trackAppFor(track, previousDeferral = false) {
     pcbDocument.tracks.push(track);
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project,
         pcbDocument,
         placementState: pcbDocument.placementState,

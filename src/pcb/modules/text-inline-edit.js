@@ -411,7 +411,7 @@ export function endTextInlineEdit(app, commit) {
     } finally {
         if (!blank || wasSelected) {
             app.selectText(null);
-            app.clearProperties?.();
+            app.clearProperties();
         }
         app.setActiveRibbonTab('pcb-home');
     }

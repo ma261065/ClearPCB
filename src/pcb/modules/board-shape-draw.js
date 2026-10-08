@@ -244,7 +244,7 @@ export function finishShapeDraw(app) {
         const track = trackFromBoardShape(shape, shape.net);
         app.history.execute(new AddTrackCommand(app, track));
         setPcbSelection(app, [{ kind: 'track', object: track }]);
-        app.refreshSelectionHighlights?.();
+        app.refreshSelectionHighlights();
         return;
     }
     app.history.execute(new AddBoardShapeCommand(app, shape));

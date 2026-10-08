@@ -1,6 +1,7 @@
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 /** Headless regression tests for schematic polyline segment refinement. */
 
 const document = installFakeDom();
@@ -241,6 +242,7 @@ function expect(name, condition) {
 function appFor(shape) {
     const selected = [];
     return {
+        ...schematicEditorStubs(),
         interactionState: 'idle',
         shapes: [shape],
         components: [],

@@ -123,7 +123,7 @@ export function bindRibbon(app) {
     });
 
     app.eventBus.on('toolChanged', () => {
-        app.updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         app.refreshRibbon?.();
     });
 }

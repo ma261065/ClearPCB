@@ -7,6 +7,7 @@ import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const pcbShapeGeometry = await import('../../src/shared/pcb/board-shape-geometry.js');
 const {
@@ -239,7 +240,7 @@ for (const shape of [
     Object.assign(shape, { id: 'centreline-handles', layer: 'top-copper', lineWidth: 2, filled: false });
     const anchors = getBoardShapeAnchors(shape);
     const original = cloneShapeGeometry(shape);
-    const handleApp = {
+    const handleApp = { ...pcbEditorStubs(),
         boardShapes: [shape], _shapeElements: new Map(),
         snapToGrid(point) { return point; }, getLayerGroup() { return null; },
     };
@@ -315,7 +316,7 @@ for (const reversed of [false, true]) {
 for (const layer of ['hole', 'top-copper', 'top-mask']) {
     const preview = document.createElementNS();
     preview.setAttribute('fill-opacity', '1');
-    const previewApp = {
+    const previewApp = { ...pcbEditorStubs(),
         snapToGrid: (point) => point,
     };
     setPcbInteraction(previewApp, '_shapeDraw', { kind: 'line', layer, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], preview });
@@ -326,7 +327,7 @@ for (const layer of ['hole', 'top-copper', 'top-mask']) {
         && preview.getAttribute('fill-opacity') === null
         && preview.getAttribute('d') === 'M 0 0 L 10 0 L 10 5');
 }
-const app = {
+const app = { ...pcbEditorStubs(),
     boardShapes: [],
     activeLayer: 'top-silk',
     shapeIdCounter: 1,
@@ -456,6 +457,7 @@ const renderPanel = panel => {
     renderPropertyFields(propertyItems, panel.fields);
 };
 const propertyApp = extra => ({
+    ...pcbEditorStubs(),
     boardShapes: [roundedRemovalRect],
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
@@ -503,7 +505,7 @@ for (const reversed of [false, true]) {
         const shape = { ...sharpRectangle, kind, lineWidth: 0.4, points: reversed ? points.reverse() : points };
         const anchor = getBoardShapeAnchors(shape)[corner];
         const expected = { x: Math.round(anchor.x), y: Math.round(anchor.y) };
-        const dragApp = {
+        const dragApp = { ...pcbEditorStubs(),
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
             getLayerGroup() { return null; },
@@ -787,7 +789,7 @@ check('filled rounded rectangle keeps the same outline centerline',
 let renderedFilledShape = null;
 const selectedFilledRect = { ...filledRoundedRect, copperMode: 'add' };
 {
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [selectedFilledRect],
         _shapeElements: new Map(),
         getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },

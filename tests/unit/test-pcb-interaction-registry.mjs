@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const noop = () => {};
 installFakeDom();
@@ -50,7 +51,7 @@ for (const file of pcbSources) {
 
 // 2. Derived sets reproduce the lists they replaced.
 const keysOf = predicate => keys.filter(key => {
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     setPcbInteraction(app, key, {});
     return predicate(app);
 });
@@ -62,7 +63,7 @@ assert.deepEqual(keysOf(blocksPcbExport).sort(), ['_boardOutlineResize', '_rotat
     '_textEdit', '_vertexDrag', '_viaDrag']);
 for (const predicate of [hasPcbGesture, isPcbDrawing, blocksPcbExport]) {
     assert.equal(predicate({}), false);
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     for (const key of ['_drag', '_trackDraw', '_rotationHandleDrag']) setPcbInteraction(app, key, null);
     assert.equal(predicate(app), false);
 }
@@ -82,13 +83,13 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.move, ['_boardOutlineResize', '_pasteDro
     } }])));
     for (const [index, key] of order.entries()) {
         routed = [];
-        const app = {};
+        const app = { ...pcbEditorStubs(),};
         setPcbInteraction(app, key, true);
         assert.equal(dispatch(app, null), true, `${key} is dispatched`);
         assert.deepEqual(routed, [key]);
         for (const later of order.slice(index + 1)) {
             routed = [];
-            const app = {};
+            const app = { ...pcbEditorStubs(),};
             setPcbInteraction(app, key, true);
             setPcbInteraction(app, later, true);
             dispatch(app, null);
@@ -103,7 +104,7 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.move, ['_boardOutlineResize', '_pasteDro
     routed = [];
     const withoutMove = keys.filter(key => !order.includes(key));
     assert.deepEqual(withoutMove, ['_textEdit', '_rotationHandleDrag']);
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     for (const key of withoutMove) setPcbInteraction(app, key, true);
     assert.equal(dispatch(app, null), false);
     assert.deepEqual(routed, [], 'Interactions without a move handler fall through to the active tool');
@@ -113,7 +114,7 @@ assert.equal(dispatchPcbPointerMove({ viewport: { svg: { style: {} }, scale: 1 }
     'Idle moves fall through to the active tool');
 // The real table: paste outranks a component drag, and interactions without a move handler fall through.
 {
-    const app = { pcbDocument: new PcbDocument(), _shapeElements: new Map(),
+    const app = { ...pcbEditorStubs(), pcbDocument: new PcbDocument(), _shapeElements: new Map(),
         viewport: { svg: { style: {} }, scale: 1, setCrosshair() {}, hideCrosshair() {} },
         screenToWorld: () => ({ x: 1, y: 1 }), snapToGrid: point => point,
         getLayerGroup: () => ({ querySelectorAll: () => [], appendChild() {} }), syncClipboardButtons() {} };
@@ -138,7 +139,7 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.cancel, ['_pcbSelectionInteraction', '_d
         _textDrag: { cancel: () => ended.push('text') },
         _refDrag: { cancel: () => ended.push('ref') },
     });
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     setPcbInteraction(app, '_refDrag', {});
     setPcbInteraction(app, '_drag', {});
     cancel(app);
@@ -166,7 +167,7 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSe
         _refDrag: { release: () => { released.push('ref'); } },
     }, () => { marquee++; });
     const world = { x: 1, y: 2 };
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     setPcbInteraction(app, '_refDrag', {});
     setPcbInteraction(app, '_drag', {});
     release(app, world);
@@ -195,7 +196,7 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSe
     assert.equal(marquee, 0);
 }
 {
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { svg: { style: {} } },
     };
     armBoxSelect(app, {}, {});

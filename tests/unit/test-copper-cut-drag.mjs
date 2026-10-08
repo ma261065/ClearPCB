@@ -6,6 +6,7 @@ import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { renderCopperFill } from '../../src/pcb/modules/copper-fill-render.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 function element(tag = 'g') {
@@ -44,7 +45,7 @@ try {
                 .map(id => [id, element()]));
             const svg = element('svg');
             svg.appendChild(defs);
-            const app = {
+            const app = { ...pcbEditorStubs(),
                 pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
                 placements: new Map(), texts: new Map(),
                 tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
@@ -127,7 +128,7 @@ try {
             svg.appendChild(defs);
             const groups = new Map([`${side}-copper`, `${side}-fill`, `${side}-copper-knockout`]
                 .map(id => [id, element()]));
-            const app = {
+            const app = { ...pcbEditorStubs(),
                 pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
                 history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
                 getLayerGroup: id => groups.get(id),

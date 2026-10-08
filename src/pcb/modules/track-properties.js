@@ -70,7 +70,7 @@ export function showTrackSelectionProperties(app, track) {
 function regionRewritesLockedCopper(app, track, region) {
     const locked = region.removeTracks.some((other) => other !== track && isPcbObjectLocked(app, 'track', other))
         || region.removeVias.some((via) => isPcbObjectLocked(app, 'via', via));
-    if (locked) app.setStatus?.('Connected copper is locked. Unlock it to change this layer.');
+    if (locked) app.setStatus('Connected copper is locked. Unlock it to change this layer.');
     return locked;
 }
 
@@ -121,8 +121,8 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         } finally {
             refreshTrackSelectionHalo(app);
             if (!committed) {
-                app.refreshClearanceHalos?.();
-                if (refreshFills) app.refreshFills?.();
+                app.refreshClearanceHalos();
+                if (refreshFills) app.refreshFills();
             }
             refresh();
         }
@@ -145,8 +145,8 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         spec.apply(preview.track, value, preview.before);
         renderTrack(preview.track, /** @param {string} layerId */ layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
         refreshTrackSelectionHalo(app);
-        app.refreshClearanceHalos?.();
-        if (spec.fills) app.refreshFills?.();
+        app.refreshClearanceHalos();
+        if (spec.fills) app.refreshFills();
         refresh();
     };
     /** @type {TrackPropertyBinding} */
@@ -281,7 +281,7 @@ export function showTrackNodeProperties(app, track, nodeId) {
     };
     const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
     binding = createTrackPropertyBinding(app, track, { nodeId }, refresh);
-    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    if (!app.openPropertyPanel(describe(), track)) { binding.dispose(); return; }
     setPropertyEditor(app, 'track', binding);
 }
 
@@ -328,7 +328,7 @@ export function showTrackProperties(app, track) {
         clearTrackSelection(app);
         setTrackCopperMode(app, track, mode);
         reconcileRatsnest(app);
-        app.showPropertiesTab?.();
+        app.showPropertiesTab();
     };
     /** @param {string} v */
     const applyLayer = v => {
@@ -342,7 +342,7 @@ export function showTrackProperties(app, track) {
             clearTrackSelection(app);
             moveTrackToBoardLayer(app, track, v);
             reconcileRatsnest(app);
-            app.showPropertiesTab?.();
+            app.showPropertiesTab();
             return;
         }
         const before = track.captureState();
@@ -371,7 +371,7 @@ export function showTrackProperties(app, track) {
         for (const vv of region.addVias) cmds.push(new AddViaCommand(app, /** @type {Via} */ (vv)));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
-        app.showPropertiesTab?.();
+        app.showPropertiesTab();
     };
     /** @returns {PropertyPanel} */
     const describe = () => {
@@ -397,7 +397,7 @@ export function showTrackProperties(app, track) {
                 ],
                 commit: applyCopperMode },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
-                disabled: readOnly, nets: copperNetNames(app), commit: applyNet },
+                disabled: readOnly, nets: app.netNames(), commit: applyNet },
             ...(canFillTrackLoop(track) ? /** @type {PropertyField[]} */ ([{ key: 'fill', id: 'pcbPropTrackFill', type: 'checkbox', label: 'Fill',
                 disabled: readOnly, value: false, commit: checked => {
                     if (!checked || !binding.prepare()) return;
@@ -412,7 +412,7 @@ export function showTrackProperties(app, track) {
     };
     const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
     binding = createTrackPropertyBinding(app, track, {}, refresh);
-    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    if (!app.openPropertyPanel(describe(), track)) { binding.dispose(); return; }
     setPropertyEditor(app, 'track', binding);
 }
 
@@ -475,7 +475,7 @@ export function showTrackSegmentProperties(app, track, edgeId) {
         for (const vv of region.addVias) cmds.push(new AddViaCommand(app, /** @type {Via} */ (vv)));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
-        app.showPropertiesTab?.();
+        app.showPropertiesTab();
     };
     /** @returns {PropertyPanel} */
     const describe = () => {
@@ -484,7 +484,7 @@ export function showTrackSegmentProperties(app, track, edgeId) {
                 value: track.getEdgeLayer(edgeId) || 'top-copper', disabled: !binding.affectsLayer(currentLayer),
                 options: COPPER_LAYERS.map((l) => pcbLayerOption(l.id, l.name)), commit: applyLayer },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
-                nets: copperNetNames(app), commit: applyNet },
+                nets: app.netNames(), commit: applyNet },
             bindTrackWidth(binding, edgeId),
         ]);
         if (track.edges.get(edgeId)?.bulge) fields.push(bulgeField());
@@ -492,7 +492,7 @@ export function showTrackSegmentProperties(app, track, edgeId) {
     };
     const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
     binding = createTrackPropertyBinding(app, track, { edgeId }, refresh);
-    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    if (!app.openPropertyPanel(describe(), track)) { binding.dispose(); return; }
     setPropertyEditor(app, 'track', binding);
 }
 
@@ -617,15 +617,3 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
     return true;
 }
 
-/** @param {PcbEditor} app */
-export function copperNetNames(app) {
-    if (typeof app.netNames === 'function') return app.netNames();
-    const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
-    for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
-        for (const item of source || []) {
-            const net = String(item?.net || '');
-            if (net) netNames.add(net);
-        }
-    }
-    return [...netNames].sort();
-}

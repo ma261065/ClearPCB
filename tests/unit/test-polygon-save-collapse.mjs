@@ -7,6 +7,7 @@ import { validBoardOutline } from '../../src/shared/pcb/board-outline.js';
 import { validateProject, defaultPcbStackup } from '../../src/core/project-format.js';
 import { FileManager, readProjectFile } from '../../src/core/FileManager.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
@@ -26,7 +27,7 @@ const boardShape = (overrides = {}) => ({
 const save = shape => serializeBoardShapes({ boardShapes: [shape] })[0];
 const restore = record => {
     const pcbDocument = new PcbDocument();
-    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, shapeIdCounter: 1 };
+    const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes, shapeIdCounter: 1 };
     loadBoardShapes(app, [record], { strict: true, render: false });
     return app.boardShapes[0];
 };
@@ -130,6 +131,7 @@ const raw = serializeBoardShapes({ boardShapes: [shape] }, { roundGeometry: fals
 assert.deepEqual(raw.points, points);
 assert.deepEqual(raw.segmentWidths, widths);
 const snapshot = await prepareFabricationSnapshot({
+    ...pcbEditorStubs(),
     placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(),
     copperFills: [fill], boardShapes: [shape, fill], board: { width: 20, height: 20, radius: 0 },
 }, { computeFills: false });

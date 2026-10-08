@@ -173,7 +173,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     ]));
     setPcbSelection(app, [{ kind: 'shape', object: shape }]);
     showBoardShapeProperties(app, shape);
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     return true;
 }
 
@@ -213,5 +213,5 @@ export function selectReplacementTracks(app, tracks) {
     selectBoardShape(app, null);
     setPcbSelection(app, tracks.map(track => ({ kind: 'track', object: track })));
     showPcbSelectionProperties(app);
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
 }

@@ -3,6 +3,7 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let select = null;
 const document = installFakeDom();
@@ -33,7 +34,7 @@ const syncPanel = panel => {
 };
 const unlockAction = () => shown?.actions?.[0]?.actions?.[0] || null;
 const model = new PcbDocument();
-const app = {
+const app = { ...pcbEditorStubs(),
     pcbDocument: model, boardShapes: model.boardShapes, tracks: model.tracks,
     vias: model.vias, pads: model.pads, texts: model.texts, placements: new Map(),
     history: new CommandHistory(), _shapeElements: new Map(), shapeIdCounter: 1,

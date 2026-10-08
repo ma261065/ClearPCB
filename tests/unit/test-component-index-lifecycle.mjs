@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.fetch = () => { throw new Error('Unexpected remote access in lifecycle fixture'); };
@@ -270,6 +271,7 @@ assert.equal(ModalManager.top(), null);
             let closed = 0, disposed = 0, lazyDestroyed = 0, cancelled = 0;
             const changes = [];
             const app = {
+                ...schematicEditorStubs(),
                 currentTool: 'select', interactionState: 'idle', componentPicker: picker,
                 viewport: { svg: { style: {} } },
                 selection: { clearSelection() {}, getSelection: () => [] },

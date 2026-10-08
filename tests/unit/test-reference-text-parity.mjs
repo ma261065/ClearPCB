@@ -4,6 +4,7 @@ import { applyRefGeometry } from '../../src/shared/pcb/footprint.js';
 import { PcbPlacementState } from '../../src/core/PcbPlacementState.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
@@ -70,7 +71,7 @@ for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
         assert.equal(paths[0].width, 0.2);
         assert.deepEqual(canvasStrokes(placement, side === 'top' ? 'bottom' : 'top'), []);
 
-        const app = { placements: new Map([['ref', placement]]), boardWidth: 100, boardHeight: 80 };
+        const app = { ...pcbEditorStubs(), placements: new Map([['ref', placement]]), boardWidth: 100, boardHeight: 80 };
         const silk = exportGerbers(app).get(side === 'top' ? 'board.gto' : 'board.gbo');
         const coordinates = [...silk.matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)]
             .map(match => ({ x: Number(match[1]) / 1e6, y: -Number(match[2]) / 1e6 }));
@@ -113,7 +114,7 @@ assert.notEqual(new PCBApp()._placementOverrides, constructed._placementOverride
 const moved = { x: 1, y: 2, rotation: 37, refDx: 3, refDy: -2, refRot: 90, refVisible: false,
     bounds: { x: 0, y: 0, width: 4, height: 3 } };
 let dirtyNotifications = 0;
-const editor = {
+const editor = { ...pcbEditorStubs(),
     project: owner,
     placementState: owner.pcbDocument.placementState, _placementOverrides: owner.pcbDocument.placementState.overrides,
     placements: new Map([['part', moved]]),

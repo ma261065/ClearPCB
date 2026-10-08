@@ -10,6 +10,7 @@ import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const frames = new Map();
@@ -23,7 +24,7 @@ function fixture() {
     const placement = { x: 0, y: 0, side: 'top', rotation: 0, refDx: Math.PI, refDy: -Math.E,
         refRot: 0, refSize: 1.2, refStrokeWidth: 0.15, reference: 'R1', elements: [] };
     pcbDocument.placementState.record('part', placement);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placements: new Map([['part', placement]]), history: new CommandHistory(),
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), netlist: [],
         _layerGroups: new Map(), _shapeElements: new Map(),

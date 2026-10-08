@@ -4,6 +4,7 @@ import { validateProject } from '../../src/core/project-format.js';
 import { compactProjectAliases } from '../../src/core/project-field-aliases.js';
 import { FileManager, readProjectFile } from '../../src/core/FileManager.js';
 import { createShape } from '../../src/shapes/index.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
@@ -20,7 +21,7 @@ const project = shapes => ({
         boardShapes: shapes },
 });
 const load = records => {
-    const app = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+    const app = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(app, records, { render: false, strict: true });
     return app;
 };
@@ -105,6 +106,7 @@ assert.equal(preparePcb(project([outline]).pcb).boardShapes[0].points.length, 4,
 const image = { ...base, kind: 'image', artwork, points: rectangleFramePoints(base) };
 for (const key of ['x', 'y', 'width', 'height', 'rotation']) delete image[key];
 const snapshot = await prepareFabricationSnapshot({
+    ...pcbEditorStubs(),
     placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), copperFills: [],
     boardShapes: [image], board: { width: 100, height: 80, radius: 0 },
 }, { computeFills: false });

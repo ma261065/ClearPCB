@@ -5,6 +5,7 @@ import { rasterizePicture, pictureShape } from '../../src/shared/pcb/picture-ras
 import { pointInPolygon } from '../../src/core/geometry.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { AddBoardShapeCommand, MoveBoardShapeCommand, ModifyBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
@@ -52,7 +53,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     assert.equal(copperShapesTouch(circle, image), true, 'Solid-frame contact is symmetric');
     assert.equal(copperShapesTouch(image, { ...circle, x: -1 }), true);
     assert.equal(copperShapesTouch(image, { ...circle, x: -3 }), false, 'Contact does not extend outside the frame');
-    const snapApp = { boardShapes: shapes, tracks: [], vias: [], placements: new Map(),
+    const snapApp = { ...pcbEditorStubs(), boardShapes: shapes, tracks: [], vias: [], placements: new Map(),
         viewport: { scale: 100, snapToGrid: false } };
     setTrackToolLayer(snapApp, layer);
     assert.equal(resolveTrackDrawSnap(snapApp, { x: 0, y: 0 }).copperContact, layer.endsWith('copper'),
@@ -75,7 +76,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     let views = 0;
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(original);
-    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10 },
         refreshFills() { fills++; } };
     setBoardViewPanel(app, { refresh() { views++; } });
@@ -89,7 +90,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     assert.equal(fills, 1);
     assert.equal(views, 1);
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+    const restored = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(restored, saved, { render: false });
     assert.deepEqual(serializeBoardShapes(restored), saved);
     history.undo();

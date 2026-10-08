@@ -57,18 +57,6 @@ const COPPER_MODE_OPTIONS = [
     { value: 'remove-copper-mask', label: 'Remove Copper + Mask' },
 ];
 
-/** @param {PcbEditor} app */
-function boardNetNames(app) {
-    const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
-    for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
-        for (const item of source || []) {
-            const net = String(item?.net || '');
-            if (net) netNames.add(net);
-        }
-    }
-    return [...netNames].sort();
-}
-
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
@@ -79,7 +67,7 @@ export function showBoardShapeToolProperties(app, kind) {
     const defaults = getShapeDefaults(app);
     if (!getShapeDraw(app)) app.activeLayer = resolveShapeDrawLayer(app, app.activeLayer);
     const redraw = () => updateShapeDrawPreview(app, /** @type {Point} */ (getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1)));
-    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const refresh = () => app.refreshPropertyPanel(describe());
     /** @returns {PropertyPanel} */
     const describe = () => {
         const layer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
@@ -98,7 +86,7 @@ export function showBoardShapeToolProperties(app, kind) {
                     commit: next => {
                         if (!next || isLayerLocked(next)) { refresh(); return; }
                         app.activeLayer = next;
-                        app.setPcbStatus?.();
+                        app.setPcbStatus();
                         const draw = getShapeDraw(app);
                         if (draw?.kind === kind) draw.layer = next;
                         redraw();
@@ -112,7 +100,7 @@ export function showBoardShapeToolProperties(app, kind) {
                     } }]) : []),
                 ...(copper && normalizeShapeCopperMode(defaults.copperMode) === 'add'
                     ? /** @type {PropertyField[]} */ ([{ key: 'net', id: 'pcbToolShapeNet', type: 'net', label: 'Net', value: defaults.net || '',
-                        nets: boardNetNames(app), commit: value => { defaults.net = value.trim(); } }]) : []),
+                        nets: app.netNames(), commit: value => { defaults.net = value.trim(); } }]) : []),
                 ...(showFill ? /** @type {PropertyField[]} */ ([{ key: 'fill', id: 'pcbToolShapeFilled', type: 'checkbox', label: 'Fill', value: !!defaults.filled,
                     commit: value => { defaults.filled = !!value; redraw(); refresh(); } }]) : []),
                 ...(layer === 'hole' ? /** @type {PropertyField[]} */ ([{ key: 'plated', id: 'pcbToolShapePlated', type: 'checkbox', label: 'Plated',
@@ -139,8 +127,8 @@ export function showBoardShapeToolProperties(app, kind) {
             ],
         };
     };
-    if (!app.openPropertyPanel?.(describe())) return;
-    app.setPcbStatus?.();
+    if (!app.openPropertyPanel(describe())) return;
+    app.setPcbStatus();
 }
 
 /**
@@ -171,7 +159,7 @@ export function showImageProperties(app, shape) {
         };
     };
     const lockEntries = [{ kind: 'shape', object: shape }];
-    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
+    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel(describe()); };
     /** @param {(candidate: BoardShape) => void} mutate */
     const commit = mutate => {
         if (!binding?.prepare()) return;
@@ -243,7 +231,7 @@ export function showImageProperties(app, shape) {
     /** @returns {PropertyPanel} */
     const describe = () => {
         const { width, height, rotation } = geometryValues();
-        const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
+        const names = [...new Set([...app.netNames(), String(shape.net || '')])].filter(Boolean).sort();
         // Read on every description: locking the picture from this panel changes it.
         const lock = lockedProperty(app, lockEntries);
         const readOnly = lock.readOnly;
@@ -286,7 +274,7 @@ export function showImageProperties(app, shape) {
             ],
         };
     };
-    if (!app.openPropertyPanel?.(describe(), shape)) return;
+    if (!app.openPropertyPanel(describe(), shape)) return;
     openShapePanels.set(app, { id: shape.id, refresh, live: () => !binding?.disposed });
     binding = createBoardShapePropertyBinding(app);
     widthPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
@@ -324,7 +312,7 @@ export function showBoardShapeProperties(app, shape) {
     if (drag?.original === shape) shape = drag.shape;
     if (!shape) return;
     syncPcbSelection(app);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
 
     const selectedTargets = getPcbSelection(app, 'shape');
     /** @type {BoardShape[]} */
@@ -337,7 +325,7 @@ export function showBoardShapeProperties(app, shape) {
     const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
     if (initialTargets.some(target => target.kind === 'image')) {
         if (initialTargets.length === 1) showImageProperties(app, shape);
-        else app.showMultiSelectionProperties?.(
+        else app.showMultiSelectionProperties(
             initialTargets.map((object) => ({ kind: 'shape', object })),
         );
         return;
@@ -392,7 +380,7 @@ export function showBoardShapeProperties(app, shape) {
     let nodeCornerRadiusPreview = null;
     /** @type {ShapePropertyPreview|null} */
     let bulgePreview = null;
-    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
+    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel(describe()); };
 
     /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
     /** @param {(target: BoardShape) => void} mutate */
@@ -421,7 +409,7 @@ export function showBoardShapeProperties(app, shape) {
             selectReplacementTracks(app, tracks);
             return true;
         }
-        app.refreshSelectionHighlights?.();
+        app.refreshSelectionHighlights();
         return false;
     };
     /** @param {ShapePropertyPreview|null|undefined} preview */
@@ -689,7 +677,7 @@ export function showBoardShapeProperties(app, shape) {
                     if (!commit((target) => { target.copperMode = next; })) showBoardShapeProperties(app, shape);
                 } });
             if (showNet) fields.push({ key: 'net', id: 'pcbPropShapeNet', type: 'net', label: 'Net', value: initialNet,
-                mixed: mixedNet, disabled: readOnly, nets: boardNetNames(app),
+                mixed: mixedNet, disabled: readOnly, nets: app.netNames(),
                 commit: value => {
                     const next = value.trim();
                     if (targets.every((target) => String(target.net || '') === next)) return;
@@ -739,7 +727,7 @@ export function showBoardShapeProperties(app, shape) {
         }
         return { title: panelTitle(), fields };
     };
-    if (!app.openPropertyPanel?.(describe(), shape)) return;
+    if (!app.openPropertyPanel(describe(), shape)) return;
     openShapePanels.set(app, { id: shape.id, refresh, live: () => !binding?.disposed });
     binding = createBoardShapePropertyBinding(app);
     lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());

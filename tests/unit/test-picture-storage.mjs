@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { encodePictureArtwork, decodePictureArtwork } from '../../src/shared/pcb/picture-storage.js';
 import { pointInPolygon } from '../../src/core/geometry.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const artworks = [
     { width: 100, height: 100, rectangles: [{ x: 1, y: 2, width: 3, height: 4 }] },
@@ -47,7 +48,7 @@ const saved = serializeBoardShapes({ boardShapes: [first, second] });
 assert.equal(saved[0].artwork.encoding, 'deflate-tuples-v1');
 assert.deepEqual(saved[1].artwork, { encoding: 'reference-v1', index: 0 });
 const load = data => {
-    const app = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+    const app = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(app, JSON.parse(JSON.stringify(data)), { strict: true, render: false });
     return app;
 };
@@ -71,7 +72,7 @@ console.log('PASS: compact board serialization, duplicate-image references, lega
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
 const exportImage = { ...pictureShape(artworks[2], { widthMm: 5, layer: 'top-copper', center: { x: 5, y: -5 } }), id: 'export-image' };
-const exportApp = { placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [],
+const exportApp = { ...pcbEditorStubs(), placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [],
     boardShapes: [exportImage], board: { width: 10, height: 10, radius: 0 }, _boardY: 0 };
 const snapshot = await prepareFabricationSnapshot(exportApp);
 assert.deepEqual(snapshot.boardShapes[0].artwork, exportImage.artwork, 'manufacturing snapshot uses decoded geometry');

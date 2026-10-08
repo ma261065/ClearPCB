@@ -10,6 +10,7 @@ import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const svgElement = (tagName = 'g') => fakeElement(tagName);
@@ -50,7 +51,7 @@ function fixture(options = {}) {
     const renders = [];
     const clearanceOverlay = svgElement();
     const textLayer = svgElement();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory(),
         setPropertiesTitle() {}, layerLabel: layer => layer, _insertInlineTextSymbol: () => false,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,

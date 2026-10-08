@@ -8,6 +8,7 @@ import * as modelCommands from '../../src/core/pcb-placement-commands.js';
 import * as editorCommands from '../../src/pcb/modules/track-commands.js';
 import * as refEditorCommands from '../../src/pcb/modules/ref-text-selection.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -73,7 +74,7 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
         get() { assert.fail(`A model-resolved command must not read preview field ${key}`); },
     });
     let dirty = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, placementState: state,
         placements: new Map([['part', stale]]), tracks: project.pcbDocument.tracks,
         getLayerGroup: () => null, markDirty: () => dirty++,

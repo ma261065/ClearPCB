@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.window.setTimeout = callback => { callback(); };
@@ -17,7 +18,7 @@ function fixture(outcome = 'success') {
     const result = outcome === 'cancelled' ? { success: false, cancelled: true }
         : outcome === 'error' ? { success: false, error: 'Unreadable file' }
         : { success: true, data: {}, fileName: 'example.cpcb' };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project: {
             pcbDocument: new PcbDocument(),
             schematicDocument: new SchematicDocument(),
@@ -135,7 +136,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     const pcbTitle = document.createElement('span');
     pcbTitle.id = 'pcbDocTitle';
     document.body.appendChild(pcbTitle);
-    window.app = { _updateTitle() { assert.fail('PCB edits must not update an unrelated global schematic'); } };
+    window.app = { ...pcbEditorStubs(), _updateTitle() { assert.fail('PCB edits must not update an unrelated global schematic'); } };
     const host = {
         project, fileManager: project.fileManager, ui: { docTitle: {} },
         onProjectChanged: SchematicApp.prototype.onProjectChanged,
@@ -180,7 +181,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
         async saveAs() { calls.push('saveAs'); return { success: true }; },
         fileManager: { getRecentFiles: () => [{ name: 'owned.cpcb' }] },
     };
-    const pcbControls = { project: null, currentTool: 'select', activeLayer: 'top-copper',
+    const pcbControls = { ...pcbEditorStubs(), project: null, currentTool: 'select', activeLayer: 'top-copper',
         history: { canUndo: () => false, canRedo: () => false },
         status: { docTitle: { getBoundingClientRect: () => ({ left: 0, width: 10, top: 0 }) } },
         viewport: { gridVisible: true, snapToGrid: true, gridSize: 1.27, units: 'mm', gridStyle: 'lines',

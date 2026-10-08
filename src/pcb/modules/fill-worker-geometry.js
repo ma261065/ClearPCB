@@ -16,7 +16,7 @@ export function captureFillInputs(app) {
         tracks: model.tracks, vias: model.vias, pads: model.pads,
         texts: model.texts, boardShapes: model.boardShapes, copperFills: model.copperFills,
         placements: app.placements, netlist: app.netlist,
-        getRoutingParams: () => model.designSettings?.getRoutingParams() || app.getRoutingParams?.() || {},
+        getRoutingParams: () => model.designSettings?.getRoutingParams() || app.getRoutingParams() || {},
         board: model.board || boardDimensions(app),
     });
     return {

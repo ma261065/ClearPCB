@@ -7,6 +7,7 @@ import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-sta
 import { getDrcPresentation } from '../../src/pcb/modules/drc-state.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const originalSetTimeout = globalThis.setTimeout;
@@ -22,6 +23,7 @@ let poursHandleRatsnest = false;
 let observedValue = 0;
 const pcbDocument = new PcbDocument();
 const app = {
+    ...pcbEditorStubs(),
     pcbDocument, pads: pcbDocument.pads,
     value: 0,
     getLayerGroup: () => null,

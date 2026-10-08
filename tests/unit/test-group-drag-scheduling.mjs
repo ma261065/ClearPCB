@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const frames = new Map();
 let frameId = 0;
@@ -13,7 +14,7 @@ const { getTextPosePreviewTexts } = await import('../../src/pcb/modules/text-com
 const text = { id: 'text', x: 10, y: 20 };
 let redraws = 0;
 const commands = [];
-const app = {
+const app = { ...pcbEditorStubs(),
     pcbDocument: { texts: new Map([[text.id, text]]) }, placements: new Map(),
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
     viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },

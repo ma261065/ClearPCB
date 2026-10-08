@@ -372,7 +372,7 @@ function createNumberField(app, selection, desc, context) {
     const previewKey = `${baseFieldKey}:${selectedSegment?.edgeId || ''}:${selectedNode?.nodeId || ''}`;
     let preview = state.previews.get(previewKey);
     const readValue = () => numberValue(selection, key, selectedSegment, selectedNode);
-    const refresh = () => { if (state.isCurrent()) app.updatePropertiesPanel?.(app.selection.getSelection()); };
+    const refresh = () => { if (state.isCurrent()) app.updatePropertiesPanel(app.selection.getSelection()); };
     if (!preview) {
         preview = createPropertyPreview({
             binding: state.binding,
@@ -394,7 +394,7 @@ function createNumberField(app, selection, desc, context) {
             redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
                 app.renderShapes(false);
                 const textEditShape = getSchematicTextEdit(app)?.shape;
-                if (key === 'rotation' && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay?.();
+                if (key === 'rotation' && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay();
             } }),
             commit: (before, after, { rebuild = true } = {}) => {
                 let structureChanged = false;
@@ -424,11 +424,11 @@ function createNumberField(app, selection, desc, context) {
                 } else {
                     app.history.execute(new ModifyPropertyCommand(app, affected, key, after[0]));
                     const textEditShape = getSchematicTextEdit(app)?.shape;
-                    if (['fontSize', 'rotation'].includes(key) && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay?.();
+                    if (['fontSize', 'rotation'].includes(key) && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay();
                 }
                 app.fileManager.setDirty(true);
                 if (!structureChanged && !rebuild) refresh();
-                else app.updatePropertiesPanel?.(app.selection.getSelection());
+                else app.updatePropertiesPanel(app.selection.getSelection());
             },
         });
         state.previews.set(previewKey, preview);
@@ -540,7 +540,7 @@ function describeFields(app, selection, context) {
         if (!singleWire) return;
         appendWireNetField(app, fields, 'prop_net', singleWire.net, net => {
             if (!net) {
-                app.updatePropertiesPanel?.(selection);
+                app.updatePropertiesPanel(selection);
                 return;
             }
             applyProperty('net', net);
@@ -800,7 +800,7 @@ export function applyCommonProperty(app, prop, value) {
     app.updatePropertiesPanel(selection);
     const textEdit = getSchematicTextEdit(app);
     if (prop === 'fontSize' && textEdit?.shape && selection.includes(textEdit.shape)) {
-        app.updateTextEditOverlay?.();
+        app.updateTextEditOverlay();
     }
-    if (prop === 'locked' && value) app.endTextEdit?.(true);
+    if (prop === 'locked' && value) app.endTextEdit(true);
 }

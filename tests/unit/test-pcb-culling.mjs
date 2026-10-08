@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getPcbSelectionManager, setPcbSelection, syncPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { updatePcbCulling } from '../../src/pcb/modules/component-selection.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 
@@ -18,7 +19,7 @@ function fixture(count = 3) {
             setAttribute(name, value) { writes++; this.attributes.set(name, value); },
         };
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 1, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 100, maxY: 100 }) },
         placements: new Map(Array.from({ length: count }, (_, index) => [`U${index}`, {
             x: (index % 32) * 2, y: Math.floor(index / 32) * 2, rotation: 0, refVisible: false,

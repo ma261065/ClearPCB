@@ -215,7 +215,7 @@ export function cancelSchematicShapeConversion(app) {
     getSchematicDrag(app).beforeState = conversion.original.captureState();
     getSchematicDrag(app).conversion = null;
     app.selection.select(conversion.original, false);
-    app.updatePropertiesPanel?.(app.selection.getSelection());
+    app.updatePropertiesPanel(app.selection.getSelection());
     return true;
 }
 
@@ -330,7 +330,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         app.selection.select(selectedShape, false);
         setShapeNodeFocus(app, null);
         setShapeSegmentFocus(app, null);
-        app.updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         return true;
     }
 
@@ -344,7 +344,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         if (remainder) batch.add(new AddShapeCommand(app, remainder));
         app.history.execute(batch);
         app.fileManager?.setDirty?.(true);
-        app.updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         return true;
     }
 
@@ -357,7 +357,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         app.selection.select(line, false);
         setShapeNodeFocus(app, null);
         setShapeSegmentFocus(app, null);
-        app.updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         return true;
     }
 
@@ -434,7 +434,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             }
             if (netNames.size > 1) {
                 const sorted = [...netNames].sort();
-                app.alert?.(
+                app.alert(
                     `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
                     { title: 'Net Conflict' }
                 );
@@ -521,7 +521,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         }
         app.selection.keepSelected(dragShape);
     }
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
     return true;
 }
 
@@ -562,7 +562,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
 
     // Select the merged result.
     app.selection.select(merged);
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
     app.renderShapes(true);
     return true;
 }
@@ -646,7 +646,7 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
         }
         if (netNames.size > 1) {
             const sorted = [...netNames].sort();
-            app.alert?.(
+            app.alert(
                 `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
                 { title: 'Net Conflict' }
             );
@@ -815,7 +815,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         }
         if (netNames.size > 1) {
             const sorted = [...netNames].sort();
-            app.alert?.(
+            app.alert(
                 `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
                 { title: 'Net Conflict' }
             );

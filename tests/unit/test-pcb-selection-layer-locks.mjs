@@ -17,6 +17,7 @@ import {
     lockIconMetrics,
 } from '../../src/core/ui-helpers.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const square = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }];
 const rightEdgeLock = lockPositionOutsideOutline(square, { x: 20, y: 6 }, 20);
@@ -76,7 +77,7 @@ const fill = { type: 'fill', id: 'pour', layer: 'top-copper', outline: points, l
 const shape = { kind: 'polygon', id: 'shape', layer: 'top-copper', points };
 const lockedPlacement = { id: 'locked-component', x: 3, y: 4, locked: true,
     pads: new Map([['1', { x: 1, y: 1 }]]) };
-const app = {
+const app = { ...pcbEditorStubs(),
     placements: new Map([[lockedPlacement.id, lockedPlacement]]),
     pcbDocument: new PcbDocument(), history: new CommandHistory(),
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
@@ -175,7 +176,7 @@ const { CopperFill } = await import('../../src/shapes/copper-fill.js');
 const { createCopperFillSelectionAdapter, hitTestFill } = await import('../../src/pcb/modules/copper-fill-selection.js');
 const { hitTestPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const visibleFill = new CopperFill({ outline: points, layer: 'top-copper' });
-const fillApp = {
+const fillApp = { ...pcbEditorStubs(),
     boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 },
     getLayerGroup() { return null; },
 };
@@ -230,7 +231,7 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     const silkShape = { kind: 'polygon', id: 'kept-silk-shape', layer: 'top-silk', points };
     const keptVia = { id: 'kept-via', x: 5, y: 5, diameter: 0.6, drill: 0.3 };
     let shownProperties = null;
-    const layerApp = {
+    const layerApp = { ...pcbEditorStubs(),
         placements: new Map(), pcbDocument: new PcbDocument(), tracks: [], vias: [keptVia], pads: [],
         boardShapes: [copperShape, silkShape], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
         viewport: { scale: 10, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },

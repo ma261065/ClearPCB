@@ -29,7 +29,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         throw new Error('Finish the current edit before exporting.');
     }
     const model = app.pcbDocument;
-    const params = model ? model.designSettings.getRoutingParams() : { ...app.getRoutingParams?.() };
+    const params = model ? model.designSettings.getRoutingParams() : { ...app.getRoutingParams() };
     const board = model ? { ...model.board }
         : boardDimensions(app);
     const panelization = model ? model.serializePanelization()

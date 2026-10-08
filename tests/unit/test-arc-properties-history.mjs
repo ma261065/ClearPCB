@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { renderPropertyFields } = await import('../../src/shared/ui/property-fields.js');
@@ -23,7 +24,7 @@ for (const offset of [-0.5, 0, 0.5]) {
         title = panel.title;
         renderPropertyFields(items, panel.fields);
     };
-    const app = { boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(panel) { renderPanel(panel); return true; },

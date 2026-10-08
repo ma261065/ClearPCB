@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { pointInPolygon } from '../../src/core/geometry.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function node(localName = 'g') {
     return Object.assign(fakeElement(localName), { localName });
@@ -30,7 +31,7 @@ for (const theme of ['light', 'dark']) {
         grid.setAttribute('id', 'grid');
         const layers = new Map(['board-outline', 'top-copper', 'top-document', 'hole', 'ratlines']
             .map(id => [id, root.appendChild(node())]));
-        const app = {
+        const app = { ...pcbEditorStubs(),
             tracks: [], vias: [], pads: [], placements: new Map(), netlist: [],
             _shapeElements: new Map(),
             boardShapes: [rectangleBoardOutline(30, 20)],

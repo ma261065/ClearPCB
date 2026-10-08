@@ -13,6 +13,7 @@ import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 class Element {
     constructor(tag) { return Object.assign(fakeElement(tag), { tag }); }
@@ -47,7 +48,7 @@ function fixture(saved) {
     project.pcbDocument.tracks.push(shared, unrelated);
     const copper = new Element('g');
     let trackRenders = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, placementState: state, placements,
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
         vias: [], pads: [], boardShapes: [], texts: new Map(), history: new CommandHistory(),

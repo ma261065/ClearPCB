@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function descendants(node) {
     return node.children.flatMap(child => [child, ...descendants(child)]);
@@ -72,7 +73,7 @@ console.log('PASS removal hatch patterns: one per mode, reused, in board units, 
 {
     const defs = element('defs');
     const groups = new Map();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         ...appWithDefs(defs, 1), _shapeElements: new Map(),
         getLayerGroup(id) { if (!groups.has(id)) groups.set(id, element('g')); return groups.get(id); },
     };

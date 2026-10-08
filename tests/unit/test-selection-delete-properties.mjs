@@ -10,6 +10,7 @@ import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../../src/pcb
 import { getPcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -40,7 +41,7 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
         let tabChanges = 0;
         const pcbDocument = new PcbDocument();
         pcbDocument.boardShapes.push(...shapes);
-        const app = {
+        const app = { ...pcbEditorStubs(),
 
             pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
             get copperFills() { return pcbDocument.copperFills; }, existingLayerGroups: () => new Map(),
@@ -84,7 +85,7 @@ console.log('PASS: keyboard/direct board-shape deletion, mixed selections, Prope
 function fixture() {
     const model = new PcbDocument();
     const events = [];
-    const app = {
+    const app = { ...pcbEditorStubs(),
         shapeIdCounter: 1, pcbDocument: model, placements: new Map(),
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
         get copperFills() { return model.copperFills; }, existingLayerGroups: () => new Map(),

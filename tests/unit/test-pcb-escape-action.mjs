@@ -12,6 +12,7 @@ import { getPcbInteraction, setPcbInteraction } from '../../src/pcb/modules/pcb-
 import { getLastCrosshairWorld } from '../../src/pcb/modules/cursor-state.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.requestAnimationFrame = () => 1;
@@ -23,7 +24,7 @@ function fixture() {
     const history = new CommandHistory();
     history.execute({ execute() {}, undo() {} });
     history.undo();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         currentTool: 'via', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], texts: new Map(),
         _layerGroups: new Map(), getLayerGroup: () => null,

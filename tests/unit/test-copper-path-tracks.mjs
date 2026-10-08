@@ -7,6 +7,7 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -32,6 +33,7 @@ function appFor(track) {
     const pcbDocument = new PcbDocument();
     if (track) pcbDocument.tracks.push(track);
     return {
+        ...pcbEditorStubs(),
         pcbDocument,
         tracks: pcbDocument.tracks,
         boardShapes: pcbDocument.boardShapes,

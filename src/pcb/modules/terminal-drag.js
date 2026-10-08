@@ -174,7 +174,7 @@ function restoreTerminalArtwork(app, drag, committed) {
         reconcileRatsnest(app, { skipFillRefresh: true });
     }
     if (!areDragOverlaysDeferred(app)) {
-        if (!committed) app.refreshClearanceHalos?.();
+        if (!committed) app.refreshClearanceHalos();
     } else {
         if (drag.kind === 'via') refreshViaClearance(app, drag.original);
         for (const track of drag.preview.copies.keys()) refreshTrackClearance(app, track);

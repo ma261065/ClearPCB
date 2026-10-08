@@ -79,7 +79,7 @@ export function getSegmentClickEdgeId(app) {
 /** @param {PcbEditor} app @param {VertexDrag} drag */
 function _endVertexDragOverlayDeferral(app, drag) {
     releaseDragSession(app, drag.session);
-    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
+    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos();
     else if (drag.preview) refreshTrackClearance(app, drag.original);
 }
 
@@ -185,8 +185,8 @@ export function startTrackBulgeDrag(app, track, edgeId) {
 /** @param {PcbEditor} app @param {Track} [track] */
 export function trackEditRenderOptions(app, track = getVertexDrag(app)?.track) {
     return {
-        viaDiameter: app.getRoutingParams?.()?.viaDiameter,
-        viaDrill: app.getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams()?.viaDiameter,
+        viaDrill: app.getRoutingParams()?.viaDrill,
         hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === getVertexDrag(app)?.track),
     };
 }
@@ -931,7 +931,7 @@ function endTrackPointer(app, drag, committed) {
             removeTrackElements(drag.original);
             if (getTrackEdit(app)?.track === drag.original) clearTrackEdit(app);
             syncPcbSelection(app);
-            app.clearProperties?.();
+            app.clearProperties();
         }
         if (drag.preview) {
             removeTrackElements(drag.track);

@@ -4,6 +4,7 @@ import { isPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-sta
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
@@ -54,7 +55,7 @@ try {
             const bottomFill = { get firstChild() { return null; } };
             const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill],
                 ['clearance-overlay', overlay], [shape.layer, shapeLayer]]);
-            const app = {
+            const app = { ...pcbEditorStubs(),
                 boardShapes: [shape], tracks: [], vias: [], placements: new Map(), texts: new Map(), copperFills: [],
                 history: new CommandHistory(), _shapeElements: new Map(),
                 get pcbDocument() { return this; },

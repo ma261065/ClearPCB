@@ -23,6 +23,7 @@ import { showNetGuideLine } from '../../src/pcb/modules/ratsnest.js';
 import { showTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 const document = installFakeDom();
@@ -58,7 +59,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     if (mode === 'bridge') model.vias.push(new Via({ x: Math.PI, y: -Math.E }));
     const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, element('g')]));
     let fills = 0, clearances = 0, boardRefreshes = 0;
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     setDragOverlaysDeferred(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {

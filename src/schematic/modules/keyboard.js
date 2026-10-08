@@ -84,7 +84,7 @@ function handleSpaceRotate(app, e) {
     // Rotate Net orientation while the Net tool is active.
     if (!hasSchematicTextEdit(app) && app.currentTool === 'net') {
         const current = /** @type {NetOrientation} */ (/** @type {KeyboardToolOptions} */ (app.toolOptions)?.netOrientation || 'E');
-        app.updateToolOptions?.({ netOrientation: rotateNetOrientation(current) });
+        app.updateToolOptions({ netOrientation: rotateNetOrientation(current) });
         const world = app.viewport.currentMouseWorld;
         if (world) {
             const resolved = resolveWireSnapPosition(app, world, { pinTolerance: PIN_SNAP_TOL });

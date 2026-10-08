@@ -13,6 +13,7 @@ import { getTrackDraw, setTrackToolLayer } from '../../src/pcb/modules/track-dra
 import { setTextToolDefaults } from '../../src/pcb/modules/text-properties.js';
 import { setFillToolDefaults } from '../../src/pcb/modules/copper-fill-draw.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element() {
     return {
@@ -60,7 +61,7 @@ const overlay = element();
 const texts = [{ id: 'first', x: 1, y: 2 }, { id: 'second', x: 10, y: 20 }];
 const pcbDocument = new PcbDocument();
 for (const text of texts) pcbDocument.texts.set(text.id, text);
-const app = {
+const app = { ...pcbEditorStubs(),
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
     pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
     viewport: { scale: 8, snapToGrid: false, contentLayer: element(),

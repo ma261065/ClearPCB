@@ -44,7 +44,7 @@ function _propagateNetNameToWires(app, netShape) {
             }
         }
     }
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
 }
 
 /**

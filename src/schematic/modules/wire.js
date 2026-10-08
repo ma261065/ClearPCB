@@ -390,7 +390,7 @@ export function finishWireDrawing(app, worldPos) {
     const netConflictResult = _findWireNetConflict(app);
     if (netConflictResult) {
         const [n0, n1] = netConflictResult.names;
-        app.alert?.(
+        app.alert(
             `Cannot merge wire segments with different net names: "${n0}" and "${n1}".`,
             { title: 'Net Conflict' }
         );
@@ -401,7 +401,7 @@ export function finishWireDrawing(app, worldPos) {
         batch?.undo();
         cancelWireDrawing(app);
         app.renderShapes(true);
-        app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+        app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
         return;
     }
 
@@ -412,7 +412,7 @@ export function finishWireDrawing(app, worldPos) {
 
     cancelWireDrawing(app);
     app.renderShapes(true);
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
 }
 
 /**

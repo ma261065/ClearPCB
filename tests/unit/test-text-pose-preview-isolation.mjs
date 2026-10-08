@@ -16,6 +16,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element() {
     return fakeElement('g');
@@ -32,7 +33,7 @@ function fixture(layer) {
     pcbDocument.texts.set(unrelated.id, unrelated);
     const group = element();
     let changes = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory({ onChanged: () => changes++ }),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],

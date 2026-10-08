@@ -7,6 +7,7 @@ import { Via } from '../../src/shapes/via.js';
 import { sampleArcEdge } from '../../src/shapes/arc-edge.js';
 import { getTrackDraw, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
@@ -21,7 +22,7 @@ const { runDRC } = await import('../../src/pcb/modules/drc.js');
 
 const track = (points, net = 'A', extra = {}) => new Track({ points, net, width: 0.4, ...extra });
 function fixture() {
-    const app = { pcbDocument: new PcbDocument(), placements: new Map(), netlist: [], copperFills: [],
+    const app = { ...pcbEditorStubs(), pcbDocument: new PcbDocument(), placements: new Map(), netlist: [], copperFills: [],
         history: new CommandHistory(), _shapeElements: new Map(), 
         getLayerGroup: () => null, refreshClearanceHalos() {}, refreshFills: () => false,
         getRoutingParams: () => ({ trackWidth: 0.4, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),

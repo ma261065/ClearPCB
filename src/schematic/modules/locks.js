@@ -48,7 +48,7 @@ export function unlockSchematicItem(app, item) {
     app.history.execute(new ModifyPropertyCommand(app, [owner], 'locked', false));
     app.fileManager?.setDirty?.(true);
     const selection = app.selection.getSelection();
-    app.updatePropertiesPanel?.(selection);
+    app.updatePropertiesPanel(selection);
     updateRibbonState(app, selection);
 }
 

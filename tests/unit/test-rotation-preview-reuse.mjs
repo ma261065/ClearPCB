@@ -12,6 +12,7 @@ import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handl
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { getBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const inputs = new Map();
 const document = installFakeDom();
@@ -52,7 +53,7 @@ for (const kind of ['text', 'pad']) {
         },
     };
     const overlay = { querySelectorAll: () => [highlight] };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
         pads: pcbDocument.pads, history: new CommandHistory(),
         getLayerGroup: layer => layer === 'top-copper' ? copper : layer === 'selection-overlay' ? overlay : null,
@@ -167,7 +168,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
     };
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(shape);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, boardShapes: pcbDocument.boardShapes, history: new CommandHistory(), _shapeElements: new Map(),
         getLayerGroup: id => id === layer ? group : id === 'clearance-overlay' ? clearanceOverlay : null,
         existingLayerGroups: () => new Map([[layer, group], ['clearance-overlay', clearanceOverlay]]),

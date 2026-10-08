@@ -306,7 +306,7 @@ export async function loadVersion(app) {
 export function clearDocument(app) {
     cancelSchematicPropertyPreview(app);
     cancelSchematicInteractions(app);
-    if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');
+    if (app.isSectionEditing()) throw new Error('Finish the current edit before creating a new document.');
     app.selection.clearSelection();
     clearAllShapes(app);
     clearAllComponents(app);
@@ -427,7 +427,7 @@ export async function loadOpenedProject(app, result) {
     const repaired = repairDuplicateIds(result.data);
     await loadProjectDocument(app, repaired.data);
     await app.fileManager.adoptOpen(result);
-    app.fitToContent?.();
+    app.fitToContent();
     updateTitle(app);
     app.fileManager.clearAutoSave(result.fileName);
     notifyDocumentReplaced(app, 'open');
@@ -520,7 +520,7 @@ export async function importEasyEDA(app) {
         const doc = importEasyEDASchematic(data, app.componentLibrary);
 
         await loadProjectDocument(app, doc);
-        app.fitToContent?.();
+        app.fitToContent();
         app.fileManager.fileHandle = null;
         app.fileManager.setFilePath(null);
         app.fileManager.setFileName('imported.cpcb');

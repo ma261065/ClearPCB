@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 function element(tag) {
@@ -17,7 +18,7 @@ const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrack
 const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });
-const app = { getLayerGroup: (name) => layers.get(name),
+const app = { ...pcbEditorStubs(), getLayerGroup: (name) => layers.get(name),
     tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [],
     viewport: { scale: 100, hideCrosshair() {} }, getRoutingParams: () => ({ viaDiameter: 0.8, viaDrill: 0.4 }),
     history: { execute(command) { command.execute(); command.undo(); } } };

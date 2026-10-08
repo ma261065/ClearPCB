@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 function element(tag) {
     return Object.assign(fakeElement(tag), { tag });
@@ -62,6 +63,7 @@ function fixture(active) {
     setEditorActive(app, active);
     initializeBoardOutlineState(app, false);
     const host = {
+        ...schematicEditorStubs(),
         document: project.schematicDocument,
         project, fileManager: project.fileManager, selection: { clearSelection() {} },
         shapes: [], components: [],

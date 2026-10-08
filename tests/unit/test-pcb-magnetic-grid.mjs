@@ -17,6 +17,7 @@ import { updateCursorCrosshair } from '../../src/pcb/modules/cursor-state.js';
 import { beginPcbPaste, cancelPcbPaste, updatePcbPaste } from '../../src/pcb/modules/pcb-paste.js';
 import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 document.createElementNS = () => fakeElement('g');
@@ -27,7 +28,7 @@ function fixture(viewport) {
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], getLayerGroup: () => ({ querySelector: () => null, querySelectorAll: () => [], appendChild() {} }),
         refreshText() {}, updateRatsnest() {}, drawRefOverlay() {}, syncClipboardButtons() {}, clearProperties() {},

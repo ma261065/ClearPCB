@@ -16,6 +16,7 @@ import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 class Element {
@@ -68,7 +69,7 @@ function fixture(mode, deferred) {
     const layer = new Element();
     const poured = [{ outer: fill.getOutline(), holes: [] }];
     setComputedFill(fill, poured);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [], texts: model.texts,
         placements: new Map(), history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} },

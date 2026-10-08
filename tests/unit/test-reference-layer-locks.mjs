@@ -15,6 +15,7 @@ import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
@@ -35,7 +36,7 @@ for (const side of ['top', 'bottom']) {
     pcbDocument.placementState.record('part', placement);
     const controls = new Map();
     let propertyShows = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placementState: pcbDocument.placementState,
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, addContent() {} },

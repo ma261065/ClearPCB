@@ -11,6 +11,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getPendingAnchorDrag, setPendingAnchorDrag } from '../../src/schematic/modules/drag.js';
 import { setSchematicInteraction } from '../../src/schematic/modules/schematic-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const near = (actual, expected) => assert.ok(Math.abs(Number(actual) - expected) < 1e-9,
     `Expected ${actual} to equal ${expected}`);
@@ -52,7 +53,7 @@ const placement2 = { x: 30, y: 40, refDx: 2, refDy: 3, side: 'top',
     _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
     elements: [{ classList: { toggle() {} } }] };
 const overlayHost = svgElement();
-const app = {
+const app = { ...pcbEditorStubs(),
     placements: new Map([['U1', placement], ['U2', placement2]]),
     viewport: { scale: 10, addContent: node => overlayHost.appendChild(node),
         getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
@@ -188,7 +189,7 @@ const referencePlacement = reference => ({
     reference, side: 'top', x: 10, y: 20, refVisible: true,
     elements: [{ querySelector: () => inlineRefElement }],
 });
-const editor = {
+const editor = { ...pcbEditorStubs(),
     project: componentApi,
     placements: new Map([[component.id, referencePlacement('R1')]]),
     history: new CommandHistory({ onChanged() { dirty = true; } }),
@@ -290,7 +291,7 @@ const editableReference = { supportsInlineEdit: true };
 let selectedForEdit = null;
 let startedEdit = null;
 let caretScreenPos = null;
-const schematicEditApp = {
+const schematicEditApp = { ...pcbEditorStubs(),
     selection: {
         hitTest(point, all) {
             return all ? [editableReference, selectedComponent] : selectedComponent;
@@ -363,7 +364,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
         } };
     parent.refText = reference;
     let selected = [reference];
-    const guideApp = { selection: { getSelection: () => selected }, viewport: { contentLayer: guideLayer } };
+    const guideApp = { ...pcbEditorStubs(), selection: { getSelection: () => selected }, viewport: { contentLayer: guideLayer } };
     updateLabelGuide(guideApp);
     const firstGuide = getLabelGuideElement(guideApp);
     const componentBox = [
@@ -441,7 +442,7 @@ const renderReference = { id: 'schematic-reference', type: 'text',
     } };
 renderReference.parentComponent = { x: 0, y: 0, rotation: 0, refText: renderReference,
     _getLocalBounds: () => ({ minX: -2, maxX: 2, minY: -2, maxY: 2 }) };
-const renderApp = { shapes: [renderReference], components: [],
+const renderApp = { ...pcbEditorStubs(), shapes: [renderReference], components: [],
     selection: { getSelection: () => [renderReference], isSelected: item => item === renderReference, isHovered: () => false },
     viewport: { scale: 10, contentLayer: guideLayer } };
 renderedX = 15;
@@ -468,7 +469,7 @@ const netLabel = {
         getAttribute: name => name === 'y' ? '0' : null,
     },
 };
-const netGuideApp = {
+const netGuideApp = { ...pcbEditorStubs(),
     selection: { getSelection: () => [netLabel] },
     viewport: { contentLayer: guideLayer },
 };
@@ -495,7 +496,7 @@ const highlightPlacement = { x: 0, y: 0, side: 'top', reference: 'R1', _refEl: r
     refDx: 0, refDy: -30, refSize: 1.2, refStrokeWidth: 0.15,
     bounds: { x: 20, y: 0, width: 4, height: 2 } };
 refElement.isConnected = true;
-const highlightApp = { placements: new Map([['ref', highlightPlacement]]),
+const highlightApp = { ...pcbEditorStubs(), placements: new Map([['ref', highlightPlacement]]),
     viewport: { addContent(node) {
         Object.defineProperty(node, 'isConnected', { value: true, writable: true, configurable: true });
         this.overlay = node;

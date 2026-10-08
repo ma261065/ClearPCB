@@ -12,6 +12,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { placementLocalToWorld } from '../../src/pcb/modules/ref-text-geometry.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -40,7 +41,7 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
     }];
     const overlays = [];
     let dirty = 0, boardRefreshes = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placementState: pcbDocument.placementState, tracks: pcbDocument.tracks,
         placements: new Map([['part', placement]]), _layerGroups: new Map(),
         currentTool: 'select', history: new CommandHistory(),

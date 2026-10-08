@@ -26,7 +26,7 @@ export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, 
     const selectedSegment = getShapeSegmentFocus(app);
     if (selectedSegment?.shapeId === polyline.id && selectedSegment.edgeId !== edgeId) return false;
     setShapeSegmentFocus(app, { shapeId: polyline.id, edgeId });
-    app.updateShapeSelectionTip?.();
+    app.updateShapeSelectionTip();
     setSchematicDrag(app, {
         mode: 'segment',
         shape: polyline,

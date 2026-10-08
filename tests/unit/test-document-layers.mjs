@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateFootprint } from '../../src/shared/pcb/footprint.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
@@ -42,7 +43,7 @@ const texts = new Map(['top-document', 'bottom-document'].map(layer => [layer,
     { layer, content: 'Reference only', x: 10, y: -10, size: 1, strokeWidth: 0.15 }]));
 const silks = generateFootprint('', [], fixtures.map(fixture => fixture(12)), null, 'EasyEDA').silks;
 const placements = new Map([['part', { x: 10, y: -10, silks, padOffsets: [], refVisible: false }]]);
-const app = { placements, boardShapes, texts, tracks: [], vias: [], fills: [], holes: [], boardWidth: 50, boardHeight: 40 };
+const app = { ...pcbEditorStubs(), placements, boardShapes, texts, tracks: [], vias: [], fills: [], holes: [], boardWidth: 50, boardHeight: 40 };
 assert.deepEqual(resolveSilk(placements), []);
 assert.deepEqual(collectCopperSubtractHoles(boardShapes), []);
 assert.deepEqual(exportGerbers(app), exportGerbers({ ...app, placements: new Map(), boardShapes: [], texts: new Map() }));
@@ -75,7 +76,7 @@ assert.deepEqual(surfaceFaces(boardShapes), surfaceFaces([]),
     'Document graphics add no geometry to any 3D surface (no board cutouts, mask openings or artwork)');
 
 const { listArtworkLayers } = await import('../../src/pcb/modules/pcb-export.js');
-const exportIds = listArtworkLayers({ _layerGroups: new Map() }).map(layer => layer.id);
+const exportIds = listArtworkLayers({ ...pcbEditorStubs(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; } }).map(layer => layer.id);
 globalThis.document.createElementNS = () => ({ setAttribute() {} });
 globalThis.document.getElementById = () => null;
 globalThis.document.querySelector = () => null;
@@ -96,7 +97,7 @@ const groups = new Map(['top-document', 'bottom-document'].map(id => [id, {
 const artwork = ['top-document', 'bottom-document'].map(layer => ({
     parentNode: null, getAttribute: name => (name === 'data-fp-layer' ? layer : null),
 }));
-const sideApp = { placements: new Map([['part', { elements: artwork }]]), getLayerGroup: id => groups.get(id) };
+const sideApp = { ...pcbEditorStubs(), placements: new Map([['part', { elements: artwork }]]), getLayerGroup: id => groups.get(id) };
 renderPlacementSide(sideApp, 'part', 'bottom');
 assert.deepEqual(artwork.map(el => el.parentNode.id), ['bottom-document', 'top-document'],
     'Flipping a footprint swaps its document layers');

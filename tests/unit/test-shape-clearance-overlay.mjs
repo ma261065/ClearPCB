@@ -15,6 +15,7 @@ import {
 import { isShapeClearancePending, pictureRefreshState } from '../../src/pcb/modules/picture-refresh.js';
 import { notifyOverlayVisibilityChanged } from '../../src/pcb/modules/layers.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 const element = (tag = 'g') => {
@@ -109,7 +110,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     const overlay = element();
     const halo = element();
     overlay.appendChild(halo);
-    const app = { viewport: {},
+    const app = { ...pcbEditorStubs(), viewport: {},
         _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; } };
     const nativeSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = callback => { callback(); return 1; };
@@ -130,7 +131,7 @@ const refreshVia = PCBApp.prototype._refreshViaClearance;
 const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
 const pcbDocument = new PcbDocument();
 pcbDocument.boardShapes.push(circle, rectangle, hole, line, arc);
-const app = {
+const app = { ...pcbEditorStubs(),
     pcbDocument, texts: pcbDocument.texts,
     placements: new Map(), boardShapes: pcbDocument.boardShapes,
     _layerGroups: groups, existingLayerGroups: () => groups, getLayerGroup(id) { return groups.get(id); },
@@ -440,7 +441,7 @@ for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', t
                 ? [{ x: 0, y: 0 }, { x: 10, y: 0 }]
                 : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
         const layers = new Map([layer, 'clearance-overlay'].map(id => [id, element()]));
-        const curveApp = { _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
+        const curveApp = { ...pcbEditorStubs(), _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
             getLayerGroup: id => layers.get(id), getRoutingParams: () => ({ clearance }) };
         clearanceOverlayState(curveApp).clearancesVisible = true;
         wrapClearanceCounter(curveApp);

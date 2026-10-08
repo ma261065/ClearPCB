@@ -4,6 +4,7 @@ import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { ComponentLibrary } from '../../src/components/ComponentLibrary.js';
 import { zipSync, strToU8 } from '../../assets/vendor/fflate.module.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {}, showSaveFilePicker: async () => {} };
 installFakeDom();
@@ -20,6 +21,7 @@ const project = new ProjectDocument();
 const manager = project.fileManager;
 const alerts = [];
 const app = {
+    ...schematicEditorStubs(),
     fileManager: manager, project,
     componentLibrary: Object.create(ComponentLibrary.prototype),
     ui: {}, confirm: async () => true,

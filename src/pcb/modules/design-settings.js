@@ -86,9 +86,9 @@ function readDesignInput(element, units, key) {
 function commitDesignUpdate(app, key, value) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
-        app.markDirty?.();
-        if (areClearancesVisible(app)) app.showClearances?.(true);
-        app.refreshFills?.();
+        app.markDirty();
+        if (areClearancesVisible(app)) app.showClearances(true);
+        app.refreshFills();
         refreshBoardView(app);
     }
 }
@@ -119,7 +119,7 @@ export function commitDesignValue(app, key, rawValue, units = 'mm', onError = nu
     const { value, message } = readDesignValue(key, rawValue, units);
     if (value === null) {
         onError?.(message);
-        app.setStatus?.(message);
+        app.setStatus(message);
         return { ok: false, message };
     }
     commitDesignUpdate(app, key, value);

@@ -4,6 +4,7 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
@@ -39,9 +40,9 @@ for (const options of [
     clone.move(3, 5);
     const translated = fill.getOutline().map(point => ({ x: point.x + 3, y: point.y + 5 }));
     clone.getOutline().forEach((point, index) => assert.ok(Math.hypot(point.x - translated[index].x, point.y - translated[index].y) < 1e-9));
-    const app = { boardShapes: [fill], get pcbDocument() { return this; } };
+    const app = { ...pcbEditorStubs(), boardShapes: [fill], get pcbDocument() { return this; } };
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [], get pcbDocument() { return this; } };
+    const restored = { ...pcbEditorStubs(), boardShapes: [], get pcbDocument() { return this; } };
     loadBoardShapes(restored, saved, { render: false, strict: true });
     assert.deepEqual(restored.boardShapes[0].getOutline(), fill.getOutline());
 }
@@ -56,7 +57,7 @@ assert.deepEqual(getBoardShapeAnchors(circle).map(anchor => anchor.id), ['center
 
 const commands = [];
 let crosshair = null;
-const app = { viewport: { scale: 10, shiftHeld: true,
+const app = { ...pcbEditorStubs(), viewport: { scale: 10, shiftHeld: true,
     setCrosshair(point) { crosshair = { ...point }; }, hideCrosshair() { crosshair = null; } }, placements: new Map(),
     tracks: [], vias: [], texts: new Map(), boardShapes: [],
     get copperFills() { return this.pcbDocument.copperFills; },

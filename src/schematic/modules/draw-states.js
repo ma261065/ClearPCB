@@ -232,7 +232,7 @@ function activateHomeTabIfFileTabOpen(app) {
     const ribbonEl = document.getElementById('ribbonSchematic');
     const activeTab = ribbonEl?.querySelector('.ribbon-tab.active') || document.querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
-        app.setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab('home');
     }
 }
 
@@ -289,7 +289,7 @@ function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
     if (app.showComponentDebugTooltip === false) return;
     const hitComponent = findComponentAt(app, worldPos);
     if (hitComponent) pinComponentCodeTooltip(app, hitComponent, screenPos);
-    else app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
+    else app.updateComponentCodeTooltip(null, null, { forceHide: true });
 }
 
 /**
@@ -303,11 +303,11 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
         && !getPlacingComponent(app) && !isComponentCodeTooltipPinned(app);
     if (canShow) {
         const hit = findComponentAt(app, worldPos);
-        app.updateComponentCodeTooltip?.(hit, screenPos);
+        app.updateComponentCodeTooltip(hit, screenPos);
         return;
     }
     if (!isComponentCodeTooltipPinned(app)) {
-        app.updateComponentCodeTooltip?.(null, screenPos);
+        app.updateComponentCodeTooltip(null, screenPos);
     }
 }
 
@@ -575,7 +575,7 @@ export const idleState = {
             if (!anchorId) continue;
 
             setShapeSegmentFocus(app, null);
-            app.updateShapeSelectionTip?.();
+            app.updateShapeSelectionTip();
 
             if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
                 const pos = shape.nodes.get(anchorId);
@@ -655,7 +655,7 @@ export const idleState = {
             }
 
             setShapeSegmentFocus(app, null);
-            app.updateShapeSelectionTip?.();
+            app.updateShapeSelectionTip();
 
             // Wire segment drag
             if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
@@ -702,9 +702,9 @@ export const idleState = {
             setShapeSegmentFocus(app, null);
             setShapeNodeFocus(app, { shapeId: pendingNode.shape.id, nodeId: pendingNode.anchorId });
             app.renderShapes(true);
-            app.updateShapeSelectionTip?.();
-            app.updatePropertiesPanel?.(app.selection.getSelection());
-            app.setActiveRibbonTab?.('properties');
+            app.updateShapeSelectionTip();
+            app.updatePropertiesPanel(app.selection.getSelection());
+            app.setActiveRibbonTab('properties');
             setSkipClickSelection(app, true);
             event.preventDefault();
         }
@@ -726,9 +726,9 @@ export const idleState = {
             setShapeSegmentFocus(app, edgeId == null ? null : { shapeId: pendingSegmentToggle.shape.id, edgeId });
             setShapeNodeFocus(app, null);
             app.renderShapes(true);
-            app.updateShapeSelectionTip?.();
-            app.updatePropertiesPanel?.(app.selection.getSelection());
-            app.setActiveRibbonTab?.('properties');
+            app.updateShapeSelectionTip();
+            app.updatePropertiesPanel(app.selection.getSelection());
+            app.setActiveRibbonTab('properties');
             event.preventDefault();
             return;
         }
@@ -983,7 +983,7 @@ export const moveDragState = {
             getSchematicDrag(app).lastSnapped.x = snappedTarget.x;
             getSchematicDrag(app).lastSnapped.y = snappedTarget.y;
             app.renderShapes(false);
-            if (getSchematicTextEdit(app)) app.updateTextEditOverlay?.();
+            if (getSchematicTextEdit(app)) app.updateTextEditOverlay();
             app.fileManager.setDirty(true);
         }
 
@@ -1153,7 +1153,7 @@ export const anchorDragState = {
             renderShapeAlignment(app, getSchematicDrag(app).shape, [getSchematicDrag(app).anchorId]);
         }
         app.renderShapes(false);
-        if (getSchematicTextEdit(app)) app.updateTextEditOverlay?.();
+        if (getSchematicTextEdit(app)) app.updateTextEditOverlay();
         app.fileManager.setDirty(true);
     },
 

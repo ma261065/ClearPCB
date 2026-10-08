@@ -3,6 +3,7 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { isBoardViewRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardOutlineResize } from '../../src/pcb/modules/board-outline-resize.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
@@ -85,7 +86,7 @@ const outlineRenderGroup = { querySelector: () => null, querySelectorAll: () => 
 const overlayRenderGroup = { querySelector: () => null, querySelectorAll: () => [], appendChild() {} };
 const pcbDocument = new PcbDocument();
 Object.assign(pcbDocument.board, { width: 100, height: 80, radius: 3 });
-const app = Object.assign(Object.create(dimensionPrototype), {
+const app = Object.assign(Object.create(dimensionPrototype), pcbEditorStubs(), {
     pcbDocument,
     _shapeElements: new Map(),
     viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
@@ -210,7 +211,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
         const originalDimensions = { ...pcbDocument.board };
         const outlineLayer = makeOutlineElement();
         const fitCalls = [], stages = [];
-        const view = Object.assign(Object.create(dimensionPrototype), {
+        const view = Object.assign(Object.create(dimensionPrototype), pcbEditorStubs(), {
             pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
             viewport: { fitToBounds(...args) { fitCalls.push(args); } },
             getLayerGroup(id) {
@@ -245,7 +246,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
     Object.assign(pcbDocument.board, { width: 47.123456, height: 29.234567, radius: 0 });
     const outlineLayer = makeOutlineElement();
     const fitCalls = [];
-    const view = Object.assign(Object.create(dimensionPrototype), {
+    const view = Object.assign(Object.create(dimensionPrototype), pcbEditorStubs(), {
         pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
         viewport: { fitToBounds(...args) { fitCalls.push(args); } },
         getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },

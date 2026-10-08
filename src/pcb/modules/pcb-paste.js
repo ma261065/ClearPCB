@@ -159,7 +159,7 @@ function renderPayload(app, payload, preview) {
     /** @param {string} id */
     const layer = id => app.getLayerGroup(id);
     for (const track of payload.tracks) renderTrack(track, layer, {
-        viaDiameter: app.getRoutingParams?.()?.viaDiameter, viaDrill: app.getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams()?.viaDiameter, viaDrill: app.getRoutingParams()?.viaDrill,
     });
     payload.vias.forEach(via => renderVia(via, layer));
     payload.pads.forEach(pad => renderPad(pad, layer));
@@ -171,8 +171,8 @@ function renderPayload(app, payload, preview) {
 
 /** @param {PcbEditor} app */
 function refreshAuthoredPaste(app) {
-    app.updateCopperCuts?.();
-    app.refreshClearanceHalos?.();
+    app.updateCopperCuts();
+    app.refreshClearanceHalos();
     reconcileRatsnest(app);
     if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
 }
@@ -241,8 +241,8 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     const payload = /** @type {PcbPastePayload} */ (Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]])));
     if (!kinds.some(kind => payload[kind].length)) throw new Error('PCB paste requires at least one entity.');
     assertFresh(app.pcbDocument, payload);
-    if (!editable(payload)) { app.setStatus?.('Cannot paste onto a hidden or locked layer.'); return false; }
-    app.clearProperties?.();
+    if (!editable(payload)) { app.setStatus('Cannot paste onto a hidden or locked layer.'); return false; }
+    app.clearProperties();
     const points = [
         ...payload.tracks.flatMap(track => [...track.nodes.values()]),
         ...payload.vias, ...payload.pads, ...payload.texts,
@@ -276,7 +276,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     setFillRefreshSuspended(app, true);
     state.session = beginDragSession(app, { suspendBoardView: true });
     try {
-        app.syncPcbHistoryButtons?.();
+        app.syncPcbHistoryButtons();
         if (select) setPcbSelection(app, payload.shapes.map(object => ({ kind: 'shape', object })));
         updatePcbPaste(app, app.viewport?.currentMouseWorld || { x: 0, y: 0 });
     } catch (error) {
@@ -331,13 +331,13 @@ function release(app, state) {
     // Pours owed before the paste, or requested during it, remain owed.
     setFillRefreshPending(app, state.fillPending || pendingFill);
     updateCursorForTool(app);
-    app.syncClipboardButtons?.();
-    app.syncPcbHistoryButtons?.();
+    app.syncClipboardButtons();
+    app.syncPcbHistoryButtons();
 }
 
 /** @param {PcbEditor} app */
 function resumePendingFill(app) {
-    if (isFillRefreshPending(app) && !areDragOverlaysDeferred(app) && !isFillRefreshSuspended(app)) app.refreshFills?.();
+    if (isFillRefreshPending(app) && !areDragOverlaysDeferred(app) && !isFillRefreshSuspended(app)) app.refreshFills();
 }
 
 /** @param {PcbEditor} app */

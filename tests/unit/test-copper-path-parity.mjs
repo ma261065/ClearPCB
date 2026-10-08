@@ -6,6 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -41,7 +42,7 @@ function trackFor(spec) {
 }
 function board(extra) {
     const layer = fakeElement('g');
-    return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
+    return { ...pcbEditorStubs(), pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
         get pcbDocument() { return this; },
         texts: new Map(), _shapeElements: new Map(), viewport: { scale: 10 }, getLayerGroup: () => layer, ...extra };
 }

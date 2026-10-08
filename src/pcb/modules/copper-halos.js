@@ -367,7 +367,7 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
  * @param {string} cls
  */
 export function removeHalosByClass(app, cls) {
-    const groups = app.existingLayerGroups?.();
+    const groups = app.existingLayerGroups();
     if (!groups) return;
     for (const g of groups.values()) {
         g.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
@@ -383,7 +383,7 @@ export function removeHalosByClass(app, cls) {
  * @param {number} [opacity]
  */
 export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELECTED) {
-    const parent = app.getLayerGroup?.('selection-overlay');
+    const parent = app.getLayerGroup('selection-overlay');
     if (!parent) return;
     const points = padOutline({ ...pad, x: 0, y: 0 });
     const polygon = document.createElementNS(NS, 'polygon');

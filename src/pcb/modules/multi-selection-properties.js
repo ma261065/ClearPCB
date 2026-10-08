@@ -401,6 +401,6 @@ export function showMultiSelectionProperties(app, entries) {
         fields.push(field);
     }
     renderPropertyFields(items, fields, { placeholder: 'No shared editable properties' });
-    app.showPropertiesTab?.();
-    app.syncClipboardButtons?.();
+    app.showPropertiesTab();
+    app.syncClipboardButtons();
 }

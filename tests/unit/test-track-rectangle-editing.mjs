@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
@@ -22,7 +23,7 @@ function loop(points, options = {}) {
 
 function appFor(tracks, pads = []) {
     const commands = [];
-    const app = Object.assign(Object.create(copperPrototype), {
+    const app = Object.assign(Object.create(copperPrototype), pcbEditorStubs(), {
         pcbDocument: new PcbDocument(), tracks, vias: [], pads, placements: new Map(), netlist: [], boardShapes: [],
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },

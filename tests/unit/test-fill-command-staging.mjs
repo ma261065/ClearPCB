@@ -4,6 +4,7 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { getComputedFill, setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { renderPropertyFields } = await import('../../src/shared/ui/property-fields.js');
@@ -19,7 +20,7 @@ function fixture(options = {}) {
     const model = new PcbDocument();
     model.boardShapes.push(fill);
     // The model collections and layer groups an editor gives the pour recompute it triggers.
-    const app = { pcbDocument: model, boardShapes: model.boardShapes, placements: new Map(),
+    const app = { ...pcbEditorStubs(), pcbDocument: model, boardShapes: model.boardShapes, placements: new Map(),
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts,
         get copperFills() { return model.copperFills; }, existingLayerGroups: () => new Map(),
         history: new CommandHistory(), viewport: { scale: 100 }, getLayerGroup() { return null; } };

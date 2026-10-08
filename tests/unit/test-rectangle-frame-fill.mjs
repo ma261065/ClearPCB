@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { rectangleFramePoints } from '../../src/shapes/rectangle-frame.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const nearPoints = (actual, expected, tolerance = 1e-9) => {
     assert.equal(actual.length, expected.length);
@@ -134,7 +135,7 @@ assert.deepEqual(savedPrecise.nodeCornerRadii, { 0: 0.4568 });
 assert.deepEqual(savedPrecise.segmentBulges, { 1: 0.2346 });
 assert.deepEqual(CopperFill.fromJSON(savedPrecise).toJSON(), savedPrecise,
     'Full-precision live geometry saves as a stable four-decimal frame');
-const snapshot = await prepareFabricationSnapshot({ placements: new Map(), tracks: [], vias: [], texts: new Map(),
+const snapshot = await prepareFabricationSnapshot({ ...pcbEditorStubs(), placements: new Map(), tracks: [], vias: [], texts: new Map(),
     boardShapes: [precise], copperFills: [precise], board: { width: 100, height: 80 , radius: 0 }}, { computeFills: false });
 assert.deepEqual(snapshot.fills[0].outline, geometry, 'Fabrication keeps full-precision derived geometry');
 assert.notEqual(snapshot.fills[0].outline, precise.outline);

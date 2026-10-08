@@ -211,7 +211,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
             app.addShape(shape);
             app.selection.select(shape);
-            app.startTextEdit?.(shape);
+            app.startTextEdit(shape);
             app.interactionState = 'toolActive';
             app.renderShapes(true);
             event.preventDefault();
@@ -226,7 +226,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
         // Keep Net placement preferences initialized
         const style = normalizeNetStyle(app.toolOptions?.netStyle || 't');
         const orientation = normalizeNetOrientation(app.toolOptions?.netOrientation || 'N');
-        app.updateToolOptions?.({ netStyle: style, netOrientation: orientation });
+        app.updateToolOptions({ netStyle: style, netOrientation: orientation });
         createNetToolGhost(app);
     }),
     pinMarkerTool('noconnect', 'No Connect', 'x', app => createNoConnectToolGhost(app), '✕ No Connect'),

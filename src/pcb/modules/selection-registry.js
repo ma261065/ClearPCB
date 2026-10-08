@@ -139,7 +139,7 @@ function manager(app) {
                 );
                 if (segment && !segmentStillSelected) {
                     setBoardShapeSegmentFocus(app, null);
-                    const overlay = app.getLayerGroup?.('selection-overlay');
+                    const overlay = app.getLayerGroup('selection-overlay');
                     for (const element of [...(overlay?.querySelectorAll?.('.pcb-shape-segment-selection') || [])]) {
                         element.remove();
                     }
@@ -149,7 +149,7 @@ function manager(app) {
                     (item) => (item.kind === 'shape' || item.kind === 'fill') && item.object?.id === node.shapeId,
                 );
                 if (node && !nodeStillSelected) setBoardShapeNodeFocus(app, null);
-                app.setPcbStatus?.();
+                app.setPcbStatus();
                 refreshPcbReferenceOverlay(app);
             },
         });

@@ -200,7 +200,7 @@ function _hasViaAt(app, x, y) {
  * @param {string} net
  */
 function _makeViaAt(app, x, y, net) {
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     const viaDiameter = p.viaDiameter;
     const viaDrill = p.viaDrill;
     const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;

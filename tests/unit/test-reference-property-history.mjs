@@ -10,6 +10,7 @@ import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mj
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -29,7 +30,7 @@ function fixture(saved, selected = false) {
     if (saved) pcbDocument.placementState.record('part', placement);
     const renders = [], overlays = [];
     let dirty = 0, boardRefreshes = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placementState: pcbDocument.placementState, placements: new Map([['part', placement]]),
         history: new CommandHistory(),
         viewport: { addContent(node) {

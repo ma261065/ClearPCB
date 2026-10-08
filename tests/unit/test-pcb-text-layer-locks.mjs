@@ -16,6 +16,7 @@ import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js'
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 document.createElement = () => assert.fail('Locked text must not create an inline editor');
@@ -33,7 +34,7 @@ for (const layerId of TEXT_LAYERS) {
     pcbDocument.texts.set(text.id, text);
     const controls = new Map();
     let propertyShows = 0, cleared = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory(),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },

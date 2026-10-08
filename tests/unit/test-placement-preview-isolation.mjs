@@ -6,6 +6,7 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, MovePlacementCommand } from '../../src/pcb/modules/track-commands.js';
 import { renderTrack, hasTrackElements } from '../../src/pcb/modules/track-render.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 function fixture() {
@@ -26,7 +27,7 @@ function fixture() {
     project.pcbDocument.tracks.push(first, second, unrelated);
     const groups = new Map();
     let dirty = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         placements: project.resolvePcbLayout().placements, history: new CommandHistory(),
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },

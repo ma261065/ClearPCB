@@ -63,13 +63,13 @@ function nearestGridValue(app) {
 
 /** @param {PcbEditor} app */
 function ensureViewport(app) {
-    app.ensureViewport?.();
+    app.ensureViewport();
     return app.viewport;
 }
 
 /** @param {PcbEditor} app */
 function boardView(app) {
-    return app.currentBoardView?.() || null;
+    return app.currentBoardView() || null;
 }
 
 /** @param {PcbEditor} app */
@@ -139,8 +139,8 @@ export function createPcbRibbonDescription(app) {
     /** @param {string} tool */
     const setTool = tool => selectPcbTool(app, tool);
     const project = () => app.project;
-    const canCopyCut = () => app.canCopyCutPcbSelection?.() || false;
-    const canPaste = () => app.hasPcbClipboardData?.() || false;
+    const canCopyCut = () => app.canCopyCutPcbSelection() || false;
+    const canPaste = () => app.hasPcbClipboardData() || false;
     // A placement tool's button carries a lock or hidden badge while its layer is blocked.
     /** @param {string} tool */
     const blockBadge = tool => ({
@@ -172,15 +172,15 @@ export function createPcbRibbonDescription(app) {
         };
     };
     /** @param {boolean} checked */
-    const onShowGridChange = checked => { const vp = ensureViewport(app); if (!vp) return; vp.setGridVisible(checked); if (!checked) vp.snapToGrid = false; syncGridSettings(app); app.markDirty?.(); };
+    const onShowGridChange = checked => { const vp = ensureViewport(app); if (!vp) return; vp.setGridVisible(checked); if (!checked) vp.snapToGrid = false; syncGridSettings(app); app.markDirty(); };
     /** @param {boolean} checked */
-    const onSnapToGridChange = checked => { const vp = ensureViewport(app); if (!vp?.gridVisible) return; vp.snapToGrid = checked; syncGridSettings(app); app.markDirty?.(); };
+    const onSnapToGridChange = checked => { const vp = ensureViewport(app); if (!vp?.gridVisible) return; vp.snapToGrid = checked; syncGridSettings(app); app.markDirty(); };
     /** @param {string} value */
-    const onGridSizeChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridSize(parseFloat(value)); syncGridSettings(app); app.markDirty?.(); };
+    const onGridSizeChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridSize(parseFloat(value)); syncGridSettings(app); app.markDirty(); };
     /** @param {string} value */
-    const onViewportUnitsChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setUnits(/** @type {import('../../core/Viewport.js').ViewportUnit} */ (value)); nearestGridValue(app); syncGridSettings(app); app.markDirty?.(); };
+    const onViewportUnitsChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setUnits(/** @type {import('../../core/Viewport.js').ViewportUnit} */ (value)); nearestGridValue(app); syncGridSettings(app); app.markDirty(); };
     /** @param {string} value */
-    const onGridStyleChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridStyle(/** @type {'lines'|'dots'} */ (value)); syncGridSettings(app); app.markDirty?.(); };
+    const onGridStyleChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridStyle(/** @type {'lines'|'dots'} */ (value)); syncGridSettings(app); app.markDirty(); };
     return {
         /** @param {{from: string, to: string, userInitiated: boolean}} event */
         onBeforeTabChange(event) {
@@ -190,7 +190,7 @@ export function createPcbRibbonDescription(app) {
         /** @param {{to: string}} event */
         onTabChange(event) {
             const { to } = event;
-            app.syncClipboardButtons?.();
+            app.syncClipboardButtons();
             if (to === 'pcb-home') app.refreshPcbRibbon?.();
             peekDrcPresentation(app)?.setDesignActive(to === 'pcb-design');
         },
@@ -207,8 +207,8 @@ export function createPcbRibbonDescription(app) {
                 title: 'Render',
                 className: 'ribbon-group--persistent ribbon-group--right ribbon-group--3d',
                 items: [
-                    B('pcb2dView', '🟩 2D View', 'Toggle the flat 2D board view', { active: () => boardView(app) === 'top' || boardView(app) === 'bottom', run: () => app.open2DView?.(app.last2DSide?.() || 'top') }),
-                    B('pcb3dView', '🧊 3D View', 'Toggle the interactive 3D board view', { active: () => boardView(app) === '3d', run: () => app.open3DView?.() }),
+                    B('pcb2dView', '🟩 2D View', 'Toggle the flat 2D board view', { active: () => boardView(app) === 'top' || boardView(app) === 'bottom', run: () => app.open2DView(app.last2DSide() || 'top') }),
+                    B('pcb3dView', '🧊 3D View', 'Toggle the interactive 3D board view', { active: () => boardView(app) === '3d', run: () => app.open3DView() }),
                 ],
             },
             {
@@ -304,13 +304,13 @@ export function createPcbRibbonDescription(app) {
                         ],
                     },
                     { title: 'History', items: [
-                        B('pcbUndoBtn', '↶ Undo', 'Undo (Ctrl+Z)', { disabled: () => !app.canUndoPcbHistory?.(), run: () => runPcbHistoryAction(app, 'undo') }),
+                        B('pcbUndoBtn', '↶ Undo', 'Undo (Ctrl+Z)', { disabled: () => !app.canUndoPcbHistory(), run: () => runPcbHistoryAction(app, 'undo') }),
                         B('pcbRedoBtn', '↷ Redo', 'Redo (Ctrl+Y)', { disabled: () => !app.history?.canRedo?.(), run: () => runPcbHistoryAction(app, 'redo') }),
                     ] },
                     { title: 'Clipboard', itemsClassName: 'ribbon-group-items prop-actions', items: [
-                        B('pcbCutHome', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection?.() }),
-                        B('pcbCopyHome', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection?.() }),
-                        B('pcbPasteHome', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection?.() }),
+                        B('pcbCutHome', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection() }),
+                        B('pcbCopyHome', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection() }),
+                        B('pcbPasteHome', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection() }),
                     ] },
                     {
                         title: 'Grid',
@@ -332,15 +332,15 @@ export function createPcbRibbonDescription(app) {
                     { title: 'View', items: [
                         B('pcbZoomOut', '−', 'Zoom Out', { run: () => ensureViewport(app)?.zoomOut() }),
                         B('pcbZoomIn', '+', 'Zoom In', { run: () => ensureViewport(app)?.zoomIn() }),
-                        B('pcbZoomFit', 'Fit', 'Fit to Board Area', { run: () => app.fitToContent?.() }),
+                        B('pcbZoomFit', 'Fit', 'Fit to Board Area', { run: () => app.fitToContent() }),
                         B('pcbResetView', 'Default', 'Default View', { run: () => ensureViewport(app)?.resetView() }),
                         B('pcbThemeToggle', () => getThemeIcon(getSavedTheme()), 'Toggle Dark/Light Mode', { className: 'theme-toggle', run: () => { toggleSharedTheme(); app.refreshPcbRibbon?.(); } }),
                     ] },
                     { title: 'Fabrication', items: [
-                        B('pcbPanelize', [E('span', { attrs: { 'aria-hidden': 'true' } }, '▦'), ' Panelize'], 'Configure board panel, rails and separation', { run: () => app.openPanelize?.() }),
-                        B('pcbExportGerber', '📁 Export Gerber', 'Export Gerber + drill files as ZIP', { run: () => app.exportGerber?.() }),
-                        B('pcbExportBOM', '📋 Export BOM', 'Export Bill of Materials as CSV', { run: () => app.exportBOM?.() }),
-                        B('pcbExportPnP', '📍 Export P&P', 'Export Pick-and-place (centroid) file as CSV', { run: () => app.exportPickAndPlace?.() }),
+                        B('pcbPanelize', [E('span', { attrs: { 'aria-hidden': 'true' } }, '▦'), ' Panelize'], 'Configure board panel, rails and separation', { run: () => app.openPanelize() }),
+                        B('pcbExportGerber', '📁 Export Gerber', 'Export Gerber + drill files as ZIP', { run: () => app.exportGerber() }),
+                        B('pcbExportBOM', '📋 Export BOM', 'Export Bill of Materials as CSV', { run: () => app.exportBOM() }),
+                        B('pcbExportPnP', '📍 Export P&P', 'Export Pick-and-place (centroid) file as CSV', { run: () => app.exportPickAndPlace() }),
                     ] },
                 ],
             },
@@ -350,9 +350,9 @@ export function createPcbRibbonDescription(app) {
                 groups: [
                     { id: 'pcbPropsContent', title: 'Properties', itemsId: 'pcbPropsItems', items: [{ kind: 'propertyPlaceholder', text: 'Click an object to see its properties' }] },
                     { id: 'pcbPropsClipboard', title: 'Clipboard', itemsClassName: 'ribbon-group-items prop-actions', items: [
-                        B('pcbCutProps', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection?.() }),
-                        B('pcbCopyProps', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection?.() }),
-                        B('pcbPasteProps', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection?.() }),
+                        B('pcbCutProps', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection() }),
+                        B('pcbCopyProps', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection() }),
+                        B('pcbPasteProps', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection() }),
                     ] },
                 ],
             },
@@ -383,27 +383,27 @@ export function createPcbRibbonDescription(app) {
                             }))),
                             routingRow('Units', { kind: 'select', id: 'pcbRouteUnits', value: () => app.designSettings.values.units,
                                 /** @param {string} value */
-                                onChange: value => { if (app.designSettings.update({ units: value })) { saveDesignDefaults(app); app.markDirty?.(); app.refreshPcbRibbon?.(); } },
+                                onChange: value => { if (app.designSettings.update({ units: value })) { saveDesignDefaults(app); app.markDirty(); app.refreshPcbRibbon?.(); } },
                                 options: [{ value: 'mm', label: 'mm', selected: true }, { value: 'inch', label: 'inch' }] }),
                         ],
                     },
                     { title: 'Design Rules', items: [E('div', { id: 'pcbDrcControl', className: 'drc-control' }, [B('pcbDrcStatus', [E('span', { id: 'pcbDrcIcon', className: 'drc-status-icon' }, '…'), E('span', { id: 'pcbDrcLabel', className: 'drc-status-label' }, 'Checking…')], 'Design Rule Check — click to view problems', { className: 'drc-status drc-status-pending', attrs: { 'aria-haspopup': 'true', 'aria-expanded': 'false' } })])] },
                     { title: 'Auto Router', itemsClassName: 'ribbon-group-items auto-router-controls', items: [
-                        B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => app.runAutoRoute?.() }),
+                        B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => app.runAutoRoute() }),
                         { kind: 'select', id: 'pcbRouterMode', className: 'auto-router-mode', title: 'Router algorithm', attrs: { 'aria-label': 'Router algorithm' },
                             value: () => app.designSettings.values.router,
                             /** @param {string} value */
-                            onChange: value => { if (app.designSettings.update({ router: value })) { saveDesignDefaults(app); app.markDirty?.(); } },
+                            onChange: value => { if (app.designSettings.update({ router: value })) { saveDesignDefaults(app); app.markDirty(); } },
                             options: [{ value: 'maze', label: 'Maze', selected: true }, { value: 'pathfinder', label: 'Pathfinder' }] },
-                        B('pcbClearRoutes', '✕ Clear Routes', 'Clear all tracks and restore ratlines', { run: () => app.clearRoutes?.() }),
+                        B('pcbClearRoutes', '✕ Clear Routes', 'Clear all tracks and restore ratlines', { run: () => app.clearRoutes() }),
                     ] },
                     { title: 'Test Boards', items: [
-                        B('pcbTestDense', '🔬 Dense', 'Load dense test board (42×40mm, 76 connections)', { run: () => app.loadTestBoard?.('test-board.json') }),
-                        B('pcbTestSpread', '🔬 Spread', 'Load spread test board (102×84mm, 76 connections)', { run: () => app.loadTestBoard?.('test-board-spread.json') }),
+                        B('pcbTestDense', '🔬 Dense', 'Load dense test board (42×40mm, 76 connections)', { run: () => app.loadTestBoard('test-board.json') }),
+                        B('pcbTestSpread', '🔬 Spread', 'Load spread test board (102×84mm, 76 connections)', { run: () => app.loadTestBoard('test-board-spread.json') }),
                     ] },
                     { title: 'External Routing', items: [
-                        B('pcbExportDSN', '📤 Export DSN', 'Export Specctra DSN for external router', { run: () => app.exportDSN?.() }),
-                        B('pcbImportSES', '📥 Import SES', 'Import Specctra SES routed session', { run: () => app.importSES?.() }),
+                        B('pcbExportDSN', '📤 Export DSN', 'Export Specctra DSN for external router', { run: () => app.exportDSN() }),
+                        B('pcbImportSES', '📥 Import SES', 'Import Specctra SES routed session', { run: () => app.importSES() }),
                         specctraFlyout,
                     ] },
                 ],

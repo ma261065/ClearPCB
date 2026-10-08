@@ -15,6 +15,7 @@ import {
 } from '../../src/pcb/modules/track-contact-geometry.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element(tag = 'g') {
     return fakeElement(tag);
@@ -30,7 +31,7 @@ const rectangle = (x, y, width, height) => [
 ];
 function fixture(model = new PcbDocument()) {
     const groups = new Map(['ratlines', 'top-fill', 'bottom-fill'].map(id => [id, element()]));
-    const app = { pcbDocument: model, placements: new Map(), netlist: [],
+    const app = { ...pcbEditorStubs(), pcbDocument: model, placements: new Map(), netlist: [],
         getLayerGroup: id => groups.get(id),
         existingLayerGroups: () => groups,
     };

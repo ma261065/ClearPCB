@@ -9,6 +9,7 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { createPcbText } from '../../src/core/pcb-text.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function element() {
     return fakeElement('g');
@@ -73,7 +74,7 @@ function boardFixture() {
         bounds: { x: -3, y: -2, width: 6, height: 4 }, refDx: 1, refDy: -4, refRot: 20, refSize: 1.2,
         refStrokeWidth: 0.15, refVisible: true, padOffsets: [], pads: new Map(), elements: [] };
 
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map([['R12', placement]]),
         viewport: { scale: 10, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {},

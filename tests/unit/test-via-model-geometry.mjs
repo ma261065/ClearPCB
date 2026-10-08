@@ -3,6 +3,7 @@ import { Via } from '../../src/shapes/via.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { MoveViaCommand, ModifyViaCommand } from '../../src/core/pcb-via-commands.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -67,7 +68,7 @@ try {
     viaLayer.locked = false;
     const target = new Via({ x: 0, y: 0, diameter: 1 });
     for (const scale of [1, 10, 100]) {
-        const app = { tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
+        const app = { ...pcbEditorStubs(), tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
             placements: new Map(), netlist: [], _layerGroups: new Map(), getLayerGroup: () => null,
             viewport: { scale, gridVisible: false, hideCrosshair() {}, setCrosshair() {} } };
         const tolerance = 6 / scale;
@@ -101,7 +102,7 @@ try {
     }
     for (const [offset, expectedCount] of [[-1e-6, 0], [0, 1], [1e-6, 1]]) {
         const target = new Via({ x: 10, y: 10, diameter: 1 });
-        const app = { tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
+        const app = { ...pcbEditorStubs(), tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
             placements: new Map(), _layerGroups: new Map(), getLayerGroup: () => null,
             viewport: { scale: 10, contentLayer: { appendChild() {} } } };
         armBoxSelect(app, { x: 0, y: 0 }, { x: 0, y: 0 });

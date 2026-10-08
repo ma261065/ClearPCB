@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const noop = () => {};
 installFakeDom();
@@ -40,7 +41,7 @@ pcbDocument.tracks.push(track);
 pcbDocument.vias.push(via);
 pcbDocument.pads.push(pad);
 pcbDocument.boardShapes.push(shape, fill);
-const app = { pcbDocument, placements: new Map(), texts: pcbDocument.texts, tracks: pcbDocument.tracks,
+const app = { ...pcbEditorStubs(), pcbDocument, placements: new Map(), texts: pcbDocument.texts, tracks: pcbDocument.tracks,
     vias: pcbDocument.vias, pads: pcbDocument.pads, boardShapes: pcbDocument.boardShapes,
     viewport: { scale: 10 }, getLayerGroup: () => null, _shapeElements: new Map() };
 const kindAt = point => registry.getPcbSelectionHits(app, point).map(hit => hit.kind);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { installVTracerEnvironment } from './helpers/vtracer-environment.mjs';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const vtraceEnvironment = installVTracerEnvironment({ failures: 1 });
 
@@ -92,7 +93,7 @@ const { showPictureImport } = await import('../../src/pcb/modules/picture-import
 const { PcbDocument } = await import('../../src/core/PcbDocument.js');
 const { getPcbPaste } = await import('../../src/pcb/modules/pcb-paste.js');
 const pcbDocument = new PcbDocument();
-const app = { viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
+const app = { ...pcbEditorStubs(), viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
     pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(), _shapeElements: new Map(),
     history: new CommandHistory(), getLayerGroup() { return null; },
     snapToGrid: point => point, syncClipboardButtons() {}, clearProperties() {},

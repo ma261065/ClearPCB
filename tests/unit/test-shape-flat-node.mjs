@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../../src/shared/pcb/board-shape-geometry.js');
@@ -33,7 +34,7 @@ for (const radius of [0.05, 2, 50]) {
     const before = { ...shape, geom: { points: shape.points.map(point => ({ ...point })) } };
     setBoardShapeNodeCornerRadius(shape, 1, 0);
     assert.ok(!shapePathD(shape).includes('Q'), 'A zero node radius overrides the line default');
-    const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+    const restored = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(restored, serializeBoardShapes({ boardShapes: [shape] }), { render: false });
     assert.equal(restored.boardShapes[0].cornerRadius, 2);
     assert.equal(restored.boardShapes[0].nodeCornerRadii[1], 0);
@@ -53,7 +54,7 @@ for (const reversed of [false, true]) {
         assert.ok(originalCap.every(point => Math.abs(Math.hypot(point.x, point.y) - 1) < 0.003),
             'Default joins follow the half-width circle without pointed miters');
         const commands = [];
-        const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
+        const app = { ...pcbEditorStubs(), boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         const node = reversed ? 2 : 0;
@@ -76,7 +77,7 @@ for (const reversed of [false, true]) {
         assert.deepEqual(resolveBoardShapeGeometry(shape).physicalContours, original);
         commands[0].execute();
         assert.deepEqual(resolveBoardShapeGeometry(shape).physicalContours, dragged);
-        const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
+        const restored = { ...pcbEditorStubs(), boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
         loadBoardShapes(restored, serializeBoardShapes(app), { render: false });
         assert.deepEqual(resolveBoardShapeGeometry(restored.boardShapes[0]).physicalContours, dragged);
     }
@@ -85,7 +86,7 @@ for (const moved of [false, true]) {
     const shape = { id: 'insert-round', kind: 'polygon', layer: 'top-silk', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }],
         nodeCornerRadii: { 2: 0 } };
-    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
@@ -100,7 +101,7 @@ for (const reversed of [false, true]) {
     const points = [{ x: 0, y: 20 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
     if (reversed) points.reverse();
     const shape = { id: 'inward-v', kind: 'polygon', layer: 'top-silk', lineWidth: 2, points };
-    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 2);

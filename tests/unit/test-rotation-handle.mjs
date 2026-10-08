@@ -6,6 +6,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setTextToolDefaults, showTextToolProperties } from '../../src/pcb/modules/text-properties.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -86,7 +87,7 @@ try {
             const pcbDocument = new PcbDocument();
             if (kind === 'text') pcbDocument.texts.set(object.id, object);
             else pcbDocument.boardShapes.push(object);
-            const app = { pcbDocument, boardShapes: pcbDocument.boardShapes,
+            const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes,
                 get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), getLayerGroup() { return null; },
@@ -216,7 +217,7 @@ try {
         try { render(items); } catch { /* listener binding needs a DOM; the markup is already written */ }
         return items.innerHTML;
     };
-    const panelApp = { propertiesItems: () => panelItems, setPropertiesTitle() {}, layerLabel: PCBApp.prototype.layerLabel,
+    const panelApp = { ...pcbEditorStubs(), propertiesItems: () => panelItems, setPropertiesTitle() {}, layerLabel: PCBApp.prototype.layerLabel,
         pcbDocument: { texts: new Map([['t', { id: 't', content: 'T', x: 0, y: 0, size: 1, rotation: 12.34567,
             layer: 'top-silk', strokeWidth: 0.15 }]]) },
         _insertInlineTextSymbol: () => false };
@@ -248,7 +249,7 @@ try {
     const movingOverlay = element('g');
     const movingDocument = new PcbDocument();
     movingDocument.texts.set(movingText.id, movingText);
-    const movingApp = { ...textMethods, pcbDocument: movingDocument, boardShapes: [],
+    const movingApp = { ...pcbEditorStubs(), ...textMethods, pcbDocument: movingDocument, boardShapes: [],
         get texts() { return getTextPosePreviewTexts(this) || movingDocument.texts; },
         placements: new Map(), tracks: [], vias: [], history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), setCrosshair() {}, hideCrosshair() {} },

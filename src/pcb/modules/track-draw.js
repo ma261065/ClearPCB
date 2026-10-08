@@ -119,7 +119,7 @@ export function showTrackDrawProperties(app) {
     const ctx = getTrackDraw(app);
     let widthError = '';
     const currentWidth = () => {
-        const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+        const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
         const trackWidth = p.trackWidth;
         return ctx?.width || (typeof trackWidth === 'number' && Number.isFinite(trackWidth) && trackWidth > 0 ? trackWidth : 0.2);
     };
@@ -378,7 +378,7 @@ export function toggleTrackLayer(app) {
     if (!ctx) return;
     const idx = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
     ctx.currentLayer = TOGGLE_LAYERS[(idx + 1) % TOGGLE_LAYERS.length];
-    app.setPcbStatus?.();
+    app.setPcbStatus();
     // Re-render preview so the trailing rubber-band uses the new layer's
     // colour and an implicit-via marker appears at the toggle anchor.
     const last = ctx.points[ctx.points.length - 1];
@@ -771,7 +771,7 @@ function _layerColor(layerId) {
 /** @param {PcbEditor} app */
 function _getTrackWidth(app) {
     try {
-        return app.getRoutingParams?.()?.trackWidth || 0.2;
+        return app.getRoutingParams()?.trackWidth || 0.2;
     } catch (_) {
         return 0.2;
     }
@@ -779,7 +779,7 @@ function _getTrackWidth(app) {
 
 /** @param {PcbEditor} app */
 function _renderOptsFromApp(app) {
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     return {
         viaDiameter: p.viaDiameter,
         viaDrill: p.viaDrill,

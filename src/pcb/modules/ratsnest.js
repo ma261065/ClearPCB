@@ -103,10 +103,10 @@ export function reconcileRatsnest(app, opts) {
     // rebuilding clearance geometry) on each frame is the single biggest cost
     // on boards that have them. _endDrag() forces one full reconcile on drop.
     if (!areDragOverlaysDeferred(app)) {
-        if (!opts?.skipFillRefresh && app.refreshFills?.() === true) return;
+        if (!opts?.skipFillRefresh && app.refreshFills() === true) return;
     }
 
-    const ratLayer = app.getLayerGroup?.('ratlines');
+    const ratLayer = app.getLayerGroup('ratlines');
     if (!ratLayer) return;
     const ratlines = /** @type {any[]} */ (storedDrcRatlines(app)).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
     const publishRatlines = () => {
@@ -431,7 +431,7 @@ function refreshNetGuideLine(app) {
     const state = netGuideSources.get(app);
     if (!state) return;
     clearNetGuideLine(app);
-    const layer = app.getLayerGroup?.('ratlines');
+    const layer = app.getLayerGroup('ratlines');
     let best = null, bestDistance = Infinity;
     for (const line of /** @type {Iterable<SVGElement>} */ (layer?.children || [])) {
         if (line.dataset?.net !== state.net || !line.classList?.contains('ratsnest-line')

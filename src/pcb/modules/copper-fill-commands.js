@@ -33,7 +33,7 @@ function reshapesCopper(before, after) {
 /** @param {PcbEditor} app */
 function refresh(app) {
     // Empty or deferred pours still need connectivity, without requesting another pour.
-    if (recomputeFillsNow(app) !== true) app.updateRatsnest?.({ skipFillRefresh: true });
+    if (recomputeFillsNow(app) !== true) app.updateRatsnest({ skipFillRefresh: true });
 }
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
@@ -49,7 +49,7 @@ export class AddFillCommand extends ModelAddFillCommand {
     }
     undo() {
         super.undo();
-        if (isPcbSelected(this.app, 'fill', this.fill)) this.app.selectFill?.(null);
+        if (isPcbSelected(this.app, 'fill', this.fill)) this.app.selectFill(null);
         refresh(this.app);
     }
 }
@@ -63,7 +63,7 @@ export class RemoveFillCommand extends ModelRemoveFillCommand {
     }
     execute() {
         super.execute();
-        if (isPcbSelected(this.app, 'fill', this.fill)) this.app.selectFill?.(null);
+        if (isPcbSelected(this.app, 'fill', this.fill)) this.app.selectFill(null);
         refresh(this.app);
     }
     undo() {

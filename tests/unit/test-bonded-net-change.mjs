@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -20,7 +21,7 @@ const n3 = track.addNode(25, 0);
 track.addEdge(n2, n3);
 const nearVia = new Via({ x: 0, y: 0, net: 'OLD' });
 const remoteVia = new Via({ x: 20, y: 0, net: 'OLD' });
-const app = Object.assign(Object.create(copperPrototype), {
+const app = Object.assign(Object.create(copperPrototype), pcbEditorStubs(), {
     pcbDocument: new PcbDocument(),
     tracks: [track],
     vias: [nearVia, remoteVia],
@@ -59,7 +60,7 @@ console.log('PASS: net changes propagate only through physically bonded copper')
     const selectedTrack = new Track({ points: [{ x: 0, y: 10 }, { x: 5, y: 10 }], net: 'OLD' });
     const selectedVia = new Via({ x: 5, y: 10, net: 'OLD' });
     const unrelatedVia = new Via({ x: 20, y: 10, net: 'OLD' });
-    const mixedApp = {
+    const mixedApp = { ...pcbEditorStubs(),
         ...app,
         tracks: [selectedTrack],
         vias: [selectedVia, unrelatedVia],

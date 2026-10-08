@@ -331,7 +331,7 @@ function _connectNetToWires(app, netShape) {
             }
         }
     });
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
 }
 
 /**
@@ -365,5 +365,5 @@ function _disconnectNetFromWires(app, netShape) {
             }
         }
     }
-    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
 }

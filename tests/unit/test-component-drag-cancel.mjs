@@ -9,6 +9,7 @@ import { getSelectionInteraction, setSelectionInteraction } from '../../src/pcb/
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const frames = new Map();
 let frameId = 0;
@@ -44,7 +45,7 @@ function fixture(saved = true) {
     let dirty = 0;
     let clearanceRefreshes = 0;
     const ratsnestUpdates = [];
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument,
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),

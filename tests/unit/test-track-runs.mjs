@@ -1,5 +1,6 @@
 /** Headless regression tests for shared Track render/selection layer runs. */
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -117,7 +118,7 @@ function connectivityApp(viaY) {
     const children = [];
     let drcFollowCount = 0;
     let drcFollowSawRatline = false;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         tracks: [track],
         vias: [via],
         netlist: [],

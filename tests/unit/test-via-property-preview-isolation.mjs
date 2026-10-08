@@ -19,6 +19,7 @@ import { renderPropertyFields } from '../../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0, frameId = 0, inputs = new Map();
 const frames = new Map();
@@ -59,7 +60,7 @@ function fixture(count = 1, unrelatedCount = 1) {
     const items = element('div');
     const groups = new Map([['vias', element('g')]]);
     let fills = 0, clearances = 0;
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }

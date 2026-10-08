@@ -13,6 +13,7 @@ import { compactProjectAliases, normalizeProjectAliases } from '../../src/core/p
 import { validateProject } from '../../src/core/project-format.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -65,7 +66,7 @@ const movingViewport = {
     setCrosshair() {},
     hideCrosshair() {},
 };
-const movingApp = {
+const movingApp = { ...pcbEditorStubs(),
     pcbDocument: new PcbDocument(),
     viewport: movingViewport,
     getLayerGroup: () => null,
@@ -104,7 +105,7 @@ const rotatingPad = new Pad({ x: 0, y: 0, shape: 'rectangle', size: 2, ratio: 2 
 const rotationInput = fakeElement('input');
 rotationInput.value = '';
 document.getElementById = id => id === 'pcbPropPadRotation' ? rotationInput : null;
-const rotationApp = {
+const rotationApp = { ...pcbEditorStubs(),
     pcbDocument: new PcbDocument(),
     viewport: { scale: 1 }, getLayerGroup: () => null,
     history: { execute() {} },

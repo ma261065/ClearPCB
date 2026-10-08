@@ -59,7 +59,7 @@ export function createPadSelectionAdapter(app, pad, id) {
             if (commit) finishViaDrag(app);
             else cancelViaDrag(app);
             updatePadHighlightGeometry(pad, app.getLayerGroup('selection-overlay'));
-            if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
+            if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos();
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;

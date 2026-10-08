@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
@@ -18,7 +19,7 @@ function fixture(layers = 'both') {
     const pcbDocument = new PcbDocument();
     pcbDocument.pads.push(pad);
     pcbDocument.tracks.push(top, bottom);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placements: new Map(), netlist: [],
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },

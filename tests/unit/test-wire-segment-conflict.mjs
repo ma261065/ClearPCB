@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { Wire } from '../../src/shapes/wire.js';
 import { Net } from '../../src/shapes/net.js';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 const { commitSegmentDrag } = await import('../../src/schematic/modules/drag.js');
@@ -12,6 +13,7 @@ const before = wire.captureState();
 const alerts = [];
 let renders = 0;
 const app = {
+    ...schematicEditorStubs(),
     shapes: [wire, firstNet, secondNet], components: [], history: new CommandHistory(),
     renderShapes() { renders++; },
     alert(message) { alerts.push(message); },

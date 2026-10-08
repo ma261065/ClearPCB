@@ -4,6 +4,7 @@ import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { getHoveredBoardShape } from '../../src/pcb/modules/board-shape-state.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
@@ -16,7 +17,7 @@ const layer = element();
 const overlay = element();
 const pcbDocument = new PcbDocument();
 pcbDocument.boardShapes.push(image);
-const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), viewport: { scale: 10 },
     getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);

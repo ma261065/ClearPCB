@@ -3,6 +3,7 @@ import { getComputedFill, setComputedFill } from '../../src/pcb/modules/computed
 import { distanceToSegment, pointInPolygon } from '../../src/core/geometry.js';
 import { pictureShape, pictureContours } from '../../src/shared/pcb/picture-raster.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
@@ -25,6 +26,7 @@ const gerberRegions = file => [...file.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(
     [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(point =>
         ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 })));
 const board = shape => ({
+    ...pcbEditorStubs(),
     boardShapes: [shape], tracks: [], vias: [], pads: [], copperFills: [],
     placements: new Map(), texts: new Map(), netlist: [],
     ratLayer: element(),

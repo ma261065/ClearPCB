@@ -226,8 +226,8 @@ export function beginPastePreview(app) {
     const mousePos = app.viewport.currentMouseWorld || { x: 0, y: 0 };
     const snapped = app.viewport.getSnappedPosition(mousePos);
     ghost.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
-    app.showCrosshair?.();
-    app.updateCrosshair?.(snapped);
+    app.showCrosshair();
+    app.updateCrosshair(snapped);
 }
 
 /**
@@ -354,11 +354,11 @@ export function cancelPaste(app) {
     // On exit: hide in select mode, otherwise re-anchor to current cursor.
     const mousePos = app.viewport.currentMouseWorld || null;
     if (app.currentTool === 'select' && !isSchematicDrawingActive(app) && !isPlacingComponent(app)) {
-        app.hideCrosshair?.();
+        app.hideCrosshair();
     } else if (mousePos) {
         const snapped = app.viewport.getSnappedPosition(mousePos);
-        app.showCrosshair?.();
-        app.updateCrosshair?.(snapped);
+        app.showCrosshair();
+        app.updateCrosshair(snapped);
     }
 }
 

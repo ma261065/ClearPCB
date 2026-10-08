@@ -3,6 +3,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pointInPolygon } from '../../src/core/geometry.js';
 import { Via } from '../../src/shapes/via.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -95,7 +96,7 @@ pcbDocument.boardShapes.push(rectangleBoardOutline(20, 10));
 const placementState = pcbDocument.placementState;
 const app = Object.assign(Object.create(null, {
     panelization: Object.getOwnPropertyDescriptor(PCBApp.prototype, 'panelization'),
-}), {
+}), pcbEditorStubs(), {
     pcbDocument, designSettings: pcbDocument.designSettings,
     placementState, placements: new Map(), _placementOverrides: placementState.overrides,
     tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads, texts: pcbDocument.texts,
@@ -271,7 +272,7 @@ assert.equal(app.texts.size, layout.note.length, 'removing panel settings leaves
 remove.undo();
 assert.deepEqual(app.panelization, appliedSettings);
 const legacyDocument = new PcbDocument();
-const legacyApp = { ...app, pcbDocument: legacyDocument, panelization: { ...PANEL_DEFAULTS }, texts: legacyDocument.texts };
+const legacyApp = { ...pcbEditorStubs(), ...app, pcbDocument: legacyDocument, panelization: { ...PANEL_DEFAULTS }, texts: legacyDocument.texts };
 new SetPanelizationCommand(legacyApp, legacyApp.panelization).execute();
 assert.equal(legacyApp.texts.size, layout.note.length, 'applying a legacy panel creates editable notes');
 
@@ -368,7 +369,7 @@ for (const prefix of ['horizontal', 'vertical']) {
     }
     const featureModel = Object.assign(new PcbDocument(), pcbDocument);
     featureModel.loadPanelization(featureSettings);
-    const featureApp = { ...app, pcbDocument: featureModel, panelization: featureModel.panelization };
+    const featureApp = { ...pcbEditorStubs(), ...app, pcbDocument: featureModel, panelization: featureModel.panelization };
     assert.deepEqual(preparePcb(JSON.parse(JSON.stringify(serializePcb(featureApp)))).panelization, featureSettings);
     assert.deepEqual((await prepareFabricationSnapshot(featureApp)).panelization, featureSettings);
 }
@@ -573,7 +574,7 @@ try {
     const sourceUse = layers.get('top-copper').appendChild(createNode('use'));
     sourceUse.setAttribute('href', '#source-image');
     sourceUse.setAttribute('clip-path', 'url(#source-image)');
-    const previewApp = {
+    const previewApp = { ...pcbEditorStubs(),
         boardShapes: [rectangleBoardOutline(20, 10)], panelization: { ...PANEL_DEFAULTS },
         viewport: { svg: root, scale: 1, addContent: node => root.appendChild(node) }, _layerGroups: layers, existingLayerGroups: () => layers,
         getLayerGroup(id) { return this._layerGroups.get(id); },

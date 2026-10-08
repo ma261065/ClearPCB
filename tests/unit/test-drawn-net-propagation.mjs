@@ -3,6 +3,7 @@ import { getComputedFill, setComputedFill } from '../../src/pcb/modules/computed
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const element = (tag = 'g') => fakeElement(tag);
 installFakeDom();
@@ -25,7 +26,7 @@ function fixture() {
     const commands = [];
     const pcbDocument = new PcbDocument();
     Object.assign(pcbDocument.board, { width: 0, height: 0, radius: 0 });
-    return Object.assign(Object.create(copperPrototype), {
+    return Object.assign(Object.create(copperPrototype), pcbEditorStubs(), {
         pcbDocument,
         tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], texts: new Map(), netlist: [
             { net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] },

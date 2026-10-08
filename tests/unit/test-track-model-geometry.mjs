@@ -6,6 +6,7 @@ import { ModifyTrackGraphCommand } from '../../src/core/pcb-track-commands.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { SetPlacementSideCommand } from '../../src/core/pcb-placement-commands.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 assert.equal(typeof document, 'undefined');
 const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
@@ -147,7 +148,7 @@ const syncPanel = panel => {
         });
     }
 };
-const previewApp = { tracks: [previewTrack], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
+const previewApp = { ...pcbEditorStubs(), tracks: [previewTrack], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
     pcbDocument: { tracks: [previewTrack] },
     viewport: { scale: 10 }, propertiesItems: () => ({}), getLayerGroup: () => null,
     openPropertyPanel(panel) { syncPanel(panel); return true; }, refreshPropertyPanel: syncPanel };

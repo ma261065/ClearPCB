@@ -109,9 +109,9 @@ export function onToolSelected(app, tool) {
     app.updateShapePanelOptions(app.selection.getSelection(), tool);
     app.updatePropertiesPanel(app.selection.getSelection());
     if (entry?.newShapeDefaults) {
-        app.setActiveRibbonTab?.('properties');
+        app.setActiveRibbonTab('properties');
     } else if (tool === 'select' && app.selection.getSelection().length === 0) {
-        app.setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab('home');
     }
 }
 
@@ -133,7 +133,7 @@ export function onComponentPickerClosed(app) {
  */
 export function setnetStyleOption(app, style) {
     const normalized = normalizeNetStyle(style);
-    app.updateToolOptions?.({ netStyle: normalized });
+    app.updateToolOptions({ netStyle: normalized });
 }
 
 /**

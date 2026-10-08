@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
@@ -10,7 +11,7 @@ const rectangle = (left, top, right, bottom) => [
 ];
 function ratlines(options) {
     const lines = [];
-    reconcileRatsnest({ boardShapes: [], copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
+    reconcileRatsnest({ ...pcbEditorStubs(), boardShapes: [], copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
         get pcbDocument() { return this; },
         getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }), ...options });
     return lines.length;

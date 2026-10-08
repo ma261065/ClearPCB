@@ -8,6 +8,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getComponentDrag, hitTestComponent } from '../../src/pcb/modules/component-selection.js';
 import { hoverComponentCandidate, hoverOverlapHitCount, scheduleHoverUpdate, setHoverOverlapHitCount } from '../../src/pcb/modules/pcb-hover.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const frames = new Map();
 let frameId = 0;
@@ -53,7 +54,7 @@ function pcbFixture(withShape = false) {
     const placement = (x = 0) => ({ x, y: 0, rotation: 0, side: 'top', mirror: false,
         bounds: { x: -10, y: -10, width: 20, height: 20 }, refVisible: false,
         padOffsets: [], pads: new Map(), elements: [] });
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument, history: new CommandHistory(),
         placements: new Map([['below', placement()], ['top', placement()], ['other', placement(100)]]),
         tracks: [], vias: [], pads: [], boardShapes: withShape ? [boardShape()] : [], texts: new Map(),
@@ -193,7 +194,7 @@ for (const withShape of [false, true]) for (const shiftDrag of [false, true]) {
 }
 
 function schematicFixture(withShape = false) {
-    const app = {
+    const app = { ...pcbEditorStubs(),
         components: [component('below'), component('top'), component('other')],
         shapes: withShape ? [createRect({ id: 'shape', x: -10, y: -10, width: 20, height: 20, fill: true })] : [],
         selection: new SelectionManager({ getScale: () => 10 }),

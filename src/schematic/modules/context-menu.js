@@ -472,7 +472,7 @@ export function deleteFocusedSchematicShape(app) {
         clearDragState(app);
         app.interactionState = 'idle';
         setDidSchematicDrag(app, false);
-        app.hideCrosshair?.();
+        app.hideCrosshair();
         app.viewport.svg.style.cursor = '';
         if (splitting) {
             finishShapeRefinement(app);
@@ -527,7 +527,7 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         app.showCrosshair();
         app.updateCrosshair(pos);
         app.viewport.svg.style.cursor = 'move';
-        app.updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         return;
     }
 
@@ -710,7 +710,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
                     }
                     app.history.execute(batch);
                     app.selection.keepSelected(shape);
-                    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+                    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
                 }
             }
         });
@@ -876,8 +876,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
             });
             app.interactionState = 'anchorDrag';
             setDidSchematicDrag(app, true);
-            app.showCrosshair?.();
-            app.updateCrosshair?.(point);
+            app.showCrosshair();
+            app.updateCrosshair(point);
             app.viewport.svg.style.cursor = 'move';
         } else app.history.execute(command);
         setShapeSegmentFocus(app, null);
@@ -905,8 +905,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.interactionState = 'anchorDrag';
         setDidSchematicDrag(app, true);
         app.renderShapes(true);
-        app.showCrosshair?.();
-        app.updateCrosshair?.(point);
+        app.showCrosshair();
+        app.updateCrosshair(point);
         app.viewport.svg.style.cursor = 'move';
     } else {
         shape.applyState(before);

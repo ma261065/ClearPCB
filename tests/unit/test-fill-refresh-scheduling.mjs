@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { getComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 function element() {
@@ -58,6 +59,7 @@ function board() {
     topFill.cloneNode = () => { counts.pours++; return element(); };
     const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill]]);
     const app = {
+        ...pcbEditorStubs(),
         counts, tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [], texts: new Map(),
         board: {},
         copperFills: [new CopperFill({ net: 'GND', outline: [

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
@@ -26,7 +27,7 @@ function board(extra = {}) {
         appendChild(line) { line.parentNode = this; this.children.push(line); },
         removeChild(line) { this.children.splice(this.children.indexOf(line), 1); line.parentNode = null; },
     };
-    return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
+    return { ...pcbEditorStubs(), pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
         get pcbDocument() { return this; },
         placements: new Map(), netlist: [], texts: new Map(), getLayerGroup: () => layer, ...extra };
 }

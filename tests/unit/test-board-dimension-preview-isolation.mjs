@@ -17,6 +17,7 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel
 import { bindSettledChange, flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getBoardOutlineResize } from '../../src/pcb/modules/board-outline-resize.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 class Element {
@@ -49,7 +50,7 @@ function fixture(existing = true, deferred = false) {
     setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
     const group = new Element();
     let draws = 0, pours = 0, fits = 0, refresh3d = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
         _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },

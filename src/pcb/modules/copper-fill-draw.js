@@ -164,7 +164,7 @@ export function finishFillDraw(app) {
     app.history.execute(new AddFillCommand(app, fill));
     // Select the new fill so the user can assign a net immediately.
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
-    app.selectFill?.(fill);
+    app.selectFill(fill);
     showFillProperties(app, fill);
 }
 

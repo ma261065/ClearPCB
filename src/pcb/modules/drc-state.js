@@ -44,7 +44,7 @@ export function getDrcPresentation(app) {
                 if (!getPcbSelection(app).length && !isBoardOutlineSelected(app) && !hasTrackEdit(app)) return;
                 clearSelectionInteractionUi(app);
                 clearBoxSelection(app);
-                app.clearProperties?.();
+                app.clearProperties();
             },
             getLayerGroup: (id, create = false) => create
                 ? app.getLayerGroup(id) : app.existingLayerGroups().get(id) || null,

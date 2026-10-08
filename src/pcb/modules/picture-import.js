@@ -391,7 +391,7 @@ export function showPictureImport(app) {
         const payload = preparePcbPaste(app, { shapes: [imported] });
         close();
         beginPcbPaste(app, payload, { select: true });
-        app.setStatus?.('Click to place image');
+        app.setStatus('Click to place image');
     });
     /** @type {HTMLElement} */ (dialog.querySelector('[data-cancel]')).addEventListener('click', close);
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });

@@ -24,7 +24,7 @@ const deferred = app => {
     const status = refreshStatus(app);
     if (status.overlaysDeferred || status.fillSuspended) return true;
     return status.pictureCopperPending || status.fillScheduled || (status.fillPending && !status.fillError)
-        || app.isSectionEditing?.();
+        || app.isSectionEditing();
 };
 /** @param {PcbEditor} app */
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
@@ -84,7 +84,7 @@ export function resumeDrcRefresh(app) {
  */
 function report(app, error) {
     console.error('[DRC] check failed', error);
-    app.setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
+    app.setStatus(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
     const presentation = peekDrcPresentation(app);
     if (!presentation) return;
     presentation.error = error;

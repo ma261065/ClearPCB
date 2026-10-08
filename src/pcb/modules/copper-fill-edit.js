@@ -416,7 +416,7 @@ export function refreshFillProperties(app, fill) {
 export function showFillProperties(app, fill) {
     if (!fill) return;
     const lockEntries = [{ kind: 'fill', object: fill }];
-    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const refresh = () => app.refreshPropertyPanel(describe());
     /** @param {() => void} mutate */
     const commit = (mutate) => {
         if (!canEditFill(fill)) return;
@@ -442,14 +442,14 @@ export function showFillProperties(app, fill) {
                     commit(() => { fill.layer = value; });
                 } },
             { key: 'net', id: 'pcbPropFillNet', type: 'net', label: 'Net', value: fill.net || '', disabled: lock.readOnly,
-                nets: fillNetNames(app), commit: value => {
+                nets: app.netNames(), commit: value => {
                     if ((fill.net || '') === value) return;
                     commit(() => { fill.net = value; });
                 } },
             ...addFillGeometryProperties(app, fill, lock.readOnly, refresh),
         ] };
     };
-    if (app.openPropertyPanel?.(describe())) {
+    if (app.openPropertyPanel(describe())) {
         openFillPanels.set(app, { id: fill.id, refresh });
         createBoardShapePropertyBinding(app, boardShapeFillProfile(fillEditProfile()));
     }
@@ -461,7 +461,7 @@ export function showFillProperties(app, fill) {
  * @param {PcbEditor} app
  */
 export function showFillToolProperties(app) {
-    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const refresh = () => app.refreshPropertyPanel(describe());
     /** @param {number} value */
     const setCornerRadius = value => setFillToolDefaults(app, { cornerRadius: value });
     /** @returns {PropertyPanel} */
@@ -474,30 +474,17 @@ export function showFillToolProperties(app) {
                 commit: value => {
                     if (value !== 'top-copper' && value !== 'bottom-copper' || isLayerLocked(value)) { refresh(); return; }
                     setFillToolDefaults(app, { layer: value });
-                    app.setPcbStatus?.();
+                    app.setPcbStatus();
                     refresh();
                 } },
             { key: 'net', id: 'pcbPropFillToolNet', type: 'net', label: 'Net', value: defaults.net,
-                nets: fillNetNames(app), commit: value => { setFillToolDefaults(app, { net: value }); refresh(); } },
+                nets: app.netNames(), commit: value => { setFillToolDefaults(app, { net: value }); refresh(); } },
             { key: 'cornerRadius', id: 'pcbPropFillToolCornerRadius', type: 'number', label: 'Corner Radius (mm)',
                 value: defaults.cornerRadius, min: 0, step: 0.05,
                 normalize: value => (value < 0 ? NaN : value), preview: setCornerRadius, commit: setCornerRadius },
         ] };
     };
-    app.openPropertyPanel?.(describe());
-}
-
-/** @param {PcbEditor} app */
-function fillNetNames(app) {
-    if (typeof app.netNames === 'function') return app.netNames();
-    const names = new Set((app.netlist || []).map(entry => String(entry.net || '')).filter(Boolean));
-    for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
-        for (const item of source || []) {
-            const net = String(item?.net || '');
-            if (net) names.add(net);
-        }
-    }
-    return [...names].sort();
+    app.openPropertyPanel(describe());
 }
 
 /**

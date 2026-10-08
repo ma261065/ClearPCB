@@ -6,6 +6,7 @@ import {
 import { CopperFill } from '../../src/shapes/copper-fill.js';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
@@ -81,7 +82,7 @@ const probes = ring(9, 16).map((point, index) => ({
 }));
 const lines = [];
 const ratLayer = { children: [], appendChild(line) { lines.push(line); } };
-const app = { boardShapes: [...probes, fill], copperFills: [fill], tracks: [], vias: [], pads: [],
+const app = { ...pcbEditorStubs(), boardShapes: [...probes, fill], copperFills: [fill], tracks: [], vias: [], pads: [],
     placements: new Map(), netlist: [], getLayerGroup: () => ratLayer };
 reconcileRatsnest(app);
 assert.equal(lines.length, 0, 'The annular pour connects all sixteen isolated copper probes');
@@ -112,7 +113,7 @@ assert.equal(collectBondedCopper(app, { track: app.tracks[0] }, { includeShapes:
         points: Array.from({ length: 40 }, (_, node) => ({ x: node, y: index * 10 })),
         net: `N${index}`,
     }));
-    const denseApp = { ...app, tracks, boardShapes: [], copperFills: [] };
+    const denseApp = { ...pcbEditorStubs(), ...app, tracks, boardShapes: [], copperFills: [] };
     const before = tracks.map(track => track.toJSON());
     const clone = globalThis.structuredClone;
     let segmentSnapshots = 0;

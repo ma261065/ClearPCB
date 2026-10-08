@@ -4,6 +4,7 @@ import { getShapeDraw } from '../../src/pcb/modules/board-shape-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 
@@ -60,7 +61,7 @@ function glowFor(point, scale = 1) {
         lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape],
         viewport: { scale, setCrosshair() {} },
         snapToGrid(value) { return value; },
@@ -85,7 +86,7 @@ expect('vertical snap shows the Track halo and solid centerline', hasTrackStyleG
 expect('diagonal snap shows the Track halo and dashed centerline', hasTrackStyleGlow({ x: 5, y: 5.1 }, true));
 
 {
-    const app = { viewport: { scale: 20, gridSize: 1, snapToGrid: true } };
+    const app = { ...pcbEditorStubs(), viewport: { scale: 20, gridSize: 1, snapToGrid: true } };
     const pointer = { x: 4.05, y: 4.08 };
     const neighbour = { x: 0.1, y: 8.1 };
     const aligned = snapPathPoint(app, pointer, [neighbour]);
@@ -110,7 +111,7 @@ for (const [name, target, expectedKind, diagonal] of [
     const shape = { id: 'polygon-axis', kind: 'polygon', layer: 'top-copper', lineWidth: 0.4, points: outer };
     const expanded = getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint);
     shape.points = outer.map((point, index) => ({ x: 2 * point.x - expanded[index].x, y: 2 * point.y - expanded[index].y }));
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], viewport: { scale: 20, gridSize: 1, snapToGrid: true, setCrosshair() {} },
         snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         getLayerGroup() { return overlay; }, _shapeElements: new Map(),
@@ -142,7 +143,7 @@ for (const [name, target, expectedKind, diagonal] of [
     const shape = { id: 'insert-midpoint', kind: 'rect', layer: 'top-copper', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] };
     const overlay = element('g');
-    const app = { boardShapes: [shape], viewport: { scale: 20, setCrosshair() {} },
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], viewport: { scale: 20, setCrosshair() {} },
         _shapeElements: new Map(), getLayerGroup() { return overlay; }, snapToGrid(point) { return point; } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
     expect('rectangle plus handle is on the centerline', midpoint.x === 5 && midpoint.y === 0);
@@ -160,7 +161,7 @@ for (const [name, target, expectedKind, diagonal] of [
         lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape],
         viewport: { scale: 10, setCrosshair() {} },
         snapToGrid(value) { return value; },
@@ -188,7 +189,7 @@ for (const commit of [false, true]) {
     };
     const shape = { id: 'placement-cursor', kind: 'rect', layer: 'top-silk', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], viewport, _shapeElements: new Map(), getLayerGroup() { return null; },
         snapToGrid(point) { return point; }, history: { execute(command) { command.execute(); } },
     };
@@ -219,7 +220,7 @@ for (const reversed of [false, true]) {
         const shape = { id: 'split-fixed-corners', kind: 'rect', layer: 'top-copper', lineWidth: 2, points };
         const originalAnchors = getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint);
         const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === `mid:${segment}`);
-        const app = {
+        const app = { ...pcbEditorStubs(),
             boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 20, setCrosshair() {} }, snapToGrid(point) { return point; },
         };
@@ -246,7 +247,7 @@ for (const mode of ['move', 'segment', 'insert']) {
     const shape = { id: `crosshair-${mode}`, kind: 'rect', layer: 'top-copper', lineWidth: 4,
         points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 200, y: 180 }, { x: 100, y: 180 }] };
     let crosshair = null;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair(point) { crosshair = point; } },
         snapToGrid(point) { return point; },
@@ -266,7 +267,7 @@ for (const mode of ['move', 'segment', 'insert']) {
     const shape = { id: 'split-past-endpoint', kind: 'rect', layer: 'top-copper', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     let crosshair;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1e9, setCrosshair(point) { crosshair = point; } },
         snapToGrid(point) { return point; },
@@ -289,7 +290,7 @@ for (const variableWidth of [false, true]) {
     const shape = { id: 'segment-click', kind: 'rect', layer: 'top-copper', lineWidth: variableWidth ? 0.2 : 4,
         points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }],
         ...(variableWidth ? { segmentWidths: { 0: 4 } } : {}) };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         snapToGrid(point) { return point; },
@@ -310,7 +311,7 @@ for (const kind of ['arc', 'line']) {
                 ? { start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 2 } }
                 : { points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.4 } }) };
         const overlay = element('g');
-        const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return overlay; },
+        const app = { ...pcbEditorStubs(), boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return overlay; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; } };
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: 2 }, handle);
@@ -571,7 +572,7 @@ for (const [name, edge, collinear, axisKind] of [
 
 for (const commit of [false, true]) {
     const layer = element('g');
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 20, shiftHeld: true }, activeLayer: 'top-silk',
         shapeIdCounter: 0,
         get pcbDocument() { return this; },
@@ -612,7 +613,7 @@ for (const mode of ['corner', 'segment', 'move']) {
         const shape = { id: `square-${mode}`, kind: 'rect', layer: 'top-copper', lineWidth: 0.4,
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: height }, { x: 0, y: height }] };
         const layer = element('g');
-        const app = {
+        const app = { ...pcbEditorStubs(),
             boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
             viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
             snapToGrid(point) { return point; }, history: { execute() {} },
@@ -640,7 +641,7 @@ for (const height of [8, 10]) {
     const shape = { id: 'rectangle-square-snap', kind: 'rect', layer: 'top-copper', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: height }, { x: 0, y: height }] };
     const layer = element('g');
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         snapToGrid(point) { return point; }, history: { execute() {} },
@@ -694,7 +695,7 @@ for (const index of [0, 2]) {
         points: points.map(point => ({ ...point })) };
     shape.points[index].y += 1;
     const layer = element('g');
-    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         snapToGrid(point) { return point; },
         history: { execute() {} } };
@@ -710,7 +711,7 @@ for (const index of [0, 2]) {
 
 {
     const layer = element('g');
-    const app = { viewport: { scale: 20, shiftHeld: false, snapToGrid: false },
+    const app = { ...pcbEditorStubs(), viewport: { scale: 20, shiftHeld: false, snapToGrid: false },
         snapToGrid(point) { return point; },
         getLayerGroup() { return layer; } };
     setPcbInteraction(app, '_shapeDraw', { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') });
@@ -785,7 +786,7 @@ for (const index of [0, 2]) {
         expect('schematic segment releases the continuation outside the snap band', Math.abs(shape.nodes.get('n2').y - 8) < 1e-9);
     }
     const shape = { id: 'segment-continuation', kind: 'line', layer: 'top-silk', lineWidth: 0.2, points: points.map(point => ({ ...point })) };
-    const app = { boardShapes: [shape], viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
+    const app = { ...pcbEditorStubs(), boardShapes: [shape], viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup() { return null; }, snapToGrid(point) { return point; }, _shapeElements: new Map() };
     startBoardShapeDrag(app, shape, { x: 24, y: 10.5 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });

@@ -16,6 +16,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 function element(tag) {
@@ -43,7 +44,7 @@ function fixture(kind, deferred = false) {
     model.tracks.push(shared, unrelated);
     const groups = new Map(['top-copper', 'bottom-copper', 'vias'].map(layer => [layer, element('g')]));
     let fills = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument: model, placements: new Map(), netlist: [],
         history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, gridVisible: false,

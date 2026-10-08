@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
@@ -18,7 +19,7 @@ function fixture(kind = 'via', chain = false) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'SIGNAL' });
     const terminal = kind === 'via' ? new Via({ x: 20, y: 0 }) : new Pad({ x: 20, y: 0 });
     const commands = [];
-    const app = Object.assign(Object.create(copperPrototype), {
+    const app = Object.assign(Object.create(copperPrototype), pcbEditorStubs(), {
         pcbDocument: new PcbDocument(),
         tracks: [track], vias: kind === 'via' ? [terminal] : [], pads: kind === 'pad' ? [pad, terminal] : [pad],
         placements: new Map(), netlist: [], boardShapes: [],

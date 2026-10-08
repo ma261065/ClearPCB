@@ -62,7 +62,7 @@ export function beginDragSession(app, { nets = null, suspendBoardView = false } 
  * @param {DragSession|null|undefined} session
  */
 export function refreshDragRatlines(app, session) {
-    if (session?.nets && !session.released) app.updateRatsnest?.({ nets: session.nets });
+    if (session?.nets && !session.released) app.updateRatsnest({ nets: session.nets });
 }
 
 /**

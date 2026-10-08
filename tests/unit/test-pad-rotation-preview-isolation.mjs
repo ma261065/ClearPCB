@@ -17,6 +17,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const document = installFakeDom();
 let allocations = 0;
@@ -41,7 +42,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
     const groups = new Map(['top-copper', 'bottom-copper', 'top-copper-pad-drills', 'bottom-copper-pad-drills']
         .map(layer => [layer, countedElement('g')]));
     let fills = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         viewport: { scale: 100, svg: countedElement('svg'), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,

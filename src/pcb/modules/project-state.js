@@ -36,7 +36,7 @@ export function preparePcb(data) {
 
 /** @param {PcbEditor} app @param {any} data @param {PreparedPcb} [prepared] */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
-    app.cancelAutoRoute?.();
+    app.cancelAutoRoute();
     if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;
@@ -65,7 +65,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     setHoveredBoardShape(app, null);
     cancelShapeDraw(app);
     if (getBoardShapeDrag(app)) endBoardShapeDrag(app, false);
-    app.updateCopperCuts?.();
+    app.updateCopperCuts();
     // Copper pours live in boardShapes; clear their SVG state.
     clearFillGroups(app);
     app.history.clear?.();
@@ -108,8 +108,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
 
     for (const track of app.tracks) {
         if (render) renderTrack(track, /** @param {string} id */ (id) => app.getLayerGroup(id), {
-            viaDiameter: app.getRoutingParams?.()?.viaDiameter,
-            viaDrill: app.getRoutingParams?.()?.viaDrill,
+            viaDiameter: app.getRoutingParams()?.viaDiameter,
+            viaDrill: app.getRoutingParams()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
         });
     }
@@ -123,13 +123,13 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         if (!render || shape.type === 'fill' || shape.layer === 'board-outline') continue;
         renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
-    if (render) app.updateCopperCuts?.();
+    if (render) app.updateCopperCuts();
     for (const text of app.texts.values()) {
         if (render) renderText(app, text);
     }
     // Re-evaluate ratlines once the model is in place.
     if (render) {
-        app.refreshClearanceHalos?.();
+        app.refreshClearanceHalos();
         reconcileRatsnest(app);
         // Compute and render the pours now that obstacles are loaded.
         app.refreshFills();

@@ -3,6 +3,7 @@ import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { hasTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { findNearbyPad, resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
@@ -13,6 +14,7 @@ const { Track } = await import('../../src/shapes/track.js');
 
 function fixture(shape = 'rect', width = 0.5, height = 0.5, rotation = 0) {
     return {
+        ...pcbEditorStubs(),
         placements: new Map([['U1', {
             x: 10, y: 10, rotation,
             pads: new Map([['1:2', { x: 10, y: 10, number: '1' }]]),

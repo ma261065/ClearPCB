@@ -3,6 +3,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { getTrackDraw, setTrackToolLayer, setTrackToolNet } from '../../src/pcb/modules/track-draw.js';
 import { hasTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
@@ -17,7 +18,7 @@ const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 
     ...extra });
 const via = (x, net) => new Via({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net });
 const board = () => {
-    const app = { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
+    const app = { ...pcbEditorStubs(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
         getLayerGroup: () => null,
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };

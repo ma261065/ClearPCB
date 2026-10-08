@@ -11,6 +11,7 @@ import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mj
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 class Element {
     constructor(tag = 'g') {
@@ -79,7 +80,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
             return append.call(this, child);
         };
     }
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         _shapeElements: new Map(),

@@ -6,6 +6,7 @@ import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
@@ -108,7 +109,7 @@ const makeApp = active => {
     const pcbDocument = new PcbDocument();
     const placementState = pcbDocument.placementState;
     const getLayerGroup = layerGroups();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, designSettings: pcbDocument.designSettings,
         // renderPanelPreview(app) reads this as its default argument at the moment it renders.
         get panelization() {
@@ -381,7 +382,7 @@ let visibleBounds = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
 const removal = { id: 'cut', kind: 'circle', x: 5, y: 5, radius: 2,
     layer: 'top-copper', copperMode: 'remove-copper', filled: true, lineWidth: 0.2 };
 const cutShapes = [removal];
-const clipApp = {
+const clipApp = { ...pcbEditorStubs(),
     // Resolving one side's cut geometry reads the board shapes exactly once.
     get boardShapes() { geometryCalls++; return cutShapes; },
     viewport: { svg: clipSvg, getVisibleBounds: () => visibleBounds },
@@ -473,7 +474,7 @@ pcb._syncFromSchematic();
 assert.equal(placed.get('owned').reference, 'U1', 'Model synchronization works without a schematic view');
 assert.equal(isEditorStale(pcb), false);
 syncs = 0;
-const schematic = Object.assign(Object.create(SchematicApp.prototype), {
+const schematic = Object.assign(Object.create(SchematicApp.prototype), pcbEditorStubs(), {
     project, document: project.schematicDocument, fileManager: project.fileManager,
     ui: { docTitle: {
         set textContent(value) { notifications.push('title'); this.value = value; },

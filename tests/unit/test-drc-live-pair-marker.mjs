@@ -9,6 +9,7 @@ import { setComputedFill } from '../../src/pcb/modules/computed-fill-cache.js';
 import { setFillRefreshError, setFillRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const element = (tag = 'g') => fakeElement(tag);
 installFakeDom();
@@ -246,7 +247,7 @@ for (const kind of ['curved-track', 'pad', 'mounted-pad', 'via', 'polygon', 'cir
 }
 
 function previewFixture() {
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument: new PcbDocument(), placements: new Map(), netlist: [], copperFills: [],
         history: new CommandHistory(), _shapeElements: new Map(), 
         getLayerGroup: () => null, refreshClearanceHalos() {}, refreshFills: () => false,

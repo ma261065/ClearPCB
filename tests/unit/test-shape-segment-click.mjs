@@ -7,6 +7,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -44,7 +45,7 @@ for (const kinds of [['line'], ['polygon'], ['line', 'polygon']]) {
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }));
         const before = structuredClone(shapes);
         const track = new Track({ points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] });
-        const app = { ...shapeModel(shapes, [track]), placements: new Map(), texts: new Map(),
+        const app = { ...pcbEditorStubs(), ...shapeModel(shapes, [track]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 20 } };
         setPcbSelection(app, [...shapes.map(shape => ({ kind: 'shape', object: shape })),
             ...(keepTrack ? [{ kind: 'track', object: track }] : [])]);
@@ -125,7 +126,7 @@ for (const commit of [true, false]) {
     const before = track.captureState();
     const refreshes = { clearance: 0, fills: 0, board: 0 };
     const commands = [];
-    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         getLayerGroup() { return null; }, viewport: { scale: 100, shiftHeld: true },
         refreshClearanceHalos() { refreshes.clearance++; },
         refreshFills() { refreshes.fills++; },
@@ -155,7 +156,7 @@ for (const commit of [true, false]) {
 {
     const shape = { id: 'native-arc-highlight', kind: 'arc', layer: 'top-silk', lineWidth: 0.2,
         start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, bulge: { x: 50, y: 25 } };
-    const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; } };
+    const app = { ...pcbEditorStubs(), ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; } };
     selectBoardShape(app, shape);
     const overlay = document.createElementNS('', 'g');
     app.getLayerGroup = () => overlay;
@@ -176,7 +177,7 @@ for (const kind of ['line', 'track']) {
         const commands = [];
         let title = '';
         const items = { innerHTML: '' };
-        const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+        const app = { ...pcbEditorStubs(), ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(), shapeIdCounter: 1,
             getLayerGroup() { return null; }, snapToGrid(point) { return point; },
             propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
@@ -244,7 +245,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
     const object = kind === 'track' ? new Track({ points })
         : { id: `node-gesture-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
-    const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+    const app = { ...pcbEditorStubs(), ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
         placements: new Map(), texts: new Map(), _shapeElements: new Map(),
         getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
@@ -274,7 +275,7 @@ for (const kind of ['line', 'track']) {
         const object = kind === 'track' ? new Track({ points })
             : { id: `midpoint-${action}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
         const commands = [];
-        const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+        const app = { ...pcbEditorStubs(), ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(),
             getLayerGroup() { return null; }, snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
@@ -314,7 +315,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc', 'circle', 'track']) {
             start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 2 } }
         : kind === 'circle' ? { id: 'magnet-circle', kind, layer: 'top-silk', lineWidth: 0.2, x: 0, y: 0, radius: 5 }
         : { id: `magnet-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
-    const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+    const app = { ...pcbEditorStubs(), ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
         placements: new Map(), texts: new Map(), _shapeElements: new Map(),
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridSize: 1, gridVisible: true, snapToGrid: true, shiftHeld: false,
@@ -347,7 +348,7 @@ for (const layer of ['top-silk', 'board-outline']) {
                 points: [{ x: 0, y: 0 }, { x: fixed, y: 0 }, { x: fixed + 2, y: 5 },
                     { x: fixed, y: 10 }, { x: 0, y: 10 }].map(orient),
                 segmentBulges: { 1: 0.25 } };
-            const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
+            const app = { ...pcbEditorStubs(), ...shapeModel([shape]), placements: new Map(), texts: new Map(),
                 _shapeElements: new Map(), getLayerGroup() { return null; },
                 viewport: { scale: 100, gridSize: 1, gridVisible: true, shiftHeld: false,
                     setCrosshair() {}, hideCrosshair() {} } };
@@ -378,7 +379,7 @@ for (const bulge of [0, 0.25]) {
     const shape = { id: 'live-segment-width', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }], segmentBulges: { 0: bulge } };
     const commands = [];
-    const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
+    const app = { ...pcbEditorStubs(), ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100 },
         openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
         refreshPropertyPanel(panel) { this._propertyPanel = panel; },
@@ -440,7 +441,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }],
             start: { x: 0, y: 0 }, end: { x: 20, y: 0 }, bulge: { x: 10, y: -5 } };
         const commands = [];
-        const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
+        const app = { ...pcbEditorStubs(), ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
             openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
             refreshPropertyPanel(panel) { this._propertyPanel = panel; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -484,7 +485,7 @@ for (const overall of [2, 3]) {
     track.setNodeCornerRadius(nodeId, 0);
     track.setEdgeAttr(edgeId, 'width', 4);
     const commands = [];
-    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         viewport: { scale: 100 }, getLayerGroup() { return null; }, netNames: () => [],
         openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
         refreshPropertyPanel(panel) { this._propertyPanel = panel; },
@@ -521,7 +522,7 @@ for (const overall of [2, 3]) {
 {
     const shape = { id: 'line-node', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] };
-    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; }, netNames: () => [],
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
@@ -574,7 +575,7 @@ for (const overall of [2, 3]) {
 
 {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
-    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         viewport: { scale: 100 }, getLayerGroup() { return null; } };
     selectTrackOrVia(app, { type: 'track', track });
     const overlay = document.createElementNS();
@@ -591,7 +592,7 @@ for (const overall of [2, 3]) {
 for (const guideClick of [false, true]) {
     const shape = { id: 'rounded-segment', kind: 'rect', layer: 'top-copper', lineWidth: 0.2, cornerRadius: 8,
         points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }] };
-    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
@@ -626,7 +627,7 @@ for (const kind of ['line', 'polygon']) {
         const shape = { id: 'curved-segment', kind, layer: 'top-silk', lineWidth: 0.2,
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.25 } };
         let title = '';
-        const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
+        const app = { ...pcbEditorStubs(), ...shapeModel([shape]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
             openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },
@@ -690,7 +691,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         const field = bulgeField();
         return field ? String(field.format ? field.format(field.value) : field.value) : null;
     };
-    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
+    const app = { ...pcbEditorStubs(), ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(next) { title = next.title; panel = next; propertyRebuilds++; return true; },

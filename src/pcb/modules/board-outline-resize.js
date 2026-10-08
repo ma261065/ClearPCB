@@ -184,7 +184,7 @@ export function showBoardOutlineProperties(app) {
     }
     /** @type {BoardDimensionBinding|null} */
     let binding = null;
-    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const refresh = () => app.refreshPropertyPanel(describe());
     /** @returns {PropertyPanel} */
     const describe = () => {
         const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
@@ -221,7 +221,7 @@ export function showBoardOutlineProperties(app) {
             ],
         };
     };
-    if (!app.openPropertyPanel?.(describe())) return;
+    if (!app.openPropertyPanel(describe())) return;
     binding = bindBoardDimensionProperties(app, refresh);
     refresh();
 }
@@ -370,7 +370,7 @@ export function boardOutlineHandles(app) {
 
 /** @param {PcbEditor} app */
 export function renderBoardOutlineHandles(app) {
-    const overlay = app.getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup('selection-overlay');
     if (!overlay) return;
     overlay.querySelectorAll('.pcb-board-outline-handles').forEach(element => element.remove());
     const handles = boardOutlineHandles(app);

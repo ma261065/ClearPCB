@@ -12,6 +12,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const svgElement = (tagName = 'g') => fakeElement(tagName);
@@ -58,7 +59,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     textLayer.removeChild = child => { const removed = removeText(child); removals.push(text.id); return removed; };
     const otherLayer = svgElement();
     const clearanceLayer = svgElement();
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory({ onChanged: change => historyChanges.push(change) }),
         getLayerGroup: id => id === 'clearance-overlay' ? clearanceLayer : id === text.layer ? textLayer : otherLayer,
         existingLayerGroups: () => new Map([['clearance-overlay', clearanceLayer], [text.layer, textLayer]]),

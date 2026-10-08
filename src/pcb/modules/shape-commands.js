@@ -48,8 +48,8 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
         if (this.shape.layer === 'board-outline') return;
         super.execute();
         renderBoardShape(this.app, this.shape);
-        this.app.refreshFills?.();
-        this.app.updateRatsnest?.();
+        this.app.refreshFills();
+        this.app.updateRatsnest();
         refreshBoardView(this.app);
     }
 
@@ -58,9 +58,9 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         super.undo();
-        this.app.updateCopperCuts?.();
-        this.app.refreshFills?.();
-        this.app.updateRatsnest?.();
+        this.app.updateCopperCuts();
+        this.app.refreshFills();
+        this.app.updateRatsnest();
         refreshBoardView(this.app);
     }
 }
@@ -82,9 +82,9 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         super.execute();
-        this.app.updateCopperCuts?.();
-        this.app.refreshFills?.();
-        this.app.updateRatsnest?.();
+        this.app.updateCopperCuts();
+        this.app.refreshFills();
+        this.app.updateRatsnest();
         refreshBoardView(this.app);
     }
 
@@ -92,8 +92,8 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
         if (this.shape.layer === 'board-outline') return;
         super.undo();
         renderBoardShape(this.app, this.shape);
-        this.app.refreshFills?.();
-        this.app.updateRatsnest?.();
+        this.app.refreshFills();
+        this.app.updateRatsnest();
         refreshBoardView(this.app);
     }
 }
@@ -144,8 +144,8 @@ export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
         });
         if (affectsCopper) {
             if (!geometryEdit) {
-                this.app.refreshFills?.();
-                this.app.updateRatsnest?.();
+                this.app.refreshFills();
+                this.app.updateRatsnest();
             }
         }
         refreshBoardView(this.app);

@@ -246,7 +246,7 @@ function boardShapeEditProfile() {
          * @param {BoardShapeDrag} drag
          */
         afterCommit(app, original, committed, drag) {
-            if (drag.session?.nets) app.updateRatsnest?.({ nets: drag.session.nets, skipFillRefresh: !committed });
+            if (drag.session?.nets) app.updateRatsnest({ nets: drag.session.nets, skipFillRefresh: !committed });
             if (original && this.collection(app).includes(original)) {
                 renderBoardShapeHandles(app, original);
                 renderBoardShapeSegmentSelection(app);
@@ -496,8 +496,7 @@ function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false, editP
         },
         refreshSelection: () => {
             profile.renderSegmentSelection(app);
-            if (app.refreshSelectionHighlights) app.refreshSelectionHighlights();
-            else renderPcbSelectionAnchors(app);
+            app.refreshSelectionHighlights();
         },
         refreshDerived() {},
     });
@@ -666,7 +665,7 @@ export function selectBoardShape(app, shape) {
     } else if (!next) {
         setPcbSelection(app, getPcbSelectionEntries(app).filter(/** @param {{kind: string}} entry */ entry => entry.kind !== 'shape'));
     }
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
     for (const previous of previousShapes) {
         if (app.boardShapes.includes(previous)) renderBoardShape(app, previous);
     }
@@ -674,7 +673,7 @@ export function selectBoardShape(app, shape) {
     clearBoardShapeHandles(app);
     if (next) renderBoardShapeHandles(app, next);
     renderBoardShapeSegmentSelection(app);
-    app.setPcbStatus?.();
+    app.setPcbStatus();
 }
 
 // â”€â”€ Resize handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -988,7 +987,7 @@ export function clearBoardShapeHandles(app) {
  * @param {PcbEditor} app
  */
 export function renderBoardShapeSegmentSelection(app) {
-    const overlay = app.getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup('selection-overlay');
     if (!overlay) return;
     for (const element of [...overlay.querySelectorAll('.pcb-shape-segment-selection')]) element.remove();
     const selected = getBoardShapeSegmentFocus(app);
@@ -1033,8 +1032,8 @@ export function splitBoardShapeSegmentMetadata(shape, segment) {
 function finishBoardShapeRemoval(app) {
     setBoardShapeNodeFocus(app, null);
     setBoardShapeSegmentFocus(app, null);
-    app.clearProperties?.();
-    app.setActiveRibbonTab?.('pcb-home');
+    app.clearProperties();
+    app.setActiveRibbonTab('pcb-home');
 }
 
 /** @param {PcbEditor} app */
@@ -1211,7 +1210,7 @@ export function deleteFocusedBoardShape(app) {
     else deleteBoardShapeSegment(app, shape, segment);
     setBoardShapeNodeFocus(app, null);
     setBoardShapeSegmentFocus(app, null);
-    app.refreshSelectionHighlights?.();
+    app.refreshSelectionHighlights();
     return true;
 }
 
@@ -1288,7 +1287,7 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
     renderBoardShape(app, shape);
     renderBoardShapeHandles(app, shape);
     renderBoardShapeSegmentSelection(app);
-    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app.refreshSelectionHighlights?.());
+    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app.refreshSelectionHighlights());
 }
 
 // â”€â”€ Copper cuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

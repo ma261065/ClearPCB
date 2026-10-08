@@ -362,7 +362,7 @@ export function toggleBoxShapeSelection(app, shape) {
     if (!shape) return;
     togglePcbSelection(app, 'shape', shape);
     _applyHighlights(app);
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /* ─────────────────────── containment test ───────────────────────── */
@@ -448,7 +448,7 @@ export function selectEnclosed(app, bounds) {
         ))) selected.push({ kind: 'fill', object: fill });
     }
     setPcbSelection(app, selected);
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
@@ -466,7 +466,7 @@ function _applyHighlights(app) {
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
     for (const pad of getPcbSelection(app, 'pad')) drawStandalonePadHalo(app, pad, PAD_HALO_CLASS);
-    for (const text of getPcbSelection(app, 'text')) app.refreshText?.(text.id);
+    for (const text of getPcbSelection(app, 'text')) app.refreshText(text.id);
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
     if (getPcbSelection(app, 'fill').length) rerenderFills(app);
@@ -482,7 +482,7 @@ function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
     removeHalosByClass(app, PAD_HALO_CLASS);
-    app.getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
+    app.getLayerGroup('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements || []) {
         if (pl.elements) {
@@ -523,9 +523,9 @@ export function clearBoxSelection(app) {
     const selectedPads = getPcbSelection(app, 'pad');
     _clearHighlights(app);
     clearPcbSelection(app);
-    for (const textId of selectedTextIds) app.refreshText?.(textId);
+    for (const textId of selectedTextIds) app.refreshText(textId);
     for (const pad of selectedPads) renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id));
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /**
@@ -541,10 +541,10 @@ export function deselectHiddenPcbSelection(app) {
     _clearHighlights(app);
     setPcbSelection(app, selected.filter((/** @type {{visible?: boolean}} */ entry) => entry.visible !== false));
     for (const entry of hidden) {
-        if (entry.kind === 'text') app.refreshText?.(entry.object.id);
+        if (entry.kind === 'text') app.refreshText(entry.object.id);
         else if (entry.kind === 'pad') renderPad(entry.object, /** @param {string} id */ id => app.getLayerGroup(id));
     }
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
     return true;
 }
 
@@ -920,16 +920,16 @@ function finishGroupPreview(app, g, committed) {
         if (g.preview) syncPcbSelection(app);
     }
     if (!areDragOverlaysDeferred(app) && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
-        app.refreshClearanceHalos?.();
+        app.refreshClearanceHalos();
     }
-    app.updateRatsnest?.();
+    app.updateRatsnest();
     if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     _applyHighlights(app);
 }
 
 /** @param {PcbEditor} app @param {Track} track */
 function _trackOpts(app, track) {
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     return { viaDiameter: p.viaDiameter, viaDrill: p.viaDrill };
 }
 
@@ -966,7 +966,7 @@ export function deleteBoxSelection(app) {
 
     if (cmds.length === 0) return false;
     app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    app.clearProperties?.();
-    app.setActiveRibbonTab?.('pcb-home');
+    app.clearProperties();
+    app.setActiveRibbonTab('pcb-home');
     return true;
 }

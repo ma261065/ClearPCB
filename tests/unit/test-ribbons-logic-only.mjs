@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 // Ribbons are logic only: editor modules describe tabs, panels, groups and
 // items, while shared/ui/ribbon.js is the only code that builds those controls.
@@ -47,11 +48,11 @@ const viewport = {
     setTitleBlockInfo(value) { this.showTitleBlockInfo = value; },
 };
 const history = { canUndo: () => false, canRedo: () => false };
-const schematicApp = {
+const schematicApp = { ...pcbEditorStubs(),
     viewport, history, currentTool: 'select', toolOptions: {}, fileManager: {}, selection: { getSelection: () => [] },
     selectTool(tool) { this.currentTool = tool; }, setActiveRibbonTab() {}, updatePropertiesPanel() {},
 };
-const pcbApp = {
+const pcbApp = { ...pcbEditorStubs(),
     viewport, history, currentTool: 'select', activeLayer: 'top-copper', designSettings: {
         values: { trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.3, viaDrill: 0.15, units: 'mm', router: 'maze' },
         hasAppliedSettings: true,

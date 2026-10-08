@@ -4,6 +4,7 @@ import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js'
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const timers = new Map();
@@ -45,7 +46,7 @@ function expect(name, actual, expected) {
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
     let redraws = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         pcbDocument, placements: new Map(),
         get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
         viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
@@ -102,7 +103,7 @@ for (const test of cases) {
         const before = cloneShapeGeometry(shape);
         const refreshes = [];
         const crosshairs = [];
-        const app = Object.assign(topologyApp([shape]), { _shapeElements: new Map(), _layerGroups: new Map(),
+        const app = Object.assign(topologyApp([shape]), pcbEditorStubs(), { _shapeElements: new Map(), _layerGroups: new Map(),
             getLayerGroup() { return null; },
             snapToGrid(point) { return point; },
             refreshFills() { refreshes.push(areDragOverlaysDeferred(this)); },
@@ -164,7 +165,7 @@ const additiveShape = {
     id: 'additive', kind: 'rect', layer: 'bottom-copper', copperMode: 'add', net: 'GND',
     points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
 };
-const dragApp = {
+const dragApp = { ...pcbEditorStubs(),
     boardShapes: [additiveShape], _shapeElements: new Map(), _layerGroups: new Map(),
     getLayerGroup() { return null; },
     viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
@@ -243,7 +244,7 @@ for (const shape of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
         cornerRadius: 2,
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape],
         _shapeElements: new Map(),
         getLayerGroup() { return null; },
@@ -300,7 +301,7 @@ for (const shape of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
         cornerRadius: 0,
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(),
         getLayerGroup() { return null; },
@@ -328,7 +329,7 @@ for (const shape of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
         cornerRadius: 2,
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         boardShapes: [shape],
         _shapeElements: new Map(),
         getLayerGroup() { return null; },
@@ -381,6 +382,7 @@ function topologyApp(shapes) {
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(...shapes);
     return {
+        ...pcbEditorStubs(),
         pcbDocument,
         get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || pcbDocument.boardShapes; },
         placements: new Map(), tracks: [], vias: [], texts: new Map(),

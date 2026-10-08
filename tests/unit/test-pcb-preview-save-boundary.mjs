@@ -10,6 +10,7 @@ import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { saveFile, saveFileAs } from '../../src/schematic/modules/files.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
 installFakeDom();
@@ -43,7 +44,7 @@ function fixture() {
     const track = new Track({ points: [{ x: 12, y: 10 }, { x: 30, y: 10 }],
         padConnections: { n0: { componentId: 'part', pinNumber: '1' } } });
     project.pcbDocument.tracks.push(track);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: project.pcbDocument,
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),

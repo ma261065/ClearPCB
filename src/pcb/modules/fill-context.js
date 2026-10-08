@@ -10,19 +10,19 @@ import { boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.j
  */
 
 /**
- * @param {FillBoard} app
+ * @param {FillBoard} board
  * @returns {import('./copper-fill-geom.js').FillContext}
  */
-export function buildFillContext(app) {
-    const params = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-    const dimensions = boardDimensions(app);
+export function buildFillContext(board) {
+    const params = /** @type {Partial<RoutingParams>} */ (board.getRoutingParams?.() || {});
+    const dimensions = boardDimensions(board);
     return {
-        tracks: app.tracks || [], vias: app.vias || [],
-        texts: [...(app.texts || new Map()).values()], fills: [...(app.copperFills || [])],
-        pads: resolveCopperPads(app), boardShapes: app.boardShapes || [],
-        holes: resolvePlacementDrills(app.placements || new Map()).filter((hole) => !hole.plated),
+        tracks: board.tracks || [], vias: board.vias || [],
+        texts: [...(board.texts || new Map()).values()], fills: [...(board.copperFills || [])],
+        pads: resolveCopperPads(board), boardShapes: board.boardShapes || [],
+        holes: resolvePlacementDrills(board.placements || new Map()).filter((hole) => !hole.plated),
         params: { clearance: Number.isFinite(params.clearance) ? /** @type {number} */ (params.clearance) : 0.1 },
         board: dimensions.width > 0 && dimensions.height > 0
-            ? boardBoundary(app) : null,
+            ? boardBoundary(board) : null,
     };
 }

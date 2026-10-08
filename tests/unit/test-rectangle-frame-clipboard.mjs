@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createShape } from '../../src/shapes/index.js';
 import { copySelection, beginPastePreview, confirmPaste, isPastingClipboard } from '../../src/schematic/modules/clipboard.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { schematicEditorStubs } from './helpers/schematic-editor-stubs.mjs';
 
 installFakeDom();
 const element = (tagName = 'g') => fakeElement(tagName);
@@ -23,6 +24,7 @@ const origin = selection.reduce((sum, shape) => {
 }, { x: 0, y: 0 });
 const commands = [];
 const app = {
+    ...schematicEditorStubs(),
     currentTool: 'select',
     selection: { getSelection: () => selection, selectMultiple() {} },
     viewport: {

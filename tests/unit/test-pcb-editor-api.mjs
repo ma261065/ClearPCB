@@ -43,4 +43,20 @@ assert.deepEqual(editorAccessLoopholes([
     '5: runs module code with the editor as `this`',
 ], 'Disguised editor access is reported; ordinary code and comments are not');
 
-console.log('PASS PCB editor services: implemented publicly, no private aliases, access scanner semantics, loopholes');
+// The editor always implements its methods, so `app.method?.()` only hides a broken
+// fake or a typo. Optional calls remain for members that may be absent (nullable fields).
+const { readdirSync } = await import('node:fs');
+const { fileURLToPath } = await import('node:url');
+const { join, relative } = await import('node:path');
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? listJs(join(dir, entry.name)) : entry.name.endsWith('.js') ? [join(dir, entry.name)] : []);
+const editorMethods = new Set(Object.getOwnPropertyNames(PCBApp.prototype)
+    .filter(name => typeof Object.getOwnPropertyDescriptor(PCBApp.prototype, name)?.value === 'function'));
+const optionalMethodCalls = [join(repoRoot, 'src', 'pcb'), join(repoRoot, 'src', 'shared', 'pcb')].flatMap(listJs).flatMap(file =>
+    [...readFileSync(file, 'utf8').matchAll(/\bapp\.(\w+)\?\.\(/g)]
+        .filter(match => editorMethods.has(match[1]))
+        .map(match => `${relative(repoRoot, file)}: app.${match[1]}?.()`));
+assert.deepEqual(optionalMethodCalls, [], 'PCB modules call editor methods directly');
+
+console.log('PASS PCB editor services: implemented publicly, no private aliases, access scanner semantics, loopholes, direct method calls');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { formatNumberInputValue } from '../../src/core/number-inputs.js';
 import { getPadToolDefaults, setPadToolDefaults } from '../../src/pcb/modules/pad-tool.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -73,7 +74,7 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
     model.tracks.push(attached);
     const groups = new Map(['top-copper', 'bottom-copper', 'top-copper-pad-drills', 'bottom-copper-pad-drills']
         .map(id => [id, document.createElementNS('http://www.w3.org/2000/svg', 'g')]));
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }

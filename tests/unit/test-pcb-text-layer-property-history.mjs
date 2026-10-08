@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -26,7 +27,7 @@ panel.appendChild(items);
 document.body.appendChild(panel);
 const titles = [];
 const presentedLayers = [];
-const app = {
+const app = { ...pcbEditorStubs(),
     pcbDocument, texts: pcbDocument.texts, history: new CommandHistory(),
     propertiesItems: () => items, setPropertiesTitle: title => {
         titles.push(title);

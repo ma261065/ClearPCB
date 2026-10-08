@@ -4,6 +4,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
@@ -52,7 +53,7 @@ function expect(name, condition) {
     }));
     const hole = { id: 'hole-shape', layer: 'hole' };
     const via = { id: 'overlapping-via' };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         placements: new Map(), tracks: [], vias: [via], boardShapes: [hole], texts: new Map(),
         viewport: { scale: 1 },
     };
@@ -75,7 +76,7 @@ function expect(name, condition) {
         invalidate() {},
     });
     registerPcbSelectionAdapter('shape', factory);
-    const app = {
+    const app = { ...pcbEditorStubs(),
         placements: new Map(), tracks: [], vias: [], boardShapes: [below, top, unrelated], texts: new Map(),
         _shapeElements: new Map(),
         viewport: { scale: 1 },
@@ -128,7 +129,7 @@ function expect(name, condition) {
         beginMove() { beganMove = true; return true; },
         invalidate() {},
     }));
-    const app = {
+    const app = { ...pcbEditorStubs(),
         placements: new Map(), tracks: [], vias: [], boardShapes: [locked], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
         syncClipboardButtons() {}, setPcbStatus() {},
@@ -156,7 +157,7 @@ function expect(name, condition) {
     });
     registerPcbSelectionAdapter('shape', factory('shape'));
     registerPcbSelectionAdapter('via', factory('via'));
-    const app = {
+    const app = { ...pcbEditorStubs(),
         placements: new Map(), tracks: [], vias: [top], boardShapes: [below], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
         syncClipboardButtons() {}, setPcbStatus() {},
@@ -196,7 +197,7 @@ function expect(name, condition) {
         hitTest() { return false; },
         invalidate() {},
     }));
-    const app = {
+    const app = { ...pcbEditorStubs(),
         placements: new Map(), tracks: [], vias: [], boardShapes: [shape], texts: new Map(),
         viewport: { scale: 1 },
         getLayerGroup() {
@@ -214,7 +215,7 @@ function expect(name, condition) {
 {
     const endCalls = [];
     let updates = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 1 },
     };
     setPcbInteraction(app, '_pcbSelectionInteraction', {
@@ -241,7 +242,7 @@ function expect(name, condition) {
 
 {
     let endOptions = null;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 10 },
     };
     setPcbInteraction(app, '_pcbSelectionInteraction', {
@@ -260,7 +261,7 @@ function expect(name, condition) {
 
 {
     const endCalls = [];
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 1 },
     };
     setPcbInteraction(app, '_pcbSelectionInteraction', {
@@ -274,7 +275,7 @@ function expect(name, condition) {
 
 for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0']) {
     let ended = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 1 },
     };
     setPcbInteraction(app, '_pcbSelectionInteraction', {
@@ -303,7 +304,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
             committed = commit;
         },
     };
-    const app = {
+    const app = { ...pcbEditorStubs(),
         viewport: { scale: 1 },
     };
     setPcbInteraction(app, '_pcbSelectionInteraction', {
@@ -320,7 +321,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
 {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const edgeId = track.edges.keys().next().value;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         tracks: [track],
         vias: [],
         placements: new Map(),
@@ -393,7 +394,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
         .map(item => item.text).join(',') === 'Split,Delete node');
     expect('shared segment menu has conversion and targeted deletion', pathContextActions({ segment: true, curved: false,
         convert: action, deleteSegment: action }).map(item => item.text).join(',') === 'Convert to Arc Segment,Delete segment');
-    const app = { placements: new Map(), viewport: { scale: 100, gridSize: 1, gridVisible: true },
+    const app = { ...pcbEditorStubs(), placements: new Map(), viewport: { scale: 100, gridSize: 1, gridVisible: true },
         snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }) };
     const free = snapPathPoint(app, { x: 2.3, y: 4.4 });
     expect('shared point snap is free outside the grid magnet band', free.x === 2.3 && free.y === 4.4);

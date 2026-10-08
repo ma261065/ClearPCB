@@ -27,6 +27,7 @@ import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 const trackRenders = new Map();
@@ -106,7 +107,7 @@ function fixture(deferred = false, component = false) {
     setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
     const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'top-silk', 'top-fill', 'selection-overlay'].map(id => [id, new Element('g')]));
     let fills = 0, ratsnest = 0, board = 0;
-    const app = {};
+    const app = { ...pcbEditorStubs(),};
     setDragOverlaysDeferred(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {

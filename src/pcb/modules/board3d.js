@@ -93,7 +93,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     const pcbContainer = document.getElementById('pcbCanvasContainer');
     const mainContainer = pcbContainer?.parentElement;
     if (!pcbContainer || !mainContainer) {
-        app.setStatus?.('Cannot open 3D view — editor not ready');
+        app.setStatus('Cannot open 3D view — editor not ready');
         return;
     }
 

@@ -88,7 +88,7 @@ function flushCopperCuts(app) {
     const state = shapeClearanceRefreshState(app);
     if (!state.deferredShapeCopperCuts) return;
     state.deferredShapeCopperCuts = false;
-    app.updateCopperCuts?.();
+    app.updateCopperCuts();
 }
 
 /**
@@ -155,8 +155,8 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         setPictureCopperRefreshPending(app, false);
         flushCopperCuts(app);
         refreshEditedClearances(app);
-        if (app.refreshFills?.() !== true) {
-            app.updateRatsnest?.({ skipFillRefresh: true });
+        if (app.refreshFills() !== true) {
+            app.updateRatsnest({ skipFillRefresh: true });
             scheduleDrc(app);
         }
         refreshBoardView(app);

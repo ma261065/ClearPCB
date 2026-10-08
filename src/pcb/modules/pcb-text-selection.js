@@ -159,7 +159,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             } finally {
                 const canonical = app.pcbDocument.texts.get(text.id);
                 schedulePictureCopperRefresh(app, canonical);
-                if (canonical) app.showTextProperties?.(canonical);
+                if (canonical) app.showTextProperties(canonical);
             }
         },
         /** @param {Point} worldPos */

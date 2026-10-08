@@ -21,6 +21,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 let allocations = 0;
 class Element {
@@ -100,7 +101,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
     model.boardShapes.push(...shapes, ...unrelated);
     const group = new Element();
     let pours = 0;
-    const app = {
+    const app = { ...pcbEditorStubs(),
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
         _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },

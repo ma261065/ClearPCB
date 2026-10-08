@@ -24,4 +24,20 @@ for (const name of ['fitToContent', 'setActiveRibbonTab']) {
     assert.ok(shared.includes(name), `${name} is a service of both editors`);
 }
 
-console.log(`PASS schematic editor services: ${SCHEMATIC_EDITOR_SERVICES.length} implemented publicly, no private aliases`);
+// The editor always implements its methods, so `app.method?.()` only hides a broken
+// fake or a typo. Optional calls remain for members that may be absent.
+const { readdirSync } = await import('node:fs');
+const { fileURLToPath } = await import('node:url');
+const { join, relative } = await import('node:path');
+const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
+const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? listJs(join(dir, entry.name)) : entry.name.endsWith('.js') ? [join(dir, entry.name)] : []);
+const editorMethods = new Set(Object.getOwnPropertyNames(SchematicApp.prototype)
+    .filter(name => typeof Object.getOwnPropertyDescriptor(SchematicApp.prototype, name)?.value === 'function'));
+const optionalMethodCalls = listJs(join(repoRoot, 'src', 'schematic')).flatMap(file =>
+    [...readFileSync(file, 'utf8').matchAll(/\bapp\.(\w+)\?\.\(/g)]
+        .filter(match => editorMethods.has(match[1]))
+        .map(match => `${relative(repoRoot, file)}: app.${match[1]}?.()`));
+assert.deepEqual(optionalMethodCalls, [], 'Schematic modules call editor methods directly');
+
+console.log(`PASS schematic editor services: ${SCHEMATIC_EDITOR_SERVICES.length} implemented publicly, no private aliases, direct method calls`);

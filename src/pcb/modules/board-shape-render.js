@@ -225,9 +225,9 @@ export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.skipCopperUpdate) {
         const affectsCuts = shapeAffectsCopperCuts(shape);
         if (opts.liveDrag) {
-            if (affectsCuts) app.updateCopperCuts?.();
+            if (affectsCuts) app.updateCopperCuts();
         } else if (affectsCuts || hasCopperCuts(app)) {
-            app.updateCopperCuts?.();
+            app.updateCopperCuts();
         }
     }
 }

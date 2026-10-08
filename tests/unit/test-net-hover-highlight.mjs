@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { getNetHoveredShapeIds } from '../../src/pcb/modules/board-shape-state.js';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 
@@ -32,7 +33,7 @@ assert.equal(shapeHoverColor(copperShape), '#ed796d',
     'shape hover matches a 25%-opaque white track hover halo');
 assert.equal(shapeSelectionColor(copperShape), '#f3a69e',
     'shape selection matches a 50%-opaque white track selection halo');
-const app = {
+const app = { ...pcbEditorStubs(),
     vias: [viaA, viaB, viaOther],
     tracks: [],
     pads: [padA, padB],

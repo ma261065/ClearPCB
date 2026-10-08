@@ -1,6 +1,7 @@
 /** A selected path's nodes stay hittable when a large corner radius pulls the drawn outline away from them. */
 import assert from 'node:assert/strict';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 const menus = [];
 const document = installFakeDom();
@@ -16,7 +17,7 @@ const shape = {
     nodeCornerRadii: { 1: 9.5 },
     points: [{ x: 135.36, y: -57.15 }, { x: 152.4, y: -27.94 }, { x: 163.83, y: -37.36 }, { x: 157.48, y: -59.69 }],
 };
-const app = {
+const app = { ...pcbEditorStubs(),
     boardShapes: [shape], placements: new Map(), pads: [], tracks: [], _shapeElements: new Map(),
     viewport: { scale: 10, setCrosshair() {} },
     getLayerGroup() { return overlay; },

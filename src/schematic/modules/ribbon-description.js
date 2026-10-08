@@ -169,8 +169,8 @@ export function createSchematicRibbonDescription(app) {
         /** @param {{from: string, to: string, userInitiated: boolean}} event */
         onBeforeTabChange({ from, to, userInitiated }) {
             if (userInitiated && from !== to && DRAWING_TOOL_IDS.has(app.currentTool)) {
-                if (app.currentTool === 'wire') app.cancelWireDrawing?.();
-                app.selectTool?.('select');
+                if (app.currentTool === 'wire') app.cancelWireDrawing();
+                app.selectTool('select');
             }
         },
         /** @param {{to: string}} event */
@@ -203,7 +203,7 @@ export function createSchematicRibbonDescription(app) {
                                 onOpen: (event) => void renderRecentFiles({
                                     container: event.menu,
                                     getFileManager: () => app.fileManager,
-                                    openRecent: name => app.openRecentFile?.(name),
+                                    openRecent: name => app.openRecentFile(name),
                                 }),
                             },
                             {
@@ -213,8 +213,8 @@ export function createSchematicRibbonDescription(app) {
                                 menuId: 'ribbonImportMenu',
                                 items: [{ kind: 'button', className: 'dropdown-item', dataset: { format: 'easyeda-sch' }, content: 'EasyEDA Schematic (.json)', run: () => app.importEasyEDA() }],
                             },
-                            B('ribbonSave', '💾 Save', 'Save (Ctrl+S)', { run: async () => { if ((await app.saveFile())?.success) app.showSaveToast?.('Saved'); } }),
-                            B('ribbonSaveAs', '💾 Save As', 'Save As (Ctrl+Alt+S)', { run: async () => { if ((await app.saveFileAs())?.success) app.showSaveToast?.('Saved'); } }),
+                            B('ribbonSave', '💾 Save', 'Save (Ctrl+S)', { run: async () => { if ((await app.saveFile())?.success) app.showSaveToast('Saved'); } }),
+                            B('ribbonSaveAs', '💾 Save As', 'Save As (Ctrl+Alt+S)', { run: async () => { if ((await app.saveFileAs())?.success) app.showSaveToast('Saved'); } }),
                             B('ribbonExportPdf', '🧾 Export PDF', 'Export PDF (Ctrl+Shift+P)', { run: () => app.savePdf() }),
                             B('ribbonPrint', '🖨️ Print', 'Print (Ctrl+P)', { run: () => app.print() }),
                             { kind: 'button', attrs: { 'data-mcp-session': true }, title: 'Connect an AI through MCP', content: '🔌 AI Mode' },
@@ -223,12 +223,12 @@ export function createSchematicRibbonDescription(app) {
                     {
                         title: 'Debug',
                         items: [
-                            B('ribbonClearComponentCache', '🧹 Clear Cache', 'Clear component caches', { className: 'ribbon-danger', run: () => app.clearComponentCaches?.() }),
+                            B('ribbonClearComponentCache', '🧹 Clear Cache', 'Clear component caches', { className: 'ribbon-danger', run: () => app.clearComponentCaches() }),
                             { kind: 'checkbox', id: 'ribbonToggleComponentTooltip', label: 'Component tooltip',
                                 checked: () => app.showComponentDebugTooltip !== false,
                                 onChange: /** @param {boolean} checked */ (checked) => {
                                     app.showComponentDebugTooltip = checked;
-                                    if (!checked) app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
+                                    if (!checked) app.updateComponentCodeTooltip(null, null, { forceHide: true });
                                 } },
                         ],
                     },
@@ -274,7 +274,7 @@ export function createSchematicRibbonDescription(app) {
                                         },
                                         run: () => {
                                             const style = normalizenetStyle(item.dataset.netStyle || 't');
-                                            app.updateToolOptions?.({ netStyle: style, netOrientation: DEFAULT_ORIENTATION_BY_STYLE[style] || 'E' });
+                                            app.updateToolOptions({ netStyle: style, netOrientation: DEFAULT_ORIENTATION_BY_STYLE[style] || 'E' });
                                             /** @type {ToolOptions} */ (app.toolOptions).netPresetText = item.dataset.netText || null;
                                             app.selectTool('net');
                                         },

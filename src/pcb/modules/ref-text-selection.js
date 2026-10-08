@@ -238,8 +238,8 @@ export class MoveRefTextCommand extends ModelMoveRefTextCommand {
         const pl = this.app.placements?.get(this.compId);
         if (pl) { pl.refDx = saved.refDx; pl.refDy = saved.refDy; }
         renderPlacementPose(this.app, this.compId);
-        this.app.markDirty?.();
-        this.app.drawRefOverlay?.(this.compId, false);
+        this.app.markDirty();
+        this.app.drawRefOverlay(this.compId, false);
         refreshBoardView(this.app);
         return saved;
     }
@@ -262,8 +262,8 @@ export class RotateRefTextCommand extends ModelRotateRefTextCommand {
         const pl = this.app.placements?.get(this.compId);
         if (pl) pl.refRot = saved.refRot;
         renderPlacementPose(this.app, this.compId);
-        this.app.markDirty?.();
-        this.app.drawRefOverlay?.(this.compId, false);
+        this.app.markDirty();
+        this.app.drawRefOverlay(this.compId, false);
         refreshBoardView(this.app);
         return saved;
     }
@@ -289,9 +289,9 @@ export class SetRefStyleCommand extends ModelSetRefStyleCommand {
             if (state.refStrokeWidth !== undefined) pl.refStrokeWidth = saved.refStrokeWidth;
             if (state.refRot !== undefined) pl.refRot = saved.refRot;
         }
-        this.app.rerenderRef?.(this.compId);
-        this.app.markDirty?.();
-        this.app.drawRefOverlay?.(this.compId, false);
+        this.app.rerenderRef(this.compId);
+        this.app.markDirty();
+        this.app.drawRefOverlay(this.compId, false);
         refreshBoardView(this.app);
         return saved;
     }
@@ -307,7 +307,7 @@ export function hitTestReferenceText(app, worldPos) {
 
 registerPcbPlacementHitTest('reftext', hitTestReferenceText);
 registerPcbReferenceOverlayRefresh(/** @param {PcbEditor} app @param {string|null} componentId */ (app, componentId) => {
-    if (componentId || hasRefOverlay(app)) app.drawRefOverlay?.(componentId, false);
+    if (componentId || hasRefOverlay(app)) app.drawRefOverlay(componentId, false);
 });
 
 /**
@@ -422,7 +422,7 @@ export function selectRefText(app, compId) {
         return;
     }
     setPcbSelection(app, next ? [{ kind: 'reftext', object: next }] : []);
-    app.syncClipboardButtons?.();
+    app.syncClipboardButtons();
     app.drawRefOverlay(next, false);
 }
 
@@ -512,7 +512,7 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         endMove(commit) { endRefDrag(app, commit); },
         invalidate() {
             refreshRefHighlight(app, componentId);
-            app.drawRefOverlay?.(componentId, false);
+            app.drawRefOverlay(componentId, false);
         },
         render() { this.invalidate(); },
     };
