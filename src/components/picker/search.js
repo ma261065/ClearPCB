@@ -6,11 +6,14 @@ import { populateComponents, populateKiCadResults, populateLCSCResults, populate
 import { updatePackageSelector } from './symbol-preview.js';
 import { showIndexingProgress, showLCSCPrompt, showLoading } from './ui-state.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').SearchProgress} SearchProgress */
+
 /**
  * Switches between local and LCSC/online search modes.
  * @param {string} mode - The search mode ('local' or 'lcsc').
  */
-export function setSearchMode(/** @type {any} */ picker, mode) {
+export function setSearchMode(/** @type {ComponentPicker} */ picker, mode) {
     picker.searchMode = mode;
     picker.searchDebouncer.cancel();
     picker.searchRequestGate.invalidate();
@@ -53,7 +56,7 @@ export function setSearchMode(/** @type {any} */ picker, mode) {
 /**
  * Load the index on first Online use, showing progress until a usable index exists.
  */
-export async function prepareKiCadIndex(/** @type {any} */ picker) {
+export async function prepareKiCadIndex(/** @type {ComponentPicker} */ picker) {
     const fetcher = picker.library?.kicadFetcher;
     if (!picker.isOpen || picker.searchMode !== 'lcsc' || !fetcher || fetcher.libraryIndex) {
         return;
@@ -69,14 +72,16 @@ export async function prepareKiCadIndex(/** @type {any} */ picker) {
     showIndexingProgress(picker, initial.message, initial.loaded, initial.total);
 
     try {
-        await fetcher.ensureIndexLoaded((progress) => {
+        /** @param {SearchProgress} progress */
+        const onProgress = (progress) => {
             if (picker.isOpen && picker.searchMode === 'lcsc'
                 && picker.searchQuery.trim().length < 2
                 && picker.searchRequestGate.isCurrent(watchId)) {
                 sawProgress = true;
                 showIndexingProgress(picker, progress.message, progress.loaded, progress.total);
             }
-        });
+        };
+        await fetcher.ensureIndexLoaded(onProgress);
     } catch (error) {
         if (picker.isOpen && picker.searchMode === 'lcsc'
             && picker.searchQuery.trim().length < 2
@@ -104,7 +109,7 @@ export async function prepareKiCadIndex(/** @type {any} */ picker) {
 /**
  * Debounces the LCSC search to avoid excessive API calls during typing.
  */
-export function debouncedLCSCSearch(/** @type {any} */ picker) {
+export function debouncedLCSCSearch(/** @type {ComponentPicker} */ picker) {
     picker.searchDebouncer.run();
 }
 
@@ -112,7 +117,7 @@ export function debouncedLCSCSearch(/** @type {any} */ picker) {
  * Searches online EasyEDA and KiCad catalogs for components matching the current query.
  * @returns {Promise<void>}
  */
-export async function searchLCSC(/** @type {any} */ picker) {
+export async function searchLCSC(/** @type {ComponentPicker} */ picker) {
     const query = picker.searchQuery.trim();
     
     if (query.length < 2) {
@@ -130,11 +135,13 @@ export async function searchLCSC(/** @type {any} */ picker) {
         const fetcher = picker.library.kicadFetcher;
         if (!fetcher.libraryIndex) {
             showIndexingProgress(picker, 'Loading KiCad library index...', 0, 0);
-            await fetcher.ensureIndexLoaded((progress) => {
+            /** @param {SearchProgress} progress */
+            const onProgress = (progress) => {
                 if (picker.searchMode === 'lcsc' && picker.searchRequestGate.isCurrent(searchId)) {
                     showIndexingProgress(picker, progress.message, progress.loaded, progress.total);
                 }
-            });
+            };
+            await fetcher.ensureIndexLoaded(onProgress);
             if (!picker.searchRequestGate.isCurrent(searchId) || picker.searchMode !== 'lcsc') return;
         }
         showLoading(picker);
@@ -171,7 +178,7 @@ export async function searchLCSC(/** @type {any} */ picker) {
  * @param {string} query - The search query string.
  * @returns {Promise<void>}
  */
-export async function searchKiCadFallback(/** @type {any} */ picker, query) {
+export async function searchKiCadFallback(/** @type {ComponentPicker} */ picker, query) {
     try {
         // Use SearchManager for KiCad search
         const kicadResults = await picker.searchManager.searchKiCad(query);

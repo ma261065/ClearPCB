@@ -9,10 +9,12 @@ import { debouncedLCSCSearch, prepareKiCadIndex, setSearchMode } from './search.
 import { selectBuiltInPackage } from './symbol-preview.js';
 import { showLCSCPrompt } from './ui-state.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+
 /**
  * Creates the DOM structure for the component picker panel.
  */
-export function createPickerDOM(/** @type {any} */ picker) {
+export function createPickerDOM(/** @type {ComponentPicker} */ picker) {
     picker.element = document.createElement('div');
     picker.element.className = 'component-picker';
     picker.element.innerHTML = `
@@ -97,7 +99,9 @@ export function createPickerDOM(/** @type {any} */ picker) {
     }
     
     // Bind events
-    picker.element.querySelector('.cp-close').addEventListener('click', () => closePicker(picker));
+    const closeBtn = /** @type {HTMLButtonElement|null} */ (picker.element.querySelector('.cp-close'));
+    if (!closeBtn) throw new Error('Component picker close button was not created');
+    closeBtn.addEventListener('click', () => closePicker(picker));
     picker.packageSelect.addEventListener('change', () => {
         selectBuiltInPackage(picker, picker.packageSelect.value);
     });
@@ -148,7 +152,7 @@ export function createPickerDOM(/** @type {any} */ picker) {
     // Mode toggle buttons
     picker.modeButtons.forEach(btn => {
         btn.addEventListener('click', () => {
-            setSearchMode(picker, btn.dataset.mode);
+            setSearchMode(picker, /** @type {string} */ (btn.dataset.mode));
         });
     });
 }
@@ -156,7 +160,7 @@ export function createPickerDOM(/** @type {any} */ picker) {
 /**
  * Toggles the component picker panel open or closed.
  */
-export function togglePicker(/** @type {any} */ picker) {
+export function togglePicker(/** @type {ComponentPicker} */ picker) {
     if (picker.isOpen) {
         closePicker(picker);
         return;
@@ -176,7 +180,7 @@ export function togglePicker(/** @type {any} */ picker) {
 /**
  * Closes the component picker panel and cleans up the lazy loader.
  */
-export function closePicker(/** @type {any} */ picker) {
+export function closePicker(/** @type {ComponentPicker} */ picker) {
     const wasOpen = picker.isOpen;
     picker.isOpen = false;
     picker.element.classList.add('collapsed');
@@ -193,7 +197,7 @@ export function closePicker(/** @type {any} */ picker) {
 /**
  * Opens the component picker panel if it is not already open.
  */
-export function openPicker(/** @type {any} */ picker) {
+export function openPicker(/** @type {ComponentPicker} */ picker) {
     if (!picker.isOpen) {
         togglePicker(picker);
     }
@@ -201,7 +205,7 @@ export function openPicker(/** @type {any} */ picker) {
 
 /** Put the keyboard in the search field, ready to type a part name. */
 
-export function focusPickerSearch(/** @type {any} */ picker) {
+export function focusPickerSearch(/** @type {ComponentPicker} */ picker) {
     picker.searchInput?.focus();
 }
 
@@ -209,22 +213,22 @@ export function focusPickerSearch(/** @type {any} */ picker) {
  * Appends the component picker element to a parent DOM node.
  * @param {HTMLElement} parent - The parent element to append to.
  */
-export function appendPickerTo(/** @type {any} */ picker, parent) {
+export function appendPickerTo(/** @type {ComponentPicker} */ picker, parent) {
     parent.appendChild(picker.element);
 }
 
 /**
  * Returns the currently selected component definition.
- * @returns {Object|null} The selected component, or null if none is selected.
+ * @returns {import('../ComponentPicker.js').PickerComponentDefinition|null} The selected component, or null if none is selected.
  */
-export function getSelectedComponent(/** @type {any} */ picker) {
+export function getSelectedComponent(/** @type {ComponentPicker} */ picker) {
     return picker.selectedComponent;
 }
 
 /**
  * Clears the current component selection and resets the preview panel.
  */
-export function clearSelection(/** @type {any} */ picker) {
+export function clearSelection(/** @type {ComponentPicker} */ picker) {
     picker.selectedComponent = null;
     picker.placeBtn.disabled = true;
     picker.listEl.querySelectorAll('.cp-item').forEach(el => {
@@ -237,7 +241,7 @@ export function clearSelection(/** @type {any} */ picker) {
 /**
  * Cleanup and destroy the component picker
  */
-export function destroyPicker(/** @type {any} */ picker) {
+export function destroyPicker(/** @type {ComponentPicker} */ picker) {
     closePicker(picker);
     disposeModel3dViewer(picker);
     if (picker.searchDebouncer) {

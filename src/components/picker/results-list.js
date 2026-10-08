@@ -8,11 +8,16 @@ import { beginPlacement } from './placement.js';
 import { applyLCSCThumbnail, createMiniPreview, normalizeDefinition, updatePreview } from './symbol-preview.js';
 import { exactMatchQuery, isExactNameMatch, pickerResultNames, showNoResults } from './ui-state.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').KiCadSearchResult} KiCadSearchResult */
+/** @typedef {import('../ComponentPicker.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
+
 /**
  * Populates the results list with KiCad library search results.
- * @param {Array<Object>} results - Array of KiCad search result objects.
+ * @param {KiCadSearchResult[]} results - Array of KiCad search result objects.
  */
-export function populateKiCadResults(/** @type {any} */ picker, results) {
+export function populateKiCadResults(/** @type {ComponentPicker} */ picker, results) {
     picker.listEl.innerHTML = `
         <div class="cp-kicad-notice">
             <strong>KiCad Library Results</strong>
@@ -43,11 +48,11 @@ export function populateKiCadResults(/** @type {any} */ picker, results) {
 
 /**
  * Populates the results list with local library fallback results.
- * @param {Array<Object>} results - Array of local component definitions.
+ * @param {PickerComponentDefinition[]} results - Array of local component definitions.
  * @param {string} query - The original search query for display.
  * @returns {Promise<void>}
  */
-export async function populateLocalFallbackResults(/** @type {any} */ picker, results, query) {
+export async function populateLocalFallbackResults(/** @type {ComponentPicker} */ picker, results, query) {
     picker.listEl.innerHTML = `
         <div class="cp-kicad-notice">
             <strong>Local Library Results</strong>
@@ -82,7 +87,7 @@ export async function populateLocalFallbackResults(/** @type {any} */ picker, re
 /**
  * Populates the results list with combined EasyEDA and KiCad search results in a two-column layout.
  */
-export function populateLCSCResults(/** @type {any} */ picker) {
+export function populateLCSCResults(/** @type {ComponentPicker} */ picker) {
     picker.listEl.innerHTML = '';
     
     // Remove any existing header row from previous searches
@@ -159,8 +164,9 @@ export function populateLCSCResults(/** @type {any} */ picker) {
             const priceStr = result.price != null ? `$${result.price.toFixed(4)}` : '';
 
             // Format stock
-            const stockStr = result.stock > 0 
-                ? `<span style="color:var(--schematic-component)">${result.stock.toLocaleString()} in stock</span>`
+            const stock = result.stock || 0;
+            const stockStr = stock > 0
+                ? `<span style="color:var(--schematic-component)">${stock.toLocaleString()} in stock</span>`
                 : '<span style="color:var(--accent-color)">Out of stock</span>';
 
             item.innerHTML = `
@@ -248,7 +254,7 @@ export function populateLCSCResults(/** @type {any} */ picker) {
 /**
  * Balances scroll behavior of the two results columns so shorter lists don't scroll past their content.
  */
-export function balanceResultsColumns(/** @type {any} */ picker) {
+export function balanceResultsColumns(/** @type {ComponentPicker} */ picker) {
     requestAnimationFrame(() => {
         const grid = /** @type {HTMLElement|null} */ (picker.listEl.querySelector('.cp-results-grid'));
         if (!grid) return;
@@ -305,7 +311,7 @@ export function balanceResultsColumns(/** @type {any} */ picker) {
 /**
  * Populates the category dropdown with available component categories from the library.
  */
-export function populateCategories(/** @type {any} */ picker) {
+export function populateCategories(/** @type {ComponentPicker} */ picker) {
     const categories = picker.library.getCategoryNames();
     categories.sort();
     
@@ -320,7 +326,7 @@ export function populateCategories(/** @type {any} */ picker) {
 /**
  * Populates the component list based on the current search query and selected category.
  */
-export function populateComponents(/** @type {any} */ picker) {
+export function populateComponents(/** @type {ComponentPicker} */ picker) {
     picker.listEl.innerHTML = '';
     picker.componentItems.clear();
     
@@ -329,6 +335,7 @@ export function populateComponents(/** @type {any} */ picker) {
         picker.lazyLoader.destroy();
     }
     
+    /** @type {PickerComponentDefinition[]} */
     let components;
     if (picker.searchQuery) {
         // Use SearchManager for local search
@@ -384,7 +391,7 @@ export function populateComponents(/** @type {any} */ picker) {
 /**
  * Sets up lazy loading for component preview thumbnails using an IntersectionObserver.
  */
-export function setupLazyLoading(/** @type {any} */ picker) {
+export function setupLazyLoading(/** @type {ComponentPicker} */ picker) {
     // Create lazy loader for rendering component previews
     picker.lazyLoader = new LazyLoader({
         container: picker.listEl,
@@ -392,7 +399,7 @@ export function setupLazyLoading(/** @type {any} */ picker) {
         rootMargin: '50px',
         batchSize: 5,
         renderCallback: async (element, item) => {
-            const comp = item.data;
+            const comp = /** @type {PickerComponentDefinition|null|undefined} */ (item.data);
             if (!comp) return;
             
             try {
@@ -422,10 +429,10 @@ export function setupLazyLoading(/** @type {any} */ picker) {
 
 /**
  * Selects a local component and updates the preview panel.
- * @param {Object} comp - The component definition to select.
+ * @param {PickerComponentDefinition} comp - The component definition to select.
  * @param {HTMLElement} [itemEl] - The clicked DOM element to highlight.
  */
-export function selectComponent(/** @type {any} */ picker, comp, itemEl) {
+export function selectComponent(/** @type {ComponentPicker} */ picker, comp, itemEl) {
     const normalized = normalizeDefinition(picker, comp);
     // Update selection state
     if (itemEl) {
@@ -435,7 +442,7 @@ export function selectComponent(/** @type {any} */ picker, comp, itemEl) {
         itemEl.classList.add('selected');
     }
     
-    picker.selectedComponent = normalized;
+    picker.selectedComponent = /** @type {PickerComponentDefinition} */ (normalized);
     picker.selectedLCSCResult = null;  // Clear any LCSC selection
     picker.placeBtn.disabled = false;
     picker.placeBtn.textContent = 'Place Component';

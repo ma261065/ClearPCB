@@ -5,12 +5,18 @@
 import { escapeHtml } from '../../core/ui-helpers.js';
 import { resolveObjFromModelUrl } from '../model3d-source.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').KiCadFetcherLike} KiCadFetcherLike */
+/** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
+/** @typedef {import('../ComponentPicker.js').SymbolDefinitionLike} SymbolDefinitionLike */
+/** @typedef {import('../ComponentPicker.js').FootprintBox} FootprintBox */
+
 /**
  * Sets the footprint preview section to a status message.
  * @param {string} message - The status message to display.
  * @param {boolean} available - Whether the footprint is available.
  */
-export function setFootprintPreviewStatus(/** @type {any} */ picker, message, available) {
+export function setFootprintPreviewStatus(/** @type {ComponentPicker} */ picker, message, available) {
     if (!picker.previewFootprint) return;
     picker.previewFootprint.style.height = '80px';
     picker.previewFootprint.style.maxHeight = '';
@@ -30,7 +36,7 @@ export function setFootprintPreviewStatus(/** @type {any} */ picker, message, av
  * @param {string} message - The status message to display.
  * @param {boolean} available - Whether the 3D model is available.
  */
-export function set3dPreviewStatus(/** @type {any} */ picker, message, available) {
+export function set3dPreviewStatus(/** @type {ComponentPicker} */ picker, message, available) {
     if (!picker.preview3d) return;
     disposeModel3dViewer(picker);
     picker.preview3d.innerHTML = `<div class="cp-preview-placeholder">${message}</div>`;
@@ -49,7 +55,7 @@ export function set3dPreviewStatus(/** @type {any} */ picker, message, available
  * @param {number} selId
  * @param {string} [label='3D model']
  */
-export async function renderKiCadStepPreviewInteractive(/** @type {any} */ picker, modelUrl, selId, label = '3D model') {
+export async function renderKiCadStepPreviewInteractive(/** @type {ComponentPicker} */ picker, modelUrl, selId, label = '3D model') {
     disposeModel3dViewer(picker);
     picker.preview3d.innerHTML = '<div class="cp-preview-placeholder">Loading 3D model...</div>';
     if (picker.preview3dInfo) {
@@ -120,7 +126,7 @@ export async function renderKiCadStepPreviewInteractive(/** @type {any} */ picke
  * @param {string} footprintName
  * @param {number} selId
  */
-export async function check3dModelForFootprint(/** @type {any} */ picker, footprintName, selId) {
+export async function check3dModelForFootprint(/** @type {ComponentPicker} */ picker, footprintName, selId) {
     if (!footprintName) {
         set3dPreviewStatus(picker, 'Select a footprint first', false);
         picker.selectedKiCadModel3dUrl = '';
@@ -132,7 +138,7 @@ export async function check3dModelForFootprint(/** @type {any} */ picker, footpr
         if (!picker.selectionRequestGate.isCurrent(selId)) return;
         if (availability.has3d) {
             picker.selectedKiCadModel3dUrl = availability.modelUrl || '';
-            await renderKiCadStepPreviewInteractive(picker, availability.modelUrl, selId, footprintName);
+            await renderKiCadStepPreviewInteractive(picker, /** @type {string} */ (availability.modelUrl), selId, footprintName);
         } else {
             picker.selectedKiCadModel3dUrl = '';
             set3dPreviewStatus(picker, '3D model not found', false);
@@ -148,7 +154,7 @@ export async function check3dModelForFootprint(/** @type {any} */ picker, footpr
  * Render candidate footprints (with previews) to help users choose package.
  * @param {{candidates:string[], selected:string, selId:number, onPick:(picked:string)=>void}} params
  */
-export function renderKiCadFootprintChoices(/** @type {any} */ picker, params) {
+export function renderKiCadFootprintChoices(/** @type {ComponentPicker} */ picker, params) {
     const { candidates, selected, selId, onPick } = params;
     if (!picker.previewFootprint) return;
 
@@ -202,7 +208,9 @@ export function renderKiCadFootprintChoices(/** @type {any} */ picker, params) {
     previewHost.style.color = 'var(--text-muted)';
     previewHost.textContent = 'Loading...';
 
+    /** @type {Map<string, string>} */
     const previewCache = new Map();
+    /** @param {string} fpName */
     const renderSelected = async (fpName) => {
         onPick(fpName || '');
         if (!fpName) {
@@ -212,7 +220,7 @@ export function renderKiCadFootprintChoices(/** @type {any} */ picker, params) {
         previewHost.textContent = 'Loading...';
 
         if (previewCache.has(fpName)) {
-            const cachedSvg = previewCache.get(fpName);
+            const cachedSvg = previewCache.get(fpName) || '';
             previewHost.innerHTML = cachedSvg;
             return;
         }
@@ -222,7 +230,7 @@ export function renderKiCadFootprintChoices(/** @type {any} */ picker, params) {
             if (!picker.selectionRequestGate.isCurrent(selId)) return;
             let svg = '<span>Preview unavailable</span>';
             if (preview?.shapes?.length) {
-                svg = renderFootprintSVG(picker, preview.shapes, preview.bbox) || '<span>Preview unavailable</span>';
+                svg = renderFootprintSVG(picker, preview.shapes, /** @type {FootprintBox|null|undefined} */ (preview.bbox)) || '<span>Preview unavailable</span>';
             }
             previewCache.set(fpName, svg);
             if (select.value === fpName) {
@@ -253,7 +261,7 @@ export function renderKiCadFootprintChoices(/** @type {any} */ picker, params) {
  * @param {string} fpName
  * @returns {string}
  */
-export function formatFootprintOptionLabel(/** @type {any} */ picker, fpName) {
+export function formatFootprintOptionLabel(/** @type {ComponentPicker} */ picker, fpName) {
     const [libRaw = '', nameRaw = ''] = String(fpName).split(':');
     const lib = libRaw.trim();
     const name = nameRaw.trim();
@@ -268,9 +276,11 @@ export function formatFootprintOptionLabel(/** @type {any} */ picker, fpName) {
  * @param {string[]} filters
  * @returns {string[]}
  */
-export function heuristicFootprintCandidates(/** @type {any} */ picker, filters) {
+export function heuristicFootprintCandidates(/** @type {ComponentPicker} */ picker, filters) {
     const normalized = (filters || []).join(' ').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    /** @type {string[]} */
     const out = [];
+    /** @param {string} name */
     const add = (name) => {
         if (!out.includes(name)) out.push(name);
     };
@@ -305,10 +315,10 @@ export function heuristicFootprintCandidates(/** @type {any} */ picker, filters)
 
 /**
  * Get symbol pin count for candidate ranking.
- * @param {Object} kicadSymbol
+ * @param {SymbolDefinitionLike|null|undefined} kicadSymbol
  * @returns {number}
  */
-export function getSymbolPinCount(/** @type {any} */ picker, kicadSymbol) {
+export function getSymbolPinCount(/** @type {ComponentPicker} */ picker, kicadSymbol) {
     if (!kicadSymbol || !Array.isArray(kicadSymbol.pins)) return 0;
     // Use unique pin numbers when present to avoid duplicate-unit inflation.
     const numbers = new Set(
@@ -325,7 +335,7 @@ export function getSymbolPinCount(/** @type {any} */ picker, kicadSymbol) {
  * @param {string} fpName
  * @returns {number}
  */
-export function estimateFootprintPinCount(/** @type {any} */ picker, fpName) {
+export function estimateFootprintPinCount(/** @type {ComponentPicker} */ picker, fpName) {
     const text = String(fpName || '');
     if (!text) return 0;
     const namePart = text.includes(':') ? text.split(':').slice(1).join(':') : text;
@@ -378,7 +388,7 @@ export function estimateFootprintPinCount(/** @type {any} */ picker, fpName) {
  * @param {number} symbolPinCount
  * @returns {string[]}
  */
-export function rankFootprintCandidatesByPinCount(/** @type {any} */ picker, candidates, symbolPinCount, maxCount = 10) {
+export function rankFootprintCandidatesByPinCount(/** @type {ComponentPicker} */ picker, candidates, symbolPinCount, maxCount = 10) {
     const list = Array.from(new Set((candidates || []).filter(Boolean)));
     if (!symbolPinCount || list.length <= 1) return list;
 
@@ -410,7 +420,7 @@ export function rankFootprintCandidatesByPinCount(/** @type {any} */ picker, can
  * @param {number} [maxKeep=12]
  * @returns {Promise<string[]>}
  */
-export async function filterPreviewablePinCompatibleCandidates(/** @type {any} */ picker, candidates, symbolPinCount, selId, maxKeep = 20) {
+export async function filterPreviewablePinCompatibleCandidates(/** @type {ComponentPicker} */ picker, candidates, symbolPinCount, selId, maxKeep = 20) {
     if (symbolPinCount <= 0) return (candidates || []).slice(0, maxKeep);
 
     const kept = [];
@@ -450,9 +460,9 @@ export async function filterPreviewablePinCompatibleCandidates(/** @type {any} *
 
 /**
  * Updates the footprint preview panel with rendered SVG from component metadata.
- * @param {Object} metadata - Component metadata containing footprint shapes and bounding box.
+ * @param {PickerComponentDefinition|import('../ComponentPicker.js').EasyEDADetail|null|undefined} metadata - Component metadata containing footprint shapes and bounding box.
  */
-export function updateFootprintPreview(/** @type {any} */ picker, metadata) {
+export function updateFootprintPreview(/** @type {ComponentPicker} */ picker, metadata) {
     if (!metadata || !metadata.hasFootprint) {
         setFootprintPreviewStatus(picker, 'No footprint data', false);
         return;
@@ -482,10 +492,10 @@ export function updateFootprintPreview(/** @type {any} */ picker, metadata) {
 
 /**
  * Updates the 3D model preview panel by rendering VRML or OBJ model data.
- * @param {Object} metadata - Component metadata containing 3D model URL or OBJ data.
+ * @param {PickerComponentDefinition|import('../ComponentPicker.js').EasyEDADetail|null|undefined} metadata - Component metadata containing 3D model URL or OBJ data.
  * @returns {Promise<void>}
  */
-export async function update3dPreview(/** @type {any} */ picker, metadata) {
+export async function update3dPreview(/** @type {ComponentPicker} */ picker, metadata) {
     disposeModel3dViewer(picker);
     const version = picker._model3dPreviewVersion;
     if (!metadata || !metadata.has3d) {
@@ -572,7 +582,7 @@ export async function update3dPreview(/** @type {any} */ picker, metadata) {
 
 /** Tear down the interactive 3D viewer (frees its WebGL context). */
 
-export function disposeModel3dViewer(/** @type {any} */ picker) {
+export function disposeModel3dViewer(/** @type {ComponentPicker} */ picker) {
     picker._model3dPreviewVersion = (picker._model3dPreviewVersion || 0) + 1;
     if (picker._model3dViewer) {
         try { picker._model3dViewer.dispose(); } catch { /* already gone */ }
@@ -583,11 +593,11 @@ export function disposeModel3dViewer(/** @type {any} */ picker) {
 
 /**
  * Renders footprint pad shapes into an SVG string.
- * @param {Array<string>} shapes - Array of shape descriptor strings (e.g., PAD~ format).
- * @param {Object} bbox - Bounding box with x, y, width, height properties.
+ * @param {string[]|null|undefined} shapes - Array of shape descriptor strings (e.g., PAD~ format).
+ * @param {FootprintBox|null|undefined} bbox - Bounding box with x, y, width, height properties.
  * @returns {string} SVG markup string, or empty string if no valid shapes.
  */
-export function renderFootprintSVG(/** @type {any} */ picker, shapes, bbox) {
+export function renderFootprintSVG(/** @type {ComponentPicker} */ picker, shapes, bbox) {
     if (!Array.isArray(shapes) || shapes.length === 0) return '';
 
     const padding = 2;

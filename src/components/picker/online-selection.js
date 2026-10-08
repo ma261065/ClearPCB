@@ -8,12 +8,20 @@ import { beginPlacement } from './placement.js';
 import { createMiniPreview, tryApplyLCSCThumbnail, updateLCSCPreviewImage, updatePackageSelector, updatePreview } from './symbol-preview.js';
 import { setPlaceBtnLoading, setPreviewLoading } from './ui-state.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').ComponentProperties} ComponentProperties */
+/** @typedef {import('../ComponentPicker.js').KiCadDefinition} KiCadDefinition */
+/** @typedef {import('../ComponentPicker.js').KiCadSearchResult} KiCadSearchResult */
+/** @typedef {import('../ComponentPicker.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
+/** @typedef {import('../ComponentPicker.js').SymbolDefinitionLike} SymbolDefinitionLike */
+
 /**
  * Handles selection of a KiCad search result and loads its preview.
- * @param {Object} result - The selected KiCad result object.
+ * @param {KiCadSearchResult} result - The selected KiCad result object.
  * @param {HTMLElement} itemEl - The clicked DOM element.
  */
-export function selectKiCadResult(/** @type {any} */ picker, result, itemEl) {
+export function selectKiCadResult(/** @type {ComponentPicker} */ picker, result, itemEl) {
     updatePackageSelector(picker, null);
     picker.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
     itemEl.classList.add('selected');
@@ -50,15 +58,15 @@ export function selectKiCadResult(/** @type {any} */ picker, result, itemEl) {
     setPreviewLoading(picker, 'Loading component...');
     picker.placeBtn.onclick = null;
 
-            loadKiCadFootprintStatus(picker, /** @type {Object} */ (result));
+            loadKiCadFootprintStatus(picker, result);
 }
 
 /**
  * Loads and verifies KiCad footprint and 3D model availability for a selected result.
- * @param {Object} result - The KiCad result to check footprint status for.
+ * @param {KiCadSearchResult} result - The KiCad result to check footprint status for.
  * @returns {Promise<void>}
  */
-export async function loadKiCadFootprintStatus(/** @type {any} */ picker, result) {
+export async function loadKiCadFootprintStatus(/** @type {ComponentPicker} */ picker, result) {
     const selId = picker.selectionRequestGate.next();
     try {
         const kicadDefinition = await picker.searchManager.fetchFromKiCad(result.library, result.name);
@@ -69,6 +77,7 @@ export async function loadKiCadFootprintStatus(/** @type {any} */ picker, result
         const footprintFilters = getFootprintFilters(picker, kicadProperties);
 
         if (kicadSymbol) {
+            /** @type {PickerComponentDefinition} */
             const previewDef = kicadDefinition?.symbol
                 ? kicadDefinition
                 : {
@@ -195,14 +204,16 @@ export async function loadKiCadFootprintStatus(/** @type {any} */ picker, result
 
         const availability = await picker.library.kicadFetcher.checkFootprintAvailability(footprintName);
         if (!picker.selectionRequestGate.isCurrent(selId)) return;
+        /** @type {string[]|null} */
         let fetchedFpShapes = null;
+        /** @type {import('../ComponentPicker.js').FootprintBox|null} */
         let fetchedFpBBox = null;
         if (availability.hasFootprint) {
             const preview = await picker.library.kicadFetcher.fetchFootprintPreview(footprintName);
             if (preview?.shapes && preview.shapes.length > 0) {
                 fetchedFpShapes = preview.shapes;
-                fetchedFpBBox = preview.bbox;
-                const svg = renderFootprintSVG(picker, preview.shapes, preview.bbox);
+                fetchedFpBBox = /** @type {import('../ComponentPicker.js').FootprintBox|null} */ (preview.bbox);
+                const svg = renderFootprintSVG(picker, preview.shapes, /** @type {import('../ComponentPicker.js').FootprintBox|null|undefined} */ (preview.bbox));
                 if (svg) {
                     picker.previewFootprint.innerHTML = svg;
                     picker.previewFootprintInfo.innerHTML = `<span class="cp-preview-ok">${escapeHtml(footprintName)}</span>`;
@@ -219,7 +230,7 @@ export async function loadKiCadFootprintStatus(/** @type {any} */ picker, result
         }
 
         if (availability.has3d) {
-            await renderKiCadStepPreviewInteractive(picker, availability.modelUrl, selId, footprintName);
+            await renderKiCadStepPreviewInteractive(picker, /** @type {string} */ (availability.modelUrl), selId, footprintName);
         } else {
             set3dPreviewStatus(picker, '3D model not found', false);
         }
@@ -261,10 +272,10 @@ export async function loadKiCadFootprintStatus(/** @type {any} */ picker, result
 
 /**
  * Fetches full KiCad symbol data and initiates component placement.
- * @param {Object} result - The KiCad result to fetch and place.
+ * @param {KiCadSearchResult} result - The KiCad result to fetch and place.
  * @returns {Promise<void>}
  */
-export async function fetchAndPlaceKiCad(/** @type {any} */ picker, result) {
+export async function fetchAndPlaceKiCad(/** @type {ComponentPicker} */ picker, result) {
     picker.placeBtn.disabled = true;
     setPlaceBtnLoading(picker, 'Fetching...', true);
     
@@ -293,7 +304,7 @@ export async function fetchAndPlaceKiCad(/** @type {any} */ picker, result) {
                     const fpPreview = await picker.library.kicadFetcher.fetchFootprintPreview(footprintName);
                     if (fpPreview?.shapes?.length) {
                         definition.footprintShapes = fpPreview.shapes;
-                        definition.footprintBBox = fpPreview.bbox;
+                        definition.footprintBBox = /** @type {import('../ComponentPicker.js').FootprintBox|null|undefined} */ (fpPreview.bbox);
                     }
                 } catch (_) { /* non-fatal */ }
             }
@@ -321,11 +332,11 @@ export async function fetchAndPlaceKiCad(/** @type {any} */ picker, result) {
 
 /**
  * Handles selection of an LCSC/EasyEDA search result and loads its preview.
- * @param {Object} result - The selected LCSC result object.
+ * @param {LCSCSearchResult} result - The selected LCSC result object.
  * @param {HTMLElement} itemEl - The clicked DOM element.
  * @returns {Promise<void>}
  */
-export async function selectLCSCResult(/** @type {any} */ picker, result, itemEl) {
+export async function selectLCSCResult(/** @type {ComponentPicker} */ picker, result, itemEl) {
     updatePackageSelector(picker, null);
     picker.listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('selected'));
     itemEl.classList.add('selected');
@@ -352,8 +363,9 @@ export async function selectLCSCResult(/** @type {any} */ picker, result, itemEl
     }
     
     // Stock
-    if (result.stock > 0) {
-        info += `<br><span style="color:var(--text-muted)">${result.stock.toLocaleString()} in stock</span>`;
+    const stock = result.stock || 0;
+    if (stock > 0) {
+        info += `<br><span style="color:var(--text-muted)">${stock.toLocaleString()} in stock</span>`;
     } else {
         info += `<br><span style="color:var(--accent-color)">Out of stock</span>`;
     }
@@ -380,10 +392,10 @@ export async function selectLCSCResult(/** @type {any} */ picker, result, itemEl
 
 /**
  * Loads EasyEDA component detail metadata and updates footprint/3D previews.
- * @param {Object} result - The LCSC result to load detail for.
+ * @param {LCSCSearchResult} result - The LCSC result to load detail for.
  * @returns {Promise<void>}
  */
-export async function loadEasyEDADetailForPreview(/** @type {any} */ picker, result) {
+export async function loadEasyEDADetailForPreview(/** @type {ComponentPicker} */ picker, result) {
     const selId = picker.selectionRequestGate.next();
     try {
         if (!result || !result.lcscPartNumber) {
@@ -464,10 +476,10 @@ export async function loadEasyEDADetailForPreview(/** @type {any} */ picker, res
 
 /**
  * Fetches full EasyEDA/LCSC component data and initiates placement.
- * @param {Object} result - The LCSC result to fetch and place.
+ * @param {LCSCSearchResult} result - The LCSC result to fetch and place.
  * @returns {Promise<void>}
  */
-export async function fetchAndPlace(/** @type {any} */ picker, result) {
+export async function fetchAndPlace(/** @type {ComponentPicker} */ picker, result) {
     picker.placeBtn.disabled = true;
     setPlaceBtnLoading(picker, 'Placing...', true);
 
@@ -481,7 +493,7 @@ export async function fetchAndPlace(/** @type {any} */ picker, result) {
         // Use SearchManager to fetch from LCSC
         const definition = result?._definitionPromise
             ? await result._definitionPromise
-            : await picker.searchManager.fetchFromLCSC(result.lcscPartNumber);
+            : await picker.searchManager.fetchFromLCSC(/** @type {string} */ (result.lcscPartNumber));
         
         if (definition) {
             fetchedDefinition = definition;
@@ -520,10 +532,10 @@ export async function fetchAndPlace(/** @type {any} */ picker, result) {
 
 /**
  * Places a component using prefetched LCSC data, including footprint and 3D metadata.
- * @param {Object} result - The LCSC result with prefetched definition data.
+ * @param {LCSCSearchResult} result - The LCSC result with prefetched definition data.
  * @returns {Promise<void>}
  */
-export async function placePrefetchedLCSC(/** @type {any} */ picker, result) {
+export async function placePrefetchedLCSC(/** @type {ComponentPicker} */ picker, result) {
     picker.placeBtn.disabled = true;
     setPlaceBtnLoading(picker, 'Placing...', true);
 
@@ -533,7 +545,7 @@ export async function placePrefetchedLCSC(/** @type {any} */ picker, result) {
         }
 
         if (!result?._definitionPromise) {
-            result._definitionPromise = picker.searchManager.fetchFromLCSC(result.lcscPartNumber);
+            result._definitionPromise = picker.searchManager.fetchFromLCSC(/** @type {string} */ (result.lcscPartNumber));
         }
 
         const definition = await result._definitionPromise;
@@ -569,11 +581,11 @@ export async function placePrefetchedLCSC(/** @type {any} */ picker, result) {
 
 /**
  * Builds a normalized component definition from raw KiCad data.
- * @param {Object} kicadData - Raw KiCad symbol data (may contain nested symbol property).
- * @param {Object} result - The KiCad search result with name and library info.
- * @returns {Object} A component definition suitable for placement.
+ * @param {KiCadDefinition|null|undefined} kicadData - Raw KiCad symbol data (may contain nested symbol property).
+ * @param {KiCadSearchResult} result - The KiCad search result with name and library info.
+ * @returns {PickerComponentDefinition} A component definition suitable for placement.
  */
-export function buildKiCadDefinition(/** @type {any} */ picker, kicadData, result) {
+export function buildKiCadDefinition(/** @type {ComponentPicker} */ picker, kicadData, result) {
     const kicadSymbol = kicadData?.symbol || kicadData;
     const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
     const footprintName = getPropertyValue(picker, kicadProperties, 'Footprint');
@@ -608,25 +620,25 @@ export function buildKiCadDefinition(/** @type {any} */ picker, kicadData, resul
 
 /**
  * Retrieves a property value from a properties object using case-insensitive key matching.
- * @param {Object} properties - The properties object to search.
+ * @param {ComponentProperties|null|undefined} properties - The properties object to search.
  * @param {string} key - The property key to look up.
  * @returns {string} The property value, or empty string if not found.
  */
-export function getPropertyValue(/** @type {any} */ picker, properties, key) {
+export function getPropertyValue(/** @type {ComponentPicker} */ picker, properties, key) {
     if (!properties || typeof properties !== 'object') return '';
-    if (properties[key]) return properties[key];
+    if (properties[key]) return String(properties[key]);
 
     const lowerKey = key.toLowerCase();
     const match = Object.keys(properties).find(propKey => propKey.toLowerCase() === lowerKey);
-    return match ? properties[match] : '';
+    return match ? String(properties[match] ?? '') : '';
 }
 
 /**
  * Returns normalized KiCad footprint filter tokens (ki_fp_filters).
- * @param {Object} properties
+ * @param {ComponentProperties|null|undefined} properties
  * @returns {string[]}
  */
-export function getFootprintFilters(/** @type {any} */ picker, properties) {
+export function getFootprintFilters(/** @type {ComponentPicker} */ picker, properties) {
     const raw = getPropertyValue(picker, properties, 'ki_fp_filters');
     if (!raw) return [];
     const tokens = String(raw).split(/\s+/).map(s => s.trim()).filter(Boolean);

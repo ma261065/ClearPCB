@@ -2,6 +2,11 @@
  * Shared ComponentPicker UI state helpers. Owns exact-match filtering metadata and small list/button/loading render states.
  */
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').KiCadSearchResult} KiCadSearchResult */
+/** @typedef {import('../ComponentPicker.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
+
 /**
  * Whether any of a result's names equals the query, ignoring case and surrounding
  * spaces. Used by the picker's "Exact match" filter so a part can be found among
@@ -16,15 +21,18 @@ export function isExactNameMatch(query, names) {
 
 /** Names the exact-match filter compares for each kind of picker result. */
 export const pickerResultNames = {
+    /** @param {LCSCSearchResult} result */
     online: result => [result.mpn, result.lcscPartNumber],
+    /** @param {KiCadSearchResult} result */
     kicad: result => [result.name],
+    /** @param {PickerComponentDefinition} component */
     local: component => [component.name],
 };
 
 /**
  * Displays the LCSC search prompt with usage examples.
  */
-export function showLCSCPrompt(/** @type {any} */ picker) {
+export function showLCSCPrompt(/** @type {ComponentPicker} */ picker) {
     picker.listEl.innerHTML = `
         <div class="cp-lcsc-prompt">
             Search online component catalogs (EasyEDA + KiCad).
@@ -39,7 +47,7 @@ export function showLCSCPrompt(/** @type {any} */ picker) {
 
 /** The trimmed search text when "Exact match" is ticked, else ''. */
 
-export function exactMatchQuery(/** @type {any} */ picker) {
+export function exactMatchQuery(/** @type {ComponentPicker} */ picker) {
     return picker.exactMatchInput?.checked ? String(picker.searchQuery || '').trim() : '';
 }
 
@@ -47,7 +55,7 @@ export function exactMatchQuery(/** @type {any} */ picker) {
  * Show the empty-results message, naming the query when an exact match found nothing.
  * @param {string} exact
  */
-export function showNoResults(/** @type {any} */ picker, exact) {
+export function showNoResults(/** @type {ComponentPicker} */ picker, exact) {
     const empty = document.createElement('div');
     empty.className = 'cp-empty';
     empty.textContent = exact ? `No exact match for "${exact}".` : 'No results found.';
@@ -57,7 +65,7 @@ export function showNoResults(/** @type {any} */ picker, exact) {
 /**
  * Displays a loading spinner in the component list area.
  */
-export function showLoading(/** @type {any} */ picker) {
+export function showLoading(/** @type {ComponentPicker} */ picker) {
     picker.listEl.innerHTML = `
         <div class="cp-loading">
             <span class="cp-spinner"></span>
@@ -72,7 +80,7 @@ export function showLoading(/** @type {any} */ picker) {
  * @param {boolean} loading - If true, show spinner and disable; if false, just set text
  * @param {boolean} [disabled] - Explicit disabled state (default: true when loading)
  */
-export function setPlaceBtnLoading(/** @type {any} */ picker, text, loading, disabled = loading) {
+export function setPlaceBtnLoading(/** @type {ComponentPicker} */ picker, text, loading, disabled = loading) {
     picker.placeBtn.disabled = disabled;
     if (loading) {
         picker.placeBtn.innerHTML = `<span class="cp-spinner"></span>${text}`;
@@ -85,7 +93,7 @@ export function setPlaceBtnLoading(/** @type {any} */ picker, text, loading, dis
  * Show/hide the large loading overlay below the symbol preview.
  * @param {string|null} message - Message to show, or null to hide
  */
-export function setPreviewLoading(/** @type {any} */ picker, message) {
+export function setPreviewLoading(/** @type {ComponentPicker} */ picker, message) {
     if (!picker.previewLoadingOverlay) return;
     if (message) {
         if (picker.previewLoadingText) picker.previewLoadingText.textContent = message;
@@ -101,7 +109,7 @@ export function setPreviewLoading(/** @type {any} */ picker, message) {
  * @param {number} loaded - Number of items loaded so far.
  * @param {number} total - Total number of items to load.
  */
-export function showIndexingProgress(/** @type {any} */ picker, message, loaded, total) {
+export function showIndexingProgress(/** @type {ComponentPicker} */ picker, message, loaded, total) {
     const pct = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
     const barStyle = total > 0
         ? `width:${pct}%; animation:none;`

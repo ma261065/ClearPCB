@@ -7,12 +7,19 @@ import { getBuiltInPackageOptions, withBuiltInPackage } from '../BuiltInPackages
 import { createSymbolGraphicElement, createSymbolPinElement } from '../symbol-svg.js';
 import { set3dPreviewStatus, setFootprintPreviewStatus, update3dPreview, updateFootprintPreview } from './footprint-preview.js';
 
+/** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
+/** @typedef {import('../ComponentPicker.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {import('../ComponentPicker.js').PickerComponentDefinition} PickerComponentDefinition */
+/** @typedef {import('../ComponentPicker.js').SymbolDefinitionLike} SymbolDefinitionLike */
+/** @typedef {import('../ComponentPicker.js').SymbolGraphicLike} SymbolGraphicLike */
+/** @typedef {import('../ComponentPicker.js').SymbolPinLike} SymbolPinLike */
+
 /**
  * Normalizes a component definition to ensure it has a consistent structure with a symbol property.
- * @param {Object} definition - The raw component definition.
- * @returns {Object} The normalized definition.
+ * @param {PickerComponentDefinition|null|undefined} definition - The raw component definition.
+ * @returns {PickerComponentDefinition|null|undefined} The normalized definition.
  */
-export function normalizeDefinition(/** @type {any} */ picker, definition) {
+export function normalizeDefinition(/** @type {ComponentPicker} */ picker, definition) {
     if (!definition || typeof definition !== 'object') return definition;
 
     if (definition.symbol && definition.symbol.graphics) {
@@ -37,10 +44,10 @@ export function normalizeDefinition(/** @type {any} */ picker, definition) {
 
 /**
  * Creates a small SVG preview of a component for use in the list view.
- * @param {Object} comp - The component definition to preview.
+ * @param {PickerComponentDefinition} comp - The component definition to preview.
  * @returns {Promise<string>} HTML string containing the SVG preview.
  */
-export async function createMiniPreview(/** @type {any} */ picker, comp) {
+export async function createMiniPreview(/** @type {ComponentPicker} */ picker, comp) {
     if (!comp.symbol) return '<span style="color:var(--text-muted)">?</span>';
     
     try {
@@ -102,7 +109,7 @@ export async function createMiniPreview(/** @type {any} */ picker, comp) {
  * @param {string} url - The URL to test.
  * @returns {boolean} True if the URL ends with a common image extension.
  */
-export function isDirectImageUrl(/** @type {any} */ picker, url) {
+export function isDirectImageUrl(/** @type {ComponentPicker} */ picker, url) {
     if (!url || typeof url !== 'string') return false;
     return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url);
 }
@@ -116,7 +123,7 @@ export function isDirectImageUrl(/** @type {any} */ picker, url) {
  * @param {string} url
  * @param {string} [fallbackHTML='<span>📦</span>']
  */
-export function mountThumbnail(/** @type {any} */ picker, container, url, fallbackHTML = '<span>📦</span>') {
+export function mountThumbnail(/** @type {ComponentPicker} */ picker, container, url, fallbackHTML = '<span>📦</span>') {
     const safeUrl = sanitizeImageUrl(url);
     if (!safeUrl) { container.innerHTML = fallbackHTML; return; }
     const img = document.createElement('img');
@@ -130,10 +137,10 @@ export function mountThumbnail(/** @type {any} */ picker, container, url, fallba
 /**
  * Applies an LCSC product thumbnail image to the given icon element.
  * @param {HTMLElement} iconEl - The icon container element.
- * @param {Object} result - The LCSC result with thumbnail URL data.
+ * @param {LCSCSearchResult} result - The LCSC result with thumbnail URL data.
  * @returns {Promise<void>}
  */
-export async function applyLCSCThumbnail(/** @type {any} */ picker, iconEl, result) {
+export async function applyLCSCThumbnail(/** @type {ComponentPicker} */ picker, iconEl, result) {
     const thumbUrl = result.thumbUrl || result.imageUrl || '';
     if (!thumbUrl) return;
 
@@ -166,10 +173,10 @@ export async function applyLCSCThumbnail(/** @type {any} */ picker, iconEl, resu
 /**
  * Attempts to apply an LCSC thumbnail; returns whether a photo was successfully applied.
  * @param {HTMLElement} iconEl - The icon container element.
- * @param {Object} result - The LCSC result with thumbnail URL data.
+ * @param {LCSCSearchResult} result - The LCSC result with thumbnail URL data.
  * @returns {Promise<boolean>} True if a photo thumbnail was applied.
  */
-export async function tryApplyLCSCThumbnail(/** @type {any} */ picker, iconEl, result) {
+export async function tryApplyLCSCThumbnail(/** @type {ComponentPicker} */ picker, iconEl, result) {
     const thumbUrl = result.thumbUrl || result.imageUrl || '';
     if (!thumbUrl && (!result.lcscPartNumber || !picker.library?.lcscFetcher)) {
         return false;
@@ -205,10 +212,10 @@ export async function tryApplyLCSCThumbnail(/** @type {any} */ picker, iconEl, r
 
 /**
  * Updates the preview panel's product image for an LCSC result.
- * @param {Object} result - The LCSC result to display the image for.
+ * @param {LCSCSearchResult} result - The LCSC result to display the image for.
  * @returns {Promise<void>}
  */
-export async function updateLCSCPreviewImage(/** @type {any} */ picker, result) {
+export async function updateLCSCPreviewImage(/** @type {ComponentPicker} */ picker, result) {
     if (!picker.previewImage) return;
 
     picker.previewImage.innerHTML = '<div class="cp-preview-placeholder">Loading image...</div>';
@@ -236,7 +243,10 @@ export async function updateLCSCPreviewImage(/** @type {any} */ picker, result) 
     }
 }
 
-export function updatePackageSelector(/** @type {any} */ picker, definition) {
+/**
+ * @param {PickerComponentDefinition|null|undefined} definition
+ */
+export function updatePackageSelector(/** @type {ComponentPicker} */ picker, definition) {
     if (!definition) picker._previewVersion = (picker._previewVersion || 0) + 1;
     if (!picker.packageSelect) return;
     const packages = getBuiltInPackageOptions(definition);
@@ -251,19 +261,22 @@ export function updatePackageSelector(/** @type {any} */ picker, definition) {
     picker.packageSelect.value = definition?.packageId || 'default';
 }
 
-export function selectBuiltInPackage(/** @type {any} */ picker, packageId) {
-    picker.selectedComponent = withBuiltInPackage(picker.selectedComponent, packageId);
+/**
+ * @param {string} packageId
+ */
+export function selectBuiltInPackage(/** @type {ComponentPicker} */ picker, packageId) {
+    picker.selectedComponent = /** @type {PickerComponentDefinition} */ (withBuiltInPackage(/** @type {object} */ (picker.selectedComponent), packageId));
     updatePreview(picker, picker.selectedComponent);
 }
 
 /**
  * Updates the full symbol preview SVG and info panel for a component.
- * @param {Object} comp - The component definition to preview.
+ * @param {PickerComponentDefinition|null|undefined} comp - The component definition to preview.
  * @param {Object} [options] - Preview options.
  * @param {boolean} [options.skipFootprint3d] - Whether to skip footprint/3D updates.
  * @returns {Promise<void>}
  */
-export async function updatePreview(/** @type {any} */ picker, comp, options = {}) {
+export async function updatePreview(/** @type {ComponentPicker} */ picker, comp, options = {}) {
     updatePackageSelector(picker, comp);
     const version = picker._previewVersion = (picker._previewVersion || 0) + 1;
     try {
@@ -352,10 +365,10 @@ export async function updatePreview(/** @type {any} */ picker, comp, options = {
 
 /**
  * Computes the bounding box of a symbol's graphics and pins.
- * @param {Object} symbol - The symbol definition with graphics and pins arrays.
- * @returns {Object|null} Bounds object with minX, minY, maxX, maxY, width, height, or null if invalid.
+ * @param {SymbolDefinitionLike|null|undefined} symbol - The symbol definition with graphics and pins arrays.
+ * @returns {{minX:number, minY:number, maxX:number, maxY:number, width:number, height:number}|null} Bounds object with minX, minY, maxX, maxY, width, height, or null if invalid.
  */
-export function computeSymbolBounds(/** @type {any} */ picker, symbol) {
+export function computeSymbolBounds(/** @type {ComponentPicker} */ picker, symbol) {
     if (!symbol) return null;
 
     let minX = Infinity;
@@ -363,12 +376,18 @@ export function computeSymbolBounds(/** @type {any} */ picker, symbol) {
     let maxX = -Infinity;
     let maxY = -Infinity;
 
+    /**
+     * @param {number|undefined} x
+     * @param {number|undefined} y
+     */
     const includePoint = (x, y) => {
-        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
+        const nx = Number(x);
+        const ny = Number(y);
+        if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+        if (nx < minX) minX = nx;
+        if (ny < minY) minY = ny;
+        if (nx > maxX) maxX = nx;
+        if (ny > maxY) maxY = ny;
     };
 
     if (Array.isArray(symbol.graphics)) {
@@ -381,15 +400,15 @@ export function computeSymbolBounds(/** @type {any} */ picker, symbol) {
                     break;
                 case 'rect':
                     includePoint(g.x, g.y);
-                    includePoint(g.x + g.width, g.y + g.height);
+                    includePoint(/** @type {number} */ (g.x) + /** @type {number} */ (g.width), /** @type {number} */ (g.y) + /** @type {number} */ (g.height));
                     break;
                 case 'circle':
-                    includePoint(g.cx - g.r, g.cy - g.r);
-                    includePoint(g.cx + g.r, g.cy + g.r);
+                    includePoint(/** @type {number} */ (g.cx) - /** @type {number} */ (g.r), /** @type {number} */ (g.cy) - /** @type {number} */ (g.r));
+                    includePoint(/** @type {number} */ (g.cx) + /** @type {number} */ (g.r), /** @type {number} */ (g.cy) + /** @type {number} */ (g.r));
                     break;
                 case 'arc':
-                    includePoint(g.cx - g.r, g.cy - g.r);
-                    includePoint(g.cx + g.r, g.cy + g.r);
+                    includePoint(/** @type {number} */ (g.cx) - /** @type {number} */ (g.r), /** @type {number} */ (g.cy) - /** @type {number} */ (g.r));
+                    includePoint(/** @type {number} */ (g.cx) + /** @type {number} */ (g.r), /** @type {number} */ (g.cy) + /** @type {number} */ (g.r));
                     break;
                 case 'polyline':
                 case 'polygon':
@@ -414,7 +433,7 @@ export function computeSymbolBounds(/** @type {any} */ picker, symbol) {
 
             includePoint(pin.x, pin.y);
 
-            const length = Number.isFinite(pin.length) ? pin.length : 2.54;
+            const length = Number.isFinite(pin.length) ? /** @type {number} */ (pin.length) : 2.54;
             let x2 = pin.x;
             let y2 = pin.y;
 
@@ -455,11 +474,11 @@ export function computeSymbolBounds(/** @type {any} */ picker, symbol) {
 
 /**
  * Renders an array of graphic primitives into SVG markup strings.
- * @param {Array<Object>} graphics - Array of graphic objects (line, rect, circle, etc.).
+ * @param {SymbolGraphicLike[]|null|undefined} graphics - Array of graphic objects (line, rect, circle, etc.).
  * @param {number} [defaultStrokeWidth=0.254] - Default stroke width for rendered elements.
  * @returns {string} Concatenated SVG element strings.
  */
-export function renderGraphicsToSVG(/** @type {any} */ picker, graphics, defaultStrokeWidth = 0.254) {
+export function renderGraphicsToSVG(/** @type {ComponentPicker} */ picker, graphics, defaultStrokeWidth = 0.254) {
     try {
         if (!graphics || !Array.isArray(graphics)) return '';
         
@@ -551,10 +570,10 @@ export function renderGraphicsToSVG(/** @type {any} */ picker, graphics, default
 
 /**
  * Renders a single component pin as SVG markup including its connection line and endpoint dot.
- * @param {Object} pin - The pin object with x, y coordinates and optional path data.
+ * @param {SymbolPinLike|null|undefined} pin - The pin object with x, y coordinates and optional path data.
  * @returns {string} SVG markup string for the pin.
  */
-export function renderPinToSVG(/** @type {any} */ picker, pin) {
+export function renderPinToSVG(/** @type {ComponentPicker} */ picker, pin) {
     try {
         if (!pin || typeof pin.x !== 'number' || typeof pin.y !== 'number') {
             return '';
