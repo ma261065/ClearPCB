@@ -186,7 +186,7 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
             const before = fill.captureState();
             commands.push(new ModifyFillCommand(app, fill, before, { ...before, net }));
         } else {
-            const boardShape = /** @type {import('./board-shapes.js').BoardShape} */ (shape);
+            const boardShape = /** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ (shape);
             const before = captureBoardShapeState(boardShape);
             commands.push(new ModifyBoardShapeCommand(app, boardShape, before, { ...before, net }));
         }

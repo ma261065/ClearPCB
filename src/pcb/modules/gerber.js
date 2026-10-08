@@ -55,7 +55,7 @@ import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
 /** @typedef {import('../../shapes/pad-geometry.js').PadFlash & {paste?: boolean, mask?: boolean}} GerberPadFlash */
 /** @typedef {{dia: number, x: number, y: number, plated?: boolean, slot?: {x2: number, y2: number}, x2?: number, y2?: number}} GerberDrill */
 /** @typedef {{d: number, op: string}} GerberOp */
-/** @typedef {{kind?: string, type?: string, layer?: string, plated?: boolean, x?: number, y?: number, radius?: number, [key: string]: unknown}} GerberBoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} GerberBoardShape */
 /** @typedef {{placements: Map<string, Placement>, tracks?: Track[], vias?: Via[], pads?: Pad[], boardWidth: number, boardHeight: number, boardRadius?: number, boardX?: number, boardY?: number, texts?: PcbText[], fills?: CopperFill[], boardShapes?: GerberBoardShape[], panelization?: object|null}} GerberExportOptions */
 /** @typedef {(key: string, def?: string) => number} ApertureGetter */
 

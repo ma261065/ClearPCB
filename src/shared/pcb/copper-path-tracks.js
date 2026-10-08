@@ -11,12 +11,12 @@ import { normalizeShapeCopperMode, rectCornerRadius, shapeIsFilled } from './boa
 
 /**
  * @typedef {import('../../core/geometry.js').Point} Point
- * @typedef {import('./board-shape-geometry.js').BoardShape} BoardShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape
  * @typedef {import('./board-shape-geometry.js').NumberRecord} NumberRecord
  * @typedef {BoardShape & {kind: 'line'|'rect'|'polygon', points: Point[], layer: string}} CopperPathShape
  */
 
-/** Whether a board shape is a copper path that belongs in the Track model. @param {BoardShape|null|undefined} shape */
+/** Whether a board shape is a copper path that belongs in the Track model. @param {BoardShape|null|undefined} shape @returns {shape is CopperPathShape} */
 export function isCopperPathShape(shape) {
     // Copper pours share the shape collection and kinds but are areas, not paths.
     if (shape?.type === 'fill') return false;

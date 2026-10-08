@@ -67,8 +67,9 @@ function strokeRegions(points, width, closed = false) {
 
 /** @param {CopperFeature} shape */
 function shapeRegions(shape) {
-    const geometry = resolveBoardShapeGeometry(shape);
-    const arc = boardShapeArcGeometry(shape);
+    const boardShape = /** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ (shape);
+    const geometry = resolveBoardShapeGeometry(boardShape);
+    const arc = boardShapeArcGeometry(boardShape);
     if (arc) return featureRegions({ kind: 'arc', x: arc.cx, y: arc.cy, radius: arc.radius,
         startAngle: arc.startAngle, endAngle: arc.endAngle, hw: geometry.lineWidth / 2, filled: geometry.filled });
     const contours = geometry.physicalContours;

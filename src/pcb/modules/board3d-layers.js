@@ -27,7 +27,7 @@ import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 /** @typedef {import('./board3d-mesh-ops.js').MeshVertex} MeshVertex */
 /** @typedef {import('./board3d-mesh-ops.js').MeshFace} MeshFace */
 /** @typedef {import('./board3d-mesh-ops.js').Mesh & {cull?: boolean}} Mesh */
-/** @typedef {{circle?: any, path?: Point[], pathClosed?: boolean, filled?: boolean, lineWidth?: number, strokeSegments?: any[], physicalContours?: Point[][], copperMode?: string}} ResolvedBoardGeometry */
+/** @typedef {{circle?: any, path?: Point[], pathClosed?: boolean, filled?: boolean, lineWidth?: number, strokeSegments?: any[], physicalContours?: Point[][]|null, copperMode?: string}} ResolvedBoardGeometry */
 /** @typedef {{x:number,y?:number,z:number,dia?:number,r:number,slot?:null|{x2:number,y2:number,points?:Point[]}, plated?:boolean, ring?:Array<XzPoint>, layer?:string, boardShape?: boolean}} DrillHole */
 /** @typedef {{x:number,y:number,size:number,shape:string,layers?:string,rotation?:number,drill:number,holeLength?:number,ratio?:number,locked?:boolean,visible?:boolean,net?:string}} StandalonePad */
 

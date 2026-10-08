@@ -16,7 +16,7 @@ import { removalHatchFill } from './removal-hatch.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
 import { canonicalBoardShape, displayedBoardShape } from './board-shapes.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {{interactionOnly?: boolean, skipCopperUpdate?: boolean, liveDrag?: boolean, preserveInteraction?: boolean}} BoardShapeRenderOptions */
 
 const NS = 'http://www.w3.org/2000/svg';

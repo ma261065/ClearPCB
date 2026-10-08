@@ -12,43 +12,49 @@ import { closedShapeOutline } from '../../shapes/closed-outline.js';
  * @typedef {import('../../core/geometry.js').Point} Point
  * @typedef {import('../../shapes/path-geometry.js').StrokeSegment} StrokeSegment
  * @typedef {import('../../shapes/shape-drawing.js').PrimitiveShape} PrimitiveShape
- * @typedef {'line'|'rect'|'polygon'|'arc'|'circle'|'image'} BoardShapeKind
- * @typedef {'add'|'remove-copper'|'remove-solder-mask'|'remove-copper-mask'} BoardShapeCopperMode
- * @typedef {{[key: string]: number}} NumberRecord
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShapeKind} BoardShapeKind
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShapeCopperMode} BoardShapeCopperMode
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShapeNumberMap} NumberRecord
  * @typedef {{X: number, Y: number}} IntPoint
  * @typedef {IntPoint[]} IntPath
  * @typedef {IntPath[]} IntPaths
  * @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds
  * @typedef {{key?: string, contours: Point[][], bounds?: Bounds|null}} ClosedContourEntry
- * @typedef {{id?: string, type?: string, kind?: BoardShapeKind|string, layer?: string|null, points?: Point[], start?: Point, end?: Point, bulge?: Point, x?: number, y?: number, radius?: number, lineWidth?: number, segmentWidths?: NumberRecord, segmentBulges?: NumberRecord, nodeCornerRadii?: NumberRecord, cornerRadius?: number, filled?: boolean, copperMode?: string, plated?: boolean, net?: string, locked?: boolean, [key: string]: unknown}} BoardShape
- * @typedef {BoardShape & {kind: 'line'|'rect'|'polygon'|'image', points: Point[]}} BoardPathShape
- * @typedef {BoardShape & {kind: 'arc', start: Point, end: Point, bulge: Point}} BoardArcShape
- * @typedef {BoardShape & {kind: 'circle', x: number, y: number, radius: number}} BoardCircleShape
- * @typedef {{path: Point[], pathClosed: boolean, centerline: Point[], centerlineClosed: boolean, areaOutline: Point[], image: BoardShape|null, physicalContours: Point[][], circle: {x: number, y: number, radius: number, outerRadius: number}|null, filled: boolean, lineWidth: number, strokeSegments: StrokeSegment[], copperMode: BoardShapeCopperMode}} ResolvedBoardShapeGeometry
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardArcShape} BoardArcShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardCircleShape} BoardCircleShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardImageShape} BoardImageShape
+ * @typedef {{path: Point[], pathClosed: boolean, centerline: Point[], centerlineClosed: boolean, areaOutline: Point[], image: BoardImageShape|null, physicalContours: Point[][]|null, circle: {x: number, y: number, radius: number, outerRadius: number}|null, filled: boolean, lineWidth: number, strokeSegments: StrokeSegment[], copperMode: BoardShapeCopperMode}} ResolvedBoardShapeGeometry
  */
 
 /** @param {number} n */
 const r4 = (n) => Math.round(n * 10000) / 10000;
 
 /** @param {BoardShape|null|undefined} shape @returns {shape is BoardArcShape} */
-function isBoardArcShape(shape) { return shape?.kind === 'arc'; }
+export function isBoardArcShape(shape) { return shape?.kind === 'arc'; }
 
 /** @param {BoardShape|null|undefined} shape @returns {shape is BoardCircleShape} */
-function isBoardCircleShape(shape) { return shape?.kind === 'circle'; }
+export function isBoardCircleShape(shape) { return shape?.kind === 'circle'; }
 
 /** @param {BoardShape|null|undefined} shape @returns {shape is BoardPathShape} */
-function isBoardPathShape(shape) {
+export function isBoardPathShape(shape) {
     return shape?.kind === 'line' || shape?.kind === 'rect' || shape?.kind === 'polygon' || shape?.kind === 'image';
 }
 
 /** @param {BoardShape|null|undefined} shape @returns {shape is BoardPathShape & {kind: 'line'|'rect'|'polygon'}} */
-function isBoardPolylineShape(shape) {
+export function isBoardPolylineShape(shape) {
     return shape?.kind === 'line' || shape?.kind === 'rect' || shape?.kind === 'polygon';
 }
 
 /** @param {BoardShape|null|undefined} shape @returns {shape is BoardPathShape & {kind: 'rect'|'polygon'}} */
-function isClosedBoardPathShape(shape) {
+export function isClosedBoardPathShape(shape) {
     return shape?.kind === 'rect' || shape?.kind === 'polygon';
+}
+
+/** @param {BoardShape|null|undefined} shape @returns {shape is BoardImageShape} */
+export function isBoardImageShape(shape) {
+    return shape?.kind === 'image' && !!shape.artwork && Array.isArray(shape.points);
 }
 
 /** Return a supported copper mode, defaulting invalid internal values to add. @param {unknown} mode @returns {BoardShapeCopperMode} */
@@ -406,13 +412,13 @@ export function boardShapeFilledRemovalOutlines(shape) {
 
 /** Compound path for filling a shape's physical area with the even-odd rule, without a stroke. @param {BoardShape} shape */
 export function boardShapeFillPathD(shape) {
-    const rings = shape.kind === 'image' ? pictureOutlineRings(shape) : null;
+    const rings = isBoardImageShape(shape) ? pictureOutlineRings(shape) : null;
     return rings ? rings.map(outlinePathD).join(' ') : boardShapeRemovalPathD(shape);
 }
 
 /** Compound path for the physical area removed by a copper-mode shape. @param {BoardShape} shape */
 export function boardShapeRemovalPathD(shape) {
-    if (shape.kind === 'image') {
+    if (isBoardImageShape(shape)) {
         const circles = pictureCirclePathD(shape);
         if (circles !== null) return circles;
     }
@@ -508,26 +514,27 @@ export function shapePathD(shape, { close = false } = {}) {
     return shape.kind === 'line' ? d : d + ' Z';
 }
 
-/** True when a shape reads as a solid region for hit-testing. @param {BoardShape|null|undefined} shape */
+/** True when a shape reads as a solid region for hit-testing. @param {Partial<BoardShape>|null|undefined} shape */
 export function shapeIsFilled(shape) {
     if (shape?.kind === 'image') return true;
     if (shape?.kind === 'line') return false;
-    const layer = String((/** @type {BoardShape} */ (shape)).layer || 'top-silk');
+    if (!shape) return false;
+    const layer = String(shape.layer || 'top-silk');
     // A hole-layer shape is a board cutout — its whole interior is clickable.
     if (layer === 'hole') return true;
     const isCopperLayer = layer === 'top-copper' || layer === 'bottom-copper';
     if (isCopperLayer) {
-        return !!(/** @type {BoardShape} */ (shape)).filled;
+        return !!shape.filled;
     }
-    return !!(/** @type {BoardShape} */ (shape)).filled || isMaskLayer(layer);
+    return !!shape.filled || isMaskLayer(layer);
 }
 
-/** Minimum manufacturable outline/slot width for a board shape. @param {BoardShape|null|undefined} shape */
+/** Minimum manufacturable outline/slot width for a board shape. @param {Partial<BoardShape>|null|undefined} shape */
 export function boardShapeLineWidthMinimum(shape) {
     return shape?.kind === 'line' && shape?.layer === 'hole' ? 0.8 : 0.05;
 }
 
-/** @param {BoardShape|null|undefined} shape @param {unknown} value */
+/** @param {Partial<BoardShape>|null|undefined} shape @param {unknown} value */
 export function normalizedBoardShapeLineWidth(shape, value) {
     const minimum = boardShapeLineWidthMinimum(shape);
     return Math.max(minimum, Number(value) || Math.max(0.2, minimum));
@@ -587,9 +594,9 @@ export function resolveBoardShapeGeometry(shape, options = {}) {
         centerline,
         centerlineClosed,
         areaOutline: /** @type {Point[]} */ (areaOutline),
-        image: shape?.kind === 'image' ? shape : null,
+        image: isBoardImageShape(shape) ? shape : null,
         get physicalContours() {
-            return /** @type {Point[][]} */ (shape?.kind === 'image' ? pictureContours(shape) : closedShapeContours(shape, filled, lineWidth));
+            return isBoardImageShape(shape) ? pictureContours(shape) : closedShapeContours(shape, filled, lineWidth);
         },
         circle: isBoardCircleShape(shape)
             ? { x: shape.x, y: shape.y, radius: radius - lineWidth / 2, outerRadius: radius }

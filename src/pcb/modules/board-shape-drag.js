@@ -30,8 +30,9 @@ import { addBoardShapeOrTrackCommand, copperPathReplacementCommands, selectRepla
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {{x: number, y: number, [key: string]: any}} Point */
-/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
-/** @typedef {import('./board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
 /** @typedef {import('./board-shapes.js').BoardShapeEditProfile} BoardShapeEditProfile */
 /** @typedef {Record<string, any>} BoardShapeDrag */
 
@@ -56,7 +57,8 @@ export function getBoardShapeDrag(app) {
  * @param {number|string|null} handle
  */
 function closeBoardLineIfCoincident(shape, handle) {
-    if (typeof handle !== 'number' || !closePathIfCoincident(shape, handle)) return false;
+    if (typeof handle !== 'number' || shape.kind !== 'line'
+        || !closePathIfCoincident(/** @type {BoardPathShape} */ (shape), handle)) return false;
     normalizeBoardPolylineKind(shape);
     return true;
 }
@@ -97,7 +99,8 @@ function findBoardLineJoinTarget(app, shape, handle, worldPos) {
  */
 function mergeBoardLines(app, first, firstEndpoint, second, secondEndpoint) {
     return /** @type {BoardShape} */ (/** @type {unknown} */ ({
-        ...joinPaths(first, firstEndpoint, second, secondEndpoint),
+        ...joinPaths(/** @type {BoardPathShape} */ (first), firstEndpoint,
+            /** @type {BoardPathShape} */ (second), secondEndpoint),
         id: nextBoardShapeId(app),
         net: '',
     }));
@@ -137,7 +140,7 @@ export function hitTestBoardShapeVertex(app, shape, worldPos) {
  */
 export function applyBoardShapeVertexResize(shape, drag, snap) {
     const segmentBulge = typeof drag.handle === 'string' ? /^bulge:(\d+)$/.exec(drag.handle) : null;
-    if (segmentBulge && ['line', 'polygon'].includes(shape.kind)) {
+    if (segmentBulge && (shape.kind === 'line' || shape.kind === 'polygon')) {
         const index = Number(segmentBulge[1]);
         const start = shape.points[index];
         const end = shape.points[(index + 1) % shape.points.length];
@@ -187,7 +190,7 @@ export function applyBoardShapeVertexResize(shape, drag, snap) {
  * @param {number} tolerance
  */
 export function polygonSegmentIndexAt(shape, worldPos, tolerance) {
-    if (!['line', 'polygon', 'rect'].includes(shape.kind) || !Array.isArray(shape.points) || shape.points.length < 2) return null;
+    if (shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' || !Array.isArray(shape.points) || shape.points.length < 2) return null;
     const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points.length;
     return pathSegmentAt(worldPos, /** @type {any} */ (shape.points.slice(0, count).map((start, id) => ({
         id, start, end: shape.points[(id + 1) % shape.points.length],
@@ -246,9 +249,10 @@ function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [],
             return;
         }
         const segment = bulgeSegment ?? 0;
+        const pathShape = /** @type {BoardPathShape} */ (shape);
         renderAxisGlow(app, [{
-            a: shape.kind === 'arc' ? shape.start : shape.points[segment],
-            b: shape.kind === 'arc' ? shape.end : shape.points[(segment + 1) % shape.points.length],
+            a: shape.kind === 'arc' ? shape.start : pathShape.points[segment],
+            b: shape.kind === 'arc' ? shape.end : pathShape.points[(segment + 1) % pathShape.points.length],
             layerId: shape.layer,
             width: boardShapeSegmentWidth(shape, segment),
             haloMarginPx,
@@ -261,14 +265,15 @@ function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [],
             indices === 'end' ? 1 : 0, excludedSegments, 1);
         return;
     }
-    if (!['line', 'polygon', 'rect'].includes(shape.kind) || !shape.points?.length) {
+    if (shape.kind === 'circle' || shape.kind === 'image' || !shape.points?.length) {
         clearAxisGlow(app);
         return;
     }
-    const segments = pathAlignmentSegments(shape.points, shape.kind !== 'line',
+    const pathShape = /** @type {BoardPathShape} */ (shape);
+    const segments = pathAlignmentSegments(pathShape.points, pathShape.kind !== 'line',
         /** @type {number[]} */ (Array.isArray(indices) ? indices : [indices]),
-        shape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentWidth(shape, index)),
-        shape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentBulge(shape, index)), excludedSegments)
+        pathShape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentWidth(shape, index)),
+        pathShape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentBulge(shape, index)), excludedSegments)
         .map(segment => ({ ...segment, layerId: shape.layer, haloMarginPx }));
     renderAxisGlow(app, segments);
 }
@@ -288,9 +293,11 @@ function snapPolylineSegmentDrag(app, shape, before, segment, worldPos) {
     const first = points[firstIndex];
     if (!first) return { dx: 0, dy: 0 };
     const closed = shape.kind !== 'line';
-    const constraints = pathSegmentConstraints(points, closed, segment, shape.segmentBulges);
+    const segmentBulges = Object.assign([], shape.segmentBulges || {});
+    const constraints = pathSegmentConstraints(points, closed, segment, segmentBulges);
+    const startWorld = /** @type {Point} */ (before.startWorld);
     const delta = snapPathTranslation(app, [points[firstIndex], points[secondIndex]],
-        { x: worldPos.x - before.startWorld.x, y: worldPos.y - before.startWorld.y }, [], constraints);
+        { x: worldPos.x - startWorld.x, y: worldPos.y - startWorld.y }, [], constraints);
     return { dx: delta.x, dy: delta.y };
 }
 
@@ -326,22 +333,24 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         original: shape, shape, id: shape.id, before, beforeState, editProfile: profile,
         startWorld: { x: worldPos.x, y: worldPos.y }, sourceAnchorId: anchorId,
     };
-    if (['line', 'polygon', 'rect'].includes(shape.kind) && midpointMatch) {
+    if ((shape.kind === 'line' || shape.kind === 'polygon' || shape.kind === 'rect') && midpointMatch) {
         segment = Number(midpointMatch[1]);
-        if (segment >= 0 && segment < shape.points.length) {
+        const pathShape = /** @type {BoardPathShape} */ (shape);
+        if (segment >= 0 && segment < pathShape.points.length) {
             shape = beginBoardShapePointerPreview(app, drag);
-            const next = shape.points[(segment + 1) % shape.points.length];
-            const point = shape.points[segment];
+            const previewPath = /** @type {BoardPathShape} */ (shape);
+            const next = previewPath.points[(segment + 1) % previewPath.points.length];
+            const point = previewPath.points[segment];
             if (shape.kind === 'rect') {
-                shape.kind = 'polygon';
+                /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'polygon';
             }
             splitBoardShapeSegmentMetadata(shape, segment);
             remapBoardShapeNodeRadii(shape, segment + 1, 1);
-            shape.points.splice(segment + 1, 0, { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 });
+            previewPath.points.splice(segment + 1, 0, { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 });
             handle = segment + 1;
             mode = 'vertex';
         }
-    } else if (options.allowSegment && ['line', 'polygon', 'rect'].includes(shape.kind) && handle == null) {
+    } else if (options.allowSegment && (shape.kind === 'line' || shape.kind === 'polygon' || shape.kind === 'rect') && handle == null) {
         segment = Number.isInteger(options.segment)
             ? options.segment
             : polygonSegmentIndexAt(shape, worldPos, Math.max(0.3, 8 / Math.max(0.01, app.viewport?.scale || 1)));
@@ -366,10 +375,10 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     }));
     app.setPcbStatus();
     if (profile.kind === 'shape' && (mode === 'vertex' || mode === 'segment')) schedulePictureCopperRefresh(app, shape);
-    const vertex = midpointMatch ? shape.points[handle] : handle != null
+    const vertex = midpointMatch ? /** @type {BoardPathShape} */ (shape).points[/** @type {number} */ (handle)] : handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
         : null;
-    app.viewport?.setCrosshair?.(vertex || (mode === 'move' ? geomAnchor(before) : worldPos));
+    app.viewport?.setCrosshair?.(vertex || (mode === 'move' ? /** @type {Point} */ (geomAnchor(before)) : worldPos));
     return true;
 }
 
@@ -462,7 +471,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     const dx = worldPos.x - d.startWorld.x;
     const dy = worldPos.y - d.startWorld.y;
     // Snap by the shape's anchor point so the whole shape lands on the grid.
-    const anchor = geomAnchor(d.before);
+    const anchor = /** @type {Point} */ (geomAnchor(d.before));
     const delta = snapPathTranslation(app, d.before.points || [anchor], { x: dx, y: dy }, [anchor]);
     const snapped = { x: anchor.x + delta.x, y: anchor.y + delta.y };
     applyShapeGeometry(s, translateShapeGeometry(d.before, delta.x, delta.y));

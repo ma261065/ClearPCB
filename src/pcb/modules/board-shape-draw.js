@@ -25,7 +25,7 @@ import { nextBoardShapeId } from './board-shapes.js';
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {import('../../shapes/shape-drawing.js').DrawingKind} DrawingKind */
 /** @typedef {{x: number, y: number, [key: string]: any}} Point */
-/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {Record<string, any> & {kind: DrawingKind, layer: string, points: Point[], preview: SVGPathElement, cursorWorld?: Point}} ShapeDraw */
 
 const NS = 'http://www.w3.org/2000/svg';

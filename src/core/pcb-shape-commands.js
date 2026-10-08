@@ -3,8 +3,8 @@ import { applyShapeGeometry, applyShapeSnapshot } from './pcb-board-shapes.js';
 import { validBoardOutline } from '../shared/pcb/board-outline.js';
 
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
-/** @typedef {import('./pcb-board-shapes.js').BoardShapeData} BoardShape */
-/** @typedef {Partial<import('./pcb-board-shapes.js').BoardShapeData> & Record<string, any>} BoardShapeState */
+/** @typedef {import('./pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('./pcb-board-shapes.js').BoardShapeSnapshot|import('./pcb-board-shapes.js').BoardShapeGeometry} BoardShapeState */
 
 /** @param {PcbDocument} document @param {BoardShape} shape @param {BoardShapeState} state @param {(shape: BoardShape, state: BoardShapeState) => void} apply */
 function applyEdit(document, shape, state, apply) {
@@ -21,7 +21,7 @@ function applyEdit(document, shape, state, apply) {
 /** @param {BoardShapeState} state */
 function copySnapshot(state) {
     // Artwork is shared read-only; history owns the editable frame and properties.
-    const { artwork, ...snapshot } = state;
+    const { artwork, ...snapshot } = /** @type {import('./pcb-board-shapes.js').BoardShapeSnapshot} */ (state);
     return { ...structuredClone(snapshot), ...(artwork ? { artwork } : {}) };
 }
 

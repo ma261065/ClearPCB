@@ -2,12 +2,13 @@ import { shapeOutline } from './board-shape-geometry.js';
 import { validClosedShape } from '../../shapes/closed-outline.js';
 
 /**
- * @typedef {import('../../core/pcb-board-shapes.js').BoardShapeData} BoardShapeData
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape
+ * @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape
  * @typedef {Record<string, any>} BoardOutlineState
- * @typedef {BoardShapeData & {id: string, kind: any, layer: any, points: any[]}} BoardOutlineShape
+ * @typedef {BoardPathShape & {kind: 'rect'|'polygon'}} BoardOutlineShape
  * @typedef {BoardOutlineState & {width: number, height: number, radius: number}} BoardDimensions
  * @typedef {BoardOutlineState & {board: BoardDimensions, outline: BoardOutlineShape}} BoardDimensionPreview
- * @typedef {BoardOutlineState & {boardShapes?: BoardShapeData[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
+ * @typedef {BoardOutlineState & {boardShapes?: BoardShape[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
  */
 
 /** @type {WeakMap<BoardOutlineApp, BoardDimensionPreview>} */
@@ -53,11 +54,11 @@ export function getBoardOutline(app) {
 /** @param {number} width @param {number} height @param {number} [radius] @returns {BoardOutlineShape} */
 export function rectangleBoardOutline(width, height, radius = 0) {
     return { id: 'board-outline', kind: 'rect', layer: 'board-outline', lineWidth: 0.2,
-        filled: false, cornerRadius: radius,
+        filled: false, copperMode: 'add', plated: false, net: '', cornerRadius: radius,
         points: [{ x: 0, y: -height }, { x: width, y: -height }, { x: width, y: 0 }, { x: 0, y: 0 }] };
 }
 
-/** @param {BoardShapeData|null|undefined} shape */
+/** @param {BoardShape|null|undefined} shape */
 export function validBoardOutline(shape) {
     return shape?.layer === 'board-outline' && validClosedShape(shape, { minArea: 1e-6 });
 }

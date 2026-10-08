@@ -60,10 +60,11 @@ import { applyBoardShapeVertexResize, endBoardShapeDrag, getBoardShapeDrag, hand
 import { addBoardShapeOrTrackCommand } from './track-shape-conversion.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
-/** @typedef {{x: number, y: number, [key: string]: any}} Point */
-/** @typedef {{id: string, kind: any, layer: any, points: any[], [key: string]: any}} BoardShape */
-/** @typedef {Record<string, any>} BoardShapeGeometry */
-/** @typedef {Record<string, any>} BoardShapeSnapshot */
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeSnapshot} BoardShapeSnapshot */
 /** @typedef {Record<string, any>} BoardShapeEditProfile */
 /** @typedef {import('./board-shape-drag.js').BoardShapeDrag} BoardShapeDrag */
 /** @typedef {import('./board-shape-render.js').BoardShapeRenderOptions} BoardShapeRenderOptions */
@@ -310,7 +311,9 @@ export function copyBoardShape(shape) {
     const copy = { ...shape };
     applyShapeGeometry(copy, cloneShapeGeometry(shape));
     for (const key of ['nodeCornerRadii', 'segmentWidths', 'segmentBulges']) {
-        if (shape[key]) copy[key] = { ...shape[key] };
+        const source = /** @type {Record<string, BoardShapeSnapshot[keyof BoardShapeSnapshot]>} */ (shape);
+        const target = /** @type {Record<string, BoardShapeSnapshot[keyof BoardShapeSnapshot]>} */ (copy);
+        if (source[key]) target[key] = { .../** @type {object} */ (source[key]) };
     }
     return copy;
 }
@@ -403,20 +406,20 @@ export function shapeKindLabel(kind) {
  * @param {BoardShape} shape
  */
 export function normalizeBoardPolylineKind(shape) {
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind)) return false;
+    if (!shape || shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect') return false;
     const points = shape.points || [];
     const before = shape.kind;
     if (shape.kind === 'line') {
         shape.filled = false;
     } else if (points.length <= 2) {
-        shape.kind = 'line';
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'line';
         shape.filled = false;
-        shape.cornerRadius = undefined;
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).cornerRadius = undefined;
     } else if (pointsFormAxisAlignedRect(points) && !Object.values(shape.segmentBulges || {}).some(value => Math.abs(value) >= BULGE_EPS)) {
-        shape.kind = 'rect';
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'rect';
         shape.cornerRadius = Math.max(0, Number(shape.cornerRadius) || 0);
     } else {
-        shape.kind = 'polygon';
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'polygon';
         shape.cornerRadius = Math.max(0, Number(shape.cornerRadius) || 0);
     }
     return shape.kind !== before;
@@ -454,7 +457,7 @@ export function normalizeStraightArc(shape, segment = null) {
     if (Math.abs(editableShapeBulge(shape, segment)) >= BULGE_EPS) return;
     if (shape.kind === 'arc') {
         const points = [shape.start, shape.end];
-        shape.kind = 'line';
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'line';
         shape.filled = false;
         applyShapeGeometry(shape, { points });
     } else if (segment != null && shape.segmentBulges) {
@@ -472,11 +475,15 @@ export function translateShapeGeometry(geom, dx, dy) {
     if (geom.points) {
         return { points: geom.points.map(/** @param {Point} p */ (p) => ({ x: p.x + dx, y: p.y + dy })) };
     }
-    if ('radius' in geom) return { x: geom.x + dx, y: geom.y + dy, radius: geom.radius };
+    if ('radius' in geom) {
+        const circle = /** @type {{x:number, y:number, radius:number}} */ (geom);
+        return { x: circle.x + dx, y: circle.y + dy, radius: circle.radius };
+    }
+    const arc = /** @type {{start: Point, end: Point, bulge: Point}} */ (geom);
     return {
-        start: { x: geom.start.x + dx, y: geom.start.y + dy },
-        end: { x: geom.end.x + dx, y: geom.end.y + dy },
-        bulge: { x: geom.bulge.x + dx, y: geom.bulge.y + dy },
+        start: { x: arc.start.x + dx, y: arc.start.y + dy },
+        end: { x: arc.end.x + dx, y: arc.end.y + dy },
+        bulge: { x: arc.bulge.x + dx, y: arc.bulge.y + dy },
     };
 }
 
@@ -700,11 +707,11 @@ export function shapeHandlePoints(shape) {
 function boardPathHandles(shape) {
     const points = shape.points || [];
     const count = shape.kind === 'line' ? points.length - 1 : points.length;
-    const edges = !['line', 'polygon', 'rect'].includes(shape.kind) ? [] : points.slice(0, count).map((start, id) => ({
+    const edges = shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' ? [] : points.slice(0, count).map((start, id) => ({
         id, start, end: points[(id + 1) % points.length], bulge: boardShapeSegmentBulge(shape, id),
     }));
     return pathHandleDescriptors(/** @type {any} */ (points.map((point, id) => ({ id, ...point }))), /** @type {any} */ (edges),
-        id => `mid:${id}`, id => `bulge:${id}`, ['line', 'polygon'].includes(shape.kind));
+        id => `mid:${id}`, id => `bulge:${id}`, (shape.kind === 'line' || shape.kind === 'polygon'));
 }
 
 /**
@@ -723,7 +730,7 @@ export function getBoardShapeAnchors(shape) {
     const vertices = shapeHandlePoints(shape).map((anchor) => ({
         ...anchor,
         id: anchor.key,
-        cursor: anchor.cursor || 'nwse-resize',
+        cursor: /** @type {{cursor?: string}} */ (anchor).cursor || 'nwse-resize',
         round: anchor.key === 'bulge' || String(anchor.key).startsWith('bulge:'),
         fill: anchor.key === 'bulge' || String(anchor.key).startsWith('bulge:') ? '#33dd77' : '#ffffff',
     }));
@@ -780,14 +787,14 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
             if (profile.getLockPosition) return profile.getLockPosition(app, displayed(), pointer, scale);
             const shape = displayed();
             const geometry = resolveBoardShapeGeometry(shape);
-            if (['rect', 'polygon'].includes(shape.kind) && geometry.physicalContours?.length) {
+            if ((shape.kind === 'rect' || shape.kind === 'polygon') && geometry.physicalContours?.length) {
                 return lockPositionOutsideOutline(
                     geometry.physicalContours,
                     pointer,
                     scale,
                 );
             }
-            const strokedCenterline = ['line', 'arc'].includes(shape.kind);
+            const strokedCenterline = (shape.kind === 'line' || shape.kind === 'arc');
             if (strokedCenterline) {
                 const segments = boardShapeStrokeSegments(shape);
                 return lockPositionOutsideOutline(
@@ -809,7 +816,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
         getHitBounds() {
             const shape = displayed();
             const bounds = profile.getBounds ? profile.getBounds(app, shape) : boardShapeBounds(shape);
-            return ['line', 'rect', 'polygon'].includes(shape.kind) && isPcbSelected(app, profile.kind, shape)
+            return (shape.kind === 'line' || shape.kind === 'rect' || shape.kind === 'polygon') && isPcbSelected(app, profile.kind, shape)
                 ? boundsWithPathNodes(bounds, shape.points) : bounds;
         },
         /**
@@ -820,7 +827,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
             const shape = displayed();
             if (profile.hitTest) return profile.hitTest(app, shape, point, tolerance);
             if (boardShapeHitTest(shape, point, tolerance)) return true;
-            if (!isPcbSelected(app, profile.kind, shape) || !['line', 'rect', 'polygon'].includes(shape.kind)) return false;
+            if (!isPcbSelected(app, profile.kind, shape) || shape.kind !== 'line' && shape.kind !== 'rect' && shape.kind !== 'polygon') return false;
             const points = shape.points || [];
             const count = shape.kind === 'line' ? points.length - 1 : points.length;
             return points.slice(0, count).some(/** @param {Point} start @param {number} index */ (start, index) =>
@@ -907,7 +914,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
             const drag = getBoardShapeDrag(app);
             if (commit && drag && !options.moved && !options.place
                 && typeof drag.sourceAnchorId === 'number'
-                && ['line', 'rect', 'polygon'].includes(shape.kind)) {
+                && (shape.kind === 'line' || shape.kind === 'rect' || shape.kind === 'polygon')) {
                 profile.setSegmentFocus(app, null);
                 profile.setNodeFocus(app, { shapeId: shape.id, index: drag.sourceAnchorId });
                 profile.showProperties(app, shape);
@@ -968,7 +975,7 @@ export function renderBoardShapeHandles(app, shape) {
     if (shape.kind === 'line' && node) {
         for (const axis of ['x', 'y']) {
             const field = document.getElementById(`pcbPropShapeNode${axis.toUpperCase()}`);
-            if (field) field.textContent = formatNumberInputValue(node[axis]);
+            if (field) field.textContent = formatNumberInputValue(axis === 'x' ? node.x : node.y);
         }
     }
     renderPcbSelectionAnchors(app);
@@ -1008,7 +1015,7 @@ export function renderBoardShapeSegmentSelection(app) {
  * @param {BoardShape} shape
  */
 export function collapseCollinearPolylinePoints(shape) {
-    return collapseCollinearPath(shape, index => boardShapeSegmentWidth(shape, index));
+    return collapseCollinearPath(/** @type {BoardPathShape} */ (shape), index => boardShapeSegmentWidth(shape, index));
 }
 
 /**
@@ -1017,7 +1024,7 @@ export function collapseCollinearPolylinePoints(shape) {
  * @param {number} delta
  */
 export function remapBoardShapeNodeRadii(shape, index, delta) {
-    remapPathNodes(shape, index, delta);
+    remapPathNodes(/** @type {BoardPathShape} */ (shape), index, delta);
 }
 
 /**
@@ -1025,7 +1032,7 @@ export function remapBoardShapeNodeRadii(shape, index, delta) {
  * @param {number} segment
  */
 export function splitBoardShapeSegmentMetadata(shape, segment) {
-    splitPathSegmentMetadata(shape, segment);
+    splitPathSegmentMetadata(/** @type {BoardPathShape} */ (shape), segment);
 }
 
 /** @param {PcbEditor} app */
@@ -1059,30 +1066,30 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
     shape = canonicalBoardShape(app, shape);
     const original = shape;
     const standalone = shape?.kind === 'arc' || (shape?.kind === 'line' && shape.points?.length === 2);
-    const count = shape?.kind === 'line' ? shape.points?.length - 1
-        : ['polygon', 'rect'].includes(shape?.kind) ? shape.points?.length : shape?.kind === 'arc' ? 1 : 0;
+    const count = shape?.kind === 'line' ? shape.points.length - 1
+        : shape?.kind === 'polygon' || shape?.kind === 'rect' ? shape.points.length : shape?.kind === 'arc' ? 1 : 0;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count
-        || !['line', 'arc'].includes(type) || boardShapeLocked(shape)) return false;
+        || type !== 'line' && type !== 'arc' || boardShapeLocked(shape)) return false;
     const before = shapeSnapshot(shape);
     shape = copyBoardShape(shape);
-    if (shape.kind === 'rect') shape.kind = 'polygon';
+    if (shape.kind === 'rect') /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'polygon';
     if (standalone) {
         if (shape.kind === 'line' && type === 'arc') {
             const [start, end] = shape.points;
             const arc = arcFromBulge(start, end, boardShapeSegmentBulge(shape, 0) || 0.25);
             if (!arc) return false;
             shape.lineWidth = boardShapeSegmentWidth(shape, 0);
-            shape.kind = 'arc';
+            /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'arc';
             applyShapeGeometry(shape, { start, end, bulge: arc.bulgePoint });
         } else if (shape.kind === 'arc' && type === 'line') {
             const points = [shape.start, shape.end];
-            shape.kind = 'line';
+            /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'line';
             applyShapeGeometry(shape, { points });
         }
         shape.filled = false;
         shape.segmentWidths = {};
         shape.segmentBulges = {};
-    } else if (!setPathSegmentType(shape, segment, type)) {
+    } else if (!setPathSegmentType(/** @type {BoardPathShape} */ (shape), segment, type)) {
         return false;
     }
     const merged = type === 'line' && collapseCollinearPolylinePoints(shape);
@@ -1124,12 +1131,12 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 export function openBoardShape(app, shape, vertexIndex = 0) {
     shape = canonicalBoardShape(app, shape);
     if (shape?.layer === 'board-outline') return false;
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || boardShapeLocked(shape)) return false;
+    if (!shape || shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' || boardShapeLocked(shape)) return false;
     const points = shape.points || [];
     if (points.length < 3) return false;
     const before = shapeSnapshot(shape);
     const start = Math.max(0, Math.min(points.length - 1, Math.trunc(Number(vertexIndex) || 0)));
-    const split = splitPathAtNode(shape, start);
+    const split = splitPathAtNode(/** @type {BoardPathShape} */ (shape), start);
     if (!split) return false;
     const remainder = split.remainder;
     if (remainder) remainder.id = peekBoardShapeId(app);
@@ -1162,7 +1169,8 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
  */
 export function deleteBoardShapeSegment(app, shape, segment) {
     if (shape?.layer === 'board-outline') {
-        if (!Number.isInteger(segment) || segment < 0 || segment >= (shape.points?.length || 0)) return false;
+        if (shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect') return false;
+        if (!Number.isInteger(segment) || segment < 0 || segment >= shape.points.length) return false;
         return deleteBoardShapeVertex(app, shape, (segment + 1) % shape.points.length);
     }
     if (shape.kind === 'arc' && segment === 0 && !boardShapeLocked(shape)) {
@@ -1171,9 +1179,10 @@ export function deleteBoardShapeSegment(app, shape, segment) {
         finishBoardShapeRemoval(app);
         return true;
     }
-    const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points?.length;
+    const count = shape.kind === 'line' ? shape.points.length - 1
+        : shape.kind === 'polygon' || shape.kind === 'rect' ? shape.points.length : 0;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count || boardShapeLocked(shape)) return false;
-    const parts = /** @type {any[]} */ (deletePathSegment(shape, segment)).map(part => {
+    const parts = /** @type {any[]} */ (deletePathSegment(/** @type {BoardPathShape} */ (shape), segment)).map(part => {
         part.id = nextBoardShapeId(app);
         return /** @type {BoardShape} */ (part);
     });
@@ -1222,7 +1231,7 @@ export function deleteFocusedBoardShape(app) {
  */
 export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     shape = canonicalBoardShape(app, shape);
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || boardShapeLocked(shape)) return false;
+    if (!shape || shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' || boardShapeLocked(shape)) return false;
     const points = shape.points || [];
     if (shape.layer === 'board-outline' && points.length <= 3) return false;
     if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= points.length) return false;
@@ -1234,7 +1243,7 @@ export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     }
     const before = shapeSnapshot(shape);
     const candidate = copyBoardShape(shape);
-    deletePathVertex(candidate, vertexIndex);
+    deletePathVertex(/** @type {BoardPathShape} */ (candidate), vertexIndex);
     normalizeBoardPolylineKind(candidate);
     const after = shapeSnapshot(candidate);
     app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
@@ -1259,7 +1268,7 @@ export function dismissBoardShapeContextMenu() {
  */
 export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos) {
     dismissBoardShapeContextMenu();
-    if (!shape || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind) || boardShapeLocked(shape)) return;
+    if (!shape || shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' && shape.kind !== 'arc' || boardShapeLocked(shape)) return;
     selectBoardShape(app, shape);
     const vertexIndex = hitTestBoardShapeVertex(app, shape, worldPos);
     const node = typeof vertexIndex === 'number';
@@ -1275,11 +1284,11 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
     };
     const items = /** @type {any} */ (pathContextActions({ node, segment: segmentIndex != null, curved,
         standalone: shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2),
-        split: shape.layer !== 'board-outline' && node && (shape.kind !== 'line' || vertexIndex > 0 && vertexIndex < shape.points.length - 1)
+        split: shape.layer !== 'board-outline' && node && (shape.kind !== 'line' || vertexIndex > 0 && vertexIndex < /** @type {BoardPathShape} */ (shape).points.length - 1)
             ? () => openBoardShape(app, shape, vertexIndex) : null,
-        deleteNode: shape.layer === 'board-outline' && shape.points.length <= 3 ? null : () => deleteBoardShapeVertex(app, shape, vertexIndex),
+        deleteNode: shape.layer === 'board-outline' && /** @type {BoardPathShape} */ (shape).points.length <= 3 ? null : () => deleteBoardShapeVertex(app, shape, /** @type {number} */ (/** @type {unknown} */ (vertexIndex))),
         convert: () => setBoardShapeSegmentType(app, shape, /** @type {number} */ (segmentIndex), curved ? 'line' : 'arc', { floating: !curved }),
-        deleteSegment: shape.layer === 'board-outline' && shape.points.length <= 3 ? null
+        deleteSegment: shape.layer === 'board-outline' && /** @type {BoardPathShape} */ (shape).points.length <= 3 ? null
             : shape.kind === 'arc' ? remove : () => deleteBoardShapeSegment(app, shape, /** @type {number} */ (segmentIndex)),
         deleteObject: shape.layer === 'board-outline' ? null : remove, label: shapeKindLabel(shape.kind).toLowerCase(),
     }));

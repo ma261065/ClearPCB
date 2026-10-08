@@ -26,6 +26,9 @@ import { loadClipper } from './copper-fill-geom.js';
 /** @typedef {{fill: CopperFill, control: ReturnType<typeof createBoardShapePropertyPreview>}} FillGeometryPreview */
 /** @typedef {'cornerRadius'|'bulge'|'width'|'height'|'diameter'} FillGeometryKey */
 
+/** @param {CopperFill|Record<string, unknown>} fill @returns {import('../../core/pcb-board-shapes.js').BoardShape} */
+const fillBoardShape = fill => /** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ (/** @type {unknown} */ (fill));
+
 /**
  * A pour's outline follows its Properties number fields live (corner radius, size,
  * diameter, bulge) on a detached copy, while its copper waits, as during a drag, for
@@ -51,7 +54,7 @@ export function fillEditProfile() {
         missingDragMessage: 'Cannot finish a drag of a missing copper fill.',
         canonical: canonicalBoardShape,
         /** @param {PcbEditor} app @param {CopperFill} fill */
-        displayed: (app, fill) => displayedBoardShape(app, fill),
+        displayed: (app, fill) => displayedBoardShape(app, fillBoardShape(fill)),
         /** @param {PcbEditor} app */
         collection: app => app.pcbDocument?.boardShapes || app.boardShapes,
         copy: /** @param {CopperFill} fill */ fill => new CopperFill(fill.captureState()),
@@ -88,7 +91,7 @@ export function fillEditProfile() {
         /** @param {PcbEditor} app @param {CopperFill} fill @param {{outlineOnly?: boolean}} [opts] */
         render(app, fill, opts = {}) {
             renderCopperFill(fill, id => app.getLayerGroup(id), {
-                selected: isPcbSelected(app, 'fill', this.collection(app).includes(fill) ? fill : this.canonical(app, fill)),
+                selected: isPcbSelected(app, 'fill', this.collection(app).includes(fill) ? fill : this.canonical(app, fillBoardShape(fill))),
                 outlineOnly: opts.outlineOnly || !this.collection(app).includes(fill),
             });
         },
@@ -150,7 +153,7 @@ export function fillEditProfile() {
  * @param {CopperFill} fill
  */
 export function fillGeometryPreview(app, fill) {
-    const displayed = displayedBoardShape(app, fill);
+    const displayed = displayedBoardShape(app, fillBoardShape(fill));
     return displayed === fill ? null : displayed;
 }
 
@@ -239,7 +242,7 @@ export function fillSegmentAt(fill, point, tolerance) {
 
 /** @param {CopperFill} fill */
 function validFill(fill) {
-    return validBoardOutline({ ...fill, points: fill.outline, layer: 'board-outline' });
+    return validBoardOutline(fillBoardShape({ ...fill, points: fill.outline, layer: 'board-outline' }));
 }
 
 /**
@@ -268,7 +271,7 @@ export function commitFillEdit(app, fill, mutate) {
  */
 export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     settleFillGeometryPreview(app);
-    return startBoardShapeDrag(app, fill, point, /** @type {any} */ (anchor), {
+    return startBoardShapeDrag(app, fillBoardShape(fill), point, /** @type {any} */ (anchor), {
         editProfile: boardShapeFillProfile(fillEditProfile()),
         whole: anchor == null && segment == null,
         allowSegment: segment != null,
@@ -300,7 +303,7 @@ export function endFillEdit(app, commit) {
 export function startFillEditAt(app, fill, point) {
     if (!canEditFill(fill)) return false;
     const tolerance = Math.max(0.6, 8 / Math.max(0.01, app.viewport?.scale || 1));
-    const anchor = getBoardShapeAnchors(fill).find(item => Math.hypot(item.x - point.x, item.y - point.y) <= tolerance);
+    const anchor = getBoardShapeAnchors(fillBoardShape(fill)).find(item => Math.hypot(item.x - point.x, item.y - point.y) <= tolerance);
     if (anchor) return beginFillEdit(app, fill, point, anchor.id);
     if (fill.distanceToEdge(point.x, point.y) > tolerance) return false;
     return beginFillEdit(app, fill, point);
@@ -320,7 +323,7 @@ export function deleteFillNode(app, fill, index) {
         fill.segmentBulges = Object.fromEntries(Object.entries(fill.segmentBulges)
             .filter(([key]) => Number(key) !== index && Number(key) !== previous)
             .map(([key, value]) => [Number(key) > index ? Number(key) - 1 : Number(key), value]));
-        remapBoardShapeNodeRadii(fill, index, -1);
+        remapBoardShapeNodeRadii(fillBoardShape(fill), index, -1);
         fill.outline.splice(index, 1);
         normalizeCopperFillKind(fill);
         setBoardShapeNodeFocus(app, null);
@@ -351,16 +354,16 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
     if (!canEditFill(fill)) return;
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
     const tolerance = 8 / Math.max(0.01, app.viewport?.scale || 1);
-    const anchor = getBoardShapeAnchors(fill).find(item => typeof item.id === 'number'
+    const anchor = getBoardShapeAnchors(fillBoardShape(fill)).find(item => typeof item.id === 'number'
         && Math.hypot(point.x - item.x, point.y - item.y) <= tolerance);
-    const node = anchor?.id;
+    const node = /** @type {number|undefined} */ (anchor?.id);
     const segment = node == null ? fillSegmentAt(fill, point, tolerance) : null;
     setBoardShapeNodeFocus(app, node != null ? { shapeId: fill.id, index: node } : null);
     setBoardShapeSegmentFocus(app, segment != null ? { shapeId: fill.id, segment } : null);
     const activeSegment = segment;
     const curved = activeSegment != null && !!fill.segmentBulges[activeSegment];
     const items = pathContextActions({ node: node != null, segment: segment != null, curved,
-        deleteNode: fill.outline.length > 3 ? () => deleteFillNode(app, fill, node) : null,
+        deleteNode: fill.outline.length > 3 && node != null ? () => deleteFillNode(app, fill, node) : null,
         deleteSegment: fill.outline.length > 3 && activeSegment != null ? () => deleteFillNode(app, fill, (activeSegment + 1) % fill.outline.length) : null,
         convert: activeSegment != null ? () => commitFillEdit(app, fill, fill => {
             fill.kind = 'polygon';
@@ -384,7 +387,7 @@ export function fillEditPath(app, fill) {
     if (node != null) return '';
     if (segment != null) return arcEdgePathD(fill.outline[segment], fill.outline[(segment + 1) % fill.outline.length],
         fill.segmentBulges[segment] || 0);
-    return shapePathD({ ...fill, points: fill.outline, cornerRadius: 0, nodeCornerRadii: {} });
+    return shapePathD(fillBoardShape({ ...fill, points: fill.outline, cornerRadius: 0, nodeCornerRadii: {} }));
 }
 
 /** The open pour panel per editor: its pour id and in-place refresh. */
@@ -498,7 +501,7 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
     const { node, segment } = fillEditFocus(app, fill);
     const bounds = fill.getBounds();
     // Values show the displayed pour: a drag's or preview's live copy, else the pour.
-    const shown = displayedBoardShape(app, fill) || fill;
+    const shown = displayedBoardShape(app, fillBoardShape(fill)) || fill;
     const shownBounds = shown.getBounds();
     /** @type {PropertyField[]} */
     const fields = [];

@@ -8,7 +8,9 @@ import { registerPcbSelectionAdapter } from './selection-registry.js';
 
 /** @param {PcbEditor} app @param {CopperFill} fill @param {string} id */
 export function createCopperFillSelectionAdapter(app, fill, id) {
-    return createBoardShapeSelectionAdapter(app, fill, id, /** @type {any} */ (fillEditProfile()));
+    return createBoardShapeSelectionAdapter(app,
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ (/** @type {unknown} */ (fill)),
+        id, /** @type {any} */ (fillEditProfile()));
 }
 
 /**

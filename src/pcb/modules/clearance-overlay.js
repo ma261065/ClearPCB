@@ -7,7 +7,7 @@ import { isPcbPasteActive } from './pcb-paste.js';
 /** @typedef {import('../../shapes/track.js').Point} Point */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {import('../../shapes/via.js').Via} Via */
-/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeData} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
 /** @typedef {Point & {layer?: string, width?: number}} TrackRunPoint */
 /** @typedef {import('../../shapes/track.js').Track} TrackLike */

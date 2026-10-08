@@ -35,7 +35,7 @@ import { getComputedFill } from './computed-fill-cache.js';
 /** @typedef {{h:number,s:number,v:number,o:number}} LayerStyle */
 /** @typedef {'board'|'soldermask'|'tracks'|'vias'|'silkscreen'|'pads'} LayerStyleKey */
 /** @typedef {Record<LayerStyleKey, LayerStyle>} LayerStyleMap */
-/** @typedef {import('./board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {import('../../shared/pcb/board-shape-geometry.js').ResolvedBoardShapeGeometry} BoardShapeGeometry */
 /** @typedef {{placements?: Map<string, any>, pads?: any[], boardShapes?: any[], fills?: any[], tracks?: any[], vias?: any[], texts?: any[], boardX?: number, boardY?: number, boardWidth?: number, boardHeight?: number, boardRadius?: number, [key:string]: any}} Board2DData */
 
 /** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */

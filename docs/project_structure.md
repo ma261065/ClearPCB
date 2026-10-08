@@ -356,6 +356,10 @@ PCB editor:
   incremental refresh for a dragged track, a moved via or a changed shape), plus
   the visibility flag and halo caches; other modules read its state through
   `areClearancesVisible`, `getBoardShapeClearance` and `getPadHaloGroup`.
+- PCB board-shape object typing has one model owner: `core/pcb-board-shapes.js`
+  exports `BoardShape`, its kind/copper-mode unions and narrowed variants. PCB
+  editor modules and shared geometry modules alias those owner types instead of
+  redefining the shape record locally.
 - `pcb/modules/copper-cuts.js` — the per-side clip paths that cut copper under
   copper-removal shapes and board holes (`updateCopperCuts`, an editor service); other
   modules ask `hasCopperCuts` whether any cut is active.

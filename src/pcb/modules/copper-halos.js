@@ -141,7 +141,7 @@ export function setHoverHighlight(app, hit) {
         for (const pad of net.standalonePads) {
             if (pad !== selectedPad) drawStandalonePadHalo(app, pad, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
-        setBoardShapeNetHover(app, /** @type {Iterable<import('./board-shapes.js').BoardShape>} */ (net.shapes));
+        setBoardShapeNetHover(app, /** @type {Iterable<import('../../core/pcb-board-shapes.js').BoardShape>} */ (net.shapes));
     }
 }
 

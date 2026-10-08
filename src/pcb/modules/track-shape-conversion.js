@@ -14,7 +14,7 @@ import { nextBoardShapeId, normalizeBoardPolylineKind, selectBoardShape } from '
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {{x: number, y: number, [key: string]: any}} Point */
-/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 
 /**
  * @param {Track} track
@@ -143,8 +143,9 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     if (!app.tracks?.includes(track)) return false;
     const source = simpleTrackLinePoints(track, { allowPadConnections });
     if (!source) return false;
+    /** @type {'line'|'polygon'} */
     const kind = source.closed ? 'polygon' : 'line';
-    const targetLayer = layer || source.layer;
+    const targetLayer = /** @type {string} */ (layer || source.layer);
     // The remembered source id may have been reused since (a reload resets the id
     // counter, and split or pasted tracks share a source), so only keep it while free.
     const sourceId = track.sourceBoardShape?.id;
@@ -156,7 +157,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
         layer: targetLayer,
         lineWidth: layer ? normalizedBoardShapeLineWidth({ kind, layer: targetLayer }, source.width) : source.width,
         filled,
-        copperMode,
+        copperMode: normalizeShapeCopperMode(copperMode),
         plated,
         net,
         points: source.points,

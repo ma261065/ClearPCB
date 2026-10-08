@@ -167,8 +167,19 @@ export function renderPanelPreview(app, settings = app.panelization) {
     const supports = svg('path', { d: outlinePath(panelPreviewSupportContours(layout)),
         fill: color, 'fill-opacity': 0.12, 'fill-rule': 'evenodd', stroke: 'none' });
     const positioningPaths = new Map(layout.positioningHoles.map(hole => [hole,
-        boardShapeRemovalPathD({ kind: 'circle', layer: 'hole',
-            x: hole.x, y: hole.y, radius: hole.diameter / 2, lineWidth: 0 })]));
+        boardShapeRemovalPathD(/** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ ({
+            id: `panel-positioning-hole-${hole.x}-${hole.y}`,
+            kind: 'circle',
+            layer: 'hole',
+            x: hole.x,
+            y: hole.y,
+            radius: hole.diameter / 2,
+            lineWidth: 0,
+            filled: false,
+            copperMode: 'add',
+            plated: false,
+            net: '',
+        }))]));
     if (positioningPaths.size) {
         // Use the board-hole geometry and even-odd vector cutout, not canvas-colour paint.
         const clipId = `${artworkId}-positioning-holes`;

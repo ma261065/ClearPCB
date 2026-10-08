@@ -12,7 +12,7 @@ import earcut from '../../../assets/vendor/earcut.module.js';
 /** @typedef {{region:CopperRegion, indices:Uint32Array, bounds:Float64Array, triangleBounds:Float64Array}} PreparedCopperRegionContact */
 /** @typedef {{prepared:PreparedCopperRegionContact, contact:Contact, points?:Point[], triangles?:PreparedTriangle[]}} PreparedRegionEntry */
 /** @typedef {{items:any[], bounds:Bounds}} SpatialOrder */
-/** @typedef {Record<string, any>} ContactBoardShape */
+/** @typedef {Partial<import('../../core/pcb-board-shapes.js').BoardShape> & Record<string, any>} ContactBoardShape */
 
 /** @type {WeakMap<CopperRegion, ContactBoardShape>} */
 const regionShapes = new WeakMap();
@@ -311,7 +311,7 @@ function createContact(shape) {
         centerline: [segment.start, segment.end], areaOutline: [], pathClosed: false,
         filled: false, lineWidth: segment.width, circle: null,
         strokeSegments: [{ start: segment.start, end: segment.end, lineWidth: segment.width }],
-    } : resolveBoardShapeGeometry(shape);
+    } : resolveBoardShapeGeometry(/** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ (shape));
     // Pictures use their transformed frame as solid logical copper, not pixels.
     if (shape.region || shape.kind === 'image') geometry.lineWidth = 0;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

@@ -24,8 +24,9 @@ import {
 } from '../../core/pcb-shape-commands.js';
 import { refreshBoardView } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
-/** @typedef {import('../../core/pcb-shape-commands.js').BoardShapeState} BoardShapeState */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeSnapshot} BoardShapeState */
 
 /** @param {PcbEditor} app @param {BoardShape} shape */
 function deselectRemovedShape(app, shape) {
@@ -99,13 +100,13 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
-    /** @param {PcbEditor} app @param {BoardShape} shape @param {BoardShapeState} before @param {BoardShapeState} after */
+    /** @param {PcbEditor} app @param {BoardShape} shape @param {BoardShapeGeometry} before @param {BoardShapeGeometry} after */
     constructor(app, shape, before, after) {
         super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
     }
 
-    /** @param {BoardShapeState} geometry */
+    /** @param {BoardShapeGeometry} geometry */
     _apply(geometry) {
         if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape')?.cancel();
         if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
