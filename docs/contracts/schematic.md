@@ -63,8 +63,8 @@ the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read 
 entry (`test-schematic-tools`).
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
-`draw-states.js` keeps pending segment toggles, drag-click flags and drag scratch
-buffers, `drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire
+`draw-states.js` keeps pending segment toggles and drag-click flags, `drag-gestures.js`
+the reusable drag scratch buffers, `drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire
 axis-lock and junction highlight state, `components.js` keeps component tooltip
 and placement preview state, `ribbon.js` keeps tab/height/toast handlers,
 `mouse.js` keeps right-click pan tracking, `tool-ghost.js` keeps tool ghosts,

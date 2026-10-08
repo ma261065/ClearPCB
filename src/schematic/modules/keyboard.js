@@ -1,7 +1,7 @@
 import { SCHEMATIC_TOOL_KEYS, finishSchematicDrawInPlace } from './schematic-tools.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from './commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
-import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
+import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire-snap.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { flipComponentH, flipComponentV, isPlacingComponent, rotateComponentRight } from './components.js';

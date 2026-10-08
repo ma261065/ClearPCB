@@ -87,7 +87,8 @@ JSON keys `cid` and `fk`, which load into `parentComponent` and `fieldKey`.
 Wire names are not created as dedicated `fieldKey === 'wireLabel'` text in new
 documents. Generic attached labels use `fieldKey === 'label'`; when such a label
 is attached to a wire, `label-attachment.js` can copy its text into
-`wire.wireLabel`, and wire reconciliation (`schematic/modules/wire.js`) marks one
+`wire.wireLabel`, and wire reconciliation (`schematic/modules/wire-reconcile.js`, with the label rules in
+`wire-labels.js`) marks one
 attached label as the primary wire-name label with `attachment.wireName === true`.
 The command and property paths still accept the `wireLabel` field key so older or
 undo-restored data remains editable.

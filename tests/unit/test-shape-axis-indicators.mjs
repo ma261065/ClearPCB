@@ -30,7 +30,7 @@ const { Viewport } = await import('../../src/core/Viewport.js');
 const { makeAxisGlowHalo } = await import('../../src/pcb/modules/axis-glow.js');
 const sharedGlow = await import('../../src/shapes/axis-glow.js');
 const { createLine, createRect } = await import('../../src/shapes/polyline.js');
-const wireGuides = await import('../../src/schematic/modules/wire.js');
+const wireGuides = await import('../../src/schematic/modules/wire-drag-snap.js');
 const { Arc } = await import('../../src/shapes/arc.js');
 const { renderShapeAlignment, snapShapePoint, snapShapeBulge, shapeContinuationConstraints, snapShapeDrawingPoint } = await import('../../src/schematic/modules/shape-snap.js');
 const { resolvePathPoint, pathContinuationConstraints, resolvePathTranslation, pathSegmentConstraints } = await import('../../src/shapes/path-snap.js');
@@ -487,7 +487,6 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     expect('ending schematic drawing clears alignment indicators', previous.every(node => node.removed) && app._axisGlowResolved === null);
 }
 
-expect('legacy wire guide export delegates to the shared renderer', wireGuides.renderGuideLines === sharedGlow.renderGuideLines);
 
 for (const [name, edge, collinear, axisKind] of [
     ['horizontal', { moving: { x: 0, y: 0.1 }, fixed: { x: 10, y: 0 } }, false, 'h'],

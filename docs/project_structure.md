@@ -199,8 +199,8 @@ evaluation-order cycle fails.
   `drawing.js`, `pastingClipboard` → `clipboard.js`, and `placingComponent` →
   `components.js`.
 - Other transient schematic state also stays with an owner module:
-  `draw-states.js` owns the pending segment-toggle, drag-click flags and reusable
-  drag scratch buffers; `drawing.js` owns one-shot draw snap data; `wire.js`
+  `draw-states.js` owns the pending segment-toggle and drag-click flags;
+  `drag-gestures.js` owns the reusable drag scratch buffers; `drawing.js` owns one-shot draw snap data; `wire.js`
   owns wire axis-lock and junction highlight state; `components.js` owns
   component placement-preview visibility plus the component code tooltip;
   `mouse.js` owns right-button pan tracking; `ribbon.js` owns the tab activator,
@@ -347,13 +347,17 @@ Schematic editor:
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
   detail; `schematic/render/` — shape and component renderers and their view state.
 - `schematic/modules/draw-states.js` — the pointer interaction state machine,
-  overlap-cycle slot owner, pending segment-toggle state, drag-click flags and
-  reusable drag scratch buffers;
+  overlap-cycle slot owner, pending segment-toggle state and drag-click flags;
+  `drag-gestures.js` — starting and running drags (anchor, segment, move, box
+  selection); `component-snap.js` — where a placed or dragged component lands;
   `mouse.js`, `keyboard.js`, `ribbon.js`, `context-menu.js` — the input bindings
   that drive it and the editor actions.
 - `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
   `drag.js`, `text-edit.js` — drawing, wiring, component placement, paste,
-  drag/pending-anchor slots and inline text; `selection.js` — lock toggling and
+  drag/pending-anchor slots and inline text; wiring's helpers are `wire-snap.js` (where
+  a wire lands), `wire-reconcile.js` (merging, splitting and connections after an
+  edit), `wire-labels.js` (net names and wire-name labels through merges and splits)
+  and `wire-drag-snap.js` (snaps while wires are dragged); `selection.js` — lock toggling and
   shape-state capture; `locks.js` —
   the lock icon's unlock menu (`render/lock-placement.js` places lock icons, using
   the editors' shared `core/lock-position.js`).

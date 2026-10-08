@@ -30,14 +30,7 @@ const {
 } = await import('../../src/schematic/modules/schematic-view.js');
 const { updateShapeAnchors } = await import('../../src/schematic/render/shape-renderer.js');
 const { ensureView, viewOf } = await import('../../src/schematic/render/shape-view-state.js');
-const {
-    getPendingShapeSegmentToggle,
-    idleState,
-    anchorDragState,
-    getDidSchematicDrag,
-    setDidSchematicDrag,
-    setPendingShapeSegmentToggle,
-} = await import('../../src/schematic/modules/draw-states.js');
+const { getPendingShapeSegmentToggle, idleState, anchorDragState, getDidSchematicDrag, setDidSchematicDrag, setPendingShapeSegmentToggle } = await import('../../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../../src/schematic/modules/properties.js');
 const { Circle } = await import('../../src/shapes/circle.js');
 const { Arc } = await import('../../src/shapes/arc.js');

@@ -11,10 +11,7 @@
  *   contextmenu         -> just preventDefault (suppress browser menu)
  */
 
-import {
-    STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions,
-    getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState,
-} from './draw-states.js';
+import { STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions, getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState } from './draw-states.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { snapShapeDrawingPoint } from './shape-snap.js';
 

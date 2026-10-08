@@ -1,4 +1,5 @@
-import { findNearbyWirePoint, VERTEX_EPSILON } from './wire.js';
+import { findNearbyWirePoint } from './wire-snap.js';
+import { VERTEX_EPSILON } from './wire.js';
 
 function normalizeNetName(name) {
     return String(name || '').trim().toUpperCase();

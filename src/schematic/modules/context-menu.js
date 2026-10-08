@@ -7,7 +7,8 @@
  */
 
 import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from './commands.js';
-import { VERTEX_EPSILON, applySplitLabelRules, applySplitNetRules } from './wire.js';
+import { VERTEX_EPSILON } from './wire.js';
+import { applySplitLabelRules, applySplitNetRules } from './wire-labels.js';
 import { detachLabel } from './label-attachment.js';
 import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';

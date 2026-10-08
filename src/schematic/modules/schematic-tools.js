@@ -14,14 +14,13 @@
 import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget } from './label-attachment.js';
 import { createNetToolGhost, createNoConnectToolGhost, updateToolGhost } from './tool-ghost.js';
-import {
-    addWireWaypoint, finishWireDrawing, getWireJunctionData, hasWireJunctionDot, resolveWireSnapPosition,
-    startWireDrawing, updateSnapHighlight, updateWireDrawing,
-} from './wire.js';
+import { addWireWaypoint, finishWireDrawing, getWireJunctionData, hasWireJunctionDot, startWireDrawing, updateSnapHighlight, updateWireDrawing } from './wire.js';
+import { resolveWireSnapPosition } from './wire-snap.js';
 import {
     addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, isSchematicDrawingActive, shapeDrawingClick, startDrawing, updateDrawing,
 } from './drawing.js';
-import { resolveLabelAttachTarget, resolvePinSnapPlacement, setDrawSnapResult, updateToolCrosshair } from './draw-states.js';
+import { resolveLabelAttachTarget, setDrawSnapResult, updateToolCrosshair } from './draw-states.js';
+import { resolvePinSnapPlacement } from './component-snap.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { isPlacingComponent } from './components.js';
 

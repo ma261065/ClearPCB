@@ -1,6 +1,6 @@
 import { snapToGridLines } from '../../core/grid-snap.js';
 import { resolvePathPoint, resolvePathTranslation, pathContinuationConstraints } from '../../shapes/path-snap.js';
-import { findNearbyPin } from './wire.js';
+import { findNearbyPin } from './wire-snap.js';
 import { axisAlignment, pathAlignmentSegments, renderAxisGlow, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
