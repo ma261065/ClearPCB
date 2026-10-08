@@ -43,6 +43,16 @@ export class VRMLPreview {
     }
 
     /**
+     * The first `diffuseColor r g b` in `text`, as 0-255 RGB, or null.
+     * @param {string} text
+     * @returns {number[]|null}
+     */
+    static _diffuseColor(text) {
+        const match = text.match(/diffuseColor\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/);
+        return match ? [1, 2, 3].map(i => Math.max(0, Math.min(255, Math.round(parseFloat(match[i]) * 255)))) : null;
+    }
+
+    /**
      * Parse VRML (.wrl) file content
      */
     static parseVRML(vrmlText) {
@@ -67,18 +77,20 @@ export class VRMLPreview {
         };
 
         try {
+            // KiCad models name each material once (`DEF PIN-01 Material { ... }`) and
+            // reuse it in later shapes (`material USE PIN-01`), so collect the named
+            // materials first.
+            const namedColors = new Map();
+            for (const [, name, body] of vrmlText.matchAll(/DEF\s+([^\s{}]+)\s+Material\s*\{([^}]*)\}/g)) {
+                const color = this._diffuseColor(body);
+                if (color) namedColors.set(name, color);
+            }
             // Parse by Shape blocks so each face can inherit that shape's material.
             const shapeBlocks = this._extractBlocks(vrmlText, 'Shape');
             if (shapeBlocks.length > 0) {
                 for (const block of shapeBlocks) {
-                    const colorMatch = block.match(/diffuseColor\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/);
-                    const color = colorMatch
-                        ? [
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[1]) * 255))),
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[2]) * 255))),
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[3]) * 255))),
-                        ]
-                        : [102, 102, 102];
+                    const used = block.match(/material\s+USE\s+([^\s{}]+)/);
+                    const color = (used && namedColors.get(used[1])) || this._diffuseColor(block) || [102, 102, 102];
 
                     const coordMatch = block.match(/point\s*\[([\s\S]*?)\]/);
                     const coordIndexMatch = block.match(/coordIndex\s*\[([\s\S]*?)\]/);

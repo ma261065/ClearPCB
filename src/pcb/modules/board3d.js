@@ -444,30 +444,40 @@ export async function openBoard3DViewer(app, opts = {}) {
         applySceneLayerOpacity();
         panel.scene = scene;
 
-    // ── Model fetching (KiCad STEP, cached per footprint) ───────────────
+    // ── Model fetching (KiCad WRL/STEP, cached per model) ────────────────
     const fetcher = getComponentLibrary()?.kicadFetcher;
-    /** @type {Map<string, Promise<string|null>>} footprint → colored OBJ text */
+    /** @type {Map<string, Promise<string|null>>} model URL or footprint → colored OBJ text */
     const modelCache = new Map();
-    /** @param {string} footprint */
-    const fetchModel = (footprint) => {
-        if (modelCache.has(footprint)) return modelCache.get(footprint);
+    /**
+     * The coloured OBJ for a placement's KiCad model: the model its component
+     * carries (the one the component picker and the part's own 3D view show),
+     * else the one the footprint's library lists.
+     * @param {{model3dUrl?: string|null, footprint?: string}} pl
+     */
+    const fetchModel = (pl) => {
+        const key = pl.model3dUrl || pl.footprint || '';
+        if (modelCache.has(key)) return modelCache.get(key);
         const p = (async () => {
             try {
-                const avail = await fetcher.checkFootprintAvailability(footprint);
-                if (!avail?.has3d || !avail.modelUrl) return null;
+                let modelUrl = pl.model3dUrl || '';
+                if (!modelUrl) {
+                    const avail = await fetcher?.checkFootprintAvailability(pl.footprint || '');
+                    if (!avail?.has3d || !avail.modelUrl) return null;
+                    modelUrl = avail.modelUrl;
+                }
                 // Convert via the shared resolver so the async path produces the
                 // SAME colored OBJ (inline `newmtl`/`Kd`) the synchronous
                 // model3dObj path uses — not a flat-grey STEP mesh. This keeps
                 // KiCad bodies coloured AND routed through objModelToMesh (which
                 // applies KiCad's origin and height convention), so both paths render identically.
-                const objText = await resolveObjFromModelUrl(avail.modelUrl, fetcher.corsProxy || '');
+                const objText = await resolveObjFromModelUrl(modelUrl, fetcher?.corsProxy || '');
                 return objText || null;
             } catch (err) {
-                console.warn('3D model fetch failed for', footprint, err);
+                console.warn('3D model fetch failed for', key, err);
                 return null;
             }
         })();
-        modelCache.set(footprint, p);
+        modelCache.set(key, p);
         return p;
     };
 
@@ -525,7 +535,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     /** @type {Map<string, string>} id → placement signature (change detection) */
     const bodySig = new Map();
     const placementSig = (/** @type {any} */ pl) =>
-        `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.side || 'top'}|${pl.mirror ? 1 : 0}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}`;
+        `${pl.x}|${pl.y}|${pl.rotation || 0}|${pl.side || 'top'}|${pl.mirror ? 1 : 0}|${pl.footprint || ''}|${pl.model3dObj ? 1 : 0}|${pl.model3dUrl || ''}`;
 
     // Build the immediate (synchronous) body for a placement: a real OBJ body if
     // the part carries one in memory, otherwise a fallback box. STEP models load
@@ -547,14 +557,14 @@ export async function openBoard3DViewer(app, opts = {}) {
     };
 
     // Fetch + apply the KiCad model (WRL/STEP → coloured OBJ) for one
-    // placement, cached per footprint. Re-checks the signature before applying
+    // placement, cached per model. Re-checks the signature before applying
     // so a model that arrives after the component was moved/removed is not
     // stamped onto a now-stale body.
     const loadModelFor = async (/** @type {string} */ id, /** @type {any} */ pl) => {
         if (!scene) return;
-        const footprint = pl.footprint || '';
-        if (!fetcher || resolved.has(id) || !footprint.includes(':')) return;
-        const objText = await fetchModel(footprint);
+        if (resolved.has(id)) return;
+        if (!pl.model3dUrl && (!fetcher || !(pl.footprint || '').includes(':'))) return;
+        const objText = await fetchModel(pl);
         if (panel.closed) return;
         const obj = bodyMeshes.get(id);
         if (objText && obj && bodySig.get(id) === placementSig(pl)) {

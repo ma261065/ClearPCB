@@ -429,9 +429,14 @@ not the body centre) and put Z = 0 on the board surface; `objModelToMesh()`
 therefore seats them by their raw origin at the footprint's `model3d` offset
 (no bounding-box centring, no lift to the lowest lead tip), reflecting only the
 model's Y-up axis. VRML models are in KiCad's 0.1-inch units and are scaled to
-millimetres when converted; STEP models are already in millimetres.
+millimetres when converted; STEP models are already in millimetres. VRML colours
+come from each shape's material, including the named materials KiCad defines once
+(`DEF PIN-01 Material`) and reuses (`material USE PIN-01`). The board's 3D view
+loads the model a placement's component carries (`model3dUrl`, the one the
+component picker and the part's own 3D view show), and looks the footprint up in
+the KiCad library only when it has none.
 `test-kicad-footprint-model-alignment` checks orientation, lead-to-pad seating
-at 0°/90° and VRML units.
+at 0°/90°, VRML units and named VRML materials.
 
 ### Board-Shape Geometry Contract
 

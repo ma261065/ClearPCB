@@ -90,6 +90,19 @@ try {
     assert.deepEqual(vrml.vertices.map(vertex => [vertex.x, vertex.y, vertex.z].map(value => Math.round(value * 1000) / 1000)),
         [[0, 0, 0], [7.62, 0, 0], [7.62, -2.54, 0], [0, 0, 2.54]]);
     assert.equal(vrml.source, 'kicad');
+
+    // KiCad VRML names each material once in a shape with no geometry, and the shapes
+    // with geometry reuse it (`material USE`): those faces keep the named colour.
+    globalThis.fetch = async () => ({ ok: true, text: async () => `#VRML V2.0 utf8
+Shape { appearance Appearance { material DEF PIN-01 Material { ambientIntensity 0.3 diffuseColor 0.824 0.82 0.781 } } }
+Shape { appearance Appearance { material DEF IC-BODY-EPOXY-04 Material { diffuseColor 0.148 0.145 0.145 shininess 0.4 } } }
+Shape { geometry IndexedFaceSet { coord Coordinate { point [ 0 0 0, 1 0 0, 1 1 0 ] } coordIndex [ 0, 1, 2, -1 ] }
+appearance Appearance { material USE IC-BODY-EPOXY-04 } }
+Shape { geometry IndexedFaceSet { coord Coordinate { point [ 0 0 1, 1 0 1, 1 1 1 ] } coordIndex [ 0, 1, 2, -1 ] }
+appearance Appearance { material USE PIN-01 } }` });
+    const named = parseObjModel(await resolveObjFromModelUrl('https://example.invalid/Package.3dshapes/Named.wrl'));
+    assert.deepEqual(named.faces.map(face => face.color), [[38, 37, 37], [210, 209, 199]],
+        'Faces take the colour of the named material they USE, not the grey default');
 } finally {
     globalThis.fetch = originalFetch;
 }
