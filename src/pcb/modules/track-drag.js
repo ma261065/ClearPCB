@@ -44,7 +44,27 @@ import { findNearbyVia, hitTestTrackEdge, hitTestTrackMidpoint, hitTestTrackNode
 import { lockedJoinTarget, trackPointerCommands } from './track-drop.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
-/** The node, segment, move or bulge drag in progress (see beginTrackPointer). @typedef {any} VertexDrag */
+/**
+ * @typedef {ReturnType<Track['captureState']>} TrackState
+ * @typedef {import('./drag-session.js').DragSession} DragSession
+ * @typedef {import('../../shapes/track.js').PadConnection} PadConnection
+ * @typedef {import('../../shapes/track.js').TrackEdge} TrackEdge
+ * @typedef {import('../../shapes/via.js').Via} Via
+ * @typedef {import('../../shapes/pad.js').Pad} Pad
+ * @typedef {import('./path-edit.js').PathDragConstraint} PathDragConstraint
+ * @typedef {{track: Track, nodeId: string}} TrackNodeTarget
+ * @typedef {{nodeId: string, startX: number, startY: number, padLink?: PadConnection|null}} TrackDragNode
+ * @typedef {{nodeId: string, attrs: TrackEdge}} TrackDragBridge
+ * @typedef {{tracks: Track[]}} TrackDragPreview
+ * @typedef {{excludeTracks?: Set<Track>, ratlinePointKeys?: Set<string>}} TrackGuideExclude
+ * @typedef {{original: Track, track: Track, layers: Set<string>, lastDx: number, lastDy: number, session: DragSession, before: TrackState, preview?: TrackDragPreview, topology?: boolean, preparingSplit?: boolean, splitNodeId?: string, bridges?: TrackDragBridge[], snapTargetNode?: TrackNodeTarget|null, snapTargetVia?: Via|Pad|null, snapTargetKind?: 'pad'|'via', translationPoints?: Point[], constraints?: PathDragConstraint[], neighborIds?: Set<string>, guideExclude?: TrackGuideExclude|null, userDragged?: boolean}} TrackDragCommon
+ * @typedef {TrackDragCommon & {mode: 'node', grabX: number, grabY: number, nodes: TrackDragNode[]}} TrackNodeDrag
+ * @typedef {TrackDragCommon & {mode: 'segment', grabX: number, grabY: number, edgeId: string, bridges: TrackDragBridge[], nodes: [TrackDragNode, TrackDragNode]}} TrackSegmentDrag
+ * @typedef {TrackDragCommon & {mode: 'move', grabX: number, grabY: number, topology: true, nodes: TrackDragNode[]}} TrackMoveDrag
+ * @typedef {TrackDragCommon & {mode: 'rectangle', handle: number, grabX: number, grabY: number, nodes: TrackDragNode[]}} TrackRectangleDrag
+ * @typedef {TrackDragCommon & {mode: 'bulge', edgeId: string, nodes: [], initialBulge: number, bulgeOrigin: Point}} TrackBulgeDrag
+ * @typedef {TrackNodeDrag|TrackSegmentDrag|TrackMoveDrag|TrackRectangleDrag|TrackBulgeDrag} VertexDrag
+ */
 
 /** @type {WeakMap<PcbEditor, {downScreen: Point|null, segmentEdgeId: string|null}>} */
 const vertexClickState = new WeakMap();
@@ -93,16 +113,21 @@ function prepareTrackPointer(app, track) {
     return track;
 }
 
-/** @param {PcbEditor} app @param {Track} track @param {any} details */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {any} details
+ * @returns {VertexDrag|null}
+ */
 function beginTrackPointer(app, track, details) {
     const nodes = new Set(/** @type {any[]} */ (details.nodes).map(node => node.nodeId));
     const layers = new Set([...track.edges].filter(([id, edge]) => details.mode === 'move'
         || (details.mode === 'bulge' ? id === details.edgeId : nodes.has(edge.from) || nodes.has(edge.to)))
         .map(([id]) => track.getEdgeLayer(id)));
     if (!isEditorActive(app) || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
-    const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
+    const drag = /** @type {VertexDrag} */ ({ ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
         // The 2D/3D board view rebuilds once on the drop, not from in-flight node positions.
-        session: beginDragSession(app, { nets: copperNets([track]), suspendBoardView: true }) };
+        session: beginDragSession(app, { nets: copperNets([track]), suspendBoardView: true }) });
     setPcbInteraction(app, '_vertexDrag', drag);
     return drag;
 }
@@ -134,9 +159,10 @@ function beginTrackPointerPreview(app, drag) {
 /**
  * The active track vertex/segment drag, or null.
  * @param {PcbEditor} app
+ * @returns {VertexDrag|null}
  */
 export function getVertexDrag(app) {
-    return getPcbInteraction(app, '_vertexDrag');
+    return /** @type {VertexDrag|null} */ (getPcbInteraction(app, '_vertexDrag'));
 }
 
 /**
@@ -218,7 +244,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
     const newNodeId = copy.splitNode(nodeId, [inc[0].edgeId]);
     if (!newNodeId) { cancelVertexDrag(app); return false; }
     copy.setNodeCornerRadius(newNodeId, copy.nodeCornerRadius(nodeId));
-    drag.nodes[0].nodeId = newNodeId;
+    /** @type {TrackDragNode} */ (drag.nodes[0]).nodeId = newNodeId;
     drag.splitNodeId = newNodeId;
     renderTrack(copy, id => app.getLayerGroup(id), trackEditRenderOptions(app));
 
@@ -610,7 +636,7 @@ export function updateVertexDrag(app, worldPos) {
     refreshTrackSelectionHalo(app);
     refreshDragRatlines(app, drag.session);
 
-    updateNetGuideLine(app, drag.track.net, { x: n.x, y: n.y }, drag.guideExclude?.ratlinePointKeys);
+    updateNetGuideLine(app, drag.track.net, { x: n.x, y: n.y }, drag.guideExclude?.ratlinePointKeys || null);
 }
 
 /**

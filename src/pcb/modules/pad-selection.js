@@ -15,7 +15,7 @@ import { areDragOverlaysDeferred } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/pad.js').Pad} Pad */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{id: string, kind: 'pad', object: Pad, visible: boolean, locked: boolean, getBounds: () => ReturnType<Pad['getBounds']>, getLockPosition: (pointer: Point|null|undefined, scale: number) => Point|null, hitTest: (point: Point) => boolean, getPosition: () => Point, getAnchors: () => unknown[], beginMove: (worldPos: Point) => unknown, updateMove: (worldPos: Point) => void, endMove: (commit: boolean) => void, beginAnchorDrag: (anchorId: string, worldPos: Point) => boolean, updateAnchorDrag: (worldPos: Point) => void, endAnchorDrag: (commit: boolean) => void, invalidate: () => void}} PadSelectionAdapter */
+/** @typedef {{id: string, kind: 'pad', object: Pad, visible: boolean, locked: boolean, getBounds: () => ReturnType<Pad['getBounds']>, getLockPosition: (pointer: Point|null|undefined, scale: number) => Point|null, hitTest: (point: Point) => boolean, getPosition: () => Point, getAnchors: () => import('./selection-registry.js').SelectionAnchor[], beginMove: (worldPos: Point) => boolean, updateMove: (worldPos: Point) => void, endMove: (commit: boolean) => void, beginAnchorDrag: (anchorId: string, worldPos: Point) => boolean, updateAnchorDrag: (worldPos: Point) => void, endAnchorDrag: (commit: boolean) => void, invalidate: () => void}} PadSelectionAdapter */
 
 /**
  * @param {PcbEditor} app

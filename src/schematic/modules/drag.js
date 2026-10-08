@@ -34,7 +34,7 @@ import { setDidSchematicDrag } from './draw-states.js';
 /** @typedef {SchematicShape} NoConnect */
 /** @typedef {import('../../core/CommandHistory.js').Command} Command */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {any} ShapeState */
+/** @typedef {import('./selection.js').ShapeState} ShapeState */
 /** @typedef {{shape: SchematicShape, anchorId: string}} ShapeJoinTarget */
 /** @typedef {{nc: NoConnect, before: ShapeState}} NoConnectLink */
 

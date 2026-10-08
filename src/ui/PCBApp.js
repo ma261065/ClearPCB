@@ -154,7 +154,7 @@ function showFootprintCrosshair(app, pl) {
  * @typedef {import('../pcb/modules/autorouter-common.js').RouteInput} RouteInput
  * @typedef {import('../pcb/modules/autorouter-common.js').RouteResult} RouteResult
  * @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'text'|'fill'} PcbSelectionKind
- * @typedef {import('../pcb/modules/selection-registry.js').PcbSelectionEntry} PcbSelectionEntry
+ * @typedef {import('../pcb/modules/selection-registry.js').PcbSelectionValue} PcbSelectionEntry
  * @typedef {{tracks: ReturnType<Track['toJSON']>[], vias: ReturnType<Via['toJSON']>[], pads: ReturnType<Pad['toJSON']>[],
  *   shapes: any[], texts: ReturnType<typeof serializePcbText>[], fills: ReturnType<CopperFill['captureState']>[]}} PcbClipboardPayload
  * @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, strokeWidth: number, layer: string, [key: string]: any}} InlineTextModel

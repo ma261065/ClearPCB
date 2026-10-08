@@ -625,7 +625,8 @@ export async function openBoard3DViewer(app, opts = {}) {
             // clipper; if it loads after this first build, rebuild once ready.
             if (!isClipperReady()) {
                 loadClipper().then(() => {
-                    if (!panel.closed && scene) { rebuildSurfaces(); scene.requestRender(); }
+                    const currentScene = scene;
+                    if (!panel.closed && currentScene) { rebuildSurfaces(); currentScene.requestRender(); }
                 }).catch(() => {});
             }
             await nextFrame();

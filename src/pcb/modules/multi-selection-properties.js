@@ -28,7 +28,7 @@ import { applyNetToCopperSelection } from './track-properties.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'fill'|'text'} MultiKind */
-/** @typedef {import('./selection-registry.js').PcbSelectionEntry} MultiEntry */
+/** @typedef {import('./selection-registry.js').PcbSelectionValue} MultiEntry */
 /** @typedef {{type: 'number'|'select'|'checkbox'|'net', label: string, get: () => any, command: ((value: any) => any)|null, options?: Array<[any, string]>, disabled?: boolean, min?: number, max?: number, step?: number}} MultiCapability */
 
 /** @param {PcbEditor} app @param {MultiEntry} entry @returns {Record<string, MultiCapability>} */

@@ -192,7 +192,7 @@ export function getViaPropertyPreview(app) {
  */
 export function canonicalVia(app, via) {
     const viaDrag = draggedVia(app);
-    if (viaDrag && viaDrag.preview === via) return viaDrag.original;
+    if (viaDrag?.kind === 'via' && viaDrag.preview === via) return viaDrag.original;
     return viaPropertyPreviews.get(app)?.originals.get(via) || via;
 }
 
@@ -203,7 +203,7 @@ export function canonicalVia(app, via) {
 export function displayedVia(app, via) {
     via = canonicalVia(app, via);
     const viaDrag = draggedVia(app);
-    if (viaDrag && viaDrag.original === via) return viaDrag.preview;
+    if (viaDrag?.kind === 'via' && viaDrag.original === via) return viaDrag.preview;
     return viaPropertyPreviews.get(app)?.copies.get(via) || via;
 }
 

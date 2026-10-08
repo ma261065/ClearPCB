@@ -2,7 +2,7 @@ import { collinearSnap } from '../core/geometry.js';
 import { BULGE_EPS } from './arc-edge.js';
 
 /** @typedef {{x:number,y:number}} Point */
-/** @typedef {{index:number, neighbours:Point[], continuations: Array<[Point, Point]>}} PathDragConstraint */
+/** @typedef {{index:number, neighbours:Point[], continuations?: Array<[Point, Point]>}} PathDragConstraint */
 /** @typedef {{x:number,y:number,distance:number}} SnapDelta */
 
 /**

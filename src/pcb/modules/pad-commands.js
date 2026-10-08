@@ -39,7 +39,7 @@ export function getPadPropertyPreview(app) {
 /** @param {PcbEditor} app @param {PadShape} pad */
 export function canonicalPad(app, pad) {
     const viaDrag = getViaDrag(app);
-    if (viaDrag?.via === pad) return viaDrag.original;
+    if (viaDrag?.kind === 'pad' && viaDrag.via === pad) return viaDrag.original;
     const rotation = padRotationPreviews.get(app);
     if (rotation?.pad === pad) return rotation.original;
     return padPropertyPreviews.get(app)?.originals.get(pad) || pad;
@@ -49,7 +49,7 @@ export function canonicalPad(app, pad) {
 export function displayedPad(app, pad) {
     pad = canonicalPad(app, pad);
     const viaDrag = getViaDrag(app);
-    if (viaDrag?.original === pad) return viaDrag.via;
+    if (viaDrag?.kind === 'pad' && viaDrag.original === pad) return viaDrag.via;
     const rotation = padRotationPreviews.get(app);
     if (rotation?.original === pad) return rotation.pad;
     return padPropertyPreviews.get(app)?.copies.get(pad) || pad;

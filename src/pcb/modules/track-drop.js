@@ -381,7 +381,7 @@ export function reconcileCopperRegion(app, seedTrack) {
 
 /** @param {PcbEditor} app @param {VertexDrag} drag */
 function _droppedNodeTarget(app, drag) {
-    const nd = drag.nodes[0];
+    const nd = /** @type {import('./track-drag.js').TrackDragNode} */ (drag.nodes[0]);
     const track = drag.track;
     const n = track.nodes.get(nd.nodeId);
     if (!n) return null;
@@ -408,7 +408,7 @@ function _droppedNodeTarget(app, drag) {
  * @param {VertexDrag} drag
  */
 function droppedNodeCommands(app, view, drag) {
-    const nd = drag.nodes[0];
+    const nd = /** @type {import('./track-drag.js').TrackDragNode} */ (drag.nodes[0]);
     const track = drag.track;
     const n = track.nodes.get(nd.nodeId);
     if (!n) return null;
@@ -523,13 +523,14 @@ export function trackPointerCommands(app, view, drag) {
     if (drag.topology) {
         if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
         if (drag.splitNodeId) {
+            const splitNodeId = drag.splitNodeId;
             const components = drag.track.connectedComponents();
             if (components.length > 1) {
-                const movingNodes = /** @type {Set<string>[]} */ (components).find(nodes => nodes.has(drag.splitNodeId));
-                const movingPart = drag.track.extractSubgraph(movingNodes);
+                const movingNodes = /** @type {Set<string>} */ (/** @type {Set<string>[]} */ (components).find(nodes => nodes.has(splitNodeId)));
+                const movingPart = /** @type {Track} */ (drag.track.extractSubgraph(movingNodes));
                 movingPart.sourceBoardShape = drag.track.sourceBoardShape;
                 const remainder = /** @type {Set<string>[]} */ (components).filter(nodes => nodes !== movingNodes)
-                    .map(nodes => drag.track.extractSubgraph(nodes));
+                    .map(nodes => /** @type {Track} */ (drag.track.extractSubgraph(nodes)));
                 const after = movingPart.captureState();
                 return withNet([
                     new ModifyTrackGraphCommand(app, drag.original, drag.before, after),

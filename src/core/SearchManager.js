@@ -15,7 +15,7 @@
 
 import { storageManager } from './StorageManager.js';
 
-/** @typedef {any} ComponentLibrary */
+/** @typedef {import('../components/ComponentLibrary.js').ComponentLibrary} ComponentLibrary */
 /** @typedef {{local: any[], kicad: any[], lcsc: any[]}} SearchResults */
 
 const DAY_MS = 24 * 60 * 60 * 1000;

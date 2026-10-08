@@ -26,21 +26,34 @@ import { finishVertexDrag, getVertexDrag, incidentSegments, snapNodeAcrossNeighb
 import { findSplittableTrackEdge, showTrackViaNetConflict } from './track-edits.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {import('./track-drag.js').VertexDrag} VertexDrag */
+/**
+ * @typedef {import('./drag-session.js').DragSession} DragSession
+ * @typedef {{track: Track, nodeId: string, startX: number, startY: number, originalTrack?: Track}} TerminalAttachedNode
+ * @typedef {{tracks: Track[], copies: Map<Track, Track>, originals: Map<Track, Track>, pads?: Pad[], vias?: Via[]}} TerminalDragPreview
+ * @typedef {{track: Track, nodeId?: string, edgeId?: string, px: number, py: number}} TerminalTrackTarget
+ * @typedef {{layers: string[], startX: number, startY: number, grabX: number, grabY: number, attached: TerminalAttachedNode[], session: DragSession, preview?: TerminalDragPreview, snapTargetTrack?: TerminalTrackTarget|null}} TerminalDragCommon
+ * @typedef {TerminalDragCommon & {via: Via, original: Via, kind: 'via', render: (item: Via, layerGroup: (id: string) => any) => void, remove: (item: Via) => void}} ViaDrag
+ * @typedef {TerminalDragCommon & {via: Pad, original: Pad, kind: 'pad', render: (item: Pad, layerGroup: (id: string) => any) => void, remove: (item: Pad) => void}} PadDrag
+ * @typedef {ViaDrag|PadDrag} TerminalDrag
+ */
 
 /** @param {PcbEditor} app */
 export function getViaDrag(app) {
-    return getPcbInteraction(app, '_viaDrag');
+    return /** @type {TerminalDrag|null} */ (getPcbInteraction(app, '_viaDrag'));
 }
 
 /**
- * The via a via drag is moving (authored `original`, displayed `preview`), plus the
- * attached tracks it carries (`tracks.originals` / `tracks.copies`), or null.
+ * The via or pad a terminal drag is moving (authored `original`, displayed `preview`),
+ * plus the attached tracks it carries (`tracks.originals` / `tracks.copies`), or null.
  * @param {PcbEditor} app
+ * @returns {{kind: 'via', original: Via, preview: Via, tracks: TerminalDragPreview|null}|{kind: 'pad', original: Pad, preview: Pad, tracks: TerminalDragPreview|null}|null}
  */
 export function draggedVia(app) {
     const drag = getViaDrag(app);
-    return drag ? { original: drag.original, preview: drag.via, tracks: drag.preview || null } : null;
+    if (!drag) return null;
+    return drag.kind === 'via'
+        ? { kind: 'via', original: drag.original, preview: drag.via, tracks: drag.preview || null }
+        : { kind: 'pad', original: drag.original, preview: drag.via, tracks: drag.preview || null };
 }
 
 /* ──────────────────────────── via drag ──────────────────────────── */
@@ -119,7 +132,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
     return true;
 }
 
-/** @param {PcbEditor} app @param {VertexDrag} drag */
+/** @param {PcbEditor} app @param {TerminalDrag} drag */
 function beginTerminalPreview(app, drag) {
     if (drag.preview) return;
     const copy = drag.kind === 'pad' ? new Pad({ id: drag.original.id }) : new Via({ id: drag.original.id });
@@ -144,25 +157,28 @@ function beginTerminalPreview(app, drag) {
     }));
     drag.preview = preview;
     drag.via = copy;
-    drag.remove(drag.original);
+    if (drag.kind === 'pad') drag.remove(drag.original);
+    else drag.remove(drag.original);
     for (const track of copies.keys()) removeTrackElements(track);
 }
 
-/** @param {VertexDrag} drag */
+/** @param {TerminalDrag} drag */
 function removeTerminalPreviewArtwork(drag) {
-    drag.remove(drag.via);
-    for (const copy of drag.preview.copies.values()) removeTrackElements(copy);
+    if (drag.kind === 'pad') drag.remove(drag.via);
+    else drag.remove(drag.via);
+    for (const copy of /** @type {TerminalDragPreview} */ (drag.preview).copies.values()) removeTrackElements(copy);
 }
 
-/** @param {PcbEditor} app @param {VertexDrag} drag @param {boolean} committed */
+/** @param {PcbEditor} app @param {TerminalDrag} drag @param {boolean} committed */
 function restoreTerminalArtwork(app, drag, committed) {
     if (!drag.preview) return;
     removeTerminalPreviewArtwork(drag);
     if (!committed) {
-        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
         /** @param {string} id */
         const layerGroup = (id) => app.getLayerGroup(id);
-        if (app.pcbDocument[collection].includes(drag.original)) {
+        if (drag.kind === 'pad') {
+            if (app.pcbDocument.pads.includes(drag.original)) drag.render(drag.original, layerGroup);
+        } else if (app.pcbDocument.vias.includes(drag.original)) {
             drag.render(drag.original, layerGroup);
         }
         for (const track of drag.preview.copies.keys()) {
@@ -213,7 +229,7 @@ export function updateViaDrag(app, worldPos) {
     const trackTarget = app.viewport?.shiftHeld || snap.snapType === 'pad'
         ? null
         : snap.snapType === 'track-node'
-            ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId,
+            ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId, edgeId: undefined,
                 px: snap.trackNode.x, py: snap.trackNode.y }
             : findSplittableTrackEdge(app, targetPos, 6, { excludeTracks: attachedTracks, layers: drag.layers });
     if (trackTarget) pos = { x: trackTarget.px, y: trackTarget.py };
@@ -300,7 +316,8 @@ export function updateViaDrag(app, worldPos) {
         renderTrack(t, layerGroup, trackEditRenderOptions(app, t));
         refreshTrackClearance(app, t);
     }
-    drag.render(drag.via, layerGroup);
+    if (drag.kind === 'pad') drag.render(drag.via, layerGroup);
+    else drag.render(drag.via, layerGroup);
     if (drag.kind === 'via') refreshViaClearance(app, drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
@@ -333,8 +350,10 @@ export function finishViaDrag(app) {
                 return;
             }
         }
-        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
-        if (!app.pcbDocument[collection].includes(drag.original)) {
+        const terminalExists = drag.kind === 'pad'
+            ? app.pcbDocument.pads.includes(drag.original)
+            : app.pcbDocument.vias.includes(drag.original);
+        if (!terminalExists) {
             throw new Error(`Cannot move a missing ${drag.kind}.`);
         }
         for (const { originalTrack, nodeId } of /** @type {any[]} */ (drag.attached)) {
@@ -344,16 +363,16 @@ export function finishViaDrag(app) {
         }
         const toX = drag.via.x, toY = drag.via.y;
         /** @type {any[]} */
-        const cmds = [drag.kind === 'pad'
-            ? new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
-            : new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY)];
+        const cmds = [];
+        if (drag.kind === 'pad') cmds.push(new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY }));
+        else cmds.push(new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY));
         for (const a of /** @type {any[]} */ (drag.attached)) {
             cmds.push(new MoveVertexCommand(app, a.originalTrack, a.nodeId, a.startX, a.startY, toX, toY));
         }
         if (drag.snapTargetTrack) {
             const { track, edgeId, nodeId } = drag.snapTargetTrack;
             if (!app.pcbDocument.tracks.includes(track)
-                || (edgeId ? !track.edges.has(edgeId) : !track.nodes.has(nodeId))) {
+                || (edgeId ? !track.edges.has(edgeId) : nodeId == null || !track.nodes.has(nodeId))) {
                 throw new Error('Cannot connect to a missing track target.');
             }
             if (edgeId) {

@@ -39,7 +39,16 @@ import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 /** @typedef {ClipperPoint[]} ClipperPath */
 /** @typedef {ClipperPath[]} ClipperPaths */
 /** @typedef {{outer:Point[], holes:Point[][]}} FillRegion */
-/** @typedef {any} ClipperNamespace */
+/**
+ * @typedef {{AddPaths: (paths: ClipperPaths, polyType: number, closed: boolean) => void, Execute: (clipType: number, solution: ClipperPaths|ClipperPolyTree, subjFillType: number, clipFillType: number) => boolean}} ClipperInstance
+ * @typedef {{AddPath: (path: ClipperPath, joinType: number, endType: number) => void, AddPaths: (paths: ClipperPaths, joinType: number, endType: number) => void, Execute: (solution: ClipperPaths, delta: number) => void}} ClipperOffsetInstance
+ * @typedef {{}} ClipperPolyTree
+ * @typedef {{new(): ClipperInstance, Orientation: (path: ClipperPath) => boolean}} ClipperConstructor
+ * @typedef {{new(miterLimit?: number, arcTolerance?: number): ClipperOffsetInstance}} ClipperOffsetConstructor
+ * @typedef {{new(): ClipperPaths}} ClipperPathsConstructor
+ * @typedef {{new(): ClipperPolyTree}} ClipperPolyTreeConstructor
+ * @typedef {{Clipper: ClipperConstructor, ClipperOffset: ClipperOffsetConstructor, Paths: ClipperPathsConstructor, PolyTree: ClipperPolyTreeConstructor, PolyType: {ptSubject: number, ptClip: number}, ClipType: {ctIntersection: number, ctUnion: number, ctDifference: number}, PolyFillType: {pftNonZero: number}, JoinType: {jtRound: number}, EndType: {etClosedPolygon: number, etOpenRound: number}, JS: {PolyTreeToExPolygons: (tree: ClipperPolyTree) => Array<{outer: ClipperPath, holes?: ClipperPath[]}>}}} ClipperNamespace
+ */
 
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.001 * SCALE;   // offset arc flattening tolerance (scaled mm)
@@ -62,7 +71,11 @@ export function loadClipper() {
     if (_clipper) return Promise.resolve(_clipper);
     if (!_clipperPromise) {
         _clipperPromise = import('../../../assets/vendor/clipper.esm.js')
-            .then((mod) => { _clipper = mod.default || mod; return _clipper; });
+            .then((mod) => {
+                const loaded = /** @type {ClipperNamespace} */ (mod.default || mod);
+                _clipper = loaded;
+                return loaded;
+            });
     }
     return _clipperPromise;
 }

@@ -15,7 +15,7 @@ import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountC
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 /**
- * @typedef {any} Shape
+ * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Shape
  * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire
  * @typedef {import('../../shapes/text.js').Text} TextShape
  * @typedef {import('./selection.js').ShapeState} ShapeState
@@ -58,7 +58,7 @@ export class AddShapeCommand extends Command {
     constructor(app, shape) {
         super(`Add ${shape.type}`);
         this.app = app;
-        this.shape = shape;
+        this.shape = /** @type {import('../../shapes/shape.js').Shape} */ (shape);
         this.linkedLabelText = (shape.type === 'wire' || shape.type === 'net')
             ? (shape.labelText || null)
             : null;
@@ -153,7 +153,7 @@ export class DeleteShapesCommand extends Command {
 export class MoveShapesCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Array<Shape|Component>} items - Items to move
+     * @param {Shape[]} items - Items to move
      * @param {number} dx - Horizontal displacement
      * @param {number} dy - Vertical displacement
      */
@@ -170,7 +170,7 @@ export class MoveShapesCommand extends Command {
     
     /**
      * Build a Map of id → shape/component for O(1) lookups.
-     * @returns {Map<string, Shape|Component>}
+     * @returns {Map<string, Shape>}
      */
     _buildLookup() {
         const map = new Map();
@@ -229,7 +229,7 @@ export class MoveShapesCommand extends Command {
 export class ModifyShapeCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape|Component} shape - The item being modified
+     * @param {Shape} shape - The item being modified
      * @param {ShapeState} beforeState - Snapshot of shape state before the edit
      * @param {ShapeState} afterState - Snapshot of shape state after the edit
      */
@@ -261,7 +261,7 @@ export class ModifyShapeCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|Component|undefined}
+     * @returns {Shape|undefined}
      */
     _findItem(id) {
         let item = this.app.shapes.find(s => s.id === id);
@@ -271,7 +271,7 @@ export class ModifyShapeCommand extends Command {
 
     /**
      * Apply a captured state snapshot to a shape and re-render.
-     * @param {Shape|Component} shape
+     * @param {Shape} shape
      * @param {ShapeState} state - State object from captureState()
      */
     _applyState(shape, state) {
@@ -314,7 +314,7 @@ export class ModifyShapeCommand extends Command {
 export class ModifyPropertyCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Array<Shape|Component>} items - Items whose property is changing
+     * @param {Shape[]} items - Items whose property is changing
      * @param {string} prop - Property name to modify
      * @param {*} newValue - New value for the property
      */
@@ -335,7 +335,7 @@ export class ModifyPropertyCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|Component|undefined}
+     * @returns {Shape|undefined}
      */
     _findItem(id) {
         let item = this.app.shapes.find(s => s.id === id);
