@@ -6,8 +6,8 @@ negotiated-congestion pathfinder — sharing a common geometry / A* core.
 
 PCB conductors are called **tracks** in the UI, reports and documentation.
 Routing payloads use `tracks`, `trackWidth` and `netTracks` consistently.
-Authored `.cpcb` board data uses tracks and its format is unchanged. DSN/SES
-syntax retains the external format's `wire` and `path` keywords.
+Authored `.cpcb` board data uses tracks. DSN/SES syntax uses the external
+format's `wire` and `path` keywords.
 Image tracing is an unrelated image-conversion operation.
 
 ## Architecture
@@ -84,6 +84,9 @@ worker communicate via `postMessage`:
 | `gridStep`        | `number`            | Required grid resolution in mm; editor/DSN inputs use `0.5` |
 | `bounds`          | `{minX,minY,maxX,maxY}` | Board bounding box             |
 
+Route pads use `rect`, `ellipse` or `oval` shapes. Polygon/custom source pads
+are converted to conservative rectangular bounding boxes before routing.
+
 ### RouteResult
 
 | Field                  | Type           | Description                          |
@@ -100,20 +103,19 @@ Grid-based spatial index for obstacle queries. Maze and pathfinder routing use
 `Math.max(gridStep * 4, 2.0)` mm cells for their main obstacle hash.
 Stores two types of obstacles:
 
-- **Pads**: `{cx, cy, hw, hh, net, layer, isPad: true, isVia, connId, id}`
-- **Segments**: `{x1, y1, x2, y2, hw, net, layer, connId}`
+- **Pads**: `{cx, cy, hw, hh, net, layer, isPad: true, isVia, connId, shape, netName, fixedCopper}`
+- **Segments**: `{x1, y1, x2, y2, hw, net, layer, connId, fixedCopper}`
 
 Key operations:
 - `isBlocked(x, y, clearance, skipIds, layer, skipNet)` — point query
 - `isSegmentBlocked(...)` — segment query
 - `insert(x1, y1, x2, y2, hw, net, layer, connId)` — add track segment
 - `removeConnection(connId)` — surgical removal for rip-up
-- `isOnPad(x, y, clearance, skipNet)` — via placement check
+- `isOnPad(x, y, clearance)` — via placement check
 
 The `skipIds` set exempts the source and destination pad groups for the current
 sub-route. The `skipNet` parameter makes same-net routed tracks and fixed copper
-transparent to A\*; unrelated pads still block unless their pad IDs are in
-`skipIds`.
+transparent to A\*. Pads still block unless their pad IDs are in `skipIds`.
 
 ### CongestionGrid
 
@@ -162,9 +164,9 @@ start/end.
 | History            | `(congestion − 1) × gridStep × historyWeight`   |
 
 **Via placement rule**: Via center must be at least `viaRadius + clearance` from
-any foreign pad edge. Source/destination pad groups are exempt through
-`skipIds`; same-net pad checks use `skipNet` where the router tests whether a
-via is on a pad.
+any pad edge. Source/destination pad groups are exempt from the layer-clearance
+checks through `skipIds`, but the final `isOnPad` check has no net skip, so the
+router only places a via after escaping every pad.
 
 **Termination**: Max iterations, stagnation detection, detour factor cap, or
 cancel token.
@@ -243,10 +245,10 @@ with `nncReorderPads` and reorders the parallel pad-ID groups the same way.
 
 ### Via-Pad Clearance
 
-Via placement uses `viaRadius + clearance` as the minimum distance from foreign
-pad edges. Own-net source and destination pad groups are exempt through
-`skipIds`, and same-net pad checks use `skipNet` where the router tests whether a
-via is on a pad.
+Via placement uses `viaRadius + clearance` as the minimum distance from pad
+edges. Own source and destination pad groups are exempt from point and segment
+obstacle checks through `skipIds`, but via centers must be off every pad because
+`SpatialHash.isOnPad()` does not take a net skip.
 
 ### Negotiated Congestion
 
@@ -260,8 +262,8 @@ across the board and resolves routing-order butterfly effects.
 Focused unit tests in `tests/unit/test-autorouter-geometry.mjs`,
 `tests/unit/test-autorouter-maze.mjs`, and
 `tests/unit/test-autorouter-pathfinder.mjs` cover the shared geometry/grid
-helpers and tiny router scenarios. The end-to-end fixture regression remains in
-`tools/regression.mjs` for whole-board baseline coverage.
+helpers and tiny router scenarios. `tools/regression.mjs` provides whole-board
+fixture baseline coverage.
 
 ## File Structure
 
@@ -278,7 +280,8 @@ src/pcb/modules/
 │   ├── astarProbe()           # Crossing-aware A* for rip-up
 │   ├── padPointBlocked / padSegmentBlocked   # Pad blocking predicates
 │   ├── RouteInput / RouteResult typedefs     # Router contract
-│   └── (geometry helpers, path post-processing, node-key packing)
+│   ├── NODE_KEY_OFFSET / NODE_KEY_Y_STRIDE / packNodeKey()
+│   └── (geometry helpers and path post-processing)
 │
 ├── autorouter-maze.js        # Maze router
 │   ├── routeAll()             # Rip-up-and-reroute main entry

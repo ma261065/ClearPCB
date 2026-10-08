@@ -8,7 +8,7 @@ Both editors use fixed grid dropdowns. The metric list starts with 0.1, 0.25,
 0.5 and 1 mm, followed by a nonselectable separator bar, then 0.0254, 0.127,
 0.254, 0.635, 1.27 and 2.54 mm. There are no group headings; inch-derived
 sizes show their inch and mil values in parentheses, for example `0.127 mm (0.005" / 5 mil)`.
-The inch list remains 0.001, 0.005, 0.01, 0.025, 0.05 and 0.1 inch.
+The inch list is 0.001, 0.005, 0.01, 0.025, 0.05 and 0.1 inch.
 All inch presets therefore survive a switch to metric and back exactly.
 Per the chosen fixed-list policy, a non-preset saved grid selects the nearest
 preset when restored into an editor, even before controls exist; no custom option
@@ -23,8 +23,8 @@ With a visible grid, ruler labels use 1-2-5 multiples of the grid spacing to
 maintain at least 80 screen pixels between major labels. Thus a 0.1-inch grid
 labels 0.1-inch intervals when zoom permits, rather than unrelated fractional
 intervals. Both ruler axes remain aligned to displayed grid lines, including when
-the tick limit requires skipping more lines. With the grid hidden, the existing
-unit-based spacing is retained. Changing grid size or visibility refreshes the
+the tick limit requires skipping more lines. With the grid hidden, unit-based
+spacing is used. Changing grid size or visibility refreshes the
 rulers; ordinary panning still translates cached ticks without rebuilding them.
 Metric labels omit trailing zeros, and extreme-zoom output stays bounded.
 These presentation changes do not alter
@@ -33,8 +33,8 @@ authored geometry, grid presets or file-save precision.
 Both editors share the viewport's light-mode palette: a white canvas, subtle
 gray grid, medium-gray origin axes and pale-gray rulers. The `--bg-ruler` token
 separates ruler shading from the rest of the UI; without it, rulers retain the
-existing `--bg-primary` background. Dark mode and electrical layer/net colors
-are unchanged.
+`--bg-primary` background. Dark mode and electrical layer/net colors keep their
+own palettes.
 
 Both editors use `shared/ui/ribbon-height.js` to retain the tallest static
 ribbon panel. A cached container width and retained style avoid cycling every
@@ -42,8 +42,8 @@ tab through forced layout on each activation or tab change. Width changes and
 font completion trigger fresh measurements; hidden ribbons retain their last
 valid height until shown, and resize requests share one animation-frame callback.
 Schematic reactivation also rechecks the cache after resizing while hidden.
-Panel classes and height are restored if measurement fails. Existing flex layout,
-inactive-panel hiding and maximum-height behavior are unchanged.
+Panel classes and height are restored if measurement fails. Flex layout,
+inactive-panel hiding and maximum-height behavior continue to apply.
 
 ### Ribbon: description, renderer
 
@@ -60,8 +60,8 @@ state; `index.html` keeps only the empty `#ribbonSchematic` and `#ribbonPCB`
 hosts.
 
 Ribbons keep stable IDs, classes, `data-*` attributes, titles, labels and order so
-existing controller code and browser scenarios can continue to wire behaviour by
-ID. The renderer exposes a refresh API for description-owned state accessors
+controller code and browser scenarios can wire behaviour by ID. The renderer
+exposes a refresh API for description-owned state accessors
 (`active`, `disabled`, `checked`, `value`), so a visual redesign should change the
 renderer rather than rewriting either editor's description. Truly custom or
 externally populated areas remain slots: recent-file menus, the schematic shape
@@ -75,8 +75,9 @@ defined by `PROPERTY_ORDER` in `shared/ui/property-order.js`. Panels show only
 the rows that apply; whatever is shown keeps its place:
 
 1. Locked
-2. What it is: Reference, Show Reference, Value, Show Value, text, pad Shape,
-   Outline, part source and package
+2. What it is: Reference, Show Reference, Ref Visible, Value, Show Value, text,
+   Insert, pad Shape, Shape Kind, Outline, part source, supplier part number and
+   package
 3. Layer (a pad's copper sides), then Copper Mode, then Net
 4. Fill, Plated
 5. Position and size: X, Y, Width, Height, Size, Ratio, text size, Diameter, Drill
@@ -128,7 +129,7 @@ The renderer owns the edit protocol, the same in every panel:
   renderer showed is not an edit, so leaving or "changing" an untouched field never
   rounds the model to the displayed digits.
 - **Select, checkbox, text and net fields** commit on `change`. A net field's menu
-  lists the existing nets.
+  lists the current nets.
 - **Mixed values** (the selected objects disagree) show an empty field with a
   `Mixed` placeholder, a disabled `Mixed` option or an indeterminate checkbox, in
   both editors.

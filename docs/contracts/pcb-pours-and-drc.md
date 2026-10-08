@@ -3,34 +3,40 @@
 Part of the [module contracts](../module-contracts.md). Copper-pour commands and
 live computation, ratsnest traversal, DRC checking and the DRC panel.
 
-Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
-Collection commands use the model's existing `boardShapes` array; modification
-applies authored state to a `CopperFill`. Undo snapshots deeply copy outline
-points, per-node radii and per-segment curvature. These commands do not calculate
-pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
-retain synchronous pour refresh and selection/property refresh after accepted
-fill commands by calling the fill owner modules directly. `copper-fill-edit.js`
-owns selected-pour Properties rendering and refresh, while `fill-refresh.js`
-owns computed-pour scheduling, terminal disposal, cached rerenders and clearing
-the rendered fill layers.
+The authored object is `CopperFill`, and the UI/tool names use **Fill**. This
+contract uses **fill** for the authored outline and **pour** for the computed
+copper polygons derived from it.
 
-`commitFillEdit` in `pcb/modules/copper-fill-edit.js` remains the small
-command-preparation helper for fill-specific callers. Interactive fill editing,
-however, no longer owns a separate path editor. Fills provide a pour-specific
-edit profile to `pcb/modules/board-shapes.js`, and the board-shape implementation
-owns selection-adapter geometry, node/segment focus, midpoint insertion, vertex,
-segment, bulge, circle handle and whole-object drags, deletion/context-menu
-topology actions, and property-preview transactions. The profile supplies only
-the CopperFill copy/snapshot, fill lock/visibility checks, `ModifyFillCommand` /
-`RemoveFillCommand`, copper-layer rendering and fill validation. Pointer and
-property previews operate on detached `CopperFill` copies resolved through the
-same displayed-copy maps as board shapes, so `boardShapes` and the computed-pour
-weak map remain canonical. Overlay deferral suppresses computed-pour rerenders
-during previews; accepted fill geometry still settles into one
-`ModifyFillCommand`, and cancellation, no-op, invalid edits, command rejection,
-deactivation/load and missing targets restore or remove preview artwork without
-authored rollback. Grouped fills use the shared mixed-group projection described
-in [pcb-editing.md](pcb-editing.md#previews-and-projections).
+Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
+Collection commands use the model-owned `PcbDocument.boardShapes` array;
+modification applies authored state to a `CopperFill`. Undo snapshots deeply copy
+outline points, per-node radii and per-segment curvature. These commands do not
+calculate pours or update connectivity. The
+`pcb/modules/copper-fill-commands.js` adapters synchronously refresh pours,
+selection and Properties after accepted fill commands by calling the fill owner
+modules directly. `copper-fill-edit.js` owns selected-fill Properties rendering
+and refresh, while `fill-refresh.js` owns computed-pour scheduling, terminal
+disposal, cached rerenders and clearing the rendered fill layers.
+
+`commitFillEdit` in `pcb/modules/copper-fill-edit.js` is the
+command-preparation helper for fill-specific callers. Interactive fill editing
+uses the shared board-shape edit profile rather than a separate path editor.
+`pcb/modules/board-shapes.js` owns the edit profile and displayed-copy maps;
+`board-shape-drag.js` owns vertex, segment, bulge, circle-handle and
+whole-object drags; `board-shape-properties.js` owns shared property-preview
+transactions; `board-shape-render.js` owns shape rendering; and
+`track-shape-conversion.js` owns track/shape conversion. The fill profile supplies
+only the `CopperFill` copy/snapshot, fill lock/visibility checks,
+`ModifyFillCommand` / `RemoveFillCommand`, copper-layer rendering and fill
+validation. Pointer and property previews operate on detached `CopperFill`
+copies resolved through the same displayed-copy maps as board shapes, so
+`boardShapes` and the computed-pour weak map are canonical. Overlay deferral
+suppresses computed-pour rerenders during previews; accepted fill geometry
+settles into one `ModifyFillCommand`, and cancellation, no-op, invalid edits,
+command rejection, deactivation/load and missing targets restore or remove
+preview artwork without authored rollback. Grouped fills use the shared
+mixed-group projection described in
+[pcb-editing.md](pcb-editing.md#previews-and-projections).
 
 The fill panel's number fields (corner radius, size, diameter, node radius,
 bulge and geometry kind) use the shared board-shape property-preview transaction
@@ -82,19 +88,19 @@ board does not wait for it.
 Clones and loaded replacements do not inherit results, even with equal IDs.
 Detached fabrication snapshots intentionally retain their own `_computed`
 transfer field and recompute from captured authored geometry rather than using
-the live preview cache. This does not remove the remaining inherited shape
-presentation methods or other entity-level derived caches.
+the live preview cache. Entity-level presentation methods and other derived
+caches stay separate from the computed-pour weak map.
 
 Scheduled live pours use `pcb/modules/fill-worker-client.js` and the module
 worker `fill-worker.js`. `fill-worker-geometry.js` captures detached,
 full-precision model inputs; image artwork is represented by its physical frame,
-matching the existing pour engine. The service allows one active job and one
+matching the computed-pour engine. The service allows one active job and one
 replaceable pending job. Generations, document/fill identities and lifecycle
 cancellation reject stale results; preview deferral retains settled holes.
 `fill-refresh.js` stages complete SVG results off-DOM before handing them over,
 owns the terminal disposed state after `PCBApp.dispose()`, and reuses cached
 results for selection-only rerenders.
-Direct command recomputation remains synchronous; missing Worker support and
+Direct command recomputation is synchronous; missing Worker support and
 reported transport failures use the synchronous fallback. Deactivation/load
 cancel live work, while terminal disposal prevents restarting the service.
 Snapshot capture, rendering and derived connectivity still run on the main
@@ -105,7 +111,7 @@ region identities; mutable authored shapes retain value validation, and
 unprepared synchronous regions retain lazy triangulation. DRC reports pending
 or failed refreshes even when settled display geometry is retained, rather than
 treating that older cache as a current successful pour.
-Shared spatial pair sweeps compact expired entries in their existing active
+Shared spatial pair sweeps compact expired entries in their active
 arrays instead of allocating filtered arrays for every item. Stable pair order,
 one bounds lookup per input and inclusive clearance/tolerance comparisons are
 preserved for both single-set and cross-set consumers.
@@ -128,7 +134,7 @@ Reinstalling prepared geometry invalidates its ordering; arbitrary mutable
 contacts still use the ordinary lazy-capture sweep.
 Region/region checks conservatively filter ordered triangles against the other
 contact's bounds before sweeping. Fully contained orders bypass filtering;
-candidate arrays contain existing records, and no persistent candidate cache or
+candidate arrays contain the records being swept, and no persistent candidate cache or
 additional worker payload is introduced.
 
 Each DRC distance checker owns one immutable physical snapshot. It caches hole
@@ -165,9 +171,9 @@ copper pair, collect neutral ratlines, clear board selection and access layer
 groups and the limited viewport
 navigation interface.
 The owner accepts injected DOM for independent tests and never receives
-`PCBApp`. The existing scheduler/checker publishes through thin editor adapters;
-it does not own list selection or marker elements. Calculation and worker
-generation rules remain in their existing modules.
+`PCBApp`. The scheduler/checker publishes through thin editor adapters; it does not own
+list selection or marker elements. Calculation and worker generation rules stay
+in the DRC modules.
 
 Selected short/clearance markers also have a lightweight live-preview path.
 Their reports carry a serializable pair of stable copper-entity references.
@@ -175,7 +181,7 @@ Their reports carry a serializable pair of stable copper-entity references.
 pair's copper (plus applicable copper-removal artwork), and reuses the full DRC
 distance checker, layers and clearance tolerance. The marker follows the current
 contact or insufficient gap, disappears when the pair clears, and reappears if
-the conflict returns. A short's marker also remains while the pair separates but
+the conflict returns. A short's marker also stays visible while the pair separates but
 still violates clearance. Unsettled selected pours have no live marker until
 usable geometry is available; the full result remains pending.
 `DrcPresentation` coalesces marker checks to one animation frame and keeps the
@@ -183,14 +189,14 @@ preview separate from the authoritative results/list/status. Closing, replacing
 results, deactivation and disposal cancel queued marker work. Pan/zoom uses the
 same preview marker and cannot resurrect a temporarily resolved conflict.
 Normal DRC still rechecks the complete board after commit/cancel and pour
-settlement. Incomplete-connection markers retain their existing ratline-follow
+settlement. Incomplete-connection markers retain their ratline-follow
 path; this does not perform whole-board DRC on every pointer event.
 
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
 connectivity pass. A newly computed region has a new identity; replacing a
 shape's region also invalidates its resolved contact. Hole geometry and physical
-contact tolerances are unchanged.
+contact tolerances keep the same inclusive comparisons.
 
 `CopperFill.captureCopperGeometry()` captures the model's resolved boundary as
 detached, full-precision data. It reuses `getOutline()` for circles, rounded

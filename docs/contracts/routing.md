@@ -6,11 +6,11 @@ algorithms are described in [autorouter.md](../autorouter.md).
 
 ## Routing Session
 
-Autorouting retains existing authored copper while its worker produces a preview.
+Autorouting keeps authored copper in place while its worker produces a preview.
 The pending session blocks project snapshots and owns its worker, model, layout,
 netlist, routing rules and command-history baseline. Edits, document replacement,
 schematic changes, deactivation and disposal invalidate that ownership; stale
-progress, errors and results cannot affect a successor session. User Stop remains
+progress, errors and results cannot affect a successor session. User Stop is
 distinct: a current worker may return a partial result. Successful routing and
 SES imports use `ReplaceRoutesCommand`, an atomic, dirtying replacement with exact
 undo/redo; Clear Routes uses the same command. Worker failures preserve the previous
@@ -25,8 +25,8 @@ rebuild, the solid lines plus the dashed replacement still represent every
 connection exactly once. The dashed edge remains visible with Ratlines disabled.
 Track drawing supplies detached preview tracks/vias to the same connectivity
 calculation, restricted to the affected nets, without authoring model entities.
-Unchanged previews reuse that input. Cancel/commit removes the provisional input
-and restores the normal graph. DRC's existing pending-edit guard prevents checking
+Identical previews reuse that input. Cancel/commit removes the provisional input
+and restores the normal graph. DRC's pending-edit guard prevents checking
 an unfinished gesture; guide styling itself never removes neutral ratline records.
 
 `pcb/modules/autorouter-session.js` owns the routing session, worker, cancellation
@@ -36,9 +36,9 @@ ratsnest reconciliation and status/error reporting, not the editor object.
 `pcb/modules/autorouter-presentation.js` owns progress controls, phase delays,
 temporary routing artwork, fade frames and ratline visibility, using injected
 DOM/layer/rule capabilities and schedulers. `PCBApp` supplies those adapters and
-retains the canonical model/command boundary; it no longer owns the worker or
-presentation timers. Independent owner tests exercise cancellation, supersession
-and cleanup without constructing an editor.
+keeps the canonical model/command boundary; the worker and presentation timers
+belong to the autorouter modules. Independent owner tests exercise cancellation,
+supersession and cleanup without constructing an editor.
 
 ## Architecture
 
@@ -49,14 +49,15 @@ modules sharing common infrastructure:
   `padPointBlocked` / `padSegmentBlocked`, `CongestionGrid`,
   `PathfinderGrid`, `astarRoute`, `astarProbe`, path post-processors
   (`simplifyPath`, `fixAngles`, `optimizePath`, `sanitizeAngles`),
-  `buildCandidateRoutes`, `isValidAngle`, `NODE_KEY` constants.
+  `buildCandidateRoutes`, `isValidAngle`, `NODE_KEY_OFFSET`,
+  `NODE_KEY_Y_STRIDE` and `packNodeKey()`.
 - `autorouter-maze.js` — Maze (rip-up) router. Exports `routeAll`,
-  `routeWithMazeRouter`, plus maze-only helpers (`buildMstEdges`,
-  `defaultChainEdges`, `netManhattan`). Holds the `RouteInput` /
-  `RouteResult` typedefs.
+  `routeWithMazeRouter`, and defines maze-only helpers (`buildMstEdges`,
+  `defaultChainEdges`, `netManhattan`).
 - `autorouter-pathfinder.js` — Negotiated-congestion (McMurchie/Ebeling)
-  router. Exports `routeAllPathfinder`, `routeWithPathfinderRouter`,
-  plus extraction / re-route / verification helpers (`extractFeasibleSubset`,
+  router. Exports `routeAllPathfinder` and `routeWithPathfinderRouter`.
+  Its internal extraction / re-route / verification helpers include
+  `extractFeasibleSubset`,
   `extractAndReroute`, `geometricVerifyAndDrop`, `smoothPathfinderRoutes`,
   `unionExtend`, `ripUpSwap`, `astarRouteWithRefinement`,
   `astarRouteAnyEndpoint`).
@@ -99,27 +100,32 @@ delegator used by the routing session.
 `trackWidth`, `clearance`, `viaDiameter` and `viaDrill` live in
 `ProjectDocument.pcbDocument.designSettings` as millimetres. The Design-tab
 controls commit through `pcb/modules/design-settings.js`; `PCBApp.getRoutingParams()`
-reads the model, not rounded display values. `routeAll`, `routeAllPathfinder`,
-`exportDSN`, and `importDSN` throw if required routing dimensions are missing
-or non-positive. DSN round-trips `viaDiameter` through the referenced via
-padstack; ClearPCB's exporter names that padstack `via_default`.
+reads the model, not rounded display values. `routeAll` and
+`routeAllPathfinder` require positive `trackWidth`, `clearance`,
+`viaDiameter` and `gridStep`. `exportDSN` and `importDSN` require positive DSN
+rule width/clearance and a valid via padstack diameter. DSN round-trips
+`viaDiameter` through the referenced via padstack; ClearPCB's exporter names
+that padstack `via_default`.
 
 ### Pad Obstacle Model
 
-Pad shape vocabulary `'rect' | 'ellipse' | 'oval' | 'polygon'` flows
-through `padPointBlocked` / `padSegmentBlocked` in `autorouter-common.js`:
+Pad shape vocabulary `'rect' | 'ellipse' | 'oval'` flows through
+`padPointBlocked` / `padSegmentBlocked` in `autorouter-common.js`.
+Source polygons and custom KiCad pads are converted to conservative
+rectangular bounding boxes before routing:
 
 - `rect` — exact AABB distance with `clearance²` (rounded corners)
 - `ellipse` — circle distance when `hw == hh`; anisotropic ellipse otherwise
 - `oval` — stadium (segment-to-segment distance + minor radius)
-- other — rect bbox fallback (conservative)
+- other source pad shapes — rect bbox fallback before they reach the router
 
 Vias are treated as `shape: 'ellipse'` with `hw == hh` so they
 behave as exact circles (not over-blocking squares).
 
 Source pipeline for pad shapes: EasyEDA `PAD~ELLIPSE/RECT/OVAL/POLYGON`
-in `src/shared/pcb/footprint.js`, KiCad circle/oval split in
-`src/components/KiCadFetcher.js`.
+in `src/shared/pcb/footprint.js`, KiCad circle/oval mapping in
+`src/components/kicad/footprint-parser.js`; `src/components/KiCadFetcher.js`
+is the public fetcher wrapper.
 
 ### Connection Topology
 
@@ -144,11 +150,10 @@ pads with via-stitched copies). Router internals:
   succeeds. Used in pathfinder's three A* call sites; classic
   `routeAll` only benefits from skipIds union (single-endpoint A*).
 
-### Same-Net Via-In-Pad
+### Via Placement on Pads
 
-Same-net vias on pads are **allowed** (required for SMD thermal /
-centre pads only reachable from the opposite layer). Pad obstacle
-records carry both `obj.net = pad.id` (for `skipIds`) and
-`obj.netName = conn.net` (for `isOnPad` `skipNet`). Foreign pads
-still hard-block. `tools/check-clearance-full.mjs` exempts same-net
-via-pad too.
+Via centers must be off every pad. `astarRoute` first checks both copper layers
+with `isBlocked(..., skipIds, layer, routingNet)`, so source/destination pad
+groups and same-net tracks are treated correctly for layer clearance. It then
+calls `SpatialHash.isOnPad(x, y, viaRadius + clearance)` with no net skip; that
+final check blocks via-in-pad for own-net and foreign pads alike.
