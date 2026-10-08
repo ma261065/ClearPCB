@@ -120,6 +120,11 @@ export const scenarios = [
         async run(page, url) {
             await openPcb(page, url);
             check('load (wall)', await fastest(3, () => loadLargeBoard(page)), LOAD_BUDGET * SLOWDOWN);
+            const labelLod = await page.evaluate(() => {
+                const viewport = window.bootstrap.pcbApp.viewport;
+                return { zoom: viewport.zoom, low: viewport.svg.classList.contains('pcb-zoom-low') };
+            });
+            assert.ok(labelLod.zoom >= 2 || labelLod.low, 'zoomed-out PCB view hides tiny track net labels');
             const mainThreadMs = await mainThreadMeter(page);
 
             // Hovering with the Select tool diagonally across the whole board, back and forth.

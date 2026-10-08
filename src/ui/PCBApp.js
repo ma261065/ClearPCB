@@ -466,6 +466,9 @@ export default class PCBApp {
         if (this.status.zoomPercent) {
             this.status.zoomPercent.textContent = `${Math.round(this.viewport.zoom * 100)}%`;
         }
+        // Hide net-name labels on tracks below 200% zoom. At low zoom they're tiny
+        // and make every hover/drag repaint many more SVG text nodes.
+        this.viewport.svg?.classList.toggle('pcb-zoom-low', this.viewport.zoom < 2);
     }
 
     /** Legacy seam for tests. */
