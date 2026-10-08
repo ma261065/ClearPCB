@@ -1,37 +1,40 @@
+/** @typedef {{x: number, y: number}} Point */
 /**
- * @typedef {{x: number, y: number}} Point
+ * @template Segment
  * @typedef {{
- *   segmentAt: (point: Point) => any,
- *   selectedSegment: () => any,
- *   selectSegment: (segment: any) => void,
- *   begin: (point: Point, segment: any) => any,
- *   update: (...args: any[]) => any,
+ *   segmentAt: (point: Point) => Segment|null,
+ *   selectedSegment: () => Segment|null,
+ *   selectSegment: (segment: Segment) => void,
+ *   begin: (point: Point, segment: Segment|null) => unknown,
+ *   update: (point: Point) => void,
  *   end: (commit: boolean) => void,
- * }} PathMoveHandlers
+ * }} PathMoveHandlers<Segment>
  */
 
 /**
- * @param {any} candidate
+ * @template Segment
+ * @param {Segment} candidate
  * @param {boolean} alreadySelected
  * @param {boolean} [moved]
- * @returns {any}
+ * @returns {Segment|null}
  */
 export function refinePathSegment(candidate, alreadySelected, moved = false) {
     return alreadySelected && !moved && candidate != null ? candidate : null;
 }
 
 /**
- * @param {PathMoveHandlers} handlers
+ * @template Segment
+ * @param {PathMoveHandlers<Segment>} handlers
  */
 export function pathMoveInteraction({ segmentAt, selectedSegment, selectSegment, begin, update, end }) {
-    /** @type {any} */
+    /** @type {Segment|null} */
     let candidate = null;
     let refine = false;
     return {
         getSelectedSegment: selectedSegment,
         /**
          * @param {Point} point
-         * @param {{alreadySelected?: boolean, selectedSegment?: any}} [options]
+         * @param {{alreadySelected?: boolean, selectedSegment?: Segment}} [options]
          */
         beginMove(point, options = {}) {
             candidate = segmentAt(point);

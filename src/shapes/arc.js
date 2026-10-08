@@ -12,7 +12,9 @@ import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
 /** @typedef {import('../core/geometry.js').Point} Point */
 /** @typedef {import('./arc-edit.js').ControlArcShape & {kind: 'arc'}} ControlArcShape */
 /** @typedef {{cx: number, cy: number, radius: number, startAngle: number, endAngle: number, sweepFlag: 0|1}} ArcGeometry */
-/** @typedef {Record<string, any> & {startPoint?: Point, endPoint?: Point, bulgePoint?: Point, fill?: boolean, fillAlpha?: number}} ArcOptions */
+/** @typedef {import('./shape.js').ShapeOptions & {startPoint?: Point, endPoint?: Point, bulgePoint?: Point, fill?: boolean, fillAlpha?: number}} ArcOptions */
+/** @typedef {{startPoint: Point, endPoint: Point, bulgePoint: Point, fill: boolean, fillAlpha: number, lineWidth: number}} ArcState */
+/** @typedef {ReturnType<Shape['toJSON']> & {sp: Point, ep: Point, bp: Point, f?: true}} ArcJSON */
 
 /** Round to 4 decimal places for compact serialisation. */
 /** @param {number} v */
@@ -294,7 +296,7 @@ export class Arc extends Shape {
     }
     /**
      * @override
-     * @returns {Record<string, any>}
+     * @returns {ArcState}
      */
     captureState() {
         return {
@@ -318,15 +320,18 @@ export class Arc extends Shape {
     }
     /**
      * @override
-     * @param {Record<string, any>} state
+     * @param {import('../schematic/modules/selection.js').ShapeState} state
      */
     applyState(state) {
-        if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
-        if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
-        if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
-        if ('fill' in state) this.fill = state.fill;
-        if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
-        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
+        const startPoint = /** @type {Point|undefined} */ (state.startPoint);
+        const endPoint = /** @type {Point|undefined} */ (state.endPoint);
+        const bulgePoint = /** @type {Point|undefined} */ (state.bulgePoint);
+        if (startPoint) this.startPoint = { x: startPoint.x, y: startPoint.y };
+        if (endPoint) this.endPoint = { x: endPoint.x, y: endPoint.y };
+        if (bulgePoint) this.bulgePoint = { x: bulgePoint.x, y: bulgePoint.y };
+        if (typeof state.fill === 'boolean') this.fill = state.fill;
+        if (typeof state.fillAlpha === 'number') this.fillAlpha = state.fillAlpha;
+        if (typeof state.lineWidth === 'number') this.lineWidth = state.lineWidth;
         this.invalidate();
     }
     
@@ -347,10 +352,10 @@ export class Arc extends Shape {
     }
     /**
      * @override
-     * @returns {Record<string, any>}
+     * @returns {ArcJSON}
      */
     toJSON() {
-        const json = /** @type {Record<string, any>} */ ({
+        const json = /** @type {ArcJSON} */ ({
             ...super.toJSON(),
             sp: { x: _r4(this._startPoint.x), y: _r4(this._startPoint.y) },
             ep: { x: _r4(this._endPoint.x), y: _r4(this._endPoint.y) },

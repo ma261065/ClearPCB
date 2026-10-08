@@ -1,8 +1,14 @@
-/** @typedef {{active?: boolean, commit: (options?: any) => boolean, cancel: () => boolean, [key: string]: any}} PropertyPreview */
-/** @typedef {{committing: boolean, active: boolean, disposed: boolean, registerCompletion: (preview: PropertyPreview, complete: (options?: any) => boolean) => void, activate: (preview: PropertyPreview) => boolean, release: (preview: PropertyPreview) => void, commit: (options?: any) => boolean, cancel: () => boolean, prepare: () => boolean, dispose: () => void, [key: string]: any}} PropertyBinding */
-/** @typedef {{capture: () => any, restore: (state: any) => void, redraw: (phase: string) => void, commit: (before: any, after: any, options?: any) => void, binding?: PropertyBinding|null, isCurrent?: () => boolean, beforeCommit?: () => void}} PropertyPreviewOptions */
+/** @typedef {any[]} PropertyPreviewState Preview snapshots mix shape states and primitive property values. */
+/** @typedef {{rebuild?: boolean}} PropertyCommitOptions */
+/** @typedef {{active?: boolean, begin?: Function, update: Function, commit: (options?: PropertyCommitOptions) => boolean, cancel: () => boolean, [key: string]: unknown}} PropertyPreview */
+/** @typedef {{committing: boolean, active: boolean, disposed: boolean, registerCompletion: (preview: PropertyPreview, complete: (options?: PropertyCommitOptions) => boolean) => void, activate: (preview: PropertyPreview) => boolean, release: (preview: PropertyPreview) => void, commit: (options?: PropertyCommitOptions) => boolean, cancel: () => boolean, prepare: () => boolean, dispose: () => void, [key: string]: unknown}} PropertyBinding */
+/** @typedef {{capture: () => PropertyPreviewState, restore: (state: PropertyPreviewState) => void, redraw: (phase: string) => void, commit: (before: PropertyPreviewState, after: PropertyPreviewState, options?: PropertyCommitOptions) => void, binding?: PropertyBinding|null, isCurrent?: () => boolean, beforeCommit?: () => void}} PropertyPreviewOptions */
+/**
+ * @template Target
+ * @typedef {{renderScene?: (targets: Target[]) => void, prepare?: (target: Target) => void, render?: (targets: Target[]) => void, refreshSelection?: () => void, refreshDerived?: () => void, [key: string]: unknown}} PropertyPreviewAdapter<Target>
+ */
 
-/** @param {any[]} targets @param {Record<string, any>} adapter */
+/** @template Target @param {Target[]} targets @param {PropertyPreviewAdapter<Target>} adapter */
 export function redrawPropertyPreview(targets, adapter) {
     const changed = [...new Set(targets)];
     if (!changed.length) return;
@@ -13,10 +19,11 @@ export function redrawPropertyPreview(targets, adapter) {
     for (const method of ['prepare', 'render', 'refreshSelection', 'refreshDerived']) {
         if (typeof adapter[method] !== 'function') throw new TypeError(`Property preview requires ${method}`);
     }
-    for (const target of changed) adapter.prepare(target);
-    adapter.render(changed);
-    adapter.refreshSelection();
-    adapter.refreshDerived();
+    const renderer = /** @type {Required<Pick<PropertyPreviewAdapter<Target>, 'prepare'|'render'|'refreshSelection'|'refreshDerived'>>} */ (adapter);
+    for (const target of changed) renderer.prepare(target);
+    renderer.render(changed);
+    renderer.refreshSelection();
+    renderer.refreshDerived();
 }
 
 /** @param {{beforeActivate?: () => void, onDispose?: () => void}} [options] @returns {PropertyBinding} */
@@ -24,9 +31,9 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
     let disposed = false;
     /** @type {PropertyPreview|null} */
     let active = null;
-    /** @type {WeakMap<PropertyPreview, (options?: any) => boolean>} */
+    /** @type {WeakMap<PropertyPreview, (options?: PropertyCommitOptions) => boolean>} */
     const completions = new WeakMap();
-    /** @param {PropertyPreview|null} preview @param {any} [options] */
+    /** @param {PropertyPreview|null} preview @param {PropertyCommitOptions} [options] */
     const finish = (preview, options) => {
         if (!preview) return false;
         const complete = completions.get(preview);
@@ -48,6 +55,7 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
             return true;
         },
         release(preview) { if (active === preview) active = null; },
+        /** @param {PropertyCommitOptions} [options] */
         commit(options) { return finish(active, options) || false; },
         cancel() { return active?.cancel() || false; },
         prepare() {
@@ -67,7 +75,7 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
 
 /**
  * @param {PropertyPreviewOptions} options
- * @returns {PropertyPreview & {begin: () => any, update: (mutate: (state: any) => void) => void}}
+ * @returns {PropertyPreview & {begin: () => PropertyPreviewState, update: (mutate: (state: PropertyPreviewState) => void) => void}}
  */
 export function createPropertyPreview({
     capture, restore, redraw, commit, binding = null, isCurrent = () => true, beforeCommit = () => {},
@@ -75,10 +83,10 @@ export function createPropertyPreview({
     for (const method of [capture, restore, redraw, commit]) {
         if (typeof method !== 'function') throw new TypeError('Incomplete property preview transaction');
     }
-    /** @type {any} */
+    /** @type {PropertyPreviewState} */
     let before;
     let active = false;
-    const control = /** @type {PropertyPreview & {begin: () => any, update: (mutate: (state: any) => void) => void}} */ ({
+    const control = /** @type {PropertyPreview & {begin: () => PropertyPreviewState, update: (mutate: (state: PropertyPreviewState) => void) => void}} */ ({
         get active() { return active; },
         begin() {
             if (!active) {
@@ -94,13 +102,14 @@ export function createPropertyPreview({
             mutate(original);
             redraw('preview');
         },
+        /** @param {PropertyCommitOptions} [options] */
         commit(options) {
             if (!active) return false;
             beforeCommit();
             const after = capture();
             const original = before;
             restore(original);
-            before = undefined;
+            before = [];
             active = false;
             binding?.release(control);
             if (JSON.stringify(original) === JSON.stringify(after)) {
@@ -114,7 +123,7 @@ export function createPropertyPreview({
         cancel() {
             if (!active) return false;
             restore(before);
-            before = undefined;
+            before = [];
             active = false;
             binding?.release(control);
             redraw('cancel');

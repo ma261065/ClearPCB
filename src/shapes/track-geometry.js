@@ -5,7 +5,8 @@ import { pointsFormAxisAlignedRect } from './path-operations.js';
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {import('./polyline-graph.js').GraphEdge} GraphEdge */
 /** @typedef {import('./track.js').Track} Track */
-/** @typedef {{edgeId:string,start:Point,end:Point,layer:string,width:number}} TrackSegment */
+/** @typedef {{edgeId:any,start:Point,end:Point,layer:string,width:number}} TrackSegment Legacy context-menu callbacks carry hit-test edge ids through nullable UI state. */
+/** @typedef {Iterable<[string, Point[]]> & {size: number, get(key: string): Point[], set(key: string, value: Point[]): TrackEdgePathMap, has(key: string): boolean, delete(key: string): boolean, keys(): IterableIterator<string>, values(): IterableIterator<Point[]>, entries(): IterableIterator<[string, Point[]]>}} TrackEdgePathMap */
 
 /**
  * Whether a track is a rectangle: one closed, single-layer loop of four straight
@@ -14,7 +15,7 @@ import { pointsFormAxisAlignedRect } from './path-operations.js';
  * (boardShapeHasCircularCorners); other tracks use quadratic corners.
  */
 /**
- * @param {any} track
+ * @param {Track} track
  * @returns {boolean}
  */
 export function isTrackRectangleLoop(track) {
@@ -23,7 +24,7 @@ export function isTrackRectangleLoop(track) {
 
 /** Node ids of a rectangular track loop in loop order (see isTrackRectangleLoop), else null. */
 /**
- * @param {any} track
+ * @param {Track} track
  * @returns {string[]|null}
  */
 export function trackRectangleOrder(track) {
@@ -49,8 +50,8 @@ export function trackRectangleOrder(track) {
 
 /** Resolve copper centrelines identically for model queries, rendering and export. */
 /**
- * @param {any} track
- * @returns {Map<string, any>}
+ * @param {Track} track
+ * @returns {TrackEdgePathMap}
  */
 export function resolveTrackEdgePaths(track) {
     /** @type {Map<string, string[]>} */
@@ -84,7 +85,7 @@ export function resolveTrackEdgePaths(track) {
         const midpoint = (samples.length - 1) / 2;
         corners.set(nodeId, new Map([[firstId, samples.slice(0, midpoint + 1)], [secondId, samples.slice(midpoint).reverse()]]));
     }
-    const paths = new Map();
+    const paths = /** @type {TrackEdgePathMap} */ (new Map());
     for (const [edgeId, edge] of track.edges) {
         const start = track.nodes.get(edge.from);
         const end = track.nodes.get(edge.to);
@@ -103,8 +104,8 @@ export function resolveTrackEdgePaths(track) {
 }
 
 /**
- * @param {any} track
- * @returns {any[]}
+ * @param {Track} track
+ * @returns {TrackSegment[]}
  */
 export function resolveTrackSegments(track) {
     return /** @type {Array<[string, Point[]]>} */ ([...resolveTrackEdgePaths(track)]).flatMap(([edgeId, points]) => points.slice(0, -1).map((start, index) => ({

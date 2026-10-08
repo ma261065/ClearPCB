@@ -14,7 +14,8 @@ const ANCHOR_SIZE_PIXELS = 8;
 
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{id: string, x: number, y: number, cursor: string, midpoint?: boolean, hidden?: boolean, bulge?: boolean}} AnchorDescriptor */
-/** @typedef {Record<string, any> & {id?: string, layer?: string, color?: string|number, fillColor?: string|number|null, lineWidth?: number, visible?: boolean, locked?: boolean}} ShapeOptions */
+/** @typedef {{id?: string, layer?: string, color?: string|number, fillColor?: string|number|null, lineWidth?: number, visible?: boolean, locked?: boolean, [key: string]: unknown}} ShapeOptions */
+/** @typedef {{id: string, type: string, c: string, l?: string, lw?: number, v?: false, lk?: true, _clipX?: number, _clipY?: number, _clipType?: 'shape'|'component', _definition?: unknown, [key: string]: unknown}} ShapeJSON */
 
 /**
  * Update the ID counter to avoid collisions with loaded shapes
@@ -167,9 +168,9 @@ export class Shape {
      * Restore a previously captured state.
      * Override in subclasses if custom deep-copy logic is needed.
      */
-    /** @param {Record<string, any>} state */
+    /** @param {Record<string, unknown>} state */
     applyState(state) {
-        const target = /** @type {Record<string, any>} */ (/** @type {unknown} */ (this));
+        const target = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (this));
         for (const [key, value] of Object.entries(state)) {
             target[key] = value;
         }
@@ -207,7 +208,7 @@ export class Shape {
     /**
      * Property descriptors for the properties panel.
      * Override in subclasses to customise which properties are shown.
-     * @returns {Array<{key: string, label: string, type: string, min?: number, max?: number, step?: number, [extra: string]: any}>}
+     * @returns {Array<{key: string, label: string, type: string, min?: number, max?: number, step?: number, [extra: string]: unknown}>}
      */
     getPropertyDescriptors() {
         return [
@@ -226,7 +227,7 @@ export class Shape {
     /**
      * Create a deep copy of this shape with a new unique ID.
      * Must be implemented by every concrete subclass.
-     * @returns {any} A new independent shape instance.
+     * @returns {Shape} A new independent shape instance.
      */
     clone() {
         throw new Error('clone() must be implemented by subclass');
@@ -235,10 +236,10 @@ export class Shape {
     /**
      * Serialise the shape to a compact JSON-friendly object.
      * Subclasses should call `super.toJSON()` and extend the result.
-     * @returns {any} Plain object with short keys (`c`, `l`, `lw`, etc.).
+     * @returns {ShapeJSON} Plain object with short keys (`c`, `l`, `lw`, etc.).
      */
     toJSON() {
-        const json = /** @type {any} */ ({
+        const json = /** @type {ShapeJSON} */ ({
             id: this.id,
             type: this.type,
             c: this.color,

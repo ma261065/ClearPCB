@@ -2,7 +2,8 @@ import { BULGE_EPS, arcFromBulge } from './arc-edge.js';
 import { validClosedShape } from './closed-outline.js';
 
 /** @typedef {{x:number,y:number}} Point */
-/** @typedef {{kind?: string, points: Point[], id?: string, lineWidth?: number, cornerRadius?: number, filled?: boolean, segmentWidths?: Record<number, number>, segmentBulges?: Record<number, number>, edgeIds?: Record<number, string>, nodeCornerRadii?: Record<number, number>, nodeIds?: Record<number, string>, [key: string]: any}} PathShape */
+/** @typedef {string|number} PathMetadataValue */
+/** @typedef {{kind?: string, points: Point[], id?: string, lineWidth?: number, cornerRadius?: number, filled?: boolean, segmentWidths?: Record<number, number>, segmentBulges?: Record<number, number>, edgeIds?: Record<number, string>, nodeCornerRadii?: Record<number, number>, nodeIds?: Record<number, string>, [key: string]: unknown}} PathShape */
 
 const EDGE_FIELDS = ['segmentWidths', 'segmentBulges', 'edgeIds'];
 const NODE_FIELDS = ['nodeCornerRadii', 'nodeIds'];
@@ -47,16 +48,18 @@ export function collapseRoundedPolygon(path) {
     const cleaned = /** @type {PathShape} */ ({ ...path, points: retained.map(index => ({ ...points[index] })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
+        const sourceMap = /** @type {Record<number, PathMetadataValue>} */ (path[field] || {});
         cleaned[field] = Object.fromEntries(groups.flatMap((group, index) => {
             const source = EDGE_FIELDS.includes(field) ? group.at(-1)
-                : field === 'nodeCornerRadii' ? group.find(old => Object.hasOwn(path[field] || {}, old)) : retained[index];
-            return source !== undefined && Object.hasOwn(path[field], source) ? [[index, path[field][source]]] : [];
+                : field === 'nodeCornerRadii' ? group.find(old => Object.hasOwn(sourceMap, old)) : retained[index];
+            return source !== undefined && Object.hasOwn(sourceMap, source) ? [[index, sourceMap[source]]] : [];
         }));
     }
     if (!validClosedShape(cleaned, { allowCrossings: true })) fail('rounding leaves an invalid closed outline.');
     Object.assign(path, cleaned);
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
-        if (path[field] && !Object.keys(path[field]).length) delete path[field];
+        const sourceMap = /** @type {Record<number, PathMetadataValue>|undefined} */ (path[field]);
+        if (sourceMap && !Object.keys(sourceMap).length) delete path[field];
     }
     return true;
 }
@@ -192,9 +195,10 @@ export function pathChain(path, indices) {
         points: indices.map(index => ({ ...path.points[index] })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
+        const sourceMap = /** @type {Record<number, PathMetadataValue>} */ (path[field] || {});
         const count = NODE_FIELDS.includes(field) ? indices.length : indices.length - 1;
         result[field] = Object.fromEntries(indices.slice(0, count).flatMap((source, index) =>
-            Object.hasOwn(path[field] || {}, source) ? [[index, path[field][source]]] : []));
+            Object.hasOwn(sourceMap, source) ? [[index, sourceMap[source]]] : []));
     }
     return result;
 }
@@ -218,7 +222,8 @@ export function reversePath(path) {
     const result = /** @type {PathShape} */ ({ ...path, points: [...path.points].reverse().map(point => ({ ...point })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
-        result[field] = Object.fromEntries(Object.entries(path[field] || {}).map(([key, value]) => [
+        const sourceMap = /** @type {Record<number, PathMetadataValue>} */ (path[field] || {});
+        result[field] = Object.fromEntries(Object.entries(sourceMap).map(([key, value]) => [
             (NODE_FIELDS.includes(field) ? count : count - 1) - Number(key),
             field === 'segmentBulges' ? -Number(value) : value,
         ]));
@@ -240,7 +245,9 @@ export function joinPaths(first, firstEndpoint, second, secondEndpoint) {
     const result = /** @type {PathShape} */ ({ ...first, kind: 'line', points: [...firstPart.points, ...secondPart.points.slice(1)] });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!firstPart[field] && !secondPart[field]) continue;
-        result[field] = { ...firstPart[field], ...Object.fromEntries(Object.entries(secondPart[field] || {})
+        const firstMap = /** @type {Record<number, PathMetadataValue>} */ (firstPart[field] || {});
+        const secondMap = /** @type {Record<number, PathMetadataValue>} */ (secondPart[field] || {});
+        result[field] = { ...firstMap, ...Object.fromEntries(Object.entries(secondMap)
             .filter(([index]) => !NODE_FIELDS.includes(field) || Number(index) > 0)
             .map(([index, value]) => [Number(index) + offset, value])) };
     }
@@ -263,7 +270,7 @@ export function remapPathNodes(path, index, delta) {
 export function splitPathSegmentMetadata(path, segment) {
     for (const field of EDGE_FIELDS) {
     if (!path[field]) continue;
-        /** @type {Record<number, any>} */
+        /** @type {Record<number, PathMetadataValue>} */
         const remapped = {};
         for (const [key, value] of Object.entries(path[field] || {})) {
             const index = Number(key);
@@ -286,8 +293,8 @@ export function deletePathVertex(path, vertexIndex) {
     const closed = path.kind !== 'line';
     for (const field of EDGE_FIELDS) {
         if (!path[field]) continue;
-        const values = path[field] || {};
-        /** @type {Record<number, any>} */
+        const values = /** @type {Record<number, PathMetadataValue>} */ (path[field] || {});
+        /** @type {Record<number, PathMetadataValue>} */
         const remapped = {};
         if (closed && count === 3) {
             const source = vertexIndex === 0 ? 1 : vertexIndex === 2 ? 0 : 2;

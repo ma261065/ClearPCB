@@ -29,9 +29,11 @@ import { resolveTrackSegments } from './track-geometry.js';
 import { distanceToSegment } from '../core/geometry.js';
 
 /** @typedef {{x:number,y:number}} Point */
-/** @typedef {{from:string,to:string,bulge?:number,layer?:string,width?:number,[key:string]:any}} TrackEdge */
+/** @typedef {{from:string,to:string,bulge?:number,layer?:string,width?:number}} TrackEdge */
 /** @typedef {{componentId:string,pinNumber:string|number}} PadConnection */
 /** @typedef {{id?:string,plated?:true}} SourceShapeRecord */
+/** @typedef {{from:string,to:string,bulge?:number,width:number,layer:string}} TrackCopperEdge */
+/** @typedef {Iterable<[string, TrackCopperEdge]> & {size: number, get(key: string): TrackCopperEdge, set(key: string, value: TrackCopperEdge): TrackCopperEdgeMap, has(key: string): boolean, delete(key: string): boolean, keys(): IterableIterator<string>, values(): IterableIterator<TrackCopperEdge>, entries(): IterableIterator<[string, TrackCopperEdge]>}} TrackCopperEdgeMap */
 /**
  * @typedef {import('./polyline-graph.js').PolylineGraphOptions & {
  * net?: string,
@@ -57,15 +59,16 @@ const DEFAULT_WIDTH = 0.2;
  * What a Track keeps of the board shape it was converted from: the shape id (reused
  * when it turns back into a shape, while still free) and a hole's plating. Everything
  * else comes from the track itself; older files stored a full shape copy, trimmed here.
- * @param {any} source
+ * @param {unknown} source
  * @returns {SourceShapeRecord|null}
  */
 export function sourceShapeRecord(source) {
     if (!source || typeof source !== 'object') return null;
+    const candidate = /** @type {{id?: unknown, plated?: unknown}} */ (source);
     /** @type {{id?: string, plated?: true}} */
     const record = {};
-    if (typeof source.id === 'string' && source.id) record.id = source.id;
-    if (source.plated === true) record.plated = true;
+    if (typeof candidate.id === 'string' && candidate.id) record.id = candidate.id;
+    if (candidate.plated === true) record.plated = true;
     return Object.keys(record).length ? record : null;
 }
 
@@ -76,10 +79,10 @@ export class Track extends PolylineGraph {
      * multiple layers and vary in width segment-by-segment. Each falls back
      * to the track-wide default (`this.layer` / `this.width`).
      */
-    /** @type {Record<string, {prop:string,json:string,default:(s:Track)=>unknown}>} */
+    /** @type {Record<string, import('./polyline-graph.js').EdgeAttributeSpec>} */
     static edgeAttributes = {
-        layer: { prop: 'edgeLayers', json: 'el', default: (s) => s.layer },
-        width: { prop: 'edgeWidths', json: 'ew', default: (s) => s.width },
+        layer: { prop: 'edgeLayers', json: 'el', default: (s) => /** @type {Track} */ (s).layer },
+        width: { prop: 'edgeWidths', json: 'ew', default: (s) => /** @type {Track} */ (s).width },
         bulge: { prop: 'edgeBulges', json: 'bg', default: () => 0 },
     };
 
@@ -273,11 +276,12 @@ export class Track extends PolylineGraph {
     }
 
     /** Detached, full-precision copper graph with resolved per-edge attributes; no rendering state. */
+    /** @returns {{id:string, net:string, width:number, layer:string, nodes: Map<string, Point>, edges: TrackCopperEdgeMap, cornerRadius:number, nodeCornerRadii: Record<string, number>, padConnections: Map<string, PadConnection>}} */
     captureCopperGeometry() {
         const nodes = new Map([...this.nodes].map(([id, point]) => [id, { x: point.x, y: point.y }]));
-        const edges = new Map([...this.edges].map(([id, edge]) => [id, { ...edge,
+        const edges = /** @type {TrackCopperEdgeMap} */ (new Map([...this.edges].map(([id, edge]) => [id, { ...edge,
             width: this.getEdgeWidth(id), layer: this.getEdgeLayer(id),
-        }]));
+        }])));
         return {
             id: this.id, net: this.net, width: this.width, layer: this.layer, nodes, edges,
             cornerRadius: this.cornerRadius, nodeCornerRadii: { ...this.nodeCornerRadii },
@@ -338,7 +342,7 @@ export class Track extends PolylineGraph {
      * @returns {string}
      */
     getEdgeLayer(edgeId) {
-        return this.getEdgeAttr(edgeId, 'layer');
+        return this.edges.get(edgeId)?.layer || this.layer;
     }
 
     /** Return the width (mm) for a given edge id (or the default). */
@@ -347,7 +351,8 @@ export class Track extends PolylineGraph {
      * @returns {number}
      */
     getEdgeWidth(edgeId) {
-        return this.getEdgeAttr(edgeId, 'width');
+        const width = this.getEdgeAttr(edgeId, 'width');
+        return typeof width === 'number' ? width : this.width;
     }
 
     /* ──────────────────── Serialization ──────────────────────── */

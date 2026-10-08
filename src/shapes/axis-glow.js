@@ -16,12 +16,11 @@ const COLLINEAR_GLOW_COLOR = '#0072B2';
  *   square?: boolean,
  *   frozen?: boolean,
  *   layerId?: string,
- *   haloMarginPx?: number,
+ *   haloMarginPx?: number|null,
  * }} AxisSegment
  * @typedef {{
- *   viewport?: {scale?: number, contentLayer?: Element},
- *   getLayerGroup?: (layerId?: string) => Element|null,
- *   [key: string]: any,
+ *   viewport?: ({scale?: number, contentLayer?: Element}|null),
+ *   getLayerGroup?: Function,
  * }} AxisGlowApp
  * @typedef {{
  *   halos: Element[]|null,
@@ -66,10 +65,10 @@ export function axisAlignment(a, b) {
  * @param {Point[]} points
  * @param {boolean} closed
  * @param {number[]} indices
- * @param {number[]} [widths]
- * @param {number[]} [bulges]
+ * @param {number[]|Record<number, number>} [widths]
+ * @param {number[]|Record<number, number>} [bulges]
  * @param {number[]} [excluded]
- * @returns {any[]}
+ * @returns {any[]} Legacy guide arrays are consumed by unannotated drawing preview code.
  */
 export function pathAlignmentSegments(points, closed, indices, widths = [], bulges = [], excluded = []) {
     const count = closed ? points.length : points.length - 1;
@@ -116,13 +115,13 @@ export function pathAlignmentSegments(points, closed, indices, widths = [], bulg
  * @param {AxisSegment} segment
  */
 function layerFor(app, segment) {
-    return app.getLayerGroup ? app.getLayerGroup(segment.layerId) : app.viewport?.contentLayer;
+    return app.getLayerGroup ? /** @type {Element|null} */ (app.getLayerGroup(segment.layerId)) : app.viewport?.contentLayer;
 }
 
 /**
  * @param {Point[]} points
  * @param {number[]} [widths]
- * @returns {any[]}
+ * @returns {any[]} Legacy guide arrays are consumed by unannotated drawing preview code.
  */
 export function squareAlignmentSegments(points, widths = []) {
     if (points.length !== 4) return [];
@@ -135,27 +134,28 @@ export function squareAlignmentSegments(points, widths = []) {
 }
 
 /**
- * @param {any} app
- * @param {any} guides
+ * @param {AxisGlowApp} app
+ * @param {Array<AxisSegment|[Point, Point]|object>|null|undefined} guides
  */
 export function renderGuideLines(app, guides) {
-    renderAxisGlow(app, /** @type {any[]} */ (guides).map(guide => {
+    renderAxisGlow(app, (guides || []).map(guide => {
         const segment = Array.isArray(guide)
             ? { a: guide[0], b: guide[1], collinear: !axisAlignment(guide[0], guide[1]) } : guide;
-        return { width: 0.25, ...segment };
+        return { width: 0.25, .../** @type {AxisSegment} */ (segment) };
     }));
 }
 
 /**
- * @param {any} app
- * @param {any} segments
+ * @param {AxisGlowApp} app
+ * @param {Array<AxisSegment|object>|null|undefined} segments
  */
 export function renderAxisGlow(app, segments) {
     clearAxisGlow(app);
     const state = getAxisGlowState(app);
     const resolved = [];
     const halos = [];
-    for (const segment of segments || []) {
+    for (const item of segments || []) {
+        const segment = /** @type {AxisSegment} */ (item);
         let color;
         if (segment.collinear || segment.square) color = COLLINEAR_GLOW_COLOR;
         else if (segment.frozen) continue;
@@ -178,7 +178,7 @@ export function renderAxisGlow(app, segments) {
     renderAxisGlowTop(app);
 }
 
-/** @param {any} app */
+/** @param {AxisGlowApp} app */
 export function renderAxisGlowTop(app) {
     const state = getAxisGlowState(app);
     for (const element of state.top || []) element.remove();
@@ -193,14 +193,14 @@ export function renderAxisGlowTop(app) {
     state.top = centerlines;
 }
 
-/** @param {any} app */
+/** @param {AxisGlowApp} app */
 export function refreshAxisGlow(app) {
-    const resolved = /** @type {Array<{segment: any}>|null} */ (getAxisGlowState(app).resolved);
+    const resolved = /** @type {Array<{segment: AxisSegment}>|null} */ (getAxisGlowState(app).resolved);
     const segments = resolved?.map(entry => entry.segment);
     if (segments) renderAxisGlow(app, segments);
 }
 
-/** @param {any} app */
+/** @param {AxisGlowApp} app */
 export function clearAxisGlow(app) {
     const state = getAxisGlowState(app);
     for (const element of state.halos || []) element.remove();
@@ -211,7 +211,7 @@ export function clearAxisGlow(app) {
 }
 
 /**
- * @param {any} app
+ * @param {AxisGlowApp} app
  * @param {AxisSegment} segment
  * @param {string} color
  * @param {SVGLineElement} [line]
@@ -236,7 +236,7 @@ export function makeAxisGlowHalo(app, segment, color, line = document.createElem
 }
 
 /**
- * @param {any} app
+ * @param {AxisGlowApp} app
  * @param {AxisSegment} segment
  * @param {string} dashKind
  * @param {SVGLineElement} [line]

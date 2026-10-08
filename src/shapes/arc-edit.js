@@ -4,16 +4,17 @@ import { bulgeRatio, circumcircle } from '../core/geometry.js';
 /** @typedef {{start:Point,end:Point,bulge:Point}} ControlArcShape */
 
 /**
- * @param {any} shape
+ * @param {Partial<ControlArcShape>} shape
  */
 export function controlArcGeometry(shape) {
-    const circle = circumcircle(shape.start, shape.bulge, shape.end);
+    const arc = /** @type {ControlArcShape} */ (shape);
+    const circle = circumcircle(arc.start, arc.bulge, arc.end);
     if (!circle) return null;
     /** @param {number} angle */
     const normalize = angle => ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    const startAngle = Math.atan2(shape.start.y - circle.cy, shape.start.x - circle.cx);
-    const bulgeAngle = Math.atan2(shape.bulge.y - circle.cy, shape.bulge.x - circle.cx);
-    const endAngle = Math.atan2(shape.end.y - circle.cy, shape.end.x - circle.cx);
+    const startAngle = Math.atan2(arc.start.y - circle.cy, arc.start.x - circle.cx);
+    const bulgeAngle = Math.atan2(arc.bulge.y - circle.cy, arc.bulge.x - circle.cx);
+    const endAngle = Math.atan2(arc.end.y - circle.cy, arc.end.x - circle.cx);
     const span = normalize(endAngle - startAngle);
     const counterclockwise = normalize(bulgeAngle - startAngle) >= span;
     return { ...circle, startAngle, endAngle: startAngle + (counterclockwise ? -(2 * Math.PI - span) : span), counterclockwise };

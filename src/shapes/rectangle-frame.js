@@ -8,34 +8,38 @@ const round4 = value => {
 };
 const frameFields = ['x', 'y', 'width', 'height', 'rotation'];
 
-/** @param {any} value */
+/** @param {unknown} value */
 export function hasRectangleFrame(value) {
+    if (!value || typeof value !== 'object') return false;
     return ['width', 'height', 'rotation', 'reversed'].some(key => Object.hasOwn(value, key));
 }
 
-/** @param {any} frame */
+/** @param {unknown} frame */
 export function validateRectangleFrame(frame) {
-    if (!frame || !frameFields.every(key => Number.isFinite(frame[key]))
-        || frame.width <= 0 || frame.height <= 0
-        || (frame.reversed !== undefined && typeof frame.reversed !== 'boolean')) {
+    const candidate = /** @type {Partial<RectangleFrame>|null|undefined} */ (frame);
+    if (!candidate || !frameFields.every(key => Number.isFinite(candidate[/** @type {keyof RectangleFrame} */ (key)]))
+        || !Number.isFinite(candidate.width) || !Number.isFinite(candidate.height)
+        || /** @type {number} */ (candidate.width) <= 0 || /** @type {number} */ (candidate.height) <= 0
+        || (candidate.reversed !== undefined && typeof candidate.reversed !== 'boolean')) {
         throw new Error('Rectangle frame requires finite centre coordinates, positive width/height and a finite rotation.');
     }
 }
 
 /** Reconstruct source-corner order; reversed winding must not mirror image artwork or edge metadata. */
-/** @param {Record<string, any>} frame - checked by validateRectangleFrame */
+/** @param {unknown} frame - checked by validateRectangleFrame */
 export function rectangleFramePoints(frame) {
     validateRectangleFrame(frame);
-    const angle = -(frame.rotation % 360) * Math.PI / 180;
+    const rect = /** @type {RectangleFrame} */ (frame);
+    const angle = -(rect.rotation % 360) * Math.PI / 180;
     const cosine = Math.cos(angle), sine = Math.sin(angle);
-    const direction = frame.reversed ? -1 : 1;
-    const ux = cosine * frame.width / 2, uy = sine * frame.width / 2;
-    const vx = -sine * frame.height / 2 * direction, vy = cosine * frame.height / 2 * direction;
+    const direction = rect.reversed ? -1 : 1;
+    const ux = cosine * rect.width / 2, uy = sine * rect.width / 2;
+    const vx = -sine * rect.height / 2 * direction, vy = cosine * rect.height / 2 * direction;
     const points = [
-        { x: frame.x - ux - vx, y: frame.y - uy - vy },
-        { x: frame.x + ux - vx, y: frame.y + uy - vy },
-        { x: frame.x + ux + vx, y: frame.y + uy + vy },
-        { x: frame.x - ux + vx, y: frame.y - uy + vy },
+        { x: rect.x - ux - vx, y: rect.y - uy - vy },
+        { x: rect.x + ux - vx, y: rect.y + uy - vy },
+        { x: rect.x + ux + vx, y: rect.y + uy + vy },
+        { x: rect.x - ux + vx, y: rect.y - uy + vy },
     ];
     validateRectanglePoints(points);
     return points;

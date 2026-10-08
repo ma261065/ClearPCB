@@ -26,30 +26,32 @@ import { bulgeRatio } from '../core/geometry.js';
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {Record<string, Point>} NodeMap */
 /** @typedef {Record<string, {from: string, to: string}>} EdgeMap */
+/** @typedef {Polyline & {type: 'polyline', closed: boolean, cornerRadius: number, nodeCornerRadii: Record<string, number>, getOrderedPoints: () => Point[]|null, getOrderedNodeIds: () => string[], nodeCornerRadius: (nodeId: string) => number, _hasBulgedEdges: () => boolean}} RoundedPolyline */
 
 /** Corners shorter than this (world units) are left sharp. */
 const MIN_CORNER = 0.01;
 
 /**
  * Whether a shape is a rounded-corner polygon that can be decomposed.
- * @param {any} shape
- * @returns {boolean}
+ * @param {unknown} shape
+ * @returns {shape is RoundedPolyline}
  */
 export function canDecomposeRoundedCorners(shape) {
-    return !!shape
-        && shape.type === 'polyline'
-        && shape.closed === true
-        && ((shape.cornerRadius || 0) > 0
-            || Object.values(/** @type {Record<string, any>} */ (shape.nodeCornerRadii || {})).some((radius) => Number(radius) > 0))
-        && typeof shape.getOrderedPoints === 'function'
-        && !(typeof shape._hasBulgedEdges === 'function' && shape._hasBulgedEdges());
+    if (!shape || typeof shape !== 'object') return false;
+    const candidate = /** @type {Partial<RoundedPolyline>} */ (shape);
+    return candidate.type === 'polyline'
+        && candidate.closed === true
+        && ((candidate.cornerRadius || 0) > 0
+            || Object.values(candidate.nodeCornerRadii || {}).some((radius) => Number(radius) > 0))
+        && typeof candidate.getOrderedPoints === 'function'
+        && !(typeof candidate._hasBulgedEdges === 'function' && candidate._hasBulgedEdges());
 }
 
 /**
  * Decompose a rounded-corner polygon into a new `Polyline` of straight edges
  * and arc (bulge) edges. Returns `null` when the shape isn't decomposable or
  * no corner actually rounds.
- * @param {any} shape
+ * @param {unknown} shape
  * @returns {Polyline|null}
  */
 export function decomposeRoundedCorners(shape) {

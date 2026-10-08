@@ -66,7 +66,7 @@ function resolvedOutline(fill) {
     return cached;
 }
 
-/** @param {Record<string, any>} data @param {string} compact @param {string} long */
+/** @param {Record<string, unknown>} data @param {string} compact @param {string} long @returns {unknown} */
 function storedField(data, compact, long) {
     if (Object.hasOwn(data, compact) && Object.hasOwn(data, long)) {
         throw new Error(`Ambiguous copper-fill fields: ${compact} and ${long}.`);
@@ -271,11 +271,12 @@ export class CopperFill {
     }
 
     /** Deserialise from compact JSON produced by toJSON(). */
-    /** @param {any} data */
+    /** @param {Record<string, unknown>} data */
     static fromJSON(data) {
-        const points = /** @type {any[]} */ (storedField(data, 'pts', 'points'));
+        const points = /** @type {Array<[number, number]>} */ (storedField(data, 'pts', 'points'));
+        const record = /** @type {Partial<SerializedCopperFill> & Record<string, unknown>} */ (data);
         let outline;
-        if (data.kind === 'rect') {
+        if (record.kind === 'rect') {
             const hasPoints = Object.hasOwn(data, 'pts') || Object.hasOwn(data, 'points');
             const hasFrame = ['x', 'y', 'w', 'width', 'h', 'height', 'rot', 'rotation', 'rev', 'reversed']
                 .some(key => Object.hasOwn(data, key));
@@ -284,11 +285,11 @@ export class CopperFill {
             }
             if (hasFrame) {
                 outline = rectangleFramePoints({
-                    x: data.x, y: data.y,
-                    width: storedField(data, 'w', 'width'),
-                    height: storedField(data, 'h', 'height'),
-                    rotation: storedField(data, 'rot', 'rotation'),
-                    reversed: storedField(data, 'rev', 'reversed'),
+                    x: record.x, y: record.y,
+                    width: storedField(record, 'w', 'width'),
+                    height: storedField(record, 'h', 'height'),
+                    rotation: storedField(record, 'rot', 'rotation'),
+                    reversed: storedField(record, 'rev', 'reversed'),
                 });
             } else {
                 if (!Array.isArray(points) || points.some(point => !Array.isArray(point)
@@ -300,15 +301,15 @@ export class CopperFill {
             }
         } else outline = points.map((p) => ({ x: p[0], y: p[1] }));
         return new CopperFill({
-            kind: data.kind, cornerRadius: data.cornerRadius,
-            nodeCornerRadii: data.nodeCornerRadii, segmentBulges: data.segmentBulges,
-            ...(data.kind === 'rect' ? {} : { x: data.x, y: data.y, radius: data.radius }),
-            id: data.id,
-            layer: storedField(data, 'l', 'layer'),
-            net: storedField(data, 'n', 'net'),
+            kind: record.kind, cornerRadius: record.cornerRadius,
+            nodeCornerRadii: record.nodeCornerRadii, segmentBulges: record.segmentBulges,
+            ...(record.kind === 'rect' ? {} : { x: record.x, y: record.y, radius: record.radius }),
+            id: record.id,
+            layer: /** @type {string|undefined} */ (storedField(record, 'l', 'layer')),
+            net: /** @type {string|undefined} */ (storedField(record, 'n', 'net')),
             outline,
-            locked: storedField(data, 'lk', 'locked'),
-            visible: storedField(data, 'v', 'visible'),
+            locked: /** @type {boolean|undefined} */ (storedField(record, 'lk', 'locked')),
+            visible: /** @type {boolean|undefined} */ (storedField(record, 'v', 'visible')),
         });
     }
 }

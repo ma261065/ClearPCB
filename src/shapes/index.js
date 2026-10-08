@@ -30,8 +30,9 @@ import { Net } from './net.js';
 import { NoConnect } from './noconnect.js';
 
 /**
- * @typedef {Record<string, any>} ShapeData
- * @typedef {new (options?: any) => any} ShapeConstructor
+ * @typedef {{type?: string, points?: unknown, labelOffset?: unknown, textOffset?: unknown, [key: string]: unknown}} ShapeData
+ * @typedef {import('../core/SchematicDocument.js').SchematicDrawable|import('./track.js').Track} ShapeInstance
+ * @typedef {new (options?: never) => unknown} ShapeConstructor
  */
 
 /** @type {Record<string, ShapeConstructor>} */
@@ -98,15 +99,28 @@ function expandShapeData(data) {
 }
 
 /**
- * Create a shape from JSON data
+ * Create a PCB track from JSON data.
+ * @overload
+ * @param {ShapeData & {type: 'track'}} data
+ * @returns {Track}
+ */
+/**
+ * Create a schematic shape from JSON data.
+ * @overload
  * @param {ShapeData} data
- * @returns {any}
+ * @returns {import('../core/SchematicDocument.js').SchematicDrawable}
+ */
+/**
+ * Create a shape from JSON data.
+ * @param {ShapeData} data
+ * @returns {ShapeInstance}
  */
 export function createShape(data) {
     const expanded = expandShapeData(data);
-    const ShapeClass = shapeRegistry[expanded.type];
+    const type = typeof expanded.type === 'string' ? expanded.type : undefined;
+    const ShapeClass = type ? shapeRegistry[type] : undefined;
     if (!ShapeClass) {
         throw new Error(`Unknown shape type: ${expanded.type}`);
     }
-    return new ShapeClass(expanded);
+    return /** @type {ShapeInstance} */ (new ShapeClass(/** @type {never} */ (expanded)));
 }

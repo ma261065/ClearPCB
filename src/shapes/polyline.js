@@ -24,7 +24,9 @@ import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } fro
 
 /**
  * @typedef {{x: number, y: number}} Point
- * @typedef {Record<string, any>} PolylineOptions
+ * @typedef {import('./polyline-graph.js').PolylineGraphOptions & {x?: number, y?: number, width?: number, height?: number, rotation?: number, reversed?: boolean, isRect?: boolean, cornerNodeIds?: string[], edgeBulges?: Record<string, number>, edgeWidths?: Record<string, number>, [key: string]: unknown}} PolylineOptions
+ * @typedef {number[] & Record<string|number, number>} EditableNumberMap
+ * @typedef {import('./path-operations.js').PathShape & {points: Point[], nodeIds: Record<number, string>, edgeIds: Record<number, string>, segmentWidths: EditableNumberMap, segmentBulges: EditableNumberMap, nodeCornerRadii: EditableNumberMap}} EditablePath
  * @typedef {{anchorId: string, nodeIds: string[], points: Point[]}|null} RectAxisCache
  */
 
@@ -53,14 +55,14 @@ function rectangleGraphOptions(options) {
     return { ...options, graphNodes: Object.fromEntries(ids.map((id, index) => [id, points[index]])) };
 }
 
-/** @param {any} shape */
+/** @param {Polyline} shape */
 function rectangleGraphFrame(shape) {
     const ids = /** @type {string[]} */ (shape.getOrderedNodeIds());
     if (!shape.closed || shape.nodes.size !== 4 || shape.edges.size !== 4 || ids.length !== 4
         || ids.some(id => shape.degree(id) !== 2) || shape._hasBulgedEdges()) {
         throw new Error('Rectangle serialization requires a closed four-corner graph with straight edges.');
     }
-    return { ids, frame: rectangleFrameFromPoints(ids.map(id => shape.nodes.get(id))) };
+    return { ids, frame: rectangleFrameFromPoints(/** @type {Point[]} */ (ids.map(id => shape.nodes.get(id)))) };
 }
 
 export class Polyline extends PolylineGraph {
@@ -74,7 +76,7 @@ export class Polyline extends PolylineGraph {
      */
     static edgeAttributes = {
         bulge: { prop: 'edgeBulges', json: 'bg', default: () => 0 },
-        width: { prop: 'edgeWidths', json: 'ew', default: /** @param {Polyline} shape */ (shape) => shape.lineWidth },
+        width: { prop: 'edgeWidths', json: 'ew', default: /** @param {PolylineGraph} shape */ (shape) => /** @type {Polyline} */ (shape).lineWidth },
     };
 
     /** @param {PolylineOptions} [options] */
@@ -172,7 +174,7 @@ export class Polyline extends PolylineGraph {
         return result;
     }
 
-    /** @returns {any|null} */
+    /** @returns {EditablePath|null} */
     toEditablePath() {
         const nodeIds = /** @type {string[]} */ (this.getOrderedNodeIds());
         const chain = this.getOrderedEdgeChain();
@@ -180,12 +182,12 @@ export class Polyline extends PolylineGraph {
             || chain.length !== this.edges.size) return null;
         return {
             kind: this.closed ? 'polygon' : 'line',
-            points: nodeIds.map(id => ({ ...this.nodes.get(id) })),
+            points: /** @type {Point[]} */ (nodeIds.map(id => ({ ...this.nodes.get(id) }))),
             nodeIds: Object.fromEntries(nodeIds.map((id, index) => [index, id])),
             edgeIds: Object.fromEntries(chain.map((edge, index) => [index, edge.edgeId])),
-            nodeCornerRadii: Object.fromEntries(nodeIds.map((id, index) => [index, this.nodeCornerRadius(id)])),
-            segmentWidths: Object.fromEntries(chain.map((edge, index) => [index, this.getEdgeAttr(edge.edgeId, 'width')])),
-            segmentBulges: Object.fromEntries(chain.map((edge, index) => [index, edge.bulge])),
+            nodeCornerRadii: /** @type {EditableNumberMap} */ (Object.fromEntries(nodeIds.map((id, index) => [index, this.nodeCornerRadius(id)]))),
+            segmentWidths: /** @type {EditableNumberMap} */ (Object.fromEntries(chain.map((edge, index) => [index, Number(this.getEdgeAttr(edge.edgeId, 'width') ?? this.lineWidth)]))),
+            segmentBulges: /** @type {EditableNumberMap} */ (Object.fromEntries(chain.map((edge, index) => [index, edge.bulge]))),
         };
     }
 
@@ -195,12 +197,13 @@ export class Polyline extends PolylineGraph {
         if (collapseCollinearPath(path)) this.applyEditablePath(path);
     }
 
-    /** @param {any} path */
+    /** @param {import('./path-operations.js').PathShape|null} path */
     applyEditablePath(path) {
+        path = /** @type {EditablePath} */ (path);
         const usedNodes = new Set(Object.values(path.nodeIds || {}));
         const usedEdges = new Set(Object.values(path.edgeIds || {}));
         /**
-         * @param {Set<any>} used
+         * @param {Set<string>} used
          * @param {string} prefix
          */
         const allocate = (used, prefix) => {
@@ -213,13 +216,15 @@ export class Polyline extends PolylineGraph {
         const pathPoints = /** @type {Point[]} */ (path.points);
         const pathNodeIds = /** @type {Record<number, string>|undefined} */ (path.nodeIds);
         const nodeIds = /** @type {string[]} */ (pathPoints.map((_, index) => pathNodeIds?.[index] ?? allocate(usedNodes, 'n')));
-        const nodes = new Map(pathPoints.map((point, index) => [nodeIds[index], { x: point.x, y: point.y }]));
+        const nodes = /** @type {import('./polyline-graph.js').GraphNodeMap} */ (new Map(pathPoints.map((point, index) => [nodeIds[index], { x: point.x, y: point.y }])));
         const closed = path.kind !== 'line';
         const count = closed ? nodeIds.length : Math.max(0, nodeIds.length - 1);
-        const edges = new Map();
+        const edges = /** @type {import('./polyline-graph.js').GraphEdgeMap} */ (new Map());
         for (let index = 0; index < count; index++) {
-            const id = path.edgeIds?.[index] ?? allocate(usedEdges, 'e');
-            edges.set(id, { ...this.edges.get(id), from: nodeIds[index], to: nodeIds[(index + 1) % nodeIds.length],
+            const id = /** @type {string} */ (path.edgeIds?.[index] ?? allocate(usedEdges, 'e'));
+            const from = /** @type {string} */ (nodeIds[index]);
+            const to = /** @type {string} */ (nodeIds[(index + 1) % nodeIds.length]);
+            edges.set(id, { ...this.edges.get(id), from, to,
                 width: path.segmentWidths?.[index] ?? this.lineWidth, bulge: path.segmentBulges?.[index] || 0 });
             if (edges.get(id).width === this.lineWidth) delete edges.get(id).width;
         }
@@ -265,21 +270,21 @@ export class Polyline extends PolylineGraph {
 
     /** @override */
     captureState() {
-        /** @type {any} */
+        /** @type {ReturnType<PolylineGraph['captureState']> & Partial<{isRect: boolean, lineWidth: number}>} */
         const s = super.captureState();
         s.isRect = this.isRect;
         s.lineWidth = this.lineWidth;
-        return s;
+        return /** @type {ReturnType<PolylineGraph['captureState']> & {isRect: boolean, lineWidth: number}} */ (s);
     }
 
     /**
      * @override
-     * @param {any} state
+     * @param {import('../schematic/modules/selection.js').ShapeState} state
      */
     applyState(state) {
-        super.applyState(state);
-        if ('isRect' in state) this.isRect = state.isRect;
-        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
+        super.applyState(/** @type {Partial<ReturnType<PolylineGraph['captureState']>>} */ (state));
+        if (typeof state.isRect === 'boolean') this.isRect = state.isRect;
+        if (typeof state.lineWidth === 'number') this.lineWidth = state.lineWidth;
         this._rectAxisCache = null;
     }
 
@@ -296,7 +301,7 @@ export class Polyline extends PolylineGraph {
         for (const [id, e] of this.edges) {
             graphEdges[id] = { from: e.from, to: e.to };
             if (e.bulge) edgeBulges[id] = e.bulge;
-            if (e.width !== this.lineWidth) edgeWidths[id] = e.width;
+            if (typeof e.width === 'number' && e.width !== this.lineWidth) edgeWidths[id] = e.width;
         }
         return new Polyline({
             color: this.color, lineWidth: this.lineWidth,
@@ -310,11 +315,11 @@ export class Polyline extends PolylineGraph {
     }
 
     toJSON() {
-        /** @type {any} */
+        /** @type {ReturnType<PolylineGraph['toJSON']> & {type: 'polyline', ir?: true, x?: number, y?: number, w?: number, h?: number, rot?: number, cn?: string[], rev?: true}} */
         const json = { ...super.toJSON(), type: 'polyline' };
         if (this.isRect) {
             const { ids, frame } = rectangleGraphFrame(this);
-            delete json.nd;
+            delete /** @type {{nd?: unknown}} */ (json).nd;
             Object.assign(json, {
                 ir: true, x: frame.x, y: frame.y, w: frame.width, h: frame.height,
                 rot: frame.rotation, cn: ids,
@@ -328,19 +333,20 @@ export class Polyline extends PolylineGraph {
             }
             path.id = this.id;
             const forward = Object.fromEntries(Object.entries(path.edgeIds).map(([index, id]) =>
-                [id, json.ed[id][0] === path.nodeIds[index]]));
+                [id, json.ed[id][0] === path.nodeIds[Number(index)]]));
             path.points = Object.values(path.nodeIds).map(id => ({ x: json.nd[id][0], y: json.nd[id][1] }));
             collapseRoundedPolygon(path);
             const ids = /** @type {string[]} */ (Object.values(path.nodeIds));
             json.nd = Object.fromEntries(ids.map((id, index) => [id, [path.points[index].x, path.points[index].y]]));
             json.ed = Object.fromEntries(Object.entries(path.edgeIds).map(([index, id]) => {
-                const endpoints = [ids[Number(index)], ids[(Number(index) + 1) % ids.length]];
-                return [id, forward[id] ? endpoints : endpoints.reverse()];
+                const endpoints = /** @type {[string, string]} */ ([ids[Number(index)], ids[(Number(index) + 1) % ids.length]]);
+                return [id, forward[id] ? endpoints : /** @type {[string, string]} */ ([endpoints[1], endpoints[0]])];
             }));
             for (const field of ['bg', 'ew']) {
                 if (!json[field]) continue;
-                json[field] = Object.fromEntries(Object.entries(json[field]).filter(([id]) => Object.hasOwn(json.ed, id)));
-                if (!Object.keys(json[field]).length) delete json[field];
+                const values = /** @type {Record<string, unknown>} */ (json[field]);
+                json[field] = Object.fromEntries(Object.entries(values).filter(([id]) => Object.hasOwn(json.ed, id)));
+                if (!Object.keys(/** @type {Record<string, unknown>} */ (json[field])).length) delete json[field];
             }
             const radii = ids.flatMap((id, index) => Math.abs(path.nodeCornerRadii[index] - this.cornerRadius) >= 1e-9
                 ? [[id, path.nodeCornerRadii[index]]] : []);

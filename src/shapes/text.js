@@ -13,9 +13,10 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{x:number,y:number,width:number,height:number}} TextBBox */
 /** @typedef {import('../core/SchematicDocument.js').SchematicItem} TextParent */
-/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
-/** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
-/** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: Record<string, any>}} TextJSON */
+/** @typedef {any} TextAttachment Label/wire attachment payloads are built incrementally by legacy modules. */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
+/** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
+/** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: TextAttachment}} TextJSON */
 
 /** @type {null | ((text: Text) => TextBBox|null|undefined)} */
 let textMeasurer = null;
@@ -81,7 +82,7 @@ export class Text extends Shape {
         this.parentComponent = null;
         /** @type {string|null} */
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
-        /** @type {Record<string, any>|null} */
+        /** @type {TextAttachment|null} */
         this.attachment = options.attachment || null;
         /** @type {Set<Text>|null|undefined} Labels attached to this text. */
         this.attachedLabels = null;
@@ -261,15 +262,15 @@ export class Text extends Shape {
 
     /**
      * @override
-     * @param {Partial<TextState> & Record<string, any>} state
+     * @param {import('../schematic/modules/selection.js').ShapeState} state
      */
     applyState(state) {
         super.applyState(state);
         if ('attachment' in state) {
-            this.attachment = state.attachment ? { ...state.attachment } : null;
+            this.attachment = state.attachment ? { .../** @type {TextAttachment} */ (state.attachment) } : null;
         }
         if ('fieldKey' in state) {
-            this.fieldKey = state.fieldKey ?? null;
+            this.fieldKey = /** @type {string|null} */ (state.fieldKey ?? null);
         }
         this._syncLinkedParentAfterGeometryChange();
     }

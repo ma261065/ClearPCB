@@ -14,8 +14,9 @@ import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
 export { COLLINEAR_EPSILON };
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {Record<string, any>} WireRecord */
-/** @typedef {WireRecord & {net?: string, wireLabel?: string, labelOffset?: Point, graphNodes?: WireRecord, graphEdges?: WireRecord, pinConnections?: WireRecord}} WireOptions */
+/** @typedef {any} WireRecord Pin connection records are shared legacy bags across command/sticky-wire modules. */
+/** @typedef {Record<string, unknown>} WireRecordInput */
+/** @typedef {import('./polyline-graph.js').PolylineGraphOptions & {net?: string, wireLabel?: string, labelOffset?: Point, graphNodes?: import('./polyline-graph.js').GraphNodeInput, graphEdges?: import('./polyline-graph.js').GraphEdgeInput, pinConnections?: Record<string, WireRecordInput>}} WireOptions */
 
 /** Default wire stroke color. */
 export const WIRE_COLOR = '#00cc66';
@@ -155,7 +156,7 @@ export class Wire extends PolylineGraph {
         // Load pin connections from graph data
         if (options.graphNodes && options.graphEdges && options.pinConnections) {
             for (const [nid, conn] of Object.entries(options.pinConnections))
-                this.pinConnections.set(nid, { ...conn });
+                this.pinConnections.set(nid, /** @type {WireRecord} */ ({ ...conn }));
         }
     }
 
@@ -192,7 +193,7 @@ export class Wire extends PolylineGraph {
 
     /**
      * @override — handle pinConnections + net names during absorb.
-     * @param {any} other @param {Map<string, string>} remap
+     * @param {Wire} other @param {Map<string, string>} remap
      */
     _onAbsorb(other, remap) {
         if (other.pinConnections) {
@@ -221,7 +222,7 @@ export class Wire extends PolylineGraph {
         const wireSub = /** @type {Wire} */ (/** @type {unknown} */ (sub));
         for (const nid of nodeIds) {
             if (this.pinConnections.has(nid))
-                wireSub.pinConnections.set(nid, { ...this.pinConnections.get(nid) });
+                wireSub.pinConnections.set(nid, { .../** @type {WireRecord} */ (this.pinConnections.get(nid)) });
         }
     }
 
@@ -260,15 +261,15 @@ export class Wire extends PolylineGraph {
             labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
         });
         for (const [id, p] of this.nodes) c.nodes.set(id, { x: p.x, y: p.y });
-        for (const [id, e] of this.edges) c.edges.set(id, { from: e.from, to: e.to });
+        for (const [id, e] of this.edges) c.edges.set(id, { from: e.from, to: e.to, bulge: e.bulge || 0 });
         for (const [id, cn] of this.pinConnections) c.pinConnections.set(id, { ...cn });
         return /** @type {PolylineGraph} */ (/** @type {unknown} */ (c));
     }
 
     /** @override — includes pinConnections, net, wireLabel, labelOffset. */
     captureState() {
-        const s = super.captureState();
-        s.pinConnections = {};
+        /** @type {ReturnType<PolylineGraph['captureState']> & {pinConnections: Record<string, WireRecord>, net?: string, wireLabel?: string, labelOffset?: Point}} */
+        const s = { ...super.captureState(), pinConnections: {} };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
         s.net = this.net;
         s.wireLabel = this.wireLabel;
@@ -278,28 +279,29 @@ export class Wire extends PolylineGraph {
 
     /**
      * @override — restores pinConnections, net, wireLabel, labelOffset.
-     * @param {Record<string, any>} state
+     * @param {import('../schematic/modules/selection.js').ShapeState} state
      */
     applyState(state) {
         // Let base restore nodes/edges
-        super.applyState(state);
+        super.applyState(/** @type {Partial<ReturnType<PolylineGraph['captureState']>>} */ (state));
         // Restore wire-specific state
         if (state.pinConnections) {
             this.pinConnections = new Map();
-            for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
+            for (const [id, c] of Object.entries(/** @type {Record<string, WireRecord>} */ (state.pinConnections))) this.pinConnections.set(id, { ...c });
         }
         if ('net' in state) this.net = state.net || '';
         if (state.wireLabel) {
             freeWireLabel(this.wireLabel);
-            this.wireLabel = state.wireLabel;
-            bumpWireLabelCounter(state.wireLabel);
+            this.wireLabel = /** @type {string} */ (state.wireLabel);
+            bumpWireLabelCounter(this.wireLabel);
             if (this.labelText) {
-                this.labelText.text = state.wireLabel;
+                this.labelText.text = this.wireLabel;
                 this.labelText.invalidate();
             }
         }
         if (state.labelOffset) {
-            this.labelOffset = { x: state.labelOffset.x || 0, y: state.labelOffset.y || 0 };
+            const offset = /** @type {Point} */ (state.labelOffset);
+            this.labelOffset = { x: offset.x || 0, y: offset.y || 0 };
         }
         this.invalidate();
     }
@@ -343,12 +345,12 @@ export class Wire extends PolylineGraph {
     /**
      * Serialise to a compact JSON-friendly object.
      * Uses short keys (nd, ed, pc, wl, n) for file size.
-     * @returns {Record<string, any> & {type: string, nd: Record<string, any>, ed: Record<string, any>}}
+     * @returns {ReturnType<PolylineGraph['toJSON']> & {type: string, pc?: Record<string, WireRecord>, wl: string, n?: string, lo?: number[]}}
      */
     toJSON() {
-        const json = /** @type {Record<string, any> & {type: string, nd: Record<string, any>, ed: Record<string, any>}} */ ({ ...super.toJSON(), type: 'wire' });
-        delete json.c;
-        delete json.f;
+        const json = /** @type {ReturnType<PolylineGraph['toJSON']> & {type: string, pc?: Record<string, WireRecord>, wl: string, n?: string, lo?: number[]}} */ ({ ...super.toJSON(), type: 'wire' });
+        delete /** @type {{c?: unknown}} */ (json).c;
+        delete /** @type {{f?: unknown}} */ (json).f;
         json.wl = this.wireLabel;
         if (this.pinConnections.size > 0) {
             json.pc = {};

@@ -138,7 +138,7 @@ export class Pad {
         return out;
     }
 
-    /** @param {any} data */
+    /** @param {Partial<SerializedPad>} data */
     static fromJSON(data) {
         return new Pad({
             id: data.id, x: data.x, y: data.y, shape: data.sh,

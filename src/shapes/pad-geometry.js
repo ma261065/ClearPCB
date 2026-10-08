@@ -3,6 +3,7 @@
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{shape: string, layers: string, x: number, y: number, size: number, drill: number, width?: number, height?: number, ratio?: number, rotation?: number}} PadGeometryLike */
 /** @typedef {{x: number, y: number, w: number, h: number, shape: string, rotation?: number, rad?: number}} PadFlash */
+/** @typedef {{x: number, y: number, w?: number, h?: number, shape?: string, rotation?: number, rad?: number}} PadFlashLike */
 
 /** @param {PadGeometryLike} pad */
 function flashShape(pad) {
@@ -35,18 +36,18 @@ export function padFlash(pad) {
 
 /** Sample a pad flash; enclosing outlines are conservative pour obstacles. */
 /**
- * @param {any} flash Detached flash descriptors are shared with legacy geometry callers.
+ * @param {PadFlashLike} flash Detached flash descriptors are shared with legacy geometry callers.
  * @param {number} [tolerance]
  * @param {boolean} [enclose]
  */
 export function padFlashOutline(flash, tolerance = 0.001, enclose = false) {
-    const halfWidth = flash.w / 2;
-    const halfHeight = flash.h / 2;
+    const halfWidth = /** @type {number} */ (flash.w) / 2;
+    const halfHeight = /** @type {number} */ (flash.h) / 2;
     const cosine = Math.cos(flash.rad || 0), sine = Math.sin(flash.rad || 0);
     /** @param {number} x @param {number} y */
     const transform = (x, y) => ({ x: flash.x + x * cosine - y * sine,
         y: flash.y + x * sine + y * cosine });
-    if (!['ellipse', 'oval', 'circle', 'round'].includes(flash.shape)) {
+    if (!['ellipse', 'oval', 'circle', 'round'].includes(flash.shape || '')) {
         return [[-halfWidth, -halfHeight], [halfWidth, -halfHeight],
             [halfWidth, halfHeight], [-halfWidth, halfHeight]].map(([x, y]) => transform(x, y));
     }

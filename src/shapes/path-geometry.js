@@ -118,7 +118,7 @@ export function circleOuterRadius(shape) {
     return Math.max(0.05, Number(shape?.radius) || 0);
 }
 
-/** @param {any} shape @param {Point} point @param {number} tolerance @param {boolean} filled @param {number} width */
+/** @param {{x: number, y: number, radius?: number}} shape @param {Point} point @param {number} tolerance @param {boolean} filled @param {number} width */
 export function circleHitTest(shape, point, tolerance, filled, width) {
     const radius = circleOuterRadius(shape);
     const distance = Math.hypot(point.x - shape.x, point.y - shape.y);

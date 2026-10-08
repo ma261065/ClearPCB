@@ -47,8 +47,8 @@ export const NET_ORIENTATIONS = ['N', 'E', 'S', 'W'];
  * @returns {NetStyle}
  */
 export function normalizeNetStyle(style) {
-    if (NET_STYLES.includes(/** @type {any} */ (style))) {
-        return /** @type {any} */ (style);
+    if (NET_STYLES.includes(/** @type {NetStyle} */ (style))) {
+        return /** @type {NetStyle} */ (style);
     }
     return 't';
 }
@@ -59,8 +59,8 @@ export function normalizeNetStyle(style) {
  * @returns {NetOrientation}
  */
 export function normalizeNetOrientation(orientation) {
-    if (NET_ORIENTATIONS.includes(/** @type {any} */ (orientation))) {
-        return /** @type {any} */ (orientation);
+    if (NET_ORIENTATIONS.includes(/** @type {NetOrientation} */ (orientation))) {
+        return /** @type {NetOrientation} */ (orientation);
     }
     return 'E';
 }
@@ -647,7 +647,7 @@ export class Net extends Shape {
         return false;
     }
 
-    /** @param {any} state */
+    /** @param {import('../schematic/modules/selection.js').ShapeState} state */
     applyState(state) {
         super.applyState(state);
         this.syncLabelText();
