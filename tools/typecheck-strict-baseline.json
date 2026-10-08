@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 1455,
+  "total": 857,
   "cleanFolders": [
     "src/core",
     "src/easyeda",
@@ -28,25 +28,6 @@
     "src/components/picker/ui-state.js": 3,
     "src/components/STEPPreview.js": 132,
     "src/components/VRMLPreview.js": 39,
-    "src/shared/pcb/board-geometry.js": 49,
-    "src/shared/pcb/board-outline.js": 15,
-    "src/shared/pcb/board-shape-geometry.js": 111,
-    "src/shared/pcb/copper-path-tracks.js": 4,
-    "src/shared/pcb/footprint.js": 42,
-    "src/shared/pcb/picture-raster.js": 56,
-    "src/shared/pcb/picture-storage.js": 18,
-    "src/shared/pcb/reference-text.js": 6,
-    "src/shared/pcb/stroke-font-extras.js": 11,
-    "src/shared/pcb/stroke-font.js": 10,
-    "src/shared/ui/context-menu.js": 3,
-    "src/shared/ui/export.js": 41,
-    "src/shared/ui/inline-text-overlay.js": 13,
-    "src/shared/ui/modal.js": 24,
-    "src/shared/ui/property-fields.js": 22,
-    "src/shared/ui/ribbon-height.js": 2,
-    "src/shared/ui/ribbon.js": 103,
-    "src/shared/ui/viewport.js": 48,
-    "src/ui/AppBootstrap.js": 16,
-    "src/ui/mcp-session.js": 7
+    "src/shared/pcb/board-shape-geometry.js": 3
   }
 }
