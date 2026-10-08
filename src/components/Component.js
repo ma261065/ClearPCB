@@ -23,6 +23,7 @@ function _compactShapeStr(s) {
 /**
  * @typedef {Record<string, string|number|boolean|null|undefined>} ComponentProperties
  * @typedef {{x: number, y: number, width: number, height: number}} ComponentFootprintBox
+ * @typedef {{minX: number, minY: number, maxX: number, maxY: number}} ComponentBounds
  * @typedef {'left'|'right'|'up'|'down'} ComponentSymbolPinOrientation
  * @typedef {{[key:string]: any, x?: number, y?: number, rotation?: number, anchor?: 'start'|'end'|'middle'|string|null, fontFamily?: string|null, fontSize?: number|null}} ComponentSymbolTextPosition
  * @typedef {{[key:string]: any, type?: string}} ComponentSymbolGraphic
@@ -142,24 +143,39 @@ export class Component {
      */
     constructor(definition, options = {}) {
         this.id = componentIds.claim(options.id);
+        /** @type {'component'} */
+        this.type = 'component';
         this.definition = definition;
         if (options.packageId !== undefined) this.packageId = options.packageId;
+        /** @type {number} */
         this.x = options.x || 0;
+        /** @type {number} */
         this.y = options.y || 0;
+        /** @type {number} */
         this.rotation = options.rotation || 0;
+        /** @type {boolean} */
         this.mirror = options.mirror || false;
+        /** @type {string} */
         this.reference = options.reference ?? (definition.defaultReference || 'U?');
+        /** @type {string} */
         this.value = options.value ?? (definition.defaultValue ?? '');
+        /** @type {Object} */
         this.properties = _safeMergeProps(definition.defaultProperties, options.properties);
         
         // Field text shapes (set by createFieldTexts)
+        /** @type {Text|null} */
         this.refText = null;
+        /** @type {Text|null} */
         this.valueText = null;
+        /** @type {boolean} */
         this.showReference = options.showReference !== undefined ? options.showReference : true;
+        /** @type {boolean} */
         this.showValue = options.showValue !== undefined ? options.showValue : true;
         
         // Selection-related properties
+        /** @type {boolean} */
         this.visible = options.visible !== undefined ? options.visible : true;
+        /** @type {boolean} */
         this.locked = options.locked !== undefined ? options.locked : false;
         /** @type {{minX:number, minY:number, maxX:number, maxY:number}|null|undefined} */
         this._worldBounds = undefined;
@@ -168,6 +184,14 @@ export class Component {
 
         /** @type {Set<any>|null} */
         this.attachedLabels = null;
+        /** @type {boolean|undefined} */
+        this._dirty;
+        /** @type {ComponentBounds|null|undefined} */
+        this._localBounds;
+        /** @type {ComponentSymbol|undefined} */
+        this._localBoundsSymbol;
+        /** @type {boolean|undefined} */
+        this._localBoundsMirror;
     }
 
     /** @returns {ComponentSymbol|undefined} The symbol definition (graphics + pins). */
@@ -296,6 +320,7 @@ export class Component {
 
     /** Return array of linked field texts (non-null only). */
     getFieldTexts() {
+        /** @type {any[]} */
         const fields = [];
         if (this.refText) fields.push(this.refText);
         if (this.valueText) fields.push(this.valueText);

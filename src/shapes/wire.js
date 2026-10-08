@@ -106,6 +106,7 @@ export class Wire extends PolylineGraph {
     /** @param {WireOptions} [options] */
     constructor(options = {}) {
         super({ color: WIRE_COLOR, lineWidth: WIRE_WIDTH, ...options });
+        /** @type {'wire'} */
         this.type = 'wire';
 
         // Wire-specific: pin connections
@@ -114,27 +115,32 @@ export class Wire extends PolylineGraph {
 
         // Net name (auto-assigned if not provided)
         if (options.net) {
+            /** @type {string} */
             this.net = options.net;
             bumpNetNameCounter(options.net);
         } else {
+            /** @type {string} */
             this.net = nextNetName();
         }
 
         // Human-readable wire label (Wnnnn)
         if (options.wireLabel) {
+            /** @type {string} */
             this.wireLabel = options.wireLabel;
             bumpWireLabelCounter(options.wireLabel);
         } else {
+            /** @type {string} */
             this.wireLabel = nextWireLabel();
         }
 
         // Label display offset (relative to wire centroid)
+        /** @type {Point} */
         this.labelOffset = options.labelOffset
             ? { x: options.labelOffset.x || 0, y: options.labelOffset.y || 0 }
             : { x: 0, y: WIRE_LABEL_DEFAULT_OFFSET_Y };
 
         /** Reference to the linked label Text shape. */
-        /** @type {any|null} */
+        /** @type {import('./text.js').Text|null} */
         this.labelText = null;
 
         /** @type {Set<any>|null|undefined} Wire-name labels attached to this wire. */

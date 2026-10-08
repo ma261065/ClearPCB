@@ -25,6 +25,7 @@ import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } fro
 /**
  * @typedef {{x: number, y: number}} Point
  * @typedef {Record<string, any>} PolylineOptions
+ * @typedef {{anchorId: string, nodeIds: string[], points: Point[]}|null} RectAxisCache
  */
 
 /** @param {PolylineOptions} options */
@@ -87,10 +88,14 @@ export class Polyline extends PolylineGraph {
         }
 
         super({ ...options, points, closed, fill, fillAlpha });
+        /** @type {'polyline'} */
         this.type = 'polyline';
 
         // Rectangle mode: constrained corner dragging
+        /** @type {boolean} */
         this.isRect = options.isRect || false;
+        /** @type {RectAxisCache} */
+        this._rectAxisCache = null;
 
         // Apply per-edge attributes (bulge) from constructor options. Must run
         // after the graph is loaded by super().

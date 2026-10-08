@@ -28,15 +28,21 @@ export class Circle extends Shape {
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'circle'} */
         this.type = 'circle';
         
         // Validate coordinates and radius
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        /** @type {number} */
         this.radius = ShapeValidator.validateRadius(options.radius || 5);
         
         // Fill properties
+        /** @type {boolean} */
         this.fill = options.fill !== undefined ? options.fill : false;
+        /** @type {number} */
         this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
             min: 0, max: 1, default: 0.3, name: 'fillAlpha'
         });

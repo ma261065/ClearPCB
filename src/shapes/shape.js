@@ -39,6 +39,7 @@ export class Shape {
      */
     constructor(options = {}) {
         this.id = shapeIds.claim(options.id);
+        /** @type {string} */
         this.type = 'shape';
         
         // Validate and apply common properties
@@ -52,7 +53,9 @@ export class Shape {
         this.locked = options.locked !== undefined ? options.locked : false;
         
         // Cached bounds
+        /** @type {{minX: number, minY: number, maxX: number, maxY: number}|null} */
         this._bounds = null;
+        /** @type {boolean} */
         this._dirty = true;
     }
     
@@ -223,7 +226,7 @@ export class Shape {
     /**
      * Create a deep copy of this shape with a new unique ID.
      * Must be implemented by every concrete subclass.
-     * @returns {Shape} A new independent shape instance.
+     * @returns {any} A new independent shape instance.
      */
     clone() {
         throw new Error('clone() must be implemented by subclass');

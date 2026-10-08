@@ -12,7 +12,7 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{x:number,y:number,width:number,height:number}} TextBBox */
-/** @typedef {{type?: string, id?: string, locked?: boolean, syncTextOffsetFromLabelText?: () => void}} TextParent */
+/** @typedef {{type?: string, id?: string, locked?: boolean, invalidate?: () => void, syncTextOffsetFromLabelText?: () => void, [key: string]: any}} TextParent */
 /** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
 /** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
 /** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: Record<string, any>}} TextJSON */
@@ -42,20 +42,29 @@ export class Text extends Shape {
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'text'} */
         this.type = 'text';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        /** @type {string} */
         this.text = typeof options.text === 'string' ? options.text : '';
+        /** @type {number} */
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.0, {
             min: 1,
             max: 50,
             default: 2.0,
             name: 'fontSize'
         });
+        /** @type {string} */
         this.fontFamily = options.fontFamily || 'Arial';
+        /** @type {string} */
         this.textAnchor = options.textAnchor || 'start';
+        /** @type {0|270} */
         this.rotation = textOrientation(options.rotation);
+        /** @type {boolean} */
         this.border = !!options.border;
 
         // Text is rendered as a filled glyph, so its fill follows `color`
@@ -67,8 +76,12 @@ export class Text extends Shape {
         // Component field linkage (set externally, not via constructor)
         /** @type {TextParent|null} */
         this.parentComponent = null;
+        /** @type {string|null} */
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
+        /** @type {Record<string, any>|null} */
         this.attachment = options.attachment || null;
+        /** @type {string|undefined} */
+        this._pendingComponentId;
     }
 
     _syncLinkedParentAfterGeometryChange() {
@@ -251,7 +264,7 @@ export class Text extends Shape {
             this.attachment = state.attachment ? { ...state.attachment } : null;
         }
         if ('fieldKey' in state) {
-            this.fieldKey = state.fieldKey;
+            this.fieldKey = state.fieldKey ?? null;
         }
         this._syncLinkedParentAfterGeometryChange();
     }

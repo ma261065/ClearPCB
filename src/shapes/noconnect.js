@@ -34,9 +34,12 @@ export class NoConnect extends Shape {
         // NoConnect has a fixed thin stroke
         if (!options.lineWidth) options.lineWidth = 0.25;
         super(options);
+        /** @type {'noconnect'} */
         this.type = 'noconnect';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
 
         /** @type {{ componentId: string, pinNumber: string|number }|null} */

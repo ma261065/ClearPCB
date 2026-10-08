@@ -341,26 +341,35 @@ export class Net extends Shape {
         // Default color matches standard text labels for visual consistency.
         if (!options.color) options.color = 'var(--sch-text-label, #00b894)';
         super(options);
+        /** @type {'net'} */
         this.type = 'net';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        /** @type {string} */
         this.net = typeof options.net === 'string' ? options.net : 'NET';
+        /** @type {number} */
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || DEFAULT_FONT_SIZE, {
             min: 0.5, max: 20, default: DEFAULT_FONT_SIZE, name: 'fontSize'
         });
+        /** @type {NetStyle} */
         this.style = normalizeNetStyle(options.style || 't');
+        /** @type {boolean} */
         this.border = !!options.border;
         const orientation = options.orientation
             ? normalizeNetOrientation(options.orientation)
             : (Number.isFinite(options.rotation)
                 ? netRotationToOrientation(options.rotation || 0)
                 : 'N');
+        /** @type {NetOrientation} */
         this.orientation = orientation;
 
         const offset = Array.isArray(options.textOffset)
             ? { x: Number(options.textOffset[0]) || 0, y: Number(options.textOffset[1]) || 0 }
             : (options.textOffset || DEFAULT_TEXT_OFFSET);
+        /** @type {Point} */
         this.textOffset = {
             x: ShapeValidator.validateCoordinate(offset.x || 0, { name: 'textOffset.x' }),
             y: ShapeValidator.validateCoordinate(offset.y || 0, { name: 'textOffset.y' })

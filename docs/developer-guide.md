@@ -253,11 +253,13 @@ optional call to an editor method (`app.method?.()`), on a doc that names a file
 that no longer exists, and on any strict type error. The source now type-checks under
 TypeScript's strict settings; keep new code fully typed and fix type errors as part of
 the change that introduces them. Work that is known but not done, with a way in:
-- **Loose types.** `SchematicShape` (`SchematicDocument.js`) and the PCB's `BoardShape`
-  accept any field, so a misspelt shape field is not caught. Making them unions
-  discriminated by a literal `type` lets the checker narrow on `shape.type`; do it
-  one shape class at a time. A few drag and selection states are still `any`
-  (`VertexDrag` in `track-drag.js`, `SelectionShape` in `selection-registry.js`).
+- **Loose types.** `SchematicDocument.js` now exports `SchematicItem`, the strict
+  discriminated union for concrete schematic items. `SchematicShape` remains the
+  transitional loose alias while modules move over in batches; new narrowed
+  schematic code should prefer `SchematicItem`. The PCB's `BoardShape` still
+  accepts any field, so a misspelt board-shape field is not caught. A few drag
+  and selection states are still `any` (`VertexDrag` in `track-drag.js`,
+  `SelectionShape` in `selection-registry.js`).
 - **Autorouter.** `tools/regression.mjs` routes fixture boards and compares the result
   with a baseline, and the lifecycle and ownership have unit tests, but the
   pathfinder, maze and common modules (about 5,900 lines) have no unit tests of their

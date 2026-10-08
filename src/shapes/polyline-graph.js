@@ -85,17 +85,22 @@ export class PolylineGraph extends Shape {
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'polyline'} */
         this.type = 'polyline';
 
-        /** @type {Map<string, any>} Core graph data: nodeId → {x, y}. Public legacy graph maps accept subclass extras. */
+        /** @type {Map<string, any>} Core graph data: nodeId -> {x, y}. Public legacy graph maps accept subclass extras. */
         this.nodes = new Map();
-        /** @type {Map<string, any>} Core graph data: edgeId → {from: nodeId, to: nodeId}. Public legacy graph maps accept subclass extras. */
+        /** @type {Map<string, any>} Core graph data: edgeId -> {from: nodeId, to: nodeId}. Public legacy graph maps accept subclass extras. */
         this.edges = new Map();
 
         // Closed/fill properties
+        /** @type {boolean} */
         this.closed = options.closed || false;
+        /** @type {boolean} */
         this.fill = options.fill !== undefined ? options.fill : false;
+        /** @type {number} */
         this.fillAlpha = options.fillAlpha ?? 0.3;
+        /** @type {number} */
         this.cornerRadius = options.cornerRadius || 0;
         /** @type {Record<string, number>} */
         this.nodeCornerRadii = { ...(options.nodeCornerRadii || {}) };

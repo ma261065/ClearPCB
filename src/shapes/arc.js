@@ -24,18 +24,26 @@ export class Arc extends Shape {
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'arc'} */
         this.type = 'arc';
         
         // The ONLY source of truth: three control points
+        /** @type {Point} */
         this._startPoint = options.startPoint || { x: 0, y: 0 };
+        /** @type {Point} */
         this._endPoint = options.endPoint || { x: 10, y: 0 };
+        /** @type {Point} */
         this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
         /** @type {ArcGeometry|null} */
         this._cachedGeometry = null;
 
         // Fill properties
+        /** @type {boolean} */
         this.fill = options.fill || false;
+        /** @type {number} */
         this.fillAlpha = options.fillAlpha ?? 0.3;
+        /** @type {number|null|undefined} */
+        this._dragBulgeRatio;
     }
     
     /** @returns {{x:number,y:number}} Arc start control point. */

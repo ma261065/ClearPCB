@@ -7,10 +7,12 @@ import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
 /** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {import('../shapes/wire.js').Wire | import('../shapes/net.js').Net | import('../shapes/text.js').Text | import('../shapes/polyline.js').Polyline | import('../shapes/circle.js').Circle | import('../shapes/arc.js').Arc | import('../shapes/noconnect.js').NoConnect | import('../components/Component.js').Component} SchematicItem */
 /**
  * A schematic shape: one of the shape classes (wire, net label, text, polyline, circle,
  * arc, no-connect) or a component, read through the Shape base class plus the fields its
  * subclass adds.
+ * Transitional: modules move to SchematicItem; see docs/developer-guide.md handover.
  * @typedef {(import('../shapes/shape.js').Shape | import('../components/Component.js').Component) & {[key: string]: any}} SchematicShape
  */
 
