@@ -1,62 +1,20 @@
 import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
-import { cancelShapeDraw, getShapeDraw, resolveShapeDrawLayer } from './board-shapes.js';
-import { showBoardShapeToolProperties } from './board-shape-properties.js';
-import { showFillToolProperties } from './copper-fill-edit.js';
-import { getFillDraw, cancelFillDraw, fillToolDefaults } from './copper-fill-draw.js';
-import { getPadToolDefaults, showPadToolProperties } from './pad-tool.js';
+import { cancelShapeDraw, getShapeDraw } from './board-shapes.js';
+import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
 import { clearPadPreview } from './pad-tool.js';
-import { getTextToolDefaults, showTextToolProperties } from './text-properties.js';
-import { cancelTrackDrawing, getTrackDraw, getTrackToolLayer, showTrackDrawProperties } from './track-draw.js';
-import { clearPlacementBlock, placementBlock, placementBlockAction, placementBlockMessage, placementBlockName,
-    refuseBlockedPlacement } from './layers.js';
+import { cancelTrackDrawing } from './track-draw.js';
+import { clearPlacementBlock, placementBlock, placementBlockAction, placementBlockMessage, placementBlockName } from './layers.js';
 import { getPcbSelectionEntries } from './selection-registry.js';
-import { padLayers } from '../../shapes/pad-geometry.js';
-import { clearViaRing, showViaToolProperties } from './via-tool.js';
+import { clearViaRing } from './via-tool.js';
+import { PCB_PLACEMENT_TOOLS, PCB_RIBBON_PLACEMENT_TOOLS, normalizePcbTool, pcbToolTargets, showPcbToolProperties } from './pcb-tools.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hoverComponent } from './component-selection.js';
 import { selectRefText } from './ref-text-selection.js';
 import { setToolCursor } from '../../shared/ui/cursor.js';
 import { clearCursorCrosshair } from './cursor-state.js';
 
-export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
-export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
-/** Tools that show their own Properties panel (see selectPcbTool), so a canvas press keeps that tab open. */
-export const PCB_PROPERTIES_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
-
-export function normalizePcbTool(tool) {
-    return tool === 'select' || PCB_CROSSHAIR_TOOLS.has(tool) ? tool : 'select';
-}
-
-/**
- * The layer-panel rows a placement tool would put new objects on, from the tool's own
- * settings (or the draw in progress). Its press, cursor, ribbon button and Properties
- * all read this, so they always agree. Tools that place nothing give none.
- * @param {any} app
- * @param {string} [tool]
- * @returns {import('./layers.js').PlacementLayer[]}
- */
-export function pcbToolTargets(app, tool = app.currentTool) {
-    if (tool === 'via') return [{ id: 'vias' }];
-    if (tool === 'pad') return padLayers(getPadToolDefaults(app)).map(id => ({ id }));
-    if (tool === 'text') return [{ id: getTextToolDefaults(app).layer }];
-    if (tool === 'track') return [{ id: getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper' }];
-    if (tool === 'fill') {
-        const layer = getFillDraw(app)?.layer || fillToolDefaults(app).layer;
-        return [{ id: layer }, { id: layer, fill: true }];
-    }
-    if (tool === 'hole') return [{ id: 'hole' }];
-    if (PCB_SHAPE_TOOLS.has(tool)) {
-        const draw = getShapeDraw(app);
-        return [{ id: (draw?.kind === tool && draw.layer) || resolveShapeDrawLayer(app, app.activeLayer) }];
-    }
-    return [];
-}
-
 /** Why the tool cannot place here, or null. */
 export const pcbToolBlock = (app, tool = app.currentTool) => placementBlock(pcbToolTargets(app, tool));
-
-/** Refuse a placement press on a locked or hidden layer, explaining it at the pointer. */
-export const refuseBlockedToolPlacement = (app, event) => refuseBlockedPlacement(app, pcbToolTargets(app), event);
 
 /**
  * What a tool's Properties shows when its layer is blocked: a warning on its layer field
@@ -122,9 +80,6 @@ export function syncToolBlockIndicator(app, event = null) {
 
 const ribbonBlockSignatures = new WeakMap();
 
-/** Placement tools whose ribbon button carries a lock badge when its layer is blocked. */
-export const PCB_RIBBON_PLACEMENT_TOOLS = Object.freeze(['track', 'via', 'pad', 'hole', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
-
 /**
  * Refresh the ribbon's tool badges when which tools are blocked changes. Called where
  * the status bar shows the tool's layer (setPcbStatus) and on layer lock/eye changes.
@@ -136,23 +91,13 @@ export function syncPcbToolBlocks(app) {
     app.refreshPcbRibbon?.();
 }
 
-/** Show the Properties panel the tool owns (its defaults, or the draw in progress). */
-export function showPcbToolProperties(app, tool = app.currentTool) {
-    if (tool === 'fill') showFillToolProperties(app);
-    else if (tool === 'via') showViaToolProperties(app);
-    else if (tool === 'pad') showPadToolProperties(app);
-    else if (tool === 'track') showTrackDrawProperties(app);
-    else if (tool === 'text') showTextToolProperties(app);
-    else if (PCB_SHAPE_TOOLS.has(tool)) showBoardShapeToolProperties(app, tool);
-}
-
 /**
  * A layer's lock or eye changed: refresh the ribbon badges and, while a placement tool
  * owns Properties (nothing drawn or selected), its panel and its layer warning.
  */
 export function refreshPcbToolLayerState(app) {
     syncPcbToolBlocks(app);
-    if (!PCB_PROPERTIES_TOOLS.has(app.currentTool) || isPcbDrawing(app) || activeTextInlineEdit(app)) return;
+    if (!PCB_PLACEMENT_TOOLS.has(app.currentTool) || isPcbDrawing(app) || activeTextInlineEdit(app)) return;
     if (getPcbSelectionEntries(app).length) return;
     showPcbToolProperties(app);
 }
@@ -166,7 +111,7 @@ export function updateCursorForTool(app) {
         return;
     }
     const t = app.currentTool;
-    if (PCB_CROSSHAIR_TOOLS.has(t)) {
+    if (PCB_PLACEMENT_TOOLS.has(t)) {
         setToolCursor(app, t, app.viewport.svg);
         if (t !== 'via') clearViaRing(app);
         if (t !== 'pad') clearPadPreview(app);
@@ -211,7 +156,7 @@ export function selectPcbTool(app, tool) {
 
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function cancelPcbDrawingMode(app) {
-    if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !activeTextInlineEdit(app)) return false;
+    if (!PCB_PLACEMENT_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !activeTextInlineEdit(app)) return false;
     // Leaving an inline text edit (another tool, a ribbon tab, the other editor) keeps what
     // was typed, as clicking elsewhere on the board does; only Escape discards it.
     if (activeTextInlineEdit(app)) endTextInlineEdit(app, true);

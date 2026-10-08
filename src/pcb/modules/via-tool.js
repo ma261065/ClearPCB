@@ -1,6 +1,9 @@
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { commitDesignValue, renderDesignSettings } from './design-settings.js';
 import { resolveTrackSnap } from './track-draw.js';
+import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } from './track-commands.js';
+import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-drag.js';
+import { Via } from '../../shapes/via.js';
 
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 
@@ -142,4 +145,39 @@ export function showViaToolProperties(app) {
         ],
     });
     app.openPropertyPanel(describe());
+}
+
+/**
+ * A primary press with the Via tool: place a via at the pointer. On a pad or track node it
+ * joins that copper and takes its net; mid-segment it splits the track so the via sits on
+ * a node of both halves; elsewhere it stands alone. A net chosen in the tool wins.
+ */
+export function pressViaTool(app, worldPos) {
+    const snap = resolveTrackSnap(app, worldPos, {});
+    const p = app.getRoutingParams?.() || {};
+    const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+    const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+    const selectedNet = String(getViaToolNet(app) || '').trim();
+
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+        const net = selectedNet || snap.pad?.net || snap.trackNode?.track?.net || '';
+        app.history.execute(new AddViaCommand(app, new Via({ x: snap.x, y: snap.y, diameter, drill, net })));
+        return;
+    }
+    const split = findSplittableTrackEdge(app, worldPos);
+    if (!split) {
+        app.history.execute(new AddViaCommand(app, new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet })));
+        return;
+    }
+    const via = new Via({ x: split.px, y: split.py, diameter, drill, net: selectedNet || split.track.net || '' });
+    const parts = splitTrackObjectAtPoint(split.track, split.edgeId, { x: split.px, y: split.py });
+    if (!parts?.length) {
+        app.history.execute(new AddViaCommand(app, via));
+        return;
+    }
+    /** @type {any[]} */
+    const commands = [new RemoveTrackCommand(app, split.track)];
+    for (const part of parts) commands.push(new AddTrackCommand(app, part));
+    commands.push(new AddViaCommand(app, via));
+    app.history.execute(new CompoundCommand(commands));
 }

@@ -5,13 +5,14 @@
  */
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { displayRotationDegrees } from '../../core/number-inputs.js';
-import { TEXT_LAYERS } from '../../core/pcb-text.js';
+import { TEXT_LAYERS, createPcbText } from '../../core/pcb-text.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { pcbLayerOption, isLayerVisible } from './layers.js';
 import { boardShapeLocked, lockedProperty } from './object-locks.js';
 import { pictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { setPropertyEditor } from './property-editors.js';
-import { EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
+import { AddTextCommand, EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
+import { startTextInlineEdit } from './text-inline-edit.js';
 import { isEditorActive } from './pcb-editor-api.js';
 
 const SYMBOLS = [
@@ -305,4 +306,21 @@ export function bindStrokeTextProps(app, model, spec) {
         },
     };
     return binding;
+}
+
+/**
+ * A primary press with the Text tool: place an empty text from the tool's defaults,
+ * select it and type into it in place, as in the schematic editor.
+ */
+export function pressTextTool(app, worldPos) {
+    const snap = app.snapToGrid(worldPos);
+    const defaults = getTextToolDefaults(app);
+    const text = createPcbText({
+        content: '', x: snap.x, y: snap.y, size: defaults.size, rotation: defaults.rotation,
+        layer: defaults.layer, strokeWidth: defaults.strokeWidth, border: defaults.border,
+    });
+    app.history.execute(new AddTextCommand(app, text));
+    app.selectText(text);
+    app.showTextProperties(text);
+    startTextInlineEdit(app, text, null, { isNewPlacement: true });
 }

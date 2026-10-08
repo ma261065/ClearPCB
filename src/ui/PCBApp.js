@@ -12,7 +12,7 @@ import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, pcbLayerName, isLayerLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
+import { pcbLayerName, isLayerLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import {
@@ -27,7 +27,8 @@ import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress 
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { showSaveToast } from '../pcb/modules/save-toast.js';
-import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, refuseBlockedToolPlacement, syncPcbToolBlocks, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
+import { cancelPcbDrawingMode, syncPcbToolBlocks, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
+import { pcbToolLayer, refreshPcbToolFollow } from '../pcb/modules/pcb-tools.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -38,48 +39,30 @@ import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modules/pcb-export.js';
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import { getTrackDraw, getTrackToolLayer, startTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, resolveTrackSnap, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable, getTrackEdit } from '../pcb/modules/track-select.js';
-import { getBoardShapeDrag, getShapeDraw } from '../pcb/modules/board-shapes.js';
+import { refreshTrackDrawPreview, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable, getTrackEdit } from '../pcb/modules/track-select.js';
+import { getBoardShapeDrag } from '../pcb/modules/board-shapes.js';
 import {
-    startVertexDrag,
-    updateVertexDrag,
-    startViaDrag,
     getVertexDrag,
-    setSegmentClickEdgeId,
-    setVertexDragDownScreen,
-    findSplittableTrackEdge,
-    splitTrackObjectAtPoint,
-    commitCollinearCleanup,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
-import { createPcbText, serializePcbText } from '../core/pcb-text.js';
-import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, selectBoardShape, startBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
-import { showBoardShapeProperties } from '../pcb/modules/board-shape-properties.js';
+import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
+import { serializePcbText } from '../core/pcb-text.js';
+import { RemoveTextCommand, EditTextCommand } from '../pcb/modules/text-commands.js';
+import { cancelShapeDraw, renderBoardShape } from '../pcb/modules/board-shapes.js';
 import { renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { boardShapeLocked, createPcbHistory, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { renderPropertyActions, renderPropertyFields } from '../shared/ui/property-fields.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
 import {
-    armBoxSelect,
     refreshBoxSelectionHighlights,
-    toggleBoxShapeSelection,
-    clearBoxSelection,
-    hasBoxSelection,
-    beginGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
 import {
-    beginSelectionInteraction,
-    clearSelectionInteractionUi,
-    getSelectionInteraction,
     showPcbSelectionProperties,
     finishSelectionInteraction,
-    selectionInteractionCursor,
 } from '../pcb/modules/selection-interaction.js';
-import { getPcbSelection, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
+import { getPcbSelection, isPcbSelected, setPcbSelection } from '../pcb/modules/selection-registry.js';
 import { worldToPlacementLocal } from '../pcb/modules/ref-text-geometry.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -87,50 +70,36 @@ import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { renderPad } from '../pcb/modules/pad.js';
-import { AddPadCommand } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts } from '../pcb/modules/copper-cuts.js';
 import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
-import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
+import { bindPcbMouseEvents } from '../pcb/modules/mouse.js';
 import '../pcb/modules/layer-changes.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
-import { hitTestFill } from '../pcb/modules/copper-fill-selection.js';
-import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
-import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, showComponentPopup, updateComponentDrag, updatePcbCulling } from '../pcb/modules/component-selection.js';
-import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
-import { clearTextElements, hitTestText, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
-import { beginRefTextDrag, drawRefOverlay, endRefDrag, hitTestReferenceText, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, selectRefText, SetRefStyleCommand, tryEditReferenceAt, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart } from '../pcb/modules/copper-fill-edit.js';
+import { openComponent3DPopout, showComponentPopup, updatePcbCulling } from '../pcb/modules/component-selection.js';
+import { clearTextElements, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
+import { drawRefOverlay, endRefDrag, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, SetRefStyleCommand } from '../pcb/modules/ref-text-selection.js';
 import { cancelHoverUpdate, hoverOverlapHitCount } from '../pcb/modules/pcb-hover.js';
-import {
-    getFillDraw,
-    startFillDraw,
-    addFillWaypoint,
-    fillToolDefaults,
-} from '../pcb/modules/copper-fill-draw.js';
 import { displayedCollection } from '../pcb/modules/displayed-collections.js';
 import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
-import { getLastCrosshairWorld, updateCursorCrosshair, updateVertexDragCrosshair } from '../pcb/modules/cursor-state.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
-import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setDragOverlaysDeferred, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
+import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
     drawBoardOutline,
-    hitTestBoardOutline,
-    hoverBoardOutline,
     initializeBoardOutlineState,
     isBoardOutlineDrawn as boardOutlineDrawn,
-    isBoardOutlineSelected,
     renderBoardOutlineHandles,
-    selectBoardOutline,
     showBoardDimensionsDialog,
     showBoardOutlineProperties,
 } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
-import { getTextToolDefaults, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
+import { showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
-import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, snapPadPlacement, updatePadPreview } from '../pcb/modules/pad-tool.js';
-import { clearViaPreview, clearViaRing, getViaPreviewWorld, getViaToolNet, updateViaPreview } from '../pcb/modules/via-tool.js';
+import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, updatePadPreview } from '../pcb/modules/pad-tool.js';
+import { clearViaPreview, clearViaRing } from '../pcb/modules/via-tool.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
 import { showClearances, refreshClearanceHalos, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
@@ -406,13 +375,8 @@ export default class PCBApp {
         syncPcbToolBlocks(this);
         if (!this.status.modeStatus) return;
         const rawTool = this.currentTool || 'select';
-        const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        const layer = rawTool === 'text' ? getTextToolDefaults(this)?.layer || 'top-silk'
-            : rawTool === 'fill' ? getFillDraw(this)?.layer || fillToolDefaults(this).layer
-            : rawTool === 'track' ? getTrackDraw(this)?.currentLayer || getTrackToolLayer(this) || 'top-copper'
-            : shapeTool ? getShapeDraw(this)?.layer || resolveShapeDrawLayer(this, this.activeLayer)
-            : this.activeLayer;
+        const layer = pcbToolLayer(this, rawTool);
         const layerLabel = layer ? pcbLayerName(layer) : 'Top Copper';
         const selectedShape = getPcbSelection(this, 'shape');
         const selectedTrack = getPcbSelection(this, 'track');
@@ -653,15 +617,7 @@ export default class PCBApp {
                 refreshAxisGlow(this);
                 refreshTrackDrawPreview(this);
             }
-            if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
-                if (this.currentTool === 'via' && getViaPreviewWorld(this)) {
-                    updateViaPreview(this, getViaPreviewWorld(this));
-                } else if (this.currentTool === 'pad' && getPadPreviewWorld(this)) {
-                    updatePadPreview(this, getPadPreviewWorld(this));
-                } else if (getLastCrosshairWorld(this)) {
-                    updateCursorCrosshair(this, getLastCrosshairWorld(this));
-                }
-            }
+            refreshPcbToolFollow(this);
             updatePcbCulling(this);
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
             if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this).updateConnector();
@@ -737,417 +693,6 @@ export default class PCBApp {
     /** Wire the canvas's mouse events (pcb/modules/mouse.js); a seam tests bind through. */
     _bindMouseEvents() {
         bindPcbMouseEvents(this);
-    }
-
-    /**
-     * Left-click with the select tool, in priority order: the shared selection
-     * interaction, Ctrl/Cmd shape toggling, an active box selection, continuing
-     * the current selection, then selecting what is under the pointer (tracks and
-     * vias before shapes, text and components, since smaller targets win).
-     */
-    _pressSelectTool(e, worldPos, selectedGroupHit) {
-        const additiveSelection = e.ctrlKey || e.metaKey;
-        if (this._pressSelectionInteraction(e, worldPos, additiveSelection)) return;
-        if (this._pressToggleShape(worldPos, additiveSelection)) return;
-        if (this._pressBoxSelection(worldPos, selectedGroupHit)) return;
-        if (this._pressCurrentSelection(e, worldPos)) return;
-        this._pressNewTarget(e, worldPos);
-    }
-
-    /** Hand the press to the shared adapter controller (anchors, rotation, overlap cycling). */
-    _pressSelectionInteraction(e, worldPos, additiveSelection) {
-        const svg = this.viewport.svg;
-        // Rectangle, arc, and circle selection is owned by the shared
-        // adapter controller. Other PCB entities stay on their legacy
-        // paths until their adapters implement the same contract.
-        if (beginSelectionInteraction(this, worldPos, additiveSelection, e.shiftKey)) {
-            setHoverHighlight(this, null);
-            hoverComponent(this, null);
-            hideNetTooltip(this);
-            if (getSelectionInteraction(this)) svg.style.cursor = selectionInteractionCursor(this);
-            return true;
-        }
-        return false;
-    }
-
-    /** Ctrl/Cmd-click toggles a board shape in the multi-selection. */
-    _pressToggleShape(worldPos, additiveSelection) {
-        // Ctrl/Cmd-click mirrors the schematic editor's additive
-        // selection. Promote the current single shape first, then
-        // toggle the clicked shape in the marquee selection set.
-        if (additiveSelection) {
-            const shapeHit = hitTestBoardShape(this, worldPos);
-            if (shapeHit) {
-                const hasMultiSelection = hasBoxSelection(this);
-                const previousShape = getPcbSelection(this, 'shape')[0] || null;
-                if (!hasMultiSelection && previousShape?.id === shapeHit.id) {
-                    selectBoardShape(this, null);
-                    return true;
-                }
-                if (!hasMultiSelection && previousShape && previousShape.id !== shapeHit.id) {
-                    toggleBoxShapeSelection(this, previousShape);
-                }
-                selectBoardShape(this, null);
-                toggleBoxShapeSelection(this, shapeHit);
-                hideNetTooltip(this);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** Edit or drag an active box selection, or drop it when the press misses it. */
-    _pressBoxSelection(worldPos, selectedGroupHit) {
-        const svg = this.viewport.svg;
-        // Box-selection group drag: clicking on any member of an
-        // active multi-selection moves the whole group together.
-        // Clicking elsewhere drops the multi-selection and falls
-        // through to normal single-object selection below.
-        if (hasBoxSelection(this)) {
-            // Match schematic behavior: an anchor belonging to a
-            // marquee-selected shape edits only that shape, rather
-            // than moving the entire marquee selection.
-            const shapeWithHandle = getPcbSelection(this, 'shape').find(
-                (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
-            );
-            if (shapeWithHandle && startBoardShapeDrag(this, shapeWithHandle, worldPos)) {
-                selectBoardShape(this, shapeWithHandle);
-                setHoverHighlight(this, null);
-                hoverComponent(this, null);
-                hideNetTooltip(this);
-                svg.style.cursor = 'grabbing';
-                return true;
-            }
-            if (selectedGroupHit) {
-                // Clear the hover halo before dragging: hover updates
-                // are suppressed during a drag, so a leftover hover X
-                // (e.g. on a hole/via) would otherwise sit at the
-                // original position the whole drag.
-                setHoverHighlight(this, null);
-                hoverComponent(this, null);
-                beginGroupDrag(this, worldPos);
-                hideNetTooltip(this);
-                svg.style.cursor = 'grabbing';
-                return true;
-            }
-            clearBoxSelection(this);
-        }
-        return false;
-    }
-
-    /** Continue dragging the selected fill, track, via or shape; otherwise release it. */
-    _pressCurrentSelection(e, worldPos) {
-        const svg = this.viewport.svg;
-        // Continue interacting with an already-selected fill: grab a
-        // vertex or drag the whole region without re-clicking.
-        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-        if (selectedFill) {
-            if (this._startFillDrag(selectedFill, worldPos, e)) {
-                setHoverHighlight(this, null);
-                hideNetTooltip(this);
-                svg.style.cursor = 'grabbing';
-                return true;
-            }
-        }
-        // Any other click drops the current fill selection (it may be
-        // re-selected below if the click lands on a fill region).
-        this.selectFill(null);
-        selectBoardShape(this, null);
-
-        // If a track is already selected, try to start a vertex
-        // drag on it before doing anything else — this lets the
-        // user grab a node or bend a segment without re-clicking.
-        const selectedTrack = getSelectedTrack(this);
-        if (selectedTrack) {
-            if (startVertexDrag(this, selectedTrack, worldPos)) {
-                // A pure click (no drag) on a segment of the already-
-                // selected track refines the selection down to just
-                // that segment on mouse-up. Node grabs and drags are
-                // unaffected.
-                const vertexDrag = getVertexDrag(this);
-                setSegmentClickEdgeId(this, vertexDrag?.mode === 'segment' ? vertexDrag.edgeId : null);
-                // Clear any lingering hover halo so it doesn't sit
-                // at the original position while the drag is live
-                // (hover updates are suppressed during a drag).
-                setHoverHighlight(this, null);
-                hideNetTooltip(this);
-                setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
-                updateVertexDragCrosshair(this);
-                svg.style.cursor = 'grabbing';
-                return true;
-            }
-        }
-        // Same for a selected via: clicking on the via begins a
-        // drag without losing the selection.
-        const selectedVia = getSelectedVia(this);
-        if (selectedVia) {
-            if (startViaDrag(this, selectedVia, worldPos)) {
-                setHoverHighlight(this, null);
-                hideNetTooltip(this);
-                svg.style.cursor = 'grabbing';
-                return true;
-            }
-        }
-        // Same for a selected free-standing board shape.
-        const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-        if (selectedShape) {
-            const selectedHit = hitTestBoardShape(this, worldPos);
-            const onHandle = hitTestBoardShapeVertex(this, selectedShape, worldPos) != null;
-            if (onHandle || (selectedHit && selectedHit.id === selectedShape.id)) {
-                if (startBoardShapeDrag(this, selectedShape, worldPos)) {
-                    setHoverHighlight(this, null);
-                    hideNetTooltip(this);
-                    svg.style.cursor = 'grabbing';
-                    return true;
-                }
-            }
-        }
-
-        // The click isn't continuing a drag of the current
-        // selection, so the selected track (if any) is about to be
-        // deselected or replaced. Tidy away any redundant collinear
-        // waypoints first — e.g. a node added by double-click but
-        // never moved is collinear by definition and is removed here.
-        if (selectedTrack) {
-            commitCollinearCleanup(this, selectedTrack);
-        }
-        return false;
-    }
-
-    /** Select (and start dragging) the topmost target under the pointer, or arm a box select. */
-    _pressNewTarget(e, worldPos) {
-        const svg = this.viewport.svg;
-        const trackHit = hitTestTrack(this, worldPos);
-        if (trackHit) {
-            hoverComponent(this, null);
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            selectTrackOrVia(this, trackHit);
-            // Fresh whole-track selection — not a segment-refine click.
-            setSegmentClickEdgeId(this, null);
-            // Begin a drag immediately so click-and-drag works in
-            // one motion (no separate select-then-drag click).
-            if (trackHit.type === 'via') {
-                if (startViaDrag(this, trackHit.via, worldPos)) {
-                    hideNetTooltip(this);
-                    svg.style.cursor = 'grabbing';
-                }
-            } else if (trackHit.type === 'track') {
-                if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
-                    hideNetTooltip(this);
-                    setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
-                    updateVertexDragCrosshair(this);
-                    svg.style.cursor = 'grabbing';
-                }
-            }
-            return;
-        }
-
-        // Anything else clears any track selection first.
-        clearTrackSelection(this);
-
-        const shapeHit = hitTestBoardShape(this, worldPos);
-        if (shapeHit) {
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            this.selectText(null);
-            selectRefText(this, null);
-            this.selectFill(null);
-            selectBoardShape(this, shapeHit);
-            showBoardShapeProperties(this, shapeHit);
-            if (startBoardShapeDrag(this, shapeHit, worldPos)) {
-                hideNetTooltip(this);
-                svg.style.cursor = 'grabbing';
-            }
-            return;
-        }
-        selectBoardShape(this, null);
-        const textHit = hitTestText(this, worldPos);
-        if (textHit) {
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            this.selectText(textHit);
-            this.showTextProperties(textHit);
-            beginTextDrag(this, textHit, worldPos);
-            svg.style.cursor = 'grabbing';
-            return;
-        }
-        this.selectText(null);
-
-        // Reference-designator text hit-test. The label sits on the
-        // silkscreen above/around the body and can be dragged/rotated
-        // independently of the component, so test it before the body.
-        const refHit = hitTestReferenceText(this, worldPos);
-        if (refHit) {
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            selectRefText(this, refHit);
-            const dragging = beginRefTextDrag(this, refHit, worldPos);
-            this.showRefProperties(refHit);
-            svg.style.cursor = dragging ? 'grabbing' : 'default';
-            return;
-        }
-        selectRefText(this, null);
-
-        const hit = /** @type {string|null} */ (hitTestComponent(this, worldPos));
-        if (hit) {
-            this.selectComponent(hit);
-            selectBoardOutline(this, false);
-            this.showComponentProperties(hit);
-            if (beginComponentDrag(this, hit, worldPos)) svg.style.cursor = 'grabbing';
-        } else if (hitTestBoardOutline(this, worldPos)) {
-            this.selectComponent(null);
-            this.selectFill(null);
-            selectBoardOutline(this, true);
-            this._showBoardOutlineProperties();
-        } else if (hitTestFill(this, worldPos)) {
-            const fillHit = hitTestFill(this, worldPos);
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            this.selectFill(fillHit);
-            showFillProperties(this, fillHit);
-        } else {
-            this.selectComponent(null);
-            selectBoardOutline(this, false);
-            this.selectFill(null);
-            this.clearProperties();
-            // Empty canvas: arm a box-select. The marquee only
-            // materialises once the pointer crosses the drag
-            // threshold (see the mousemove handler).
-            armBoxSelect(this, { x: e.clientX, y: e.clientY }, worldPos);
-        }
-    }
-
-    /**
-     * Left-click with track tool: start a new track or add a waypoint.
-     */
-    _pressTrackTool(e) {
-        const worldPos = this.screenToWorld(e);
-        // Can't draw on a locked or hidden layer.
-        if (!getTrackDraw(this) && refuseBlockedToolPlacement(this, e)) return;
-        if (getTrackDraw(this)) {
-            addTrackWaypoint(this, worldPos);
-        } else {
-            startTrackDraw(this, worldPos);
-            // Arm press-drag detection: if the user holds and releases
-            // away from here it's "drag mode" (release ends the track);
-            // a release in place is "click mode" (click again to end).
-            noteTrackPress(this, e);
-        }
-    }
-
-    /**
-     * Left-click with fill tool: start a new pour region or add a vertex.
-     */
-    _pressFillTool(e) {
-        const worldPos = this.screenToWorld(e);
-        if (!getFillDraw(this) && refuseBlockedToolPlacement(this, e)) return;
-        if (getFillDraw(this)) {
-            addFillWaypoint(this, worldPos);
-        } else {
-            startFillDraw(this, worldPos);
-            // Drawing a pour shows the Fill tool's Properties (a finished pour showed its own).
-            showFillToolProperties(this);
-        }
-    }
-
-    /**
-     * Left-click with via tool: place a standalone via at the cursor.
-     */
-    _pressViaTool(e) {
-        const worldPos = this.screenToWorld(e);
-        if (refuseBlockedToolPlacement(this, e)) return;
-        const snap = resolveTrackSnap(this, worldPos, {});
-        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
-        const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
-        const selectedNet = String(getViaToolNet(this) || '').trim();
-
-        if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
-            // Landed on an existing pad / track node: attach the via
-            // there and inherit that net (the via sits on a node).
-            const net = selectedNet || snap.pad?.net || snap.trackNode?.track?.net || '';
-            const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net });
-            this.history.execute(new AddViaCommand(this, via));
-        } else {
-            // Mid-segment? Split the host track so the via lands on a
-            // node of each resulting half (both keep the track's net).
-            const split = findSplittableTrackEdge(this, worldPos);
-            if (split) {
-                const via = new Via({
-                    x: split.px, y: split.py, diameter, drill,
-                    net: selectedNet || split.track.net || '',
-                });
-                const parts = splitTrackObjectAtPoint(
-                    split.track, split.edgeId, { x: split.px, y: split.py });
-                if (parts && parts.length) {
-                    /** @type {any[]} */
-                    const cmds = [new RemoveTrackCommand(this, split.track)];
-                    for (const part of parts) cmds.push(new AddTrackCommand(this, part));
-                    cmds.push(new AddViaCommand(this, via));
-                    this.history.execute(new CompoundCommand(cmds));
-                } else {
-                    this.history.execute(new AddViaCommand(this, via));
-                }
-
-            } else {
-                // Empty space: a standalone via with no net assignment.
-                const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet });
-                this.history.execute(new AddViaCommand(this, via));
-            }
-        }
-    }
-
-    /**
-     * Primary press with the pad tool.
-     */
-    _pressPadTool(e) {
-        if (refuseBlockedToolPlacement(this, e)) return;
-        const snap = snapPadPlacement(this, this.screenToWorld(e));
-        const pad = new Pad({ ...getPadToolDefaults(this), x: snap.x, y: snap.y });
-        this.history.execute(new AddPadCommand(this, pad));
-        setPcbSelection(this, [{ kind: 'pad', object: pad }]);
-        this.showPadProperties(pad);
-        refreshBoxSelectionHighlights(this);
-    }
-
-    /**
-     * Left-click with a shape tool: circle/rect = 2 clicks, arc = 3
-     * clicks, and Line/Polygon accept vertices until double-click or Enter.
-     */
-    _pressShapeTool(e) {
-        if (getShapeDraw(this)?.kind !== this.currentTool && refuseBlockedToolPlacement(this, e)) return;
-        shapeDrawClick(this, this.currentTool, this.screenToWorld(e));
-    }
-
-    /**
-     * Left-click with text tool: place a text at the cursor.
-     */
-    _pressTextTool(e) {
-        const worldPos = this.screenToWorld(e);
-        const snap = this.snapToGrid(worldPos);
-        const defaults = getTextToolDefaults(this);
-        const layer = defaults.layer;
-        // Don't place text on a locked or hidden layer.
-        if (refuseBlockedToolPlacement(this, e)) return;
-        const text = createPcbText({
-            content: '',
-            x: snap.x,
-            y: snap.y,
-            size: defaults.size,
-            rotation: defaults.rotation,
-            layer,
-            strokeWidth: defaults.strokeWidth,
-            border: defaults.border,
-        });
-        this.history.execute(new AddTextCommand(this, text));
-        // Select the freshly-placed text so the user can immediately
-        // edit it in the Properties panel.
-        this.selectText(text);
-        this.showTextProperties(text);
-        // Match the schematic editor: drop straight into inline
-        // edit mode so the user can type the content right away.
-        this._startTextInlineEdit(text, null, { isNewPlacement: true });
     }
 
     _updateViewportStatus() {

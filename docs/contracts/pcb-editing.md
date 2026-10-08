@@ -80,17 +80,27 @@ The PCB canvas mouse listeners are in `pcb/modules/mouse.js` (`bindPcbMouseEvent
 bound through `PCBApp._bindMouseEvents`). The mousedown listener handles only
 cross-tool concerns (paste drop, floating previews, ribbon tab, inline text
 commit, double-click edit, right-button bookkeeping, pan). It then hands a
-primary press to the active tool's `_press…Tool` method through
-`PCB_TOOL_PRESS_HANDLERS`; `test-pcb-pointer-press` checks that routing and the
-release paths.
-`_pressSelectTool` is a priority chain of phase methods, each returning whether
-it handled the press: the shared selection interaction, Ctrl/Cmd shape toggling,
-an active box selection, continuing the current selection, then selecting a new
-target. Component presses use `beginComponentDrag`, the same start as the selection
+primary press to the active tool through `pressPcbTool`, and pointer movement
+with no interaction under way to its hover (`hoverPcbTool`).
+
+`pcb/modules/pcb-tools.js` holds one entry per tool (`PCB_TOOLS`): its press, its
+hover or cursor preview (`follow`), the layers it places on (`targets`), the layer
+the status bar names, its Properties panel and its ribbon button. The press, hover,
+status bar, ribbon, Properties and placement checks all read that entry, and each
+tool's press lives in its owner module (`pressViaTool` in `via-tool.js`,
+`pressTextTool` in `text-properties.js`, …). `pressPcbTool` refuses to start a
+placement on a locked or hidden layer, once, for every tool; a press that continues a
+draw already under way is not checked again (`test-pcb-tools`). A real press with
+each tool does what that tool does (`test-pcb-pointer-press`, which also checks the
+pan buttons and release paths).
+The select tool (`select-tool.js`) runs `SELECT_PRESS_PHASES`, a priority chain of
+phases each returning whether it handled the press: the shared selection interaction,
+Ctrl/Cmd shape toggling, an active box selection, continuing the current selection,
+then selecting a new target. Component presses use `beginComponentDrag`, the same start as the selection
 adapter, so locked placements never enter drag state
 (`test-pcb-select-press`).
 Select-tool hover coalescing and overlap/cursor feedback live in
-`pcb/modules/pcb-hover.js`; `mouse.js` calls that scheduler directly, while
+`pcb/modules/pcb-hover.js`; the select tool's hover calls that scheduler, while
 component and text hover drawing remains with each entity's owner module.
 
 Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`, which
@@ -140,10 +150,10 @@ The board outline keeps its existing layer-lock checkbox
 
 **Placing on a locked or hidden layer.** Nothing new is drawn on a locked layer,
 nor on a hidden one (the object would be invisible); for pours, that side's
-Copper Fill row counts too. `pcbToolTargets(app, tool)` (`tool-lifecycle.js`)
+Copper Fill row counts too. `pcbToolTargets(app, tool)` (`pcb-tools.js`)
 names the rows each placement tool would draw on, from its own settings: Via,
 the pad tool's copper sides, the text, track, fill and shape tools' layers, and
-Hole. Everything that reports a blocked tool reads it, so they agree:
+the Hole preset (the Circle tool on the Hole layer). Everything that reports a blocked tool reads it, so they agree:
 - the ribbon tool button carries a lock (or ⊘) badge and its tooltip names the
   layer; the badges refresh when the blocked set changes (`syncPcbToolBlocks`,
   from `setPcbStatus` and every layer lock or eye change);
@@ -242,7 +252,7 @@ cleanup; components remain schematic-owned. Native field guards stay in the
 keyboard handler. Cut and object-specific context menus keep their distinct
 whole-object/targeted semantics rather than adopting keyboard refinement.
 
-`pcb/modules/tool-lifecycle.js` owns the tool catalog, tool selection,
+`pcb/modules/pcb-tools.js` owns the tool catalog; `tool-lifecycle.js` owns tool selection,
 drawing-mode cancellation and pre-navigation policy. Controls retain icons,
 button highlighting and Shapes-menu memory; the ribbon retains panel switching,
 height measurement and DRC visibility. Both call the lifecycle boundary before

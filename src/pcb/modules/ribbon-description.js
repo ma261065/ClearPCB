@@ -5,7 +5,8 @@ import { showPictureImport } from './picture-import.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 import { commitDesignInput } from './design-settings.js';
 import { PCB_DESIGN_MAX_MM } from '../../core/PcbDesignSettings.js';
-import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, normalizePcbTool, pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool } from './pcb-tools.js';
 import { placementBlockMessage } from './layers.js';
 import { peekDrcPresentation } from './drc-state.js';
 
@@ -15,7 +16,6 @@ const K = text => E('kbd', {}, text);
 const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] });
 
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
-const SHAPE_ICONS = { line: '/', circle: '◯', arc: '◠', rect: '▢', polygon: '⬠' };
 
 function designFactor(app) {
     return app.designSettings.values.units === 'inch' ? 1 / 25.4 : 1;
@@ -102,13 +102,10 @@ const specctraFlyout = {
     ],
 };
 
-const shapeItems = [
-    { kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape: 'line' }, title: 'Draw Line', content: '/ Line' },
-    { kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape: 'circle' }, title: 'Draw Circle', content: '◯ Circle' },
-    { kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape: 'arc' }, title: 'Draw Arc', content: '◠ Arc' },
-    { kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape: 'rect' }, title: 'Draw Rectangle', content: '▢ Rectangle' },
-    { kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape: 'polygon' }, title: 'Draw Polygon', content: '⬠ Polygon' },
-];
+const shapeItems = [...SHAPE_TOOLS].map(shape => ({
+    kind: 'button', className: 'ribbon-tool-menu-item', dataset: { shape },
+    title: PCB_TOOLS[shape].button.title, content: PCB_TOOLS[shape].button.content,
+}));
 
 export function createPcbRibbonDescription(app) {
     let lastShape = 'circle';
@@ -126,6 +123,22 @@ export function createPcbRibbonDescription(app) {
         return block ? `${title} (${placementBlockMessage(block)})` : title;
     };
     const shapeTool = () => (SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape);
+    // A tool's ribbon button, from its entry in pcb-tools.js; placement tools carry block badges.
+    const toolButton = id => {
+        const { button, targets } = PCB_TOOLS[id];
+        return {
+            kind: 'toolButton', id: button.id, content: button.content,
+            title: targets ? blockTitle(button.title, id) : button.title, ...(targets ? { classes: blockBadge(id) } : {}),
+            active: () => normalizePcbTool(app.currentTool) === id, run: () => setTool(id),
+        };
+    };
+    const presetButton = id => {
+        const { button, tool, layer } = PCB_TOOL_PRESETS[id];
+        return {
+            kind: 'toolButton', id: button.id, content: button.content, title: blockTitle(button.title, id),
+            classes: blockBadge(id), run: () => { app.activeLayer = layer; setTool(tool); },
+        };
+    };
     return {
         onBeforeTabChange({ from, to, userInitiated }) {
             preparePcbRibbonTransition(app, from, to, userInitiated);
@@ -214,12 +227,12 @@ export function createPcbRibbonDescription(app) {
                         itemsClassName: 'ribbon-shape-body',
                         items: [
                             E('div', { className: 'ribbon-group-items ribbon-shape-tools' }, [
-                                { kind: 'toolButton', id: 'pcbToolSelect', title: 'Select (V)', content: '⊹ Select', active: () => normalizePcbTool(app.currentTool) === 'select', run: () => setTool('select') },
-                                { kind: 'toolButton', id: 'pcbToolTrack', title: blockTitle('Route Track', 'track'), classes: blockBadge('track'), content: '⏤ Track', active: () => normalizePcbTool(app.currentTool) === 'track', run: () => setTool('track') },
+                                toolButton('select'),
+                                toolButton('track'),
                                 { kind: 'toolButton', id: 'pcbImportImage', title: 'Import PNG or JPEG artwork', content: '🖼 Image', run: () => showPictureImport(app) },
-                                { kind: 'toolButton', id: 'pcbToolVia', title: blockTitle('Place Via', 'via'), classes: blockBadge('via'), content: '◉ Via', active: () => normalizePcbTool(app.currentTool) === 'via', run: () => setTool('via') },
-                                { kind: 'toolButton', id: 'pcbToolPad', title: blockTitle('Place Pad', 'pad'), classes: blockBadge('pad'), content: '▣ Pad', active: () => normalizePcbTool(app.currentTool) === 'pad', run: () => setTool('pad') },
-                                { kind: 'toolButton', id: 'pcbToolHole', title: blockTitle('Place Hole', 'hole'), classes: blockBadge('hole'), content: '◎ Hole', run: () => { app.activeLayer = 'hole'; setTool('circle'); } },
+                                toolButton('via'),
+                                toolButton('pad'),
+                                presetButton('hole'),
                                 {
                                     kind: 'splitTool',
                                     id: 'pcbToolShapesWrap',
@@ -229,7 +242,7 @@ export function createPcbRibbonDescription(app) {
                                         'tool-layer-hidden': () => pcbToolBlock(app, shapeTool())?.reason === 'hidden',
                                     },
                                     main: { id: 'pcbToolShapes', title: 'Draw current shape',
-                                        content: () => `${SHAPE_ICONS[SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape]} Shapes`,
+                                        content: () => `${PCB_TOOLS[shapeTool()].button.icon} Shapes`,
                                         run: () => {
                                             const tool = normalizePcbTool(app.currentTool);
                                             setTool(SHAPE_TOOLS.has(tool) ? tool : lastShape);
@@ -238,8 +251,8 @@ export function createPcbRibbonDescription(app) {
                                     menuId: 'pcbToolShapesMenu',
                                     items: shapeItems.map(item => ({ ...item, run: () => { lastShape = item.dataset.shape; setTool(lastShape); } })),
                                 },
-                                { kind: 'toolButton', id: 'pcbToolText', title: blockTitle('Place Text', 'text'), classes: blockBadge('text'), content: 'T Text', active: () => normalizePcbTool(app.currentTool) === 'text', run: () => setTool('text') },
-                                { kind: 'toolButton', id: 'pcbToolFill', title: blockTitle('Draw Copper Fill / Pour', 'fill'), classes: blockBadge('fill'), content: '▦ Fill', active: () => normalizePcbTool(app.currentTool) === 'fill', run: () => setTool('fill') },
+                                toolButton('text'),
+                                toolButton('fill'),
                             ]),
                         ],
                     },

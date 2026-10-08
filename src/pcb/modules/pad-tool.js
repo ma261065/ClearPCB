@@ -1,6 +1,10 @@
 import { padCopperPathD } from './pad.js';
 import { showPadEditor } from './pad-properties.js';
 import { isLayerVisible } from './layers.js';
+import { AddPadCommand } from './pad-commands.js';
+import { Pad } from '../../shapes/pad.js';
+import { refreshBoxSelectionHighlights } from './box-select.js';
+import { setPcbSelection } from './selection-registry.js';
 
 const padToolDefaults = new WeakMap();
 const padPreviewGroups = new WeakMap();
@@ -117,4 +121,14 @@ export function showPadToolProperties(app) {
         defaults: getPadToolDefaults(app),
         refreshPreview: () => { const world = getPadPreviewWorld(app); if (world) updatePadPreview(app, world); },
     });
+}
+
+/** A primary press with the Pad tool: place a pad from the tool's defaults and select it. */
+export function pressPadTool(app, worldPos) {
+    const snap = snapPadPlacement(app, worldPos);
+    const pad = new Pad({ ...getPadToolDefaults(app), x: snap.x, y: snap.y });
+    app.history.execute(new AddPadCommand(app, pad));
+    setPcbSelection(app, [{ kind: 'pad', object: pad }]);
+    app.showPadProperties(pad);
+    refreshBoxSelectionHighlights(app);
 }

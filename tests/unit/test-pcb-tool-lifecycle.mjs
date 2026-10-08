@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { bindPcbControls } from '../../src/pcb/modules/controls.js';
-import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool, cancelPcbDrawingMode } from '../../src/pcb/modules/tool-lifecycle.js';
+import { preparePcbRibbonTransition, selectPcbTool, cancelPcbDrawingMode } from '../../src/pcb/modules/tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS, normalizePcbTool } from '../../src/pcb/modules/pcb-tools.js';
 import { getTrackDraw, showTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
 import { getFillDraw } from '../../src/pcb/modules/copper-fill-draw.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';

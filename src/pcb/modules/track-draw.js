@@ -1,3 +1,4 @@
+import { updateCursorCrosshair } from './cursor-state.js';
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { buildCopperClusters, unionCoincidentClusters } from './copper-connectivity.js';
 import { getComputedFill } from './computed-fill-cache.js';
@@ -1744,4 +1745,25 @@ export function handleTrackDrawKey(app, e) {
         return true;
     }
     return false;
+}
+
+/** A primary press with the Track tool: start a track, or add its next waypoint. */
+export function pressTrackTool(app, worldPos) {
+    if (getTrackDraw(app)) addTrackWaypoint(app, worldPos);
+    else startTrackDraw(app, worldPos);
+}
+
+/**
+ * Pointer movement with the Track tool before a press: the crosshair sits on the snap
+ * point, and a marker shows the copper the first press would start from, using the same
+ * hard targets as the route itself so that press cannot snap elsewhere.
+ */
+export function hoverTrackTool(app, e) {
+    const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});
+    updateCursorCrosshair(app, { x: snap.x, y: snap.y });
+    if (snap.snapType === 'pad' || snap.snapType === 'via' || snap.snapType === 'track-node') {
+        showTrackSnapMarker(app, { x: snap.x, y: snap.y });
+    } else {
+        clearTrackSnapMarker(app);
+    }
 }

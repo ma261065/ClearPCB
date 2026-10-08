@@ -148,23 +148,25 @@ preview-then-commit-once pattern above. Drive it in a unit test with the fake DO
 
 ### Add a PCB tool
 
-1. Ribbon: a `toolButton` in `pcb/modules/ribbon-description.js` whose `run`
-   selects the tool and whose `active` reads `normalizePcbTool(app.currentTool)`.
-2. Lifecycle: register the tool in `pcb/modules/tool-lifecycle.js`
-   (`PCB_CROSSHAIR_TOOLS` for a crosshair; `selectPcbTool` opens its "New …"
-   Properties panel, like the Fill tool, and a tool with such a panel also goes in
-   `PCB_PROPERTIES_TOOLS`, so presses on the canvas keep the Properties tab open).
-   Multi-click drawing finishes like the others: double-click or Enter with the
-   corners placed, a stationary right-click with the cursor as the last corner.
-3. Presses: add the tool's press handler to `PCB_TOOL_PRESS_HANDLERS`
-   (`pcb/modules/mouse.js`); `test-pcb-pointer-press` checks the routing.
-4. In-progress state: a drawing session or drag is a slot in `PCB_INTERACTIONS`
+1. An entry in `PCB_TOOLS` (`pcb/modules/pcb-tools.js`) names everything about the
+   tool: its `press` (a function in its owner module, like `pressViaTool`), its
+   `targets` (the layers it places on: this makes it a placement tool, with a
+   crosshair and its own "New …" Properties panel, `showProperties`, and presses
+   refused with the reason on a locked or hidden layer), `drawing` if presses
+   continue a draw, `hover` or `follow` for pointer movement, the `layer` the
+   status bar names, and its ribbon `button`. The ribbon places the button with
+   `toolButton(id)` in `ribbon-description.js`. Multi-click drawing finishes like
+   the others: double-click or Enter with the corners placed, a stationary
+   right-click with the cursor as the last corner.
+2. `test-pcb-tools` checks the entry's shape; add the tool to
+   `test-pcb-pointer-press`, which checks that a real press does what it should.
+3. In-progress state: a drawing session or drag is a slot in `PCB_INTERACTIONS`
    (`pcb/modules/pcb-interactions.js`) naming its owner module, with its move,
    release and cancel handlers in `pcb-interaction-routing.js`. Only the owner
    writes the slot (`setPcbInteraction`); other modules call the owner's
    functions (`getFillDraw`, `endRefDrag`, …). `test-pcb-interaction-registry`
    fails if a slot is unregistered or written outside its owner.
-5. Finish with one command (above) and add a browser scenario.
+4. Finish with one command (above) and add a browser scenario.
 
 Schematic tools follow the same shape: `schematic/modules/tool.js`
 (`onToolSelected`), `draw-states.js`, `schematic-interactions.js` and the

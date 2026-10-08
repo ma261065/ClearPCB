@@ -14,7 +14,7 @@ import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
 import { pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
-import { fillToolDefaults, setFillToolDefaults } from './copper-fill-draw.js';
+import { addFillWaypoint, fillToolDefaults, getFillDraw, setFillToolDefaults, startFillDraw } from './copper-fill-draw.js';
 import { getPropertyEditor } from './property-editors.js';
 import { loadClipper } from './copper-fill-geom.js';
 
@@ -458,4 +458,15 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
         }
     }
     return fields;
+}
+
+/** A primary press with the Fill tool: start a pour outline, or add its next corner. */
+export function pressFillTool(app, worldPos) {
+    if (getFillDraw(app)) {
+        addFillWaypoint(app, worldPos);
+        return;
+    }
+    startFillDraw(app, worldPos);
+    // Drawing a pour shows the Fill tool's Properties (a finished pour showed its own).
+    showFillToolProperties(app);
 }

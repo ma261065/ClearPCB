@@ -5,8 +5,8 @@ globalThis.window = { addEventListener() {} };
 installFakeDom();
 const { PCB_LAYERS, PCB_COPPER_FILLS, placementBlock, placementBlockMessage, refuseBlockedPlacement } =
     await import('../../src/pcb/modules/layers.js');
-const { pcbToolTargets, pcbToolBlock, pcbToolBlockNotice, syncPcbToolBlocks } =
-    await import('../../src/pcb/modules/tool-lifecycle.js');
+const { pcbToolBlock, pcbToolBlockNotice, syncPcbToolBlocks } = await import('../../src/pcb/modules/tool-lifecycle.js');
+const { pcbToolTargets } = await import('../../src/pcb/modules/pcb-tools.js');
 const { setTextToolDefaults, getTextToolDefaults } = await import('../../src/pcb/modules/text-properties.js');
 const { setFillToolDefaults } = await import('../../src/pcb/modules/copper-fill-draw.js');
 const { setTrackToolLayer } = await import('../../src/pcb/modules/track-draw.js');

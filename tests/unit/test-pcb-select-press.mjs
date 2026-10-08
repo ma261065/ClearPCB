@@ -12,24 +12,31 @@ globalThis.localStorage.setItem = noop;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PcbDocument } = await import('../../src/core/PcbDocument.js');
 const { areDragOverlaysDeferred } = await import('../../src/pcb/modules/refresh-state.js');
+const { SELECT_PRESS_PHASES, pressSelectTool } = await import('../../src/pcb/modules/select-tool.js');
 
-const PHASES = ['_pressSelectionInteraction', '_pressToggleShape', '_pressBoxSelection',
-    '_pressCurrentSelection', '_pressNewTarget'];
+const PHASES = ['pressSelectionInteraction', 'pressToggleShape', 'pressBoxSelection',
+    'pressCurrentSelection', 'pressNewTarget'];
+assert.deepEqual(SELECT_PRESS_PHASES.map(phase => phase.name), PHASES, 'the select press phases, in priority order');
 const press = (extra = {}) => ({ button: 0, clientX: 5, clientY: 6, ctrlKey: false, metaKey: false, shiftKey: false, ...extra });
 
 // Phases run in priority order and stop at the first that handles the press.
 for (let handledAt = 0; handledAt < PHASES.length; handledAt++) {
     const calls = [];
     const app = Object.create(PCBApp.prototype);
-    PHASES.forEach((name, index) => {
-        app[name] = (...args) => { calls.push([name, ...args]); return index === handledAt; };
+    const phases = PHASES.map((name, index) => (phaseApp, selectPress) => {
+        calls.push([name, phaseApp, selectPress]);
+        return index === handledAt;
     });
     const world = { x: 1, y: 2 };
-    app._pressSelectTool(press({ metaKey: true }), world, 'group-hit');
+    pressSelectTool(app, press({ metaKey: true }), world, 'group-hit', phases);
     assert.deepEqual(calls.map(([name]) => name), PHASES.slice(0, handledAt + 1),
         `${PHASES[handledAt]} ends the chain`);
-    assert.equal(calls[0][3], true, 'Cmd/Ctrl makes the press additive');
-    if (handledAt >= 2) assert.equal(calls[2][2], 'group-hit', 'box phase receives the group hit');
+    for (const [, phaseApp, selectPress] of calls) {
+        assert.equal(phaseApp, app);
+        assert.equal(selectPress.worldPos, world);
+        assert.equal(selectPress.additiveSelection, true, 'Cmd/Ctrl makes the press additive');
+        assert.equal(selectPress.selectedGroupHit, 'group-hit', 'every phase sees the group hit');
+    }
 }
 
 // A press on a component selects it and starts the shared drag, unless the placement is locked.
@@ -53,7 +60,8 @@ for (const locked of [false, true]) {
         showComponentProperties: noop,
         selectFill: noop,
     });
-    app._pressNewTarget(press(), { x: 10, y: 20 });
+    const pressNewTarget = SELECT_PRESS_PHASES.at(-1);
+    pressSelectTool(app, press(), { x: 10, y: 20 }, null, [pressNewTarget]);
     assert.equal(selected.at(-1), 'U1', `${locked ? 'locked' : 'unlocked'} component is selected`);
     if (locked) {
         assert.equal(getComponentDrag(app), null, 'a locked component does not enter drag state');

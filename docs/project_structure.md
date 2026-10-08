@@ -172,8 +172,8 @@ evaluation-order cycle fails.
   pointer move, release and cancel handlers. `test-pcb-interaction-registry`
   fails if a slot is unregistered or written outside its owner.
 - `pcb/modules/mouse.js` binds the PCB canvas's mouse events (like the schematic's
-  `mouse.js`). Presses go to one `_press…Tool` method per tool through its
-  `PCB_TOOL_PRESS_HANDLERS`; releases go to `releasePcbPointerGestures`.
+  `mouse.js`). Presses and hover go to the active tool's entry in `PCB_TOOLS`
+  (`pcb-tools.js`); releases go to `releasePcbPointerGestures`.
 - PCB modules call an owning module's functions directly, and reach what the
   editor itself hosts (its viewport, dirty state, autorouter session, component
   selection and Properties panels) only through `pcb-editor-api.js` services,
@@ -213,6 +213,9 @@ PCB editor:
   editor shows: the ordered table of previews behind `PCBApp`'s collection getters.
 - `pcb/modules/edit-lifecycle.js` — preview cancellation, property-editor disposal,
   snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
+- `pcb/modules/pcb-tools.js` — the tool catalog: one entry per tool (press, hover,
+  target layers, status layer, Properties, ribbon button) and the press dispatcher;
+  `select-tool.js` — the select tool's press phases and hover.
 - `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points;
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
   with each drawing tool handling its own keys (`handleTrackDrawKey`, …).

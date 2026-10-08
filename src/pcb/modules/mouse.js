@@ -1,7 +1,7 @@
 /**
  * Mouse event binding for the PCB canvas, like schematic/modules/mouse.js.
  *
- * Presses go to the active tool (PCB_TOOL_PRESS_HANDLERS), moves to the active
+ * Presses go to the active tool (pressPcbTool in pcb-tools.js), moves to the active
  * interaction (pcb-interaction-routing.js) or the tool's hover, and a primary release
  * anywhere in the window finishes the active gesture (releasePcbPointerGestures).
  *
@@ -24,44 +24,24 @@ import {
     getShapeDraw, hitTestBoardShape, hitTestBoardShapeVertex, finishPolygonDraw, finishLineDraw,
     finishShapeDrawAtPoint, showBoardShapeContextMenu, dismissBoardShapeContextMenu,
 } from './board-shapes.js';
-import { hasBoxSelection, pointInBoxSelection, maybeStartBoxSelect } from './box-select.js';
+import { hasBoxSelection, pointInBoxSelection } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hitTestText } from './pcb-text-render.js';
 import { toggleDebugTooltipPin, updateDebugTooltip } from './debug-tooltip.js';
-import { PCB_CROSSHAIR_TOOLS, PCB_PROPERTIES_TOOLS, syncToolBlockIndicator, updateCursorForTool } from './tool-lifecycle.js';
+import { syncToolBlockIndicator, updateCursorForTool } from './tool-lifecycle.js';
+import { PCB_PLACEMENT_TOOLS, followPcbTool, hoverPcbTool, pressPcbTool } from './pcb-tools.js';
 import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interaction-routing.js';
-import {
-    getTrackDraw, resolveTrackDrawSnap, showTrackSnapMarker, clearTrackSnapMarker, addTrackWaypoint, finishTrackDraw,
-} from './track-draw.js';
+import { getTrackDraw, addTrackWaypoint, finishTrackDraw } from './track-draw.js';
 import { getFillDraw, finishFillDraw, finishFillDrawAtPoint } from './copper-fill-draw.js';
 import { settleFillGeometryPreview, showFillContextMenu } from './copper-fill-edit.js';
 import { hitTestTrack, hitTestLockedTrack, showTrackContextMenu } from './track-select.js';
 import { showLockedLayerBubble } from './layers.js';
-import { updatePadPreview } from './pad-tool.js';
-import { updateViaPreview } from './via-tool.js';
 import { isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { hitTestComponent, showComponent3DMenu } from './component-selection.js';
 import { hitTestFill } from './copper-fill-selection.js';
-import { scheduleHoverUpdate } from './pcb-hover.js';
 import { tryEditReferenceAt } from './ref-text-selection.js';
-import { updateCursorCrosshair } from './cursor-state.js';
-
-/** PCBApp method handling a primary-button press for each tool. */
-export const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
-    select: '_pressSelectTool',
-    track: '_pressTrackTool',
-    fill: '_pressFillTool',
-    via: '_pressViaTool',
-    pad: '_pressPadTool',
-    line: '_pressShapeTool',
-    circle: '_pressShapeTool',
-    rect: '_pressShapeTool',
-    polygon: '_pressShapeTool',
-    arc: '_pressShapeTool',
-    text: '_pressTextTool',
-});
 
 /** Screen movement (px) below which a press and release count as a click, not a drag. */
 const CLICK_SLOP_PX = 4;
@@ -91,14 +71,6 @@ function takeMoved(state, key, e) {
     const down = state[key];
     state[key] = null;
     return Math.hypot(e.clientX - down.x, e.clientY - down.y) >= CLICK_SLOP_PX;
-}
-
-/**
- * Record the primary press that started a track, so its release can choose between
- * click mode (released in place: keep drawing) and drag mode (released away: finish).
- */
-export function noteTrackPress(app, e) {
-    gestures(app).trackLeft = screenPoint(e);
 }
 
 /** Wire the PCB canvas's mouse events (once, at viewport setup). */
@@ -180,7 +152,7 @@ function onMouseDown(app, e) {
     // inline-editing text (the Properties tab hosts its size/rotation spinners), not when
     // pressing a selected anchor or group, and not on a right-button press (that starts a
     // pan; dragging the board must not switch tabs, e.g. closing the Design tab's live DRC).
-    if (!getTrackDraw(app) && !textEdit && !PCB_PROPERTIES_TOOLS.has(app.currentTool)
+    if (!getTrackDraw(app) && !textEdit && !PCB_PLACEMENT_TOOLS.has(app.currentTool)
         && !selectedBoardShapeAnchor && !selectedGroupHit
         && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
         const activeTab = app.ribbon?.querySelector('.ribbon-tab.active');
@@ -225,19 +197,11 @@ function onMouseDown(app, e) {
         return;
     }
     if (e.button !== 0) return;
-    const press = PCB_TOOL_PRESS_HANDLERS[app.currentTool];
-    if (press) app[press](e, worldPos, selectedGroupHit);
-}
-
-/** Keep the via, pad or crosshair cursor of the active tool under the pointer. */
-function updateToolCursor(app, worldPos) {
-    if (app.currentTool === 'via') {
-        updateViaPreview(app, worldPos);
-    } else if (app.currentTool === 'pad') {
-        updatePadPreview(app, worldPos);
-    } else if (PCB_CROSSHAIR_TOOLS.has(app.currentTool)) {
-        updateCursorCrosshair(app, worldPos);
-    }
+    const startingTrack = app.currentTool === 'track' && !getTrackDraw(app);
+    pressPcbTool(app, e, worldPos, selectedGroupHit);
+    // Remember the press that started a track, so its release can choose between click
+    // mode (released in place: keep drawing) and drag mode (released away: finish).
+    if (startingTrack && getTrackDraw(app)) gestures(app).trackLeft = screenPoint(e);
 }
 
 function onMouseMove(app, e) {
@@ -248,27 +212,11 @@ function onMouseMove(app, e) {
     if (app.viewport.isPanning) {
         app.viewport.updatePan(e.clientX, e.clientY);
         // Keep tool crosshairs anchored under the cursor while panning.
-        updateToolCursor(app, app.screenToWorld(e));
+        followPcbTool(app, app.screenToWorld(e));
     } else if (dispatchPcbPointerMove(app, e)) {
         // An in-progress interaction consumed the move; see pcb-interactions.js.
-    } else if (app.currentTool === 'select') {
-        // A pending or active marquee owns the move. Otherwise hover hit-testing, which is
-        // O(N) over every pad, track and text, is coalesced to one pass per animation frame
-        // so the highlight keeps up with the cursor on complex boards.
-        if (!maybeStartBoxSelect(app, e, app.screenToWorld(e))) scheduleHoverUpdate(app, e);
-    } else if (app.currentTool === 'track') {
-        const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});
-        updateCursorCrosshair(app, { x: snap.x, y: snap.y });
-        // Pre-draw hover uses the same hard copper targets as the
-        // active route so the first press cannot change its snap.
-        if (snap.snapType === 'pad' || snap.snapType === 'via'
-            || snap.snapType === 'track-node') {
-            showTrackSnapMarker(app, { x: snap.x, y: snap.y });
-        } else {
-            clearTrackSnapMarker(app);
-        }
     } else {
-        updateToolCursor(app, app.screenToWorld(e));
+        hoverPcbTool(app, e);
     }
     app.viewport.trackMouse(e);
     updateDebugTooltip(app, e);
