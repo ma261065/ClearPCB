@@ -250,31 +250,56 @@ Files use LF line endings (`.gitattributes`).
 
 ## Handover: Where Things Stand
 
-The structure is enforced rather than documented only: the gate fails on an import
-that crosses a layer, on a module that reaches an editor's private members, on an
-optional call to an editor method (`app.method?.()`), on a doc that names a file
-that no longer exists, and on any strict type error. The source now type-checks under
-TypeScript's strict settings; keep new code fully typed and fix type errors as part of
-the change that introduces them. Work that is known but not done, with a way in:
-- **Loose types.** Schematic objects are strict: `SchematicDocument.js` owns
-  `SchematicItem`, the discriminated union of schematic drawables and components,
-  and `SchematicDrawable`, the shape-only subset stored in `app.shapes`. The
-  reusable discriminant guards live in `src/core/schematic-items.js`; plain
-  `item.type === ...` checks also narrow because every concrete class declares a
-  literal `type`. The PCB's `BoardShape` still accepts any field, so a misspelt
-  board-shape field is not caught. A few drag and selection states are still `any`
-  (`VertexDrag` in `track-drag.js`, `SelectionShape` in `selection-registry.js`).
-- **Autorouter.** `tools/regression.mjs` routes fixture boards and compares the result
-  with a baseline, and the lifecycle and ownership have unit tests, but the
-  pathfinder, maze and common modules (about 5,900 lines) have no unit tests of their
-  own. Add tests for the pieces with clear inputs and outputs (cost functions,
-  obstacle maps, path simplification) before changing their behaviour.
-- **Browser tests under load.** When two full browser runs share the machine, a
-  few schematic scenarios (corner drag and wire drawing in cancel isolation, text
-  autoreplace and text property changes) have occasionally failed once and then
-  passed on every rerun, also at `CPU_THROTTLE=6`. If one fails again, read its
-  failure screenshot (`browser-test-failure-*.png` in the repository root) and look
-  for a wait on a fixed delay or on a condition that holds before the editor has
-  finished.
+**What is enforced.** The structure is checked, not only documented. The gate and
+CI fail on:
+
+- an import that crosses a layer (`check-imports.mjs`);
+- a module, or any shared code, that uses an editor's private (`_`-prefixed)
+  members (the three `check-*-editor-access.mjs` scripts);
+- an optional call to an editor method (`app.method?.()`), in
+  `test-pcb-editor-api` and `test-schematic-editor-api`;
+- a doc that names a file, test or page that no longer exists;
+- any type error under TypeScript's strict settings;
+- a failing unit test, a worse autorouter result on the fixture board, a failing
+  browser scenario, or a speed check over its budget.
+
+**Types.** Every source file type-checks strictly. Schematic objects are the union
+`SchematicItem` (`SchematicDrawable` plus `Component`, in `SchematicDocument.js`)
+and PCB board shapes the union `BoardShape` (`core/pcb-board-shapes.js`); both
+narrow on their `type` or `kind` field. Shared guards for schematic items are in
+`core/schematic-items.js`. Checking is weakest where a value is typed `any` or cast:
+mostly raw file and network data before validation, captured-state snapshots, the 3D
+scene and third-party libraries. Treat raw data as `unknown` and narrow it; give
+snapshots a typedef next to the class that captures them.
+
+**Large modules.** The biggest files are the autorouter
+(`autorouter-pathfinder.js` and `autorouter-common.js`, about 2,200 lines each, and
+`autorouter-maze.js`), `core/Viewport.js`, `ComponentLibrary.js`, `board-shapes.js`,
+`gerber.js`, `draw-states.js` and `polyline-graph.js` (about 1,250 to 1,850). Each is
+one subject. Split one only along a real seam, when you are changing it, the way
+`track-drag.js`, `board-shapes.js`, `PCBApp.js`, `ComponentPicker.js` and
+`KiCadFetcher.js` were split: one owner per piece of state, importers changed to the
+owner rather than re-exported, the owner index in
+[project_structure.md](project_structure.md) updated.
+
+**Autorouter.** `test-autorouter-geometry`, `test-autorouter-maze` and
+`test-autorouter-pathfinder` cover the geometry helpers and both routers on small
+boards; the gate routes the whole fixture board against a baseline. Neither router
+places a via inside a pad, so a top pad and a bottom pad of one net at the same spot
+cannot be connected; the skipped cases in those tests show it. Exporting a few
+internal steps (`routeNet`, `buildMstEdges`, `nncReorderPads`,
+`geometricVerifyAndDrop`) would let them be tested directly.
+
+**Browser tests under load.** When the gate's routing or a second full browser run
+shares the machine, the app can take longer than the helpers' 30-second startup wait,
+and a few schematic scenarios (corner drag and wire drawing in cancel isolation, text
+autoreplace and text property changes) have occasionally failed once and then passed
+on rerun. Locally, run the gate and the browser suite one after the other. If a
+scenario fails again, read its failure screenshot (`browser-test-failure-*.png` in the
+repository root) and look for a wait on a fixed delay or on a condition that holds
+before the editor has finished.
+
+**Releases.** What is open before the next release is in
+[release-readiness.md](release-readiness.md).
 
 Before pushing, follow [Before You Commit](#before-you-commit).

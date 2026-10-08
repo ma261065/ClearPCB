@@ -20,3 +20,6 @@ mcp-worker/node_modules/
 
 # Browser-test failure screenshots (tools/browser-test.mjs)
 browser-test-failure-*.png
+
+# Sample project written by tools/generate-esp32-pcm5102a-player.mjs
+/ESP32-PCM5102A-Audio-Player.cpcb

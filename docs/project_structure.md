@@ -502,8 +502,9 @@ object before it runs. A new command class must declare `lockTargets()`;
 
 ## Checks
 
-- `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'
-  and shared-code private-access ratchets, doc references (`tools/check-doc-references.mjs`: every test,
+- `node tools/regression.mjs` — the gate CI runs: import boundaries, the private-access
+  checks for both editors and for shared code (their baselines are empty, so any private
+  access fails), doc references (`tools/check-doc-references.mjs`: every test,
   file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered. A test
@@ -520,6 +521,18 @@ object before it runs. A new command class must declare `lockTargets()`;
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
+- Other tools, run by hand:
+  - `autorouter-benchmark.mjs` — routes DSN boards headlessly and writes timings to a
+    git-ignored `benchmark-results-*.json`; `compare-routers.mjs` runs the maze and
+    pathfinder routers on one JSON board side by side.
+  - `check-clearance.mjs` and `check-via-on-pad.mjs` — diagnostics on a routed test
+    board (clearance violations; vias overlapping pad copper).
+  - `build-hershey.mjs` — regenerates `src/shared/pcb/hershey-data.js`, the stroke
+    font's glyphs, from the public-domain Hershey font file.
+  - `generate-esp32-pcm5102a-player.mjs` and `validate-esp32-pcm5102a-player.mjs` —
+    build and check a sample project, `ESP32-PCM5102A-Audio-Player.cpcb`, in the
+    repository root (not committed).
+  - `vendor-vtracer-notices.mjs` — see [vendoring](vendoring_npm_packages.md).
 - Tests call real functions; editor methods run on `tests/unit/pcb-editor-fixture.mjs` or
   via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
   evaluates sliced source text; add a small seam when a collaborator must be observed.
