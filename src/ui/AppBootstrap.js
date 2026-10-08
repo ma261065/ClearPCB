@@ -14,6 +14,11 @@ import { flushSettledChanges } from '../shared/ui/settled-input.js';
 import { McpBridge } from '../core/McpBridge.js';
 import { createMcpSessionUi } from './mcp-session.js';
 
+/** @typedef {import('../core/ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {'schematic'|'pcb'} EditorMode */
+/** @typedef {{type: 'idle'|'frame'|'timeout', id: number}} PcbPreloadHandle */
+/** @typedef {{files?: Array<{name: string, getFile: () => Promise<File>}>}} LaunchParams */
+
 const DEFAULT_SERVICES = { ProjectDocument, PCBApp, SchematicApp, McpBridge, createMcpSessionUi };
 
 export class AppBootstrap {
@@ -28,6 +33,7 @@ export class AppBootstrap {
         this.startupRecents = document.getElementById('startupRecents');
         this.startupOpen = document.getElementById('startupOpen');
         this.startupContinue = document.getElementById('startupContinue');
+        /** @type {PcbPreloadHandle|null} */
         this._pcbPreloadHandle = null;
         /**
          * Startup in progress: set when initialize() starts, and settles once startup has
@@ -44,7 +50,9 @@ export class AppBootstrap {
             if (loading) return new Promise(resolve => setTimeout(resolve, 0));
             this._schedulePcbPreload();
         };
+        /** @type {SchematicApp|null} */
         this.schematicApp = null;
+        /** @type {PCBApp|null} */
         this.pcbApp = null;
         this._switchingMode = false;
     }
@@ -127,6 +135,7 @@ export class AppBootstrap {
         ModalManager.pop('startup-splash');
     }
 
+    /** @param {KeyboardEvent} event */
     _trapStartupSplashFocus(event) {
         if (event.key !== 'Tab' || !this.startupSplash || this.startupSplash.hidden) return;
         const focusable = /** @type {HTMLElement[]} */ (Array.from(this.startupSplash.querySelectorAll(
@@ -193,6 +202,10 @@ export class AppBootstrap {
         });
     }
 
+    /**
+     * @param {boolean} loading
+     * @param {EditorMode|null} [mode]
+     */
     _setTabsLoading(loading, mode = null) {
         this.modeTabs.forEach(tab => {
             const tabLoading = loading && (!mode || tab.dataset.mode === mode);
@@ -214,15 +227,16 @@ export class AppBootstrap {
     }
 
     _schedulePcbPreload() {
-        if (!isEditorStale(this.pcbApp) || isEditorActive(this.pcbApp)) return;
+        const pcbApp = this.pcbApp;
+        if (!pcbApp || !isEditorStale(pcbApp) || isEditorActive(pcbApp)) return;
         this._cancelPcbPreload();
         const render = () => {
             this._pcbPreloadHandle = null;
             // The spinner was shown in prepare(); clear it on every exit, including
             // when the PCB was rendered or a load started in the meantime.
             try {
-                if (this.project.fileManager.loading || this.pcbApp && isEditorActive(this.pcbApp) || !isEditorStale(this.pcbApp)) return;
-                this.pcbApp.preload?.();
+                if (this.project.fileManager.loading || isEditorActive(pcbApp) || !isEditorStale(pcbApp)) return;
+                pcbApp.preload?.();
             } finally {
                 this._setTabsLoading(false, 'pcb');
             }
@@ -246,6 +260,7 @@ export class AppBootstrap {
         }
     }
 
+    /** @param {EditorMode} mode */
     async switchMode(mode) {
         if (this.project.fileManager.loading || this._switchingMode) return;
         // The editor being left keeps a number field's settling value.
@@ -263,7 +278,7 @@ export class AppBootstrap {
         this.schematicApp?.viewport?.invalidateLayoutCache?.();
         this.pcbApp?.viewport?.invalidateLayoutCache?.();
 
-        const needsPcbRender = isPcb && isEditorStale(this.pcbApp);
+        const needsPcbRender = isPcb && !!this.pcbApp && isEditorStale(this.pcbApp);
         if (needsPcbRender) {
             this._switchingMode = true;
             this._setTabsLoading(true, 'pcb');
@@ -296,7 +311,8 @@ export class AppBootstrap {
         if (!('launchQueue' in window)) return;
 
         const launchQueue = /** @type {any} */ (window.launchQueue);
-        launchQueue.setConsumer(async (launchParams) => {
+        /** @param {LaunchParams} launchParams */
+        const consumeLaunch = async (launchParams) => {
             if (!launchParams.files?.length) return;
 
             // Signal to SchematicApp to skip auto-save recovery path for launch-open flow.
@@ -311,9 +327,14 @@ export class AppBootstrap {
             } catch (error) {
                 console.error('Failed to open file:', error);
             }
-        });
+        };
+        launchQueue.setConsumer(consumeLaunch);
     }
 
+    /**
+     * @param {{name: string}} fileHandle
+     * @param {ProjectData} data
+     */
     _loadLaunchDocument(fileHandle, data) {
         const tryLoad = async () => {
             if (!this.schematicApp?.fileManager) {

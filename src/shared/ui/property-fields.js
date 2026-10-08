@@ -78,12 +78,19 @@ export const MIXED_LABEL = 'Mixed';
  * @property {PropertyActionGroup[]} [actions]
  */
 
+/**
+ * @template {keyof HTMLElementTagNameMap} K
+ * @param {K} tag
+ * @param {string} [className]
+ * @returns {HTMLElementTagNameMap[K]}
+ */
 const element = (tag, className = '') => {
     const node = document.createElement(tag);
     if (className) node.className = className;
     return node;
 };
 
+/** @param {Element|null} control */
 const isFocused = control => typeof document !== 'undefined' && document.activeElement === control;
 
 /** Number formats that keep their own digits (core/number-inputs.js leaves them too). */
@@ -94,14 +101,24 @@ const OWN_DIGITS = new Set(['rotation', 'precise', 'integer']);
  * input (core/number-inputs.js), unless their `numberFormat` keeps its own digits;
  * other numbers drop floating-point noise (15.239999999999998 reads 15.24).
  */
+/**
+ * @param {PropertyField} field
+ * @param {any} value
+ * @returns {string}
+ */
 const display = (field, value) => {
     if (value === '' || value == null || Number.isNaN(value)) return '';
     if (field.format) return String(field.format(value));
     if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
-    if (field.type === 'number' && !OWN_DIGITS.has(field.numberFormat)) return formatNumberInputValue(value);
+    if (field.type === 'number' && !OWN_DIGITS.has(field.numberFormat || '')) return formatNumberInputValue(value);
     return String(Number(value.toPrecision(12)));
 };
 
+/**
+ * @param {Element} node
+ * @param {string} name
+ * @param {string|number|null|undefined} value
+ */
 const setAttr = (node, name, value) => {
     if (value === undefined || value === null || value === '' || (typeof value === 'number' && !Number.isFinite(value))) {
         node.removeAttribute(name);
@@ -116,10 +133,21 @@ class Row {
     /** @param {PropertyField} field */
     constructor(field) {
         this.field = field;
+        /** @type {HTMLElement} */
         this.row = element('div', 'prop-row');
         this.label = element('label');
         /** @type {any} */
         this.control = null;
+        /** @type {HTMLSpanElement|null} */
+        this.text = null;
+        /** @type {HTMLElement|null} */
+        this.netControl = null;
+        /** @type {HTMLDetailsElement|null} */
+        this.menu = null;
+        /** @type {((event?: PointerEvent|KeyboardEvent|FocusEvent) => void)|null} */
+        this.release = null;
+        /** @type {string} */
+        this.shown = '';
         /** The user changed the control since its last commit, cancel or restore. */
         this.dirty = false;
         /** A number edit is waiting to commit (or cancel, when invalid). */
@@ -178,27 +206,33 @@ class Row {
      * and its release anywhere calls `hold.end()`.
      */
     bindHold() {
+        /** @param {PointerEvent|KeyboardEvent} event */
         const begin = event => {
-            if (event.repeat) return;
+            if ('repeat' in event && event.repeat) return;
             const pointer = event.type === 'pointerdown';
-            if (pointer ? event.button !== 0 : !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+            if (pointer
+                ? /** @type {PointerEvent} */ (event).button !== 0
+                : !['ArrowUp', 'ArrowDown'].includes(/** @type {KeyboardEvent} */ (event).key)) return;
             this.release?.();
             this.seedMixedNumber();
             this.steppingNumber = true;
             const hold = this.field.hold;
             const host = window;
             const endings = pointer ? ['pointerup', 'pointercancel', 'blur'] : ['keyup', 'blur'];
+            /** @param {PointerEvent|KeyboardEvent|FocusEvent} [endEvent] */
             const release = endEvent => {
                 if (endEvent && endEvent.type !== 'blur'
-                    && (pointer ? endEvent.pointerId !== event.pointerId : endEvent.key !== event.key)) return;
-                for (const name of endings) host.removeEventListener(name, release, true);
+                    && (pointer
+                        ? /** @type {PointerEvent} */ (endEvent).pointerId !== /** @type {PointerEvent} */ (event).pointerId
+                        : /** @type {KeyboardEvent} */ (endEvent).key !== /** @type {KeyboardEvent} */ (event).key)) return;
+                for (const name of endings) host.removeEventListener(name, /** @type {EventListener} */ (release), true);
                 if (this.release === release) this.release = null;
                 this.steppingNumber = false;
                 hold?.end();
             };
             this.release = release;
             hold?.begin();
-            for (const name of endings) host.addEventListener(name, release, true);
+            for (const name of endings) host.addEventListener(name, /** @type {EventListener} */ (release), true);
         };
         this.control.addEventListener('pointerdown', begin);
         this.control.addEventListener('keydown', begin);
@@ -215,6 +249,7 @@ class Row {
         const input = this.control = element('input');
         input.type = 'number';
         // A normalized value (clamped, wrapped) replaces what was entered.
+        /** @returns {number} */
         const parse = () => {
             const value = this.field.parse ? this.field.parse(input.value)
                 : (input.value.trim() === '' ? NaN : Number(input.value));
@@ -224,6 +259,7 @@ class Row {
             if (Number.isFinite(normalized) && Math.abs(normalized - value) > 1e-9) input.value = display(this.field, normalized);
             return normalized;
         };
+        /** @param {Event} [event] */
         const preview = event => {
             // Text the renderer showed (not typed or stepped) is not an edit, as in a browser.
             if (input.value === this.shown) return;
@@ -273,13 +309,19 @@ class Row {
         this.show(this.field.mixed ? '' : display(this.field, this.field.value));
     }
 
-    /** Write text into the control, remembering it as the renderer's own. */
+    /**
+     * Write text into the control, remembering it as the renderer's own.
+     * @param {string} text
+     */
     show(text) {
         this.control.value = text;
         this.shown = text;
     }
 
-    /** Whether `field` can reuse this row's controls. */
+    /**
+     * Whether `field` can reuse this row's controls.
+     * @param {PropertyField} field
+     */
     fits(field) {
         return field.type === this.field.type && (field.type !== 'net' || !field.disabled === !this.field.disabled);
     }
@@ -295,7 +337,7 @@ class Row {
         // A focused control with unsaved edits keeps what the user is typing or stepping.
         const editing = !initial && this.dirty && isFocused(control);
         this.row.dataset.prop = field.prop || field.key;
-        if (field.type === 'checkbox') this.text.textContent = field.label;
+        if (field.type === 'checkbox') /** @type {HTMLSpanElement} */ (this.text).textContent = field.label;
         else {
             this.label.textContent = field.label;
             setAttr(this.label, 'for', field.type === 'readout' ? '' : field.id);
@@ -344,6 +386,7 @@ class Row {
             || previous.placeholder !== field.placeholder)) this.renderNetMenu(field, empty);
     }
 
+    /** @param {PropertyField} field */
     renderOptions(field) {
         const select = this.control;
         while (select.firstChild) select.removeChild(select.firstChild);
@@ -368,6 +411,10 @@ class Row {
     }
 
     /** The menu of existing nets; a disabled net field has none. */
+    /**
+     * @param {PropertyField} field
+     * @param {string} empty
+     */
     renderNetMenu(field, empty) {
         this.menu?.remove();
         this.menu = null;
@@ -398,7 +445,7 @@ class Row {
             }
         });
         menu.append(summary, list);
-        this.netControl.appendChild(menu);
+        /** @type {HTMLElement} */ (this.netControl).appendChild(menu);
     }
 }
 
@@ -429,9 +476,9 @@ export function renderPropertyFields(container, fields, { placeholder = '' } = {
     const keep = new Set([...rows.values()].map(row => row.row));
     for (const child of [...container.children]) if (!keep.has(child)) container.removeChild(child);
     // Insert new rows in place without moving kept ones (moving a focused control blurs it).
-    let next = container.firstChild;
+    let next = /** @type {ChildNode|null} */ (container.firstChild);
     for (const row of rows.values()) {
-        if (row.row === next) next = next.nextSibling;
+        if (row.row === next) next = next ? next.nextSibling : null;
         else container.insertBefore(row.row, next);
     }
     if (!rows.size && placeholder) {
@@ -478,6 +525,11 @@ export function renderPropertyActions(container, groups = []) {
 }
 
 /** A field description by key, for panels' tests and hosts. */
+/**
+ * @param {PropertyPanel} panel
+ * @param {string} key
+ * @returns {PropertyField|null}
+ */
 export function propertyField(panel, key) {
     return panel.fields.find(field => field.key === key) || null;
 }

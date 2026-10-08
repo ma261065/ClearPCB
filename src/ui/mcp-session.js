@@ -1,5 +1,10 @@
 import { ModalManager } from '../core/ModalManager.js';
 
+/** @typedef {{enabled: boolean, connected: boolean, mcpUrl: string, sessionId?: string, connectionError?: string, canRevert?: boolean}} McpSessionState */
+/** @typedef {{enabled: boolean, onStateChanged: (state: McpSessionState) => void, enable: () => void, disable: () => void, revertLastChange: () => unknown}} McpBridgeLike */
+/** @typedef {{close: () => void, render: (state: McpSessionState) => void}} McpSessionUi */
+
+/** @param {McpSessionState} state */
 function statusText(state) {
     if (!state.enabled) return 'MCP Session Disabled';
     if (state.connectionError) return `MCP Session Enabled - ${state.connectionError}`;
@@ -8,8 +13,12 @@ function statusText(state) {
         : 'MCP Session Enabled - Waiting for MCP relay';
 }
 
+/**
+ * @param {McpBridgeLike} bridge
+ * @returns {McpSessionUi}
+ */
 export function createMcpSessionUi(bridge) {
-    const buttons = [...document.querySelectorAll('[data-mcp-session]')];
+    const buttons = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('[data-mcp-session]')]);
     const overlay = document.createElement('div');
     overlay.className = 'mcp-session-overlay hide';
     overlay.innerHTML = `
@@ -48,8 +57,8 @@ export function createMcpSessionUi(bridge) {
     document.body.appendChild(overlay);
 
     const status = /** @type {HTMLElement} */ (overlay.querySelector('[data-mcp-status]'));
-    const statusLabel = overlay.querySelector('[data-mcp-status-text]');
-    const urlRow = overlay.querySelector('[data-mcp-url-row]');
+    const statusLabel = /** @type {HTMLElement} */ (overlay.querySelector('[data-mcp-status-text]'));
+    const urlRow = /** @type {HTMLElement} */ (overlay.querySelector('[data-mcp-url-row]'));
     const urlInput = /** @type {HTMLInputElement} */ (overlay.querySelector('[data-mcp-url]'));
     const toggle = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-toggle]'));
     const revert = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-revert]'));
@@ -61,12 +70,17 @@ export function createMcpSessionUi(bridge) {
         copyButton.textContent = 'Copy URL';
         delete copyButton.dataset.copyState;
     };
+    /**
+     * @param {string} text
+     * @param {string} state
+     */
     const showCopyFeedback = (text, state) => {
         resetCopyFeedback();
         copyButton.textContent = text;
         copyButton.dataset.copyState = state;
         copyFeedbackTimer = window.setTimeout(resetCopyFeedback, 1800);
     };
+    /** @param {McpSessionState} state */
     const render = state => {
         statusLabel.textContent = statusText(state);
         status.dataset.enabled = String(state.enabled);

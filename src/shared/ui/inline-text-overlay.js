@@ -2,6 +2,15 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLINK_MS = 530;
 const ACTIVE_HOLD_MS = 400;
 
+/** @typedef {import('../../core/Viewport.js').Point} Point */
+/** @typedef {{x: number, y: number, width: number, height: number, caretX: number, caretTop?: number, caretBottom?: number, transform?: string}} InlineTextOverlayGeometry */
+/** @typedef {{start: Point|null, end: Point|null}} TextConnectionGuide */
+/** @typedef {{group: SVGGElement, box: SVGRectElement, caret: SVGLineElement, blinkEpoch: number, forceVisibleUntil: number, releasePending: boolean, blinkTimer: number|null, keepCaretVisible: () => void, updateGeometry: (geometry: InlineTextOverlayGeometry) => boolean, raise: () => void, destroy: () => void}} InlineTextOverlay */
+
+/**
+ * @param {HTMLInputElement|null|undefined} input
+ * @param {boolean} active
+ */
 export function setInlineTextInputActive(input, active) {
     if (!input) return;
     input.readOnly = !active;
@@ -14,6 +23,11 @@ export function setInlineTextInputActive(input, active) {
     }, 0);
 }
 
+/**
+ * @param {(group: SVGGElement) => void} append
+ * @param {{emphasized?: boolean}} [options]
+ * @returns {InlineTextOverlay}
+ */
 export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('class', 'text-edit-overlay');
@@ -39,6 +53,7 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     group.appendChild(caret);
     append(group);
 
+    /** @type {InlineTextOverlay} */
     const overlay = {
         group,
         box,
@@ -109,11 +124,19 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     return overlay;
 }
 
+/**
+ * @param {SVGLineElement} line
+ * @param {TextConnectionGuide} connection
+ * @param {string} [stroke]
+ */
 export function applyTextConnectionGuide(line, connection, stroke = 'var(--accent-color, #00ccff)') {
-    line.setAttribute('x1', String(connection.end.x));
-    line.setAttribute('y1', String(connection.end.y));
-    line.setAttribute('x2', String(connection.start.x));
-    line.setAttribute('y2', String(connection.start.y));
+    // Callers build a guide only for complete connections; their temporary variables remain nullable.
+    const end = /** @type {Point} */ (connection.end);
+    const start = /** @type {Point} */ (connection.start);
+    line.setAttribute('x1', String(end.x));
+    line.setAttribute('y1', String(end.y));
+    line.setAttribute('x2', String(start.x));
+    line.setAttribute('y2', String(start.y));
     line.setAttribute('stroke', stroke);
     line.setAttribute('stroke-width', '1');
     line.setAttribute('stroke-dasharray', '3 3');

@@ -1,8 +1,17 @@
 
+/** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
+/** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
+/** @typedef {{viewport: Viewport}} ViewportExportApp */
+/** @typedef {{_pdfVectorLoader?: Promise<Function>}} VectorPdfLoaderHost */
+/** @typedef {{getSelection: () => any[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection */
+/** @typedef {{fileName?: string|null}} ExportFileManager */
+/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport, _pdfVectorLoader?: Promise<Function>}} ExportApp */
+/** @typedef {{x: number, y: number, width: number, height: number}} ExportViewBox */
+
 /**
  * Exports the schematic to a vector PDF using jsPDF + svg2pdf,
  * then prompts the user for a save location.
- * @param {object} app - Application state.
+ * @param {ExportApp} app - Application state.
  */
 export async function savePdf(app) {
     // Save current selection before try block so it's accessible in catch
@@ -68,7 +77,7 @@ export async function savePdf(app) {
 
 /**
  * Prints the schematic via a hidden iframe with proper page sizing and margins.
- * @param {object} app - Application state.
+ * @param {ExportApp} app - Application state.
  */
 export async function printSchematic(app) {
     // Save current selection before try block so it's accessible in catch
@@ -104,7 +113,7 @@ export async function printSchematic(app) {
         // Use DOM APIs so the SVG (which contains shape/text data that
         // ultimately comes from user input) is never re-parsed from a
         // string — no chance of breaking out of the host document.
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const iframeDoc = iframe.contentDocument || /** @type {Window} */ (iframe.contentWindow).document;
         iframeDoc.open();
         iframeDoc.write(`<!DOCTYPE html><html><head><title>Print Schematic</title></head><body></body></html>`);
         iframeDoc.close();
@@ -131,8 +140,9 @@ export async function printSchematic(app) {
         // possible to avoid the timing race of a fixed setTimeout.
         const doPrint = () => {
             try {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
+                const iframeWindow = /** @type {Window} */ (iframe.contentWindow);
+                iframeWindow.focus();
+                iframeWindow.print();
             } finally {
                 // Remove iframe shortly after print dialog opens.
                 setTimeout(() => {
@@ -142,7 +152,7 @@ export async function printSchematic(app) {
                 }, 500);
             }
         };
-        if (iframe.contentWindow.document.readyState === 'complete') {
+        if (/** @type {Window} */ (iframe.contentWindow).document.readyState === 'complete') {
             // Defer one frame so the appended SVG has laid out.
             requestAnimationFrame(doPrint);
         } else {
@@ -162,8 +172,13 @@ export async function printSchematic(app) {
  * @returns {Promise<Function>} Resolves to the `jsPDF` constructor.
  */
 export function loadVectorPdfLibs(app) {
-    if (app._pdfVectorLoader) return app._pdfVectorLoader;
+    const host = /** @type {VectorPdfLoaderHost} */ (app);
+    if (host._pdfVectorLoader) return host._pdfVectorLoader;
 
+    /**
+     * @param {string} src
+     * @returns {Promise<void>}
+     */
     const loadScript = (src) => new Promise((resolve, reject) => {
         const existing = Array.from(document.scripts).find(s => s.src === src);
         if (existing) {
@@ -186,7 +201,7 @@ export function loadVectorPdfLibs(app) {
         document.head.appendChild(script);
     });
 
-    app._pdfVectorLoader = (async () => {
+    host._pdfVectorLoader = (async () => {
         await loadScript(new URL('../../../assets/vendor/jspdf.umd.min.js', import.meta.url).href);
         await loadScript(new URL('../../../assets/vendor/svg2pdf.umd.min.js', import.meta.url).href);
 
@@ -198,25 +213,25 @@ export function loadVectorPdfLibs(app) {
         return w.jspdf.jsPDF;
     })();
 
-    return app._pdfVectorLoader;
+    return host._pdfVectorLoader;
 }
 
 /**
  * Deep-clones the viewport SVG, sets viewBox to paper or viewport bounds,
  * inlines styles, forces monochrome, and removes grid/axes layers.
- * @param {object} app - Application state.
- * @returns {{svgNode: SVGSVGElement, paperSize: {width: number, height: number}|null}}
+ * @param {ViewportExportApp} app - Application state.
+ * @returns {{svgNode: SVGSVGElement, paperSize: PaperSize|null}}
  */
 export function cloneViewportSvgForExport(app) {
     const originalSvg = app.viewport.svg;
-    const svgNode = originalSvg.cloneNode(true);
+    const svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
     const vb = app.viewport.viewBox;
     const width = Math.max(1, Math.round(app.viewport.width));
     const height = Math.max(1, Math.round(app.viewport.height));
     
     // If paper size is set, use paper bounds for export instead of viewport
     const paperSize = app.viewport.paperSize;
-    let exportViewBox = vb;
+    let exportViewBox = /** @type {ExportViewBox} */ (vb);
     let exportWidth = width;
     let exportHeight = height;
     
@@ -347,7 +362,7 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
             const style = window.getComputedStyle(origEl);
 
             for (const prop of props) {
-                const cssValue = style[prop];
+                const cssValue = /** @type {CSSStyleDeclaration & Record<string, string>} */ (style)[prop];
                 if (cssValue && cssValue !== 'initial' && cssValue !== 'inherit') {
                     const attr = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
                     cloneEl.setAttribute(attr, cssValue);
@@ -403,14 +418,14 @@ export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) 
 /**
  * Returns a Promise resolving to an HTML `<canvas>` with the viewport
  * rendered as a rasterized image at the given scale.
- * @param {object} app - Application state.
+ * @param {ViewportExportApp} app - Application state.
  * @param {number} [scale=2] - Pixel density multiplier.
  * @returns {Promise<HTMLCanvasElement>}
  */
 export function renderViewportToCanvas(app, scale = 2) {
     return new Promise((resolve, reject) => {
         try {
-            const svgNode = app.viewport.svg.cloneNode(true);
+            const svgNode = /** @type {SVGSVGElement} */ (app.viewport.svg.cloneNode(true));
             inlineSvgComputedStyles(app.viewport.svg, svgNode);
             const vb = app.viewport.viewBox;
 
@@ -439,7 +454,7 @@ export function renderViewportToCanvas(app, scale = 2) {
                 const canvas = document.createElement('canvas');
                 canvas.width = width;
                 canvas.height = height;
-                const ctx = canvas.getContext('2d');
+                const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
                 ctx.drawImage(img, 0, 0, width, height);
                 URL.revokeObjectURL(url);
                 resolve(canvas);
