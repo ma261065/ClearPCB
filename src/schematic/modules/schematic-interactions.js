@@ -23,7 +23,11 @@
  */
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {'gesture'|'drawing'} SchematicInteractionCategory */
-/** @typedef {{key: string, category: SchematicInteractionCategory, blocksSnapshot: boolean, owner: string}} SchematicInteractionDescriptor */
+/** @typedef {import('./text-edit.js').TextEditState} TextEditState */
+/** @typedef {import('./draw-states.js').OverlapCyclePress} OverlapCyclePress */
+/** @typedef {'textEdit'|'overlapCyclePress'|'drag'|'pendingAnchorDrag'|'isDrawing'|'pastingClipboard'|'placingComponent'} SchematicInteractionKey */
+/** @typedef {{key: SchematicInteractionKey, category: SchematicInteractionCategory, blocksSnapshot: boolean, owner: string}} SchematicInteractionDescriptor */
+/** @typedef {K extends 'textEdit' ? TextEditState|null : K extends 'overlapCyclePress' ? OverlapCyclePress|null : K extends 'drag'|'pendingAnchorDrag' ? unknown|null : K extends 'isDrawing'|'pastingClipboard' ? boolean|null : K extends 'placingComponent' ? import('../../components/Component.js').Component|null : unknown|null} SchematicInteractionValue @template {string} K */
 
 export const SCHEMATIC_INTERACTIONS = /** @type {readonly SchematicInteractionDescriptor[]} */ (Object.freeze([
     { key: 'textEdit', category: 'gesture', blocksSnapshot: true, owner: 'text-edit.js' },
@@ -42,14 +46,14 @@ const ALL_KEYS = keysWhere(() => true);
 const GESTURE_KEYS = keysWhere(entry => entry.category === 'gesture');
 const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const SNAPSHOT_BLOCKING_KEYS = keysWhere(entry => entry.blocksSnapshot);
-/** @type {WeakMap<SchematicEditor, Record<string, any>>} */
+/** @type {WeakMap<SchematicEditor, Partial<Record<SchematicInteractionKey, unknown>>>} */
 const interactionState = new WeakMap();
 
 /** @param {SchematicEditor} app */
 function slotState(app) {
     let state = interactionState.get(app);
     if (!state) {
-        state = /** @type {Record<string, any>} */ (Object.create(null));
+        state = /** @type {Partial<Record<SchematicInteractionKey, unknown>>} */ (Object.create(null));
         interactionState.set(app, state);
     }
     return state;
@@ -57,7 +61,7 @@ function slotState(app) {
 
 /** @param {string} key */
 function assertInteractionKey(key) {
-    if (!INTERACTION_KEYS.has(key)) throw new Error(`Unknown schematic interaction slot ${key}.`);
+    if (!INTERACTION_KEYS.has(/** @type {SchematicInteractionKey} */ (key))) throw new Error(`Unknown schematic interaction slot ${key}.`);
 }
 
 /**
@@ -65,26 +69,26 @@ function assertInteractionKey(key) {
  * @template {string} K
  * @param {SchematicEditor} app
  * @param {K} key
- * @returns {K extends 'textEdit' ? import('./text-edit.js').TextEditState|null : any}
+ * @returns {SchematicInteractionValue<K>}
  */
 export function getSchematicInteraction(app, key) {
     assertInteractionKey(key);
-    return interactionState.get(app)?.[key] || null;
+    return /** @type {SchematicInteractionValue<K>} */ (interactionState.get(app)?.[/** @type {SchematicInteractionKey} */ (key)] || null);
 }
 
 /**
  * Set one schematic interaction slot. Passing null/undefined/false clears it.
  * @param {SchematicEditor} app
  * @param {string} key
- * @param {any} value
+ * @param {unknown} value
  */
 export function setSchematicInteraction(app, key, value) {
     assertInteractionKey(key);
     const state = slotState(app);
     if (value) {
-        state[key] = value;
+        state[/** @type {SchematicInteractionKey} */ (key)] = value;
     } else {
-        delete state[key];
+        delete state[/** @type {SchematicInteractionKey} */ (key)];
     }
 }
 
@@ -100,7 +104,7 @@ export function schematicInteractionActive(app, key) {
 const anyActive = (app, keys) => {
     const state = interactionState.get(app);
     if (!state) return false;
-    for (const key of keys) if (state[key]) return true;
+    for (const key of keys) if (state[/** @type {SchematicInteractionKey} */ (key)]) return true;
     return false;
 };
 

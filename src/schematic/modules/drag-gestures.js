@@ -27,7 +27,7 @@ import { isWireItem as isWireShape, isNoConnectItem as isNoConnectShape, isCompo
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {ReturnType<SchematicItem['captureState']>} ShapeState */
 /** @typedef {import('./draw-states.js').InteractionState} InteractionState */
-/** @typedef {Record<string, any>} Guide */
+/** @typedef {{a?: Point, b?: Point, collinear?: boolean, axisKind?: string, x1?: number, y1?: number, x2?: number, y2?: number, x?: number, y?: number, axis?: 'x'|'y'|'horizontal'|'vertical', type?: string, [key: string]: unknown}} Guide */
 /** @typedef {{shape: SchematicItem, anchorId: string, screenPos: Point, snapped: Point, preInsertState?: ShapeState}} PendingAnchorDragParams */
 /** @typedef {{shape: SchematicItem, anchorId: string, startSnapped: Point, screenPos: Point, preInsertState?: ShapeState}} AnchorDragSessionParams */
 /** @typedef {{shape: WireShape, dragEdgeId: string, worldPos: Point, beforeState: ShapeState}} SegmentDragSessionParams */
@@ -108,7 +108,8 @@ export function collectMovingComponentIds(selection) {
 /**
  * @param {SchematicEditor} app
  * @param {string} key
- * @returns {Set<any>}
+ * @template T
+ * @returns {Set<T>}
  */
 function getReusableSet(app, key) {
     let byKey = reusableSets.get(app);
@@ -119,7 +120,7 @@ function getReusableSet(app, key) {
     let scratch = byKey.get(key);
     if (!scratch) { scratch = new Set(); byKey.set(key, scratch); }
     else scratch.clear();
-    return scratch;
+    return /** @type {Set<T>} */ (scratch);
 }
 
 /**
@@ -754,7 +755,7 @@ export function syncAnchorDragLinkedNodes(app, anchorPos) {
 
 /**
  * @param {SchematicEditor} app
- * @returns {Set<any>}
+ * @returns {Set<WireShape>}
  */
 export function getDragTJunctionWireSet(app) {
     const wires = getReusableSet(app, '_dragTJunctionWireSetScratch');
@@ -846,7 +847,7 @@ export function applyWireSegmentLabelMovement(wire, dx, dy) {
     if (!wire.labelText) return;
     wire.labelText.x += dx; wire.labelText.y += dy; wire.labelText.invalidate();
 }
-/** @type {WeakMap<SchematicEditor, Map<string, Set<any>>>} */
+/** @type {WeakMap<SchematicEditor, Map<string, Set<unknown>>>} */
 const reusableSets = new WeakMap();
 /** @type {WeakMap<SchematicEditor, Map<string, Point>>} */
 const reusablePoints = new WeakMap();

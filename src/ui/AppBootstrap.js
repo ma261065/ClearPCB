@@ -311,13 +311,13 @@ export class AppBootstrap {
     _setupLaunchQueue() {
         if (!('launchQueue' in window)) return;
 
-        const launchQueue = /** @type {any} */ (window.launchQueue);
+        const launchQueue = /** @type {{setConsumer: (consumer: (params: LaunchParams) => void|Promise<void>) => void}} */ (window.launchQueue);
         /** @param {LaunchParams} launchParams */
         const consumeLaunch = async (launchParams) => {
             if (!launchParams.files?.length) return;
 
             // Signal to SchematicApp to skip auto-save recovery path for launch-open flow.
-            /** @type {any} */ (window)._launchFile = true;
+            /** @type {Window & {_launchFile?: boolean}} */ (window)._launchFile = true;
 
             const fileHandle = launchParams.files[0];
             const file = await fileHandle.getFile();
@@ -376,7 +376,7 @@ export class AppBootstrap {
 document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
     // Console inspection only; application code receives its dependencies explicitly.
-    /** @type {any} */ (window).bootstrap = bootstrap;
+    /** @type {Window & {bootstrap?: AppBootstrap}} */ (window).bootstrap = bootstrap;
     bootstrap.ready = bootstrap.initialize();
     await bootstrap.ready;
 });

@@ -376,7 +376,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * @param {Map<Wire, WireSnapshot | object>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
- * @param {Map<any,any>|null} [labelTextBefore] - captured label-text states before mutation
+ * @param {Map<any,any>|null} [labelTextBefore] - dynamic captured label-text states before mutation
  * @returns {BatchCommand|null} - batch or null if nothing changed
  */
 export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], labelTextBefore = null) {

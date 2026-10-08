@@ -6,7 +6,7 @@ import { isComponentItem as isComponentShape } from '../../core/schematic-items.
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../components/Component.js').Component} Component */
-/** @typedef {Record<string, any> & {rotation?: number, mirror?: boolean}} ShapeState */
+/** @typedef {ReturnType<SchematicItem['captureState']> & {rotation?: number, mirror?: boolean}} ShapeState */
 
 /**
  * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`
@@ -51,7 +51,7 @@ export function applyShapeState(app, shape, state) {
     const component = isComponentShape(shape) ? shape : null;
     const oldRotation = component?.rotation;
     const oldMirror = component?.mirror;
-    shape.applyState(/** @type {any} */ (state));
+    shape.applyState(state);
     if (component) {
         const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
             || (state.mirror !== undefined && state.mirror !== oldMirror);

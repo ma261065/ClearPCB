@@ -12,7 +12,7 @@ import { applyOffGridNeighborSnap } from './wire-drag-snap.js';
 /** @typedef {import('../../shapes/wire.js').Wire} Wire */
 /** @typedef {import('../../shapes/net.js').Net} NetShape */
 /** @typedef {import('../../core/geometry.js').Point} Point */
-/** @typedef {Record<string, any> & {number?: string|number}} ComponentPin */
+/** @typedef {Record<string, any> & {number: string|number}} ComponentPin Dynamic pin records come from component libraries and synthetic snap targets. */
 /** @typedef {{id: string, type?: string, net?: string, [key: string]: unknown}} PinComponent */
 /** @typedef {{component: Component|SchematicItem|PinComponent, pin: ComponentPin, pinKey?: string|number|null}} PinIdentity */
 /** @typedef {PinIdentity & {distance: number, worldPos: Point}} PinSnapInfo */

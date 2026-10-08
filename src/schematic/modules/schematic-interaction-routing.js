@@ -9,7 +9,7 @@ import { cancelWireDrawing } from './wire.js';
  * counterpart of pcb/modules/pcb-interaction-routing.js. A handler restores what its
  * interaction changed and returns false only when it had nothing to cancel.
  * test-schematic-interactions checks every table entry has one.
- * @type {Record<string, (app: any) => (boolean|void)>}
+ * @type {Record<string, (app: SchematicEditor) => (boolean|void)>}
  */
 const HANDLERS = {
     /** @param {SchematicEditor} app */

@@ -12,20 +12,20 @@ import { getPaperSize, isPaperSizeKey } from './paper.js';
 /** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
 /** @typedef {{value: string|number, label: string, [key: string]: unknown}} GridOption */
 /** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions & {netPresetText?: string|null}} ToolOptions */
-/** @typedef {string|number|boolean|null|undefined|RibbonNode|Array<any>|(() => any)} RibbonContent */
+/** @typedef {string|number|boolean|null|undefined|RibbonNode|Array<any>|(() => any)} RibbonContent Dynamic ribbon content trees mix primitives, nodes, arrays and lazy factories. */
 /** @typedef {{kind: string, [key: string]: unknown}} RibbonNode */
 
-/** @param {string} tag @param {Record<string, any>} [props] @param {RibbonContent} [children] @returns {RibbonNode} */
+/** @param {string} tag @param {Record<string, unknown>} [props] @param {RibbonContent} [children] @returns {RibbonNode} */
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
-/** @param {string} id @param {RibbonContent} content @param {string} title @param {Record<string, any>} [props] @returns {RibbonNode} */
+/** @param {string} id @param {RibbonContent} content @param {string} title @param {Record<string, unknown>} [props] @returns {RibbonNode} */
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
-/** @param {string} tool @param {RibbonContent} content @param {string} title @param {Record<string, any>} [props] @returns {RibbonNode} */
+/** @param {string} tool @param {RibbonContent} content @param {string} title @param {Record<string, unknown>} [props] @returns {RibbonNode} */
 const T = (tool, content, title, props = {}) => ({ kind: 'toolButton', dataset: { tool }, title, content, ...props });
 /**
  * A tool's ribbon button: label and tooltip from its entry in schematic-tools.js.
  * @param {SchematicEditor} app
  * @param {string} id
- * @param {any} [content] - a label built from elements, for tools whose entry has none
+ * @param {RibbonContent} [content] - a label built from elements, for tools whose entry has none
  */
 const toolButton = (app, id, content = SCHEMATIC_TOOLS[id].content) => T(id, content, schematicToolTitle(id),
     { active: () => app.currentTool === id, run: () => app.selectTool(id) });

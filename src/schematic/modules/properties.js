@@ -34,12 +34,12 @@ import { isComponentItem, isNetItem, isPolylineItem, isTextItem, isWireItem, isW
 /** @typedef {import('../../shapes/property-preview.js').PropertyPreview} PropertyPreview */
 
 /** @typedef {{value: string, label: string, disabled?: boolean, title?: string, dataset?: Record<string, string>}} PropertyOption */
-/** @typedef {{key: string, label: string, type: string, min?: number, max?: number, step?: number, readonly?: boolean, orderKey?: string, options?: PropertyOption[], [extra: string]: any}} PropertyDescriptor */
+/** @typedef {{key: string, label: string, type: string, min?: number, max?: number, step?: number, readonly?: boolean, orderKey?: string, options?: PropertyOption[], [extra: string]: unknown}} PropertyDescriptor */
 /** @typedef {{shape: Polyline, edgeId: string}} SelectedSegment */
 /** @typedef {{shape: Polyline, nodeId: string}} SelectedNode */
 /** @typedef {{selection: SchematicItem[], segmentShape: SchematicItem|null, segmentEdge: string|null, nodeShape: SchematicItem|null, nodeId: string|null}} PropertyContextSnapshot */
 /** @typedef {{binding: PropertyBinding, context: PropertyContextSnapshot|null, previews: Map<string, PropertyPreview>, isCurrent: () => boolean, generation: number}} PropertyState */
-/** @typedef {{selectedSegment: SelectedSegment|null, selectedNode: SelectedNode|null, singleWire: Wire|null, singlePolyline: Polyline|null, allLocked: boolean, state: PropertyState, isCurrentSelection: () => boolean, applyProperty: (key: string, value: any) => void}} DescriptorContext */
+/** @typedef {{selectedSegment: SelectedSegment|null, selectedNode: SelectedNode|null, singleWire: Wire|null, singlePolyline: Polyline|null, allLocked: boolean, state: PropertyState, isCurrentSelection: () => boolean, applyProperty: (key: string, value: unknown) => void}} DescriptorContext */
 /** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions & {wireNet?: string}} ToolOptions */
 /** @typedef {{propertiesPanel?: HTMLElement|null}} PropertiesPanelUi */
 
@@ -256,7 +256,7 @@ function allSame(values, equal = (a, b) => a === b) {
     return values.length > 0 && values.every(value => equal(value, values[0]));
 }
 
-/** @param {SchematicItem[]} selection @param {string} key @param {any} [empty] */
+/** @param {SchematicItem[]} selection @param {string} key @param {unknown} [empty] */
 function scalarFieldValue(selection, key, empty = '') {
     const values = valuesFor(selection, key);
     const same = allSame(values);
@@ -315,7 +315,7 @@ function renderNewShapeProperties(app, tool, isCurrent) {
     if (!label) return null;
     const canEdit = () => isCurrent() && app.currentTool === tool;
     const options = /** @type {ToolOptions} */ (app.toolOptions || {});
-    /** @param {string} key @param {any} value */
+    /** @param {string} key @param {unknown} value */
     const setOption = (key, value) => {
         if (!canEdit()) return;
         /** @type {ToolOptions} */ (app.toolOptions)[key] = value;
@@ -465,7 +465,7 @@ function createNumberField(app, selection, desc, context) {
     const previewValue = raw => {
         if (!isCurrentSelection()) return;
         const next = normalizeNumber(desc, affected, raw);
-        preview.update(/** @param {any[]} before */ before => {
+        preview.update(/** @param {import('./selection.js').ShapeState[]} before */ before => {
             if (key === 'bulge' && selectedSegment) {
                 selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', next);
                 selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
@@ -602,7 +602,7 @@ function action(id, label, title, run, disabled = false) {
  * @param {SchematicItem[]} selection
  * @param {() => boolean} isCurrent
  * @param {boolean} allLocked
- * @param {(key: string, value: any) => void} applyProperty
+ * @param {(key: string, value: unknown) => void} applyProperty
  * @returns {PropertyActionGroup[]}
  */
 function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty) {
@@ -711,7 +711,7 @@ export function describePropertiesPanel(app, selection) {
         return renderNewShapeProperties(app, app.currentTool, isCurrentSelection)
             || { title: headerLabel(selection), summary: summaryText(selection), fields: [], actions: [] };
     }
-    /** @param {string} key @param {any} value */
+    /** @param {string} key @param {unknown} value */
     const applyProperty = (key, value) => {
         if (isCurrentSelection()) applyCommonProperty(app, key, value);
     };

@@ -36,13 +36,13 @@ import { isPlacingComponent } from './components.js';
  * @property {boolean} [newShapeDefaults] - selecting it shows the Properties tab with its defaults
  * @property {boolean} [placesComponents] - it keeps the component picker and a placement open
  * @property {boolean} [multiClick] - its draw continues across clicks; releasing the button never finishes it
- * @property {(app: any) => void} [onSelected] - set-up when the tool is chosen
- * @property {(app: any, event: MouseEvent, pos: Positions) => void} [press] - primary press before a draw
- * @property {(app: any, event: MouseEvent, pos: Positions) => void} [pressDrawing] - primary press during a draw
- * @property {(app: any, event: MouseEvent, pos: Positions) => boolean|void} [hover] - move before a draw
- * @property {(app: any, event: MouseEvent, pos: Positions) => boolean|void} [moveDrawing] - move during a draw
- * @property {(app: any, pos: Positions) => boolean} [finishAtPointer] - right-click in place: finish here
- * @property {(app: any) => boolean} [finishInPlace] - double-click or Enter: finish with the points placed
+ * @property {(app: SchematicEditor) => void} [onSelected] - set-up when the tool is chosen
+ * @property {(app: SchematicEditor, event: MouseEvent, pos: Positions) => void} [press] - primary press before a draw
+ * @property {(app: SchematicEditor, event: MouseEvent, pos: Positions) => void} [pressDrawing] - primary press during a draw
+ * @property {(app: SchematicEditor, event: MouseEvent, pos: Positions) => boolean|void} [hover] - move before a draw
+ * @property {(app: SchematicEditor, event: MouseEvent, pos: Positions) => boolean|void} [moveDrawing] - move during a draw
+ * @property {(app: SchematicEditor, pos: Positions) => boolean} [finishAtPointer] - right-click in place: finish here
+ * @property {(app: SchematicEditor) => boolean} [finishInPlace] - double-click or Enter: finish with the points placed
  */
 
 /**
@@ -97,7 +97,7 @@ function shapeTool(kind, name, content, key) {
  * @param {'net'|'noconnect'} id
  * @param {string} name
  * @param {string} key
- * @param {(app: any) => void} onSelected
+ * @param {(app: SchematicEditor) => void} onSelected
  * @param {string} [content]
  * @returns {SchematicTool}
  */
@@ -162,7 +162,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             }
             addWireWaypoint(app, { ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
             if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || hasWireJunctionDot(app))) {
-                finishWireDrawing(app, app.lastSnappedData);
+                if (app.lastSnappedData) finishWireDrawing(app, app.lastSnappedData);
                 app.interactionState = 'toolActive';
             }
             event.preventDefault();

@@ -23,6 +23,7 @@ import { isSchematicLocked } from '../../shapes/lock-owner.js';
 /** @typedef {ReturnType<Shape['getAnchors']>[number] & {hidden?: boolean, bulge?: boolean}} RenderAnchor */
 /** @typedef {SVGElement & {setAttribute(name: string, value: unknown): void}} SvgRenderElement */
 /** @typedef {{selection?: SelectionView, suppressSelection?: boolean}} RenderShapeOptions */
+/** @typedef {SchematicDrawable & {attachedLabels?: Set<SchematicDrawable>|null}} ShapeWithAttachedLabels */
 
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_STROKE_PIXELS = 1;
@@ -79,7 +80,7 @@ export function renderShape(shape, scale, options = {}) {
     const viewState = ensureView(shape);
     if (!viewState.element) {
         viewState.element = createShapeElement(shape);
-        /** @type {any} */ (viewState.element).__shape = shape;
+        /** @type {SVGElement & {__shape?: SchematicDrawable}} */ (viewState.element).__shape = shape;
     }
 
     const element = viewState.element;
@@ -95,7 +96,7 @@ export function renderShape(shape, scale, options = {}) {
     const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (shape);
     const baseFillColor = colorToCSS(shapeWithFill.fillColor ?? baseShape.color);
     let fillColor = baseFillColor;
-    const attachedLabels = /** @type {any} */ (shape).attachedLabels;
+    const attachedLabels = /** @type {ShapeWithAttachedLabels} */ (shape).attachedLabels;
     const view = options.selection || NO_SELECTION;
     const attachedActive = attachedLabels instanceof Set
         && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));

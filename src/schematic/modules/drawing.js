@@ -57,7 +57,7 @@ function isDrawingKind(tool) {
 /** @param {SchematicEditor} app @param {NetStyle} style */
 function defaultNetText(app, style) {
     const opts = /** @type {SchematicToolOptions} */ (app.toolOptions);
-    if (opts.netPresetText) return opts.netPresetText;
+    if (typeof opts.netPresetText === 'string') return opts.netPresetText;
     if (style === 'gnd') return 'Gnd';
     return nextNetName_(app);
 }
@@ -330,7 +330,7 @@ export function createShapeFromDrawing(app) {
         }
 
         case 'net': {
-            const style = normalizeNetStyle(opts.netStyle || 't');
+            const style = normalizeNetStyle(typeof opts.netStyle === 'string' ? opts.netStyle : 't');
             const net = defaultNetText(app, style);
             const validation = validateNetNameAtPoint(app, { x: start.x, y: start.y }, net);
             if (!validation.ok) {
@@ -344,7 +344,7 @@ export function createShapeFromDrawing(app) {
                 net,
                 fontSize: opts.netFontSize || 1.4,
                 style,
-                orientation: normalizeNetOrientation(opts.netOrientation || 'N')
+                orientation: normalizeNetOrientation(typeof opts.netOrientation === 'string' ? opts.netOrientation : 'N')
             });
         }
 

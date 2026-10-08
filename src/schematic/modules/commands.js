@@ -31,7 +31,8 @@ import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, is
  * @typedef {import('./selection.js').ShapeState} ShapeState
  * @typedef {import('../../ui/SchematicApp.js').ShapeRestoreData} ShapeRestoreData
  * @typedef {{component: Component, index: number}} ComponentRestoreData
- * @typedef {{wire: Wire, nodeId: string, conn: Record<string, any>}} RemovedPinConnection
+ * @typedef {{componentId?: string, pinNumber?: string|number, [key: string]: unknown}} PinConnection
+ * @typedef {{wire: Wire, nodeId: string, conn: PinConnection}} RemovedPinConnection
  */
 
 /** @param {unknown} item @returns {item is {attachedLabels: Set<TextShape>}} */

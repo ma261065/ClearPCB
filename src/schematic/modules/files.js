@@ -15,7 +15,7 @@ import { getSchematicTextEdit } from './text-edit.js';
 import { isTextItem as isTextShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/ProjectDocument.js').ProjectData} ProjectData */
-/** @typedef {{data: ProjectData, fileName: string, handle?: any, filePath?: string|null}} OpenSuccess */
+/** @typedef {{data: ProjectData, fileName: string, handle?: FileSystemFileHandle, filePath?: string|null}} OpenSuccess */
 /** @typedef {import('../../core/FileManager.js').OpenResult} OpenResult */
 /** @typedef {import('../../core/FileManager.js').SaveResult} SaveResult */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
@@ -45,7 +45,7 @@ export function serializeProjectDocument(app) {
 
 /**
  * Capture view preferences without accessing authored content or creating a viewport.
- * @param {any} viewport
+ * @param {import('../../core/Viewport.js').Viewport|null|undefined} viewport
  */
 export function serializeViewSettings(viewport) {
     if (!viewport) return undefined;
@@ -539,13 +539,14 @@ export async function importEasyEDA(app) {
 
 /**
  * Detect whether parsed JSON is an EasyEDA schematic file.
- * @param {any} data
+ * @param {unknown} data
  */
 function _isEasyEDASchematic(data) {
-    return data
-        && Array.isArray(data.schematics)
-        && data.schematics.length > 0
-        && (data.docType === 5 || data.docType === '5' || data.editorVersion);
+    if (!data || typeof data !== 'object') return false;
+    const record = /** @type {{schematics?: unknown, docType?: unknown, editorVersion?: unknown}} */ (data);
+    return Array.isArray(record.schematics)
+        && record.schematics.length > 0
+        && (record.docType === 5 || record.docType === '5' || record.editorVersion);
 }
 
 /**

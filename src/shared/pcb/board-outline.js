@@ -4,11 +4,11 @@ import { validClosedShape } from '../../shapes/closed-outline.js';
 /**
  * @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape
  * @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape
- * @typedef {Record<string, any>} BoardOutlineState
- * @typedef {BoardPathShape & {kind: 'rect'|'polygon'}} BoardOutlineShape
+ * @typedef {Record<string, any>} BoardOutlineState Board outline helpers accept PCBApp, PcbDocument, and preview bags.
+ * @typedef {BoardShape & {points: Point[], [key: string]: any}} BoardOutlineShape Dynamic board-outline shape union with legacy indexed fields.
  * @typedef {BoardOutlineState & {width: number, height: number, radius: number}} BoardDimensions
- * @typedef {BoardOutlineState & {board: BoardDimensions, outline: BoardOutlineShape}} BoardDimensionPreview
- * @typedef {BoardOutlineState & {boardShapes?: BoardShape[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
+ * @typedef {BoardOutlineState & {model: {board: BoardDimensions, boardShapes: BoardShape[]}, original: BoardOutlineShape|null, originalBoard: BoardDimensions, before: BoardDimensions, board: BoardDimensions, outline: BoardOutlineShape, boardShapes: BoardShape[], previousSuspend: boolean, session: import('../../pcb/modules/drag-session.js').DragSession|null, wasDrawn: boolean}} BoardDimensionPreview
+ * @typedef {BoardOutlineState & {boardShapes?: BoardShape[], pcbDocument?: {board?: Partial<BoardDimensions>, syncBoardOutlineDimensions?: () => void}, board?: Partial<BoardDimensions>, boardWidth?: number, boardHeight?: number, boardRadius?: number, width?: number, height?: number, radius?: number}} BoardOutlineApp
  */
 
 /** @type {WeakMap<BoardOutlineApp, BoardDimensionPreview>} */
@@ -33,7 +33,7 @@ export function clearBoardDimensionPreview(app) {
 
 /**
  * The editor's rectangular board dimensions (mm), exactly as stored; undefined until set.
- * @param {any} app
+ * @param {BoardOutlineApp} app
  * @returns {BoardDimensions}
  */
 export function boardDimensions(app) {
@@ -46,9 +46,9 @@ export function boardDimensions(app) {
     };
 }
 
-/** @param {BoardOutlineApp} app @returns {any} */
+/** @param {BoardOutlineApp} app @returns {any} Dynamic board shape union; callers inspect kind/layer. */
 export function getBoardOutline(app) {
-    return app.boardShapes?.find(shape => shape.layer === 'board-outline') || null;
+    return /** @type {BoardOutlineShape|null} */ (app.boardShapes?.find(shape => shape.layer === 'board-outline') || null);
 }
 
 /** @param {number} width @param {number} height @param {number} [radius] @returns {BoardOutlineShape} */
@@ -63,7 +63,9 @@ export function validBoardOutline(shape) {
     return shape?.layer === 'board-outline' && validClosedShape(shape, { minArea: 1e-6 });
 }
 
-/** @param {any} app @returns {any} */
+/** @typedef {{x: number, y: number, w: number, h: number, r: number, points?: Point[]}} BoardBoundary */
+/** @typedef {{x: number, y: number}} Point */
+/** @param {any} app Dynamic board host (PCBApp/PcbDocument/fill context). @returns {any} Boundary shape consumed by legacy PCB callers. */
 export function boardBoundary(app) {
     const shape = getBoardOutline(app);
     const { width, height, radius } = boardDimensions(app);
@@ -79,5 +81,5 @@ export function boardBoundary(app) {
 
 /** @param {{pcbDocument: {syncBoardOutlineDimensions: () => void}}} app */
 export function syncBoardOutlineDimensions(app) {
-    app.pcbDocument.syncBoardOutlineDimensions();
+    app.pcbDocument.syncBoardOutlineDimensions?.();
 }

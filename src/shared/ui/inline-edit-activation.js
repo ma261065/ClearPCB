@@ -1,5 +1,5 @@
 /** @typedef {import('../../core/geometry.js').Point} Point */
-/** @typedef {{supportsInlineEdit?: boolean, [key: string]: any}} EditableHit */
+/** @typedef {{supportsInlineEdit?: boolean, [key: string]: unknown}} EditableHit */
 
 /**
  * @param {MouseEvent} event

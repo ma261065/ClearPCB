@@ -63,7 +63,8 @@ import { isComponentItem, isNetItem, isTextItem, isWireItem, isPolylineItem, isG
 /** @typedef {{screenPos: Point, worldPos: Point, snapped: Point}} EventPositions */
 /** @typedef {{shape: Polyline, edgeId: string|null, hadSegment?: boolean}} ShapeSegmentToggle */
 /** @typedef {{positions: EventPositions, additive: boolean}} OverlapCyclePress */
-/** @typedef {{drawSnapResult: any, pendingShapeSegmentToggle: ShapeSegmentToggle|null, didDrag: boolean, skipClickSelection: boolean}} DrawStateData */
+/** @typedef {import('./wire-snap.js').WireSnapResult} WireSnapResult */
+/** @typedef {{drawSnapResult: WireSnapResult|null, pendingShapeSegmentToggle: ShapeSegmentToggle|null, didDrag: boolean, skipClickSelection: boolean}} DrawStateData */
 /** @typedef {{mousedown?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mousemove?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mouseup?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, click?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, dblclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, rightclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, contextmenu?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void}} DrawInteractionState */
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -90,13 +91,13 @@ function stateFor(app) {
 
 /**
  * @param {SchematicEditor} app
- * @param {any} result
+ * @param {WireSnapResult|null} result
  */
 export function setDrawSnapResult(app, result) {
     stateFor(app).drawSnapResult = result;
 }
 
-/** @param {SchematicEditor} app @returns {any} */
+/** @param {SchematicEditor} app @returns {WireSnapResult|null} */
 export function takeDrawSnapResult(app) {
     const state = stateFor(app);
     const result = state.drawSnapResult;
@@ -281,7 +282,7 @@ export function updateToolCrosshair(app, snapped, screenPos) {
  */
 function findSchematicInlineEditableHit(app, point, eventTarget) {
     return /** @type {SchematicItem|null} */ (
-        (/** @type {(selection: typeof app.selection, point: Point, eventTarget: EventTarget|null) => unknown} */ (findInlineEditableHit))
+        (/** @type {(selection: typeof app.selection, point: Point, eventTarget: EventTarget|null) => unknown} */ (/** @type {unknown} */ (findInlineEditableHit)))
             (app.selection, point, eventTarget)
     );
 }
@@ -593,8 +594,8 @@ export const idleState = {
                 if (atJunction) break;
             }
 
-            if (canQueueMidpointAnchorDrag(/** @type {any} */ (shape), anchorId)) {
-                const beforeState = captureShapeState(app, /** @type {any} */ (shape));
+            if (canQueueMidpointAnchorDrag(shape, anchorId)) {
+                const beforeState = captureShapeState(app, shape);
                 const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
                 app.renderShapes();
                 app.viewport.svg.style.cursor = 'move';
@@ -625,7 +626,7 @@ export const idleState = {
                 // starts the split (matches the PCB track behaviour).
                 const justSelectedAnchor = hitShape.hitTestAnchor?.(worldPos, app.viewport.scale);
                 if (justSelectedAnchor && String(justSelectedAnchor).startsWith('mid')
-                    && canQueueMidpointAnchorDrag(/** @type {any} */ (hitShape), justSelectedAnchor)) {
+                    && canQueueMidpointAnchorDrag(hitShape, justSelectedAnchor)) {
                     app.viewport.svg.style.cursor = 'copy';
                     event.preventDefault();
                     return;
@@ -1066,7 +1067,7 @@ export const anchorDragState = {
             anchorPos = { x: snap.x, y: snap.y };
         }
 
-        /** @type {any[]} */
+        /** @type {any[]} Dynamic snap-guide records from multiple snap helpers. */
         let anchorGuides = [];
         const isBulgeHandle = typeof getSchematicDrag(app).anchorId === 'string' && getSchematicDrag(app).anchorId.startsWith('bulge_');
         const isGraphShape = !isBulgeHandle && !!(getSchematicDrag(app).shape.nodes && getSchematicDrag(app).shape.edges);

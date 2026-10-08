@@ -150,7 +150,7 @@ export function removeShapeInternal(app, shape, options = {}) {
             removeShapeInternal(app, label, options);
         }
         if (wireShape && attachedLabels.length > 0) {
-            delete (/** @type {{attachedLabels?: Set<any>|null}} */ (wireShape)).attachedLabels;
+            delete (/** @type {{attachedLabels?: Set<import('../../shapes/text.js').Text>|null}} */ (wireShape)).attachedLabels;
         }
 
         // Also remove the linked label Text shape
@@ -277,7 +277,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
 function _createNetText(app, Net) {
     const pos = Net.getTextPosition();
     const anchor = (Net.style === 'chevron') ? 'start' : 'middle';
-    const text = new Text(/** @type {any} */ ({
+    const text = new Text({
         x: pos.x,
         y: pos.y,
         text: Net.net,
@@ -286,7 +286,7 @@ function _createNetText(app, Net) {
         textAnchor: anchor,
         color: 'var(--sch-text-label, #00b894)',
         border: Net.border
-    }));
+    });
     text.parentComponent = Net;
     text.fieldKey = 'net';
     text.visible = Net.visible;

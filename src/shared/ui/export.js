@@ -4,7 +4,7 @@ import { errorMessage, isAbortError } from '../../core/errors.js';
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
 /** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
 /** @typedef {{viewport: Viewport}} ViewportExportApp */
-/** @typedef {{getSelection: () => any[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection */
+/** @typedef {{getSelection: () => unknown[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection Dynamic selection managers have editor-specific item unions. */
 /** @typedef {{fileName?: string|null}} ExportFileManager */
 /** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport}} ExportApp */
 /** @typedef {{x: number, y: number, width: number, height: number}} ExportViewBox */
@@ -43,10 +43,10 @@ export async function savePdf(app) {
                 format: [width, height]
               };
 
-        const JsPdfCtor = /** @type {any} */ (jsPDF);
+        const JsPdfCtor = /** @type {new (options: object) => {output: (type: 'blob') => Blob}} */ (jsPDF);
         const pdf = new JsPdfCtor(pdfConfig);
 
-        const w = /** @type {any} */ (window);
+        const w = /** @type {Window & {svg2pdf?: {svg2pdf?: Function, default?: Function}, jspdf?: {jsPDF?: unknown}}} */ (window);
         const svg2pdf = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
         if (typeof svg2pdf !== 'function') {
             throw new Error('svg2pdf is not available');
@@ -209,12 +209,12 @@ export function loadVectorPdfLibs(app) {
         await loadScript(new URL('../../../assets/vendor/jspdf.umd.min.js', import.meta.url).href);
         await loadScript(new URL('../../../assets/vendor/svg2pdf.umd.min.js', import.meta.url).href);
 
-        const w = /** @type {any} */ (window);
+        const w = /** @type {Window & {svg2pdf?: {svg2pdf?: Function, default?: Function}, jspdf?: {jsPDF?: unknown}}} */ (window);
         const svg2pdfFn = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
         if (!w.jspdf?.jsPDF || typeof svg2pdfFn !== 'function') {
             throw new Error('Vector PDF libraries failed to load');
         }
-        return w.jspdf.jsPDF;
+        return /** @type {Function} */ (w.jspdf.jsPDF);
     })();
     pdfVectorLoaders.set(app, loader);
     return loader;
@@ -392,7 +392,7 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
  * @param {string[]} extensions - Accepted file extensions (e.g. `['.pdf']`).
  */
 export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-    const savePicker = /** @type {any} */ (window).showSaveFilePicker;
+    const savePicker = /** @type {((options?: {suggestedName?: string, types?: Array<{description?: string, accept: Record<string, string[]>}>}) => Promise<FileSystemFileHandle>)|undefined} */ (/** @type {Window & {showSaveFilePicker?: unknown}} */ (window).showSaveFilePicker);
     if (typeof savePicker === 'function') {
         try {
             const handle = await savePicker({

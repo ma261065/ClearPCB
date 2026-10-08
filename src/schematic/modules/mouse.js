@@ -40,7 +40,7 @@ function stateFor(app) {
  * @param {EventPositions} positions
  */
 function dispatch(app, eventName, event, positions) {
-    if (DRAWING_SHAPES.has(app.currentTool)) positions.snapped = snapShapeDrawingPoint(app, /** @type {{screenPos: any, worldPos: any, snapped: any}} */ (positions).worldPos);
+    if (DRAWING_SHAPES.has(app.currentTool)) positions.snapped = snapShapeDrawingPoint(app, positions.worldPos);
     if (!app.interactionState || !STATE_TABLE[app.interactionState]) {
         app.interactionState = resolveState(app);
     }

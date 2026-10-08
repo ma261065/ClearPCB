@@ -16,7 +16,11 @@ import { isComponentItem, isTextItem } from '../../core/schematic-items.js';
 /** @typedef {import('../../core/SelectionManager.js').Shape & SchematicItem} SelectableSchematicItem */
 /** @typedef {import('../../shapes/shape.js').Shape} Shape */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {Record<string, any> & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData *//** @param {SchematicItem} item @returns {item is SchematicItem & {x: number, y: number}} */
+/**
+ * @typedef {{[key: string]: unknown, id?: string|number, type?: string, x?: number, y?: number, w?: number, h?: number, nd?: Record<string, [number, number]>, pts?: number[], sp?: Point, ep?: Point, bp?: Point, ir?: boolean, cn?: unknown[], rot?: number, mir?: boolean, ref?: string, pkg?: string, val?: string, sr?: boolean, sv?: boolean, props?: import('../../components/Component.js').ComponentProperties, cid?: string, fk?: string, att?: unknown, lk?: boolean, locked?: boolean}} SerializedShapeData
+ * @typedef {SerializedShapeData & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData
+ */
+/** @param {SchematicItem} item @returns {item is SchematicItem & {x: number, y: number}} */
 const hasPointPosition = item => 'x' in item && typeof item.x === 'number' && 'y' in item && typeof item.y === 'number';
 
 // Internal clipboard (array of serialised items)
@@ -262,10 +266,10 @@ function _buildGhostFallback(app) {
             });
             ghost.appendChild(componentPreviewElement(temp));
         } else {
-            const clonedData = /** @type {Record<string, any>} */ (structuredClone(data));
+            const clonedData = /** @type {SerializedShapeData} */ (structuredClone(data));
             delete clonedData.id;
             delete clonedData._clipType;
-            offsetShapeData(clonedData, clonedData._clipX || 0, clonedData._clipY || 0);
+            offsetShapeData(clonedData, Number(clonedData._clipX) || 0, Number(clonedData._clipY) || 0);
             delete clonedData._clipX;
             delete clonedData._clipY;
             const tempShape = createShape(clonedData);
@@ -372,7 +376,7 @@ export function cancelPaste(app) {
 
 /**
  * Compute the centroid of serialized shape data, matching offsetShapeData logic.
- * @param {Record<string, any>} data
+ * @param {SerializedShapeData} data
  * @returns {Point}
  */
 function _getShapeDataCentroid(data) {
@@ -395,7 +399,7 @@ function _getShapeDataCentroid(data) {
             y: (data.sp.y + data.ep.y + data.bp.y) / 3
         };
     } else if (type === 'rect') {
-        return { x: data.x + (data.w || 0) / 2, y: data.y + (data.h || 0) / 2 };
+        return { x: (data.x || 0) + (data.w || 0) / 2, y: (data.y || 0) + (data.h || 0) / 2 };
     }
     // text, circle, noconnect, net — x,y is the anchor
     return { x: data.x || 0, y: data.y || 0 };
@@ -404,7 +408,7 @@ function _getShapeDataCentroid(data) {
 /**
  * Reposition shape data so its centre lands on (tx, ty).
  * Different shape types store position differently.
- * @param {Record<string, any>} data
+ * @param {SerializedShapeData} data
  * @param {number} tx
  * @param {number} ty
  */
@@ -446,10 +450,10 @@ function offsetShapeData(data, tx, ty) {
     } else if (type === 'rect') {
         const w = data.w || 0;
         const h = data.h || 0;
-        const cx = data.x + w / 2;
-        const cy = data.y + h / 2;
-        data.x += tx - cx;
-        data.y += ty - cy;
+        const cx = (data.x || 0) + w / 2;
+        const cy = (data.y || 0) + h / 2;
+        data.x = (data.x || 0) + tx - cx;
+        data.y = (data.y || 0) + ty - cy;
     } else {
         // circle, text — use x, y as centre
         data.x = tx;

@@ -76,7 +76,7 @@ import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interact
  * @typedef {import('../core/geometry.js').Point} Point
  * @typedef {import('../schematic/modules/draw-states.js').InteractionState} InteractionState
  * @typedef {{key: string, fileName: string, timestamp: number}} AutoSaveEntry
- * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: any}} SchematicToolOptions
+ * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: unknown}} SchematicToolOptions
  * @typedef {{cursorPos: HTMLElement|null, gridSnap: HTMLElement|null, zoomPercent: HTMLElement|null, viewportInfo: HTMLElement|null, docTitle: HTMLElement|null, propertiesPanel?: HTMLElement|null}} SchematicUiElements
  * @typedef {{shape: SchematicDrawable, index: number, parentWire?: SchematicDrawable|null}} ShapeRestoreData
  */
@@ -103,7 +103,7 @@ export default class SchematicApp {
      *        where a private FileManager is created as a fallback.
      */
     constructor(project) {
-        /** @type {any} */
+        /** @type {import('../core/ProjectDocument.js').ProjectDocument|null} */
         this.project = project || null;
         this.fileManager = project ? project.fileManager : new FileManager();
         this.document = project ? project.schematicDocument : new SchematicDocument();
@@ -122,11 +122,11 @@ export default class SchematicApp {
             },
         });
         // Auto-save recovery now runs after initialization.
-        this._skipAutoSaveRecovery = !!/** @type {any} */ (window)._launchFile;
+        this._skipAutoSaveRecovery = !!/** @type {Window & {_launchFile?: boolean}} */ (window)._launchFile;
 
         this.container = /** @type {HTMLElement} */ (document.getElementById('canvasContainer'));
         this.viewport = new Viewport(this.container);
-        /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
+        /** @type {Viewport & {_app?: SchematicApp}} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
         this.history = createSchematicHistory(this, {
             onChanged: () => this._onHistoryChanged(),
@@ -167,11 +167,11 @@ export default class SchematicApp {
         this.previewElement = null;
         /** @type {import('../schematic/modules/wire.js').WirePoint[]} */
         this.wirePoints = [];
-        /** @type {any|null} */
+        /** @type {any|null} Dynamic wire snap highlight state can be a full snap result or a lightweight drawing pin. */
         this.wireSnapPin = null;
-        /** @type {any|null} */
+        /** @type {any|null} Dynamic wire start pin mirrors wireSnapPin's drawing-time shape. */
         this.wireStartPin = null;
-        /** @type {any|null} */
+        /** @type {any|null} Dynamic drawing snap state is completed progressively while drawing a wire. */
         this.lastSnappedData = null;
         /** @type {Point|null} */
         this.drawCorner = null;         // set by wire.js — auto-corner waypoint
@@ -190,7 +190,7 @@ export default class SchematicApp {
         const savedOptions = loadToolOptions();
         const defaultShapeColor = 'var(--sch-symbol-outline, #ffffff)';
         /** @type {SchematicToolOptions} */
-        this.toolOptions = savedOptions || {
+        this.toolOptions = /** @type {SchematicToolOptions} */ (savedOptions || {
             lineWidth: 0.25,
             fill: false,
             color: defaultShapeColor,
@@ -199,7 +199,7 @@ export default class SchematicApp {
             netFontSize: 1.4,
             netStyle: 't',
             netOrientation: 'N'
-        };
+        });
         this.toolOptions.color = defaultShapeColor;
 
         // UI elements
@@ -387,7 +387,7 @@ export default class SchematicApp {
                 } else {
                     this.shapes = [];
                     this.components = [];
-                    this.ui = /** @type {any} */ ({});
+                    this.ui = /** @type {SchematicUiElements} */ ({});
                     this._pendingAutoLoad = recovered.data;
                 }
                 if (saved.fileName) this.fileManager.setFileName(saved.fileName);
@@ -533,7 +533,7 @@ export default class SchematicApp {
      * @param {ShapeRestoreData[]} [linkedLabelData]
      */
     commandDeleteShapes(shapesData, linkedLabelData) {
-        commandDeleteShapesInternal(this, shapesData, /** @type {any} */ (linkedLabelData));
+        commandDeleteShapesInternal(this, shapesData, /** @type {Array<{shape: SchematicDrawable, index: number, parentWire: SchematicDrawable|null}>} */ (linkedLabelData || []));
     }
 
     /**
@@ -542,7 +542,7 @@ export default class SchematicApp {
      * @param {ShapeRestoreData[]} [linkedLabelData]
      */
     commandRestoreShapes(shapesData, linkedLabelData) {
-        commandRestoreShapesInternal(this, shapesData, /** @type {any} */ (linkedLabelData));
+        commandRestoreShapesInternal(this, shapesData, /** @type {Array<{shape: SchematicDrawable, index: number, parentWire: SchematicDrawable|null}>} */ (linkedLabelData || []));
     }
     
     /**
@@ -941,7 +941,7 @@ export default class SchematicApp {
     /**
      * Captures a shape's state snapshot for undo.
      * @param {SchematicItem} shape - The shape to capture state from.
-     * @returns {Record<string, any>} The captured state snapshot.
+     * @returns {import('../schematic/modules/selection.js').ShapeState} The captured state snapshot.
      */
     _captureShapeState(shape) {
         return captureShapeState(this, shape);
@@ -950,7 +950,7 @@ export default class SchematicApp {
     /**
      * Restores a shape from a captured state snapshot.
      * @param {SchematicItem} shape - The shape to restore.
-     * @param {Record<string, any>} state - The state snapshot to apply.
+     * @param {import('../schematic/modules/selection.js').ShapeState} state - The state snapshot to apply.
      */
     _applyShapeState(shape, state) {
         applyShapeState(this, shape, state);
@@ -1056,7 +1056,7 @@ export default class SchematicApp {
 
     /**
      * Restore this editor's slice, consuming project preflight when provided.
-     * @param {ProjectData} data @param {any} [prepared]
+     * @param {ProjectData} data @param {ReturnType<SchematicDocument['prepare']>} [prepared]
      */
     async loadSection(data, prepared = this.prepareSection(data)) {
         await FileTools.loadDocument(this, data, prepared);

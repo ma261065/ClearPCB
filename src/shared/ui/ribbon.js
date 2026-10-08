@@ -19,8 +19,8 @@ const svgTags = new Set(['svg', 'path', 'circle', 'line', 'rect', 'polyline', 'p
  * @typedef {string|number|null|undefined|Node|RibbonElementDescription|RibbonItemDescription} RibbonChild
  * @typedef {RibbonValue<RibbonChild|RibbonChild[]>} RibbonContent
  * @typedef {RibbonValue<RibbonPrimitive>} RibbonAttributeValue
- * @typedef {(HTMLElement|SVGElement) & {[key: string]: any}} RibbonElement
- * @typedef {HTMLElement & {[key: string]: any}} RibbonControl
+ * @typedef {(HTMLElement|SVGElement) & {[key: string]: any}} RibbonElement Dynamic renderer stores per-control DOM state.
+ * @typedef {HTMLElement & {[key: string]: any}} RibbonControl Dynamic renderer stores per-control DOM state.
  * @typedef {{value?: string|number|boolean|null, label?: string|number, text?: string|number, title?: RibbonContent, selected?: RibbonValue<boolean>, disabled?: RibbonValue<boolean>, separatorBefore?: boolean, dataset?: Record<string, RibbonAttributeValue>, options?: RibbonOptionDescription[]}} RibbonOptionDescription
  * @typedef {(event: Event, api: RibbonApi) => void} RibbonAction
  * @typedef {((value: string, event: Event, api: RibbonApi) => void)|((value: boolean, event: Event, api: RibbonApi) => void)} RibbonValueAction

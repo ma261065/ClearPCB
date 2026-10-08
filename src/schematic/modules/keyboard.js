@@ -140,8 +140,8 @@ export function bindKeyboardShortcuts(app) {
         // don't accidentally fire schematic-scoped tool shortcuts
         // (e.g. 'V' switching to the select tool) while the user is
         // in PCB mode.
-        const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
-        if (pcbApp?.isActive()) return;
+        const pcbApp = /** @type {{bootstrap?: {pcbApp?: {isActive?: () => boolean}}}} */ (globalThis).bootstrap?.pcbApp;
+        if (pcbApp?.isActive?.()) return;
 
         const topModal = ModalManager.top();
         if (topModal && topModal.id !== 'text-edit' && topModal.id !== 'componentPicker') {

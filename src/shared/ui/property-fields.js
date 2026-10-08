@@ -39,40 +39,35 @@ export const MIXED_LABEL = 'Mixed';
  * @property {string} label
  * @property {string} [prop] Canonical order key (shared/ui/property-order.js) when it differs from `key`.
  * @property {string} [id] Stable control id (tests, labels).
- * @property {any} [value] Current value (ignored when `mixed`).
+ * @property {any} [value] Dynamic panel descriptions carry number, string, boolean, mixed, and readout values.
  * @property {boolean} [mixed]
  * @property {boolean} [disabled]
  * @property {string} [placeholder] Shown for an empty text/net value; net defaults to `None`.
  * @property {string} [title] Tooltip.
  * @property {string} [error] Validation message shown by native controls.
- * @property {string} [warning] Flags the row (e.g. its layer is locked) and becomes its tooltip;
- *   unlike `error`, the value itself is valid.
+ * @property {string} [warning] Flags the row (e.g. its layer is locked) and becomes its tooltip; unlike `error`, the value itself is valid.
  * @property {number} [min]
  * @property {number} [max]
  * @property {number} [step]
  * @property {'rotation'|'precise'|string} [numberFormat] Display hint for core/number-inputs.js.
- * @property {(value: any) => string|number} [format] Number display; default two decimals, as every
- *   number input, unless `numberFormat` is rotation, precise or integer.
+ * @property {(value: any) => string|number} [format] Dynamic value formatter supplied by panel owners.
  * @property {(text: string) => number} [parse] Number parse; NaN is invalid. Default Number (blank is NaN).
  * @property {() => number} [seedMixed] Number used when a mixed/blank number starts a spinner or Arrow-key step.
  * @property {boolean} [formatStepped] Format spinner/Arrow-key values with `format`.
  * @property {PropertyOption[]} [options] Select options.
  * @property {string[]} [nets] Net menu entries (the empty net is listed first).
- * @property {(value: number) => number} [normalize] Number clamp/wrap applied to an entry
- *   before preview and commit; the field then shows the normalized value. NaN rejects it.
+ * @property {(value: number) => number} [normalize] Number clamp/wrap applied to an entry before preview and commit; the field then shows the normalized value. NaN rejects it.
  * @property {(value: number) => void} [preview] Number live preview.
- * @property {(value: any) => void} [commit]
+ * @property {(value: any) => void} [commit] Dynamic commit callback; value type is determined by field.type at runtime.
  * @property {() => boolean|void} [cancel] Escape or an invalid entry; true when something was undone.
- * @property {{begin: () => void, end: () => void}} [hold] Pressing and holding the
- *   control (a spinner run): begin on press, end on release.
+ * @property {{begin: () => void, end: () => void}} [hold] Pressing and holding the control (a spinner run): begin on press, end on release.
  *
  * @typedef {{id: string, label: string, title?: string, disabled?: boolean, run: () => void}} PropertyAction
  * @typedef {{title: string, actions: PropertyAction[]}} PropertyActionGroup
  *
  * @typedef {object} PropertyPanel
  * @property {string} title
- * @property {PropertyField[]} fields Shown in the canonical property order (by `prop` or `key`);
- *   fields that rank equally keep the order given.
+ * @property {PropertyField[]} fields Shown in the canonical property order (by `prop` or `key`); fields that rank equally keep the order given.
  * @property {string} [summary] A line above the fields (e.g. "3 selected").
  * @property {string} [placeholder] Shown when there are no fields.
  * @property {PropertyActionGroup[]} [actions]
@@ -103,7 +98,7 @@ const OWN_DIGITS = new Set(['rotation', 'precise', 'integer']);
  */
 /**
  * @param {PropertyField} field
- * @param {any} value
+ * @param {unknown} value
  * @returns {string}
  */
 const display = (field, value) => {
@@ -136,7 +131,7 @@ class Row {
         /** @type {HTMLElement} */
         this.row = element('div', 'prop-row');
         this.label = element('label');
-        /** @type {any} */
+        /** @type {any} Dynamic DOM control: input/select/span share handlers in this renderer. */
         this.control = null;
         /** @type {HTMLSpanElement|null} */
         this.text = null;
@@ -234,8 +229,8 @@ class Row {
             hold?.begin();
             for (const name of endings) host.addEventListener(name, /** @type {EventListener} */ (release), true);
         };
-        this.control.addEventListener('pointerdown', begin);
-        this.control.addEventListener('keydown', begin);
+        this.control.addEventListener('pointerdown', /** @type {EventListener} */ (begin));
+        this.control.addEventListener('keydown', /** @type {EventListener} */ (begin));
     }
 
     seedMixedNumber() {
@@ -459,7 +454,7 @@ const rendered = new WeakMap();
  * @param {HTMLElement} container
  * @param {PropertyField[]} fields
  * @param {{placeholder?: string}} [options]
- * @returns {Map<string, any>}
+ * @returns {Map<string, HTMLElement>}
  */
 export function renderPropertyFields(container, fields, { placeholder = '' } = {}) {
     const previous = rendered.get(container) || new Map();

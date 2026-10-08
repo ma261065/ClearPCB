@@ -41,6 +41,12 @@ import { isWireItem as isWire, isNetItem as isNet, isNoConnectItem as isNoConnec
 /** @typedef {import('./selection.js').ShapeState} ShapeState */
 /** @typedef {{shape: SchematicDrawable, anchorId: string}} ShapeJoinTarget */
 /** @typedef {{nc: NoConnect, before: ShapeState}} NoConnectLink */
+/** @typedef {{worldPos?: Point, component?: SchematicItem|{id: string}, pin?: {number: string|number}}} DragPinRef */
+/** @typedef {SchematicDrawable & {nodes: Map<string, Point>, edges: Map<string, {from: string, to: string}>, degree(nodeId: string): number, getAnchorSnapMode(anchorId: string): string, isRect?: boolean, getOrderedNodeIds?: () => string[], neighborNodes(anchorId: string): string[], moveAnchor(anchorId: string, x: number, y: number): string|null|undefined, bulge?: number}} DragShape */
+/** @typedef {{nodes: Record<string, Point>, edges: Record<string, {from: string, to: string}>}} GraphState */
+/** @typedef {{componentId: string, lockedPinKey: string|number|null, lastResult: import('./wire-snap.js').WireSnapResult|null}} ComponentSnapState */
+/** @typedef {{shape: DragShape, anchorId: string, edgeId: string, startWorld?: Point, startWorldPos: Point, startSnapped?: Point, startPositions: Map<SchematicItem, Point>, beforeStates: Map<SchematicItem, ShapeState>, midpointPlacement?: boolean, excludePin?: DragPinRef|null, pathSplit?: unknown, beforeState?: ShapeState, joinTarget?: unknown, axis?: 'horizontal'|'vertical', workingState?: GraphState, wireStates: Map<DragShape, GraphState>, tjLinks?: unknown, _componentSnapState?: ComponentSnapState, [key: string]: unknown}} SchematicDragState */
+/** @typedef {{shape: SchematicDrawable, anchorId: string, screenPos: Point, snapped: Point, preInsertState?: ShapeState, [key: string]: unknown}} PendingAnchorDragState */
 
 /**
  * @param {SchematicEditor} app
@@ -54,8 +60,8 @@ function findNetById(app, id) {
 
 /**
  * Compare two captured shape states for equality.
- * @param {any} a
- * @param {any} b
+ * @param {unknown} a
+ * @param {unknown} b
  * @returns {boolean}
  */
 export function areCapturedStatesEqual(a, b) {
@@ -66,28 +72,28 @@ export function areCapturedStatesEqual(a, b) {
 
 /**
  * @param {SchematicEditor} app
- * @returns {any}
+ * @returns {any} Dynamic drag session shape differs by gesture; callers narrow by interactionState.
  */
 export function getSchematicDrag(app) {
-    return getSchematicInteraction(app, 'drag');
+    return /** @type {any} */ (getSchematicInteraction(app, 'drag'));
 }
 
 /**
  * @param {SchematicEditor} app
- * @param {any} drag
+ * @param {any} drag Dynamic drag session shape differs by gesture.
  */
 export function setSchematicDrag(app, drag) {
     setSchematicInteraction(app, 'drag', drag);
 }
 
-/** @param {SchematicEditor} app */
+/** @param {SchematicEditor} app @returns {any} Dynamic pending-drag bag produced by gesture setup. */
 export function getPendingAnchorDrag(app) {
-    return getSchematicInteraction(app, 'pendingAnchorDrag');
+    return /** @type {any} */ (getSchematicInteraction(app, 'pendingAnchorDrag'));
 }
 
 /**
  * @param {SchematicEditor} app
- * @param {any} pending
+ * @param {any} pending Dynamic pending-drag bag produced by gesture setup.
  */
 export function setPendingAnchorDrag(app, pending) {
     setSchematicInteraction(app, 'pendingAnchorDrag', pending);
@@ -166,7 +172,9 @@ export function cancelDragGesture(app) {
  * @param {SchematicEditor} app
  */
 export function cancelPendingAnchorDrag(app) {
-    const { shape, preInsertState } = getPendingAnchorDrag(app);
+    const pending = getPendingAnchorDrag(app);
+    if (!pending) return false;
+    const { shape, preInsertState } = pending;
     if (preInsertState) applyShapeState(app, shape, preInsertState);
     app.selection.keepSelected(shape);
     clearPendingAnchorDrag(app);

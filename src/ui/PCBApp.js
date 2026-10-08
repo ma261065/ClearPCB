@@ -137,9 +137,9 @@ function showFootprintCrosshair(app, pl) {
  * @typedef {import('../core/pcb-text.js').PcbText} PcbText
  * @typedef {import('../shapes/copper-fill.js').CopperFill} CopperFill
  * @typedef {import('../pcb/modules/selection-registry.js').PcbSelectionValue} PcbSelectionEntry
- * @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, strokeWidth: number, layer: string, [key: string]: any}} InlineTextModel
+ * @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, strokeWidth: number, layer: string, [key: string]: unknown}} InlineTextModel
  * @typedef {{componentId?: string|null, isNewPlacement?: boolean, select?: () => void, prepare?: () => void,
- *   render?: () => void, transform?: () => string, localX?: (point: Point) => number, [key: string]: any}} InlineTextOptions
+ *   render?: () => void, transform?: () => string, localX?: (point: Point) => number, [key: string]: unknown}} InlineTextOptions
  */
 
 /**
@@ -820,7 +820,7 @@ export default class PCBApp {
     }
 
     /**
-     * @param {any} geometry
+     * @param {unknown} geometry
      * @param {Placement & {reference: string}} placement
      */
     renderFootprint(geometry, placement) {
@@ -1009,8 +1009,8 @@ export default class PCBApp {
      * and collapse into a single undo entry on commit (via spec.commit). A
      * snapshot of the model is taken on the first keystroke so spec.commit
      * can diff against the pre-edit state.
-     * @param {any} model object whose fields the inputs drive
-     * @param {any} spec field descriptions and preview/commit hooks
+     * @param {import('../pcb/modules/text-properties.js').StrokeTextModel} model object whose fields the inputs drive
+     * @param {import('../pcb/modules/text-properties.js').StrokeTextBindingSpec} spec field descriptions and preview/commit hooks
      */
     _bindStrokeTextProps(model, spec) {
         return bindStrokeTextProps(this, model, spec);

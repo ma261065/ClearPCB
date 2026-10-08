@@ -47,7 +47,7 @@ export function propertyRank(key) {
  * @param {(item: T) => string|undefined} [keyOf]
  * @returns {T[]}
  */
-export function sortByPropertyOrder(items, keyOf = item => /** @type {any} */ (item).key) {
+export function sortByPropertyOrder(items, keyOf = item => /** @type {{key?: string}} */ (item).key) {
     return items
         .map((item, index) => ({ item, index, rank: propertyRank(keyOf(item)) }))
         .sort((a, b) => a.rank - b.rank || a.index - b.index)

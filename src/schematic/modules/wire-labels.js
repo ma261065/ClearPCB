@@ -16,8 +16,8 @@ import { addShapeInternal } from './shape-management.js';
  *   _pendingLabelVisible?: boolean,
  *   _pendingLabelPosition?: LabelPosition
  * }} Wire
- * @typedef {{state: Record<string, any>, signature: string}} ShapeSnapshot
- * @typedef {Record<string, any>} ShapeState
+ * @typedef {{state: ShapeState, signature: string}} ShapeSnapshot
+ * @typedef {Record<string, any>} ShapeState Dynamic snapshots cover wire and text label state bags.
  * @typedef {{label?: string, visible: boolean, position: LabelPosition|null}} WireLabelMeta
  */
 
@@ -81,7 +81,7 @@ function _ensureWireNameLabel(app, wire, visible = false) {
     let label = _getPrimaryWireNameLabel(wire);
     if (!label && app) {
         const pos = getWireLabelPosition(wire) || wire.getLabelPosition();
-        label = new Text(/** @type {any} */ ({
+        label = new Text({
             x: pos.x,
             y: pos.y,
             text: wire.wireLabel,
@@ -89,7 +89,7 @@ function _ensureWireNameLabel(app, wire, visible = false) {
             fontFamily: 'Arial',
             textAnchor: 'middle',
             color: 'var(--sch-wire-label, #669966)'
-        }));
+        });
         addShapeInternal(app, label);
         attachLabelToTarget(label, wire, { x: label.x, y: label.y }, { isNewLabel: true });
     }
@@ -406,7 +406,7 @@ export function rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires)
         const targetWire = best.wire;
         if (targetWire !== originalWire) {
             attached.delete(label);
-            if (attached.size === 0) delete /** @type {any} */ (originalWire).attachedLabels;
+            if (attached.size === 0) delete /** @type {{attachedLabels?: Set<TextShape>|null}} */ (originalWire).attachedLabels;
             if (!(targetWire.attachedLabels instanceof Set)) {
                 targetWire.attachedLabels = new Set();
             }
@@ -641,7 +641,7 @@ export function transferAttachedLabelsOnMerge(keeper, removed) {
     keeper.invalidate?.();
 
     // Clean up empty set on removed
-    if (set.size === 0) delete /** @type {any} */ (removed).attachedLabels;
+    if (set.size === 0) delete /** @type {{attachedLabels?: Set<TextShape>|null}} */ (removed).attachedLabels;
 }
 
 /**

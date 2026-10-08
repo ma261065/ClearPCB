@@ -377,7 +377,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     const batch = new BatchCommand('Delete segment');
 
     // Capture before state
-    const beforeState = /** @type {any} */ (wireGraph.captureState());
+    const beforeState = wireGraph.captureState();
     const preSplitLabel = wireGraph.wireLabel;
     const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wireGraph);
 
@@ -398,7 +398,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     const components = /** @type {Set<string>[]} */ (wireGraph.connectedComponents());
     if (components.length <= 1) {
         // Still one connected component — just modify in place
-        const afterState = /** @type {any} */ (wireGraph.captureState());
+        const afterState = wireGraph.captureState();
         wireGraph.applyState(beforeState);
         batch.add(new ModifyShapeCommand(app, wireGraph, beforeState, afterState));
     } else {
@@ -454,10 +454,10 @@ export function deleteSchematicShapeNode(app, shape, nodeId) {
         finishShapeRemoval(app);
         return true;
     } else {
-        const before = /** @type {any} */ (shape.captureState());
+        const before = shape.captureState();
         if (!shape.deleteAnchor(nodeId)) return false;
         if (!shape.closed) shape.fill = false;
-        const after = /** @type {any} */ (shape.captureState());
+        const after = shape.captureState();
         shape.applyState(before);
         app.history.execute(new ModifyShapeCommand(app, shape, before, after));
     }
@@ -901,10 +901,10 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.renderShapes(true);
         return true;
     }
-    const before = /** @type {any} */ (shape.captureState());
+    const before = shape.captureState();
     if (type === 'line') collapseCollinearPath(path);
     shape.applyEditablePath(path);
-    const after = /** @type {any} */ (shape.captureState());
+    const after = shape.captureState();
     setShapeSegmentFocus(app, shape.edges.has(segmentEdgeId) ? { shapeId: shape.id, edgeId: segmentEdgeId } : null);
     setShapeNodeFocus(app, null);
     if (floating && type === 'arc') {
