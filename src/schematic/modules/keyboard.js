@@ -1,35 +1,17 @@
+import { SCHEMATIC_TOOL_KEYS, finishSchematicDrawInPlace } from './schematic-tools.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from './commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
-import { finishWireDrawing } from './wire.js';
 import { flipComponentH, flipComponentV, rotateComponentRight } from './components.js';
 import { handleTextEditKey } from './text-edit.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
-import { finishDrawing, finishLine, finishPolygon } from './drawing.js';
 import {
     canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
 } from './editor-actions.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
-/**
- * Single-letter shortcuts that simply select a tool. Overloaded keys
- * (x/y/space — flip/rotate vs tool) are handled explicitly below.
- * @type {Record<string, string>}
- */
-const TOOL_KEYS = {
-    v: 'select',
-    l: 'text',
-    w: 'wire',
-    c: 'circle',
-    a: 'arc',
-    p: 'polygon',
-    i: 'line',
-    n: 'net',
-    o: 'component',
-    r: 'rect',
-};
 
 /**
  * True when keyboard actions that operate on the current selection
@@ -238,15 +220,7 @@ export function bindKeyboardShortcuts(app) {
                 }
                 case 'Enter':
                     if (app.isDrawing) {
-                        if (app.currentTool === 'wire' && app.wirePoints.length >= 1) {
-                            finishWireDrawing(app, app.drawCurrent);
-                        } else if (app.currentTool === 'line') {
-                            finishLine(app);
-                        } else if (app.currentTool === 'polygon') {
-                            finishPolygon(app);
-                        } else if (app.drawCurrent) {
-                            finishDrawing(app, app.drawCurrent);
-                        }
+                        finishSchematicDrawInPlace(app);
                         e.preventDefault();
                     }
                     break;
@@ -326,8 +300,9 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 }
                 default: {
-                    // Single-letter tool shortcuts (v/w/c/a/p/i/n/o/r/l).
-                    const tool = TOOL_KEYS[e.key.toLowerCase()];
+                    // Single-letter tool shortcuts, from each tool's entry in schematic-tools.js
+                    // (X, which also flips, and Y and Space are handled above).
+                    const tool = Object.hasOwn(SCHEMATIC_TOOL_KEYS, e.key.toLowerCase()) ? SCHEMATIC_TOOL_KEYS[e.key.toLowerCase()] : null;
                     if (tool) {
                         e.preventDefault();
                         app.selectTool(tool);

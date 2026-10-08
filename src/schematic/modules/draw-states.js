@@ -16,37 +16,33 @@
  * event and routes to the current state's handler.
  */
 
-import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, getWireJunctionData, hasWireJunctionDot, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { cancelDragGesture, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
-import { updateToolGhost } from './tool-ghost.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
-import { Text } from '../../shapes/text.js';
-import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from './label-attachment.js';
+import { attachLabelToTarget, refreshLabelAttachmentOffset, getLabelDropHotspot } from './label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
 import { refreshComponentPose, removeShapeSegmentSelectionElement } from './schematic-view.js';
 import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
 import { refinePathSegment } from '../../shapes/path-interaction.js';
-import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { isCulled } from './schematic-view.js';
-import { shapeDrawingClick } from './drawing.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 import { createBoxSelectElement, getBoxSelectBounds, updateBoxSelectElement } from '../../shared/ui/box-selection.js';
 import { confirmPaste, updatePastePreview } from './clipboard.js';
 import { findComponentAt, isComponentCodeTooltipPinned, pinComponentCodeTooltip, placeComponent, updateComponentPreview } from './components.js';
-import { addWireWaypoint, finishWireDrawing, startWireDrawing, updateWireDrawing } from './wire.js';
-import { addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, startDrawing, updateDrawing } from './drawing.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import {
+    finishSchematicDrawAtPointer, finishSchematicDrawInPlace, moveSchematicTool, pressSchematicTool,
+    pressSchematicToolDrawing, releaseSchematicTool,
+} from './schematic-tools.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
-const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
-const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
 const DRAG_THRESHOLD_PX = 3;
 const drawStates = new WeakMap();
 
@@ -243,12 +239,12 @@ function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
     return movedNodes;
 }
 
-function updateToolCrosshair(app, snapped, screenPos) {
+export function updateToolCrosshair(app, snapped, screenPos) {
     app.showCrosshair();
     app.updateCrosshair(snapped, screenPos);
 }
 
-function resolvePinSnapPlacement(app, worldPos, options = {}) {
+export function resolvePinSnapPlacement(app, worldPos, options = {}) {
     const resolved = resolveWireSnapPosition(app, worldPos, {
         pinTolerance: PIN_SNAP_TOL,
         ...options
@@ -849,7 +845,7 @@ function handleComponentContextMenu(app, worldPos, clientX, clientY) {
     return true;
 }
 
-function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
+export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     // Also exclude the label's current parent so the snap dot doesn't show for it
     const excludeParent = excludeShape?.parentComponent || null;
 
@@ -1427,56 +1423,7 @@ export const toolActiveState = {
             return;
         }
 
-        const tool = app.currentTool;
-
-        if (tool === 'wire') {
-            app.selection.clearSelection();
-            app.renderShapes(true);
-            const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
-            startWireDrawing(app, { x: snap.x, y: snap.y, snapPin: snap.snapPin || null });
-            app.interactionState = 'drawing';
-            event.preventDefault();
-            return;
-        }
-
-        if (DRAWING_SHAPES.has(tool)) {
-            shapeDrawingClick(app, tool === 'arc' && app.arcEndpoint ? worldPos : snapped);
-            return;
-        }
-
-        if (tool === 'noconnect' || tool === 'net') {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            setDrawSnapResult(app, resolved);
-            if (!app.isDrawing) { startDrawing(app, pos); }
-            else { finishDrawing(app, pos); }
-            updateToolGhost(app, pos);
-            return;
-        }
-
-        if (tool === 'text') {
-            const attach = resolveLabelAttachTarget(app, worldPos);
-            const placePos = attach ? attach.snapPos : snapped;
-            const shape = new Text({
-                x: placePos.x,
-                y: placePos.y,
-                text: '',
-                fontSize: app.toolOptions.fontSize || 2.0,
-                color: app.toolOptions.textColor,
-                fillColor: app.toolOptions.textColor
-            });
-            attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
-            app.addShape(shape);
-            app.selection.select(shape);
-            app.startTextEdit?.(shape);
-            app.interactionState = 'toolActive';
-            app.renderShapes(true);
-            event.preventDefault();
-            return;
-        }
-
-        // Default fallback
-        if (!app.isDrawing) { startDrawing(app, snapped); app.interactionState = 'drawing'; }
-        else { finishDrawing(app, snapped); app.interactionState = 'toolActive'; }
+        pressSchematicTool(app, event, { screenPos, worldPos, snapped });
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
@@ -1490,33 +1437,7 @@ export const toolActiveState = {
             updateSnapHighlight(app, placement.pinSnap);
         }
 
-        const tool = app.currentTool;
-
-        // Wire tool hover (not drawing)
-        if (tool === 'wire') {
-            updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
-            updateToolCrosshair(app, snapped, screenPos);
-            return;
-        }
-
-        // Pin-snap tool hover
-        if (tool === 'noconnect' || tool === 'net') {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            updateSnapHighlight(app, resolved);
-            updateToolGhost(app, pos);
-        }
-
-        if (tool === 'component' && !app.placingComponent) {
-            app.hideCrosshair();
-            return;
-        }
-
-        if (tool === 'text') {
-            const attach = resolveLabelAttachTarget(app, worldPos);
-            updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
-        }
-
-        updateToolCrosshair(app, snapped, screenPos);
+        moveSchematicTool(app, event, { screenPos, worldPos, snapped }, false);
     },
 
     mouseup(app, event, { worldPos, snapped }) {
@@ -1538,46 +1459,7 @@ export const drawingState = {
 
         activateHomeTabIfFileTabOpen(app);
 
-        const tool = app.currentTool;
-
-        if (tool === 'wire') {
-            if (!app.drawCurrent) return;
-            let waypointPos = { x: app.drawCurrent.x, y: app.drawCurrent.y };
-            const junctionData = getWireJunctionData(app);
-            if (hasWireJunctionDot(app) && junctionData) {
-                waypointPos = { x: junctionData.x, y: junctionData.y };
-                app.drawCurrent = { ...waypointPos };
-            }
-            if (app.drawCorner) {
-                addWireWaypoint(app, { x: app.drawCorner.x, y: app.drawCorner.y, snapPin: null });
-            }
-            addWireWaypoint(app, { ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
-            if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || hasWireJunctionDot(app))) {
-                finishWireDrawing(app, app.lastSnappedData);
-                app.interactionState = 'toolActive';
-            }
-            event.preventDefault();
-            return;
-        }
-
-        if (DRAWING_SHAPES.has(tool)) {
-            shapeDrawingClick(app, tool === 'arc' && app.arcEndpoint ? worldPos : snapped);
-            return;
-        }
-
-        if (tool === 'noconnect' || tool === 'net') {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            setDrawSnapResult(app, resolved);
-            finishDrawing(app, pos);
-            updateToolGhost(app, pos);
-            // Stay in toolActive — these are click-to-place
-            app.interactionState = 'toolActive';
-            return;
-        }
-
-        // Default: finish drawing
-        finishDrawing(app, snapped);
-        app.interactionState = 'toolActive';
+        pressSchematicToolDrawing(app, event, { screenPos, worldPos, snapped });
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
@@ -1590,95 +1472,28 @@ export const drawingState = {
             updateSnapHighlight(app, placement.pinSnap);
         }
 
-        const tool = app.currentTool;
-
-        if (tool === 'wire') {
-            updateWireDrawing(app, worldPos);
-            updateToolCrosshair(app, snapped, screenPos);
-            return;
-        }
-
-        if (tool === 'noconnect' || tool === 'net') {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            updateSnapHighlight(app, resolved);
-            updateToolGhost(app, pos);
-        }
-
-        if (tool === 'arc') {
-            updateDrawing(app, app.arcEndpoint ? worldPos : snapped);
-        } else if (DRAWING_TOOLS.has(tool)) {
-            updateDrawing(app, snapped);
-        }
-
-        updateToolCrosshair(app, snapped, screenPos);
+        moveSchematicTool(app, event, { screenPos, worldPos, snapped }, true);
     },
 
     /**
      * Right-click in place (no pan) — finish multi-point drawing tools.
      * Dispatched by mouse.js via contextmenu when movement < threshold.
      */
-    rightclick(app, event, { worldPos, snapped }) {
-        const tool = app.currentTool;
-        let handled = false;
-        if (tool === 'wire' && app.wirePoints?.length >= 1) {
-            finishWireDrawing(app, app.drawCurrent || worldPos);
-            handled = true;
-        } else if (tool === 'arc' && app.arcEndpoint) {
-            updateDrawing(app, worldPos);
-            finishDrawing(app, worldPos);
-            handled = true;
-        } else if (tool === 'line') {
-            addLinePoint(app, snapped);
-            finishLine(app);
-            handled = true;
-        } else if (tool === 'polygon') {
-            addPolygonPoint(app, snapped);
-            finishPolygon(app);
-            handled = true;
-        } else if (tool === 'rect' || tool === 'circle') {
-            finishDrawing(app, snapped);
-            handled = true;
-        }
-        if (handled) {
+    rightclick(app, event, { screenPos, worldPos, snapped }) {
+        if (finishSchematicDrawAtPointer(app, { screenPos, worldPos, snapped })) {
             app.setToolCursor(app.currentTool, app.viewport.svg);
             app.interactionState = 'toolActive';
         }
     },
 
-    mouseup(app, event, { worldPos, snapped }) {
+    mouseup(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
-
-        const tool = app.currentTool;
-        // Don't auto-finish multi-click tools on mouseup
-        if (tool === 'line' || tool === 'polygon' || tool === 'wire' || CLICK_TO_END_TOOLS.has(tool)) return;
-
-        if (app.isDrawing) {
-            finishDrawing(app, snapped);
-            app.interactionState = 'toolActive';
-        }
+        releaseSchematicTool(app, { screenPos, worldPos, snapped });
     },
 
-    dblclick(app, event, pos) {
-        const tool = app.currentTool;
-        let handled = false;
-        if (tool === 'wire' && app.wirePoints?.length >= 1) {
-            finishWireDrawing(app, app.drawCurrent);
-            handled = true;
-        } else if (tool === 'line') {
-            finishLine(app);
-            handled = true;
-        } else if (tool === 'polygon') {
-            finishPolygon(app);
-            handled = true;
-        } else if (app.isDrawing && app.drawCurrent) {
-            finishDrawing(app, app.drawCurrent);
-            handled = true;
-        }
-        if (handled) app.interactionState = 'toolActive';
+    dblclick(app) {
+        if (finishSchematicDrawInPlace(app)) app.interactionState = 'toolActive';
     },
-
-    // Note: drawing state's rightclick handler (for finishing) is defined above.
-    // This is the tooltip handler for drawing state right-click.
 };
 
 /**

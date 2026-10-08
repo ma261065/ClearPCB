@@ -168,9 +168,11 @@ preview-then-commit-once pattern above. Drive it in a unit test with the fake DO
    fails if a slot is unregistered or written outside its owner.
 4. Finish with one command (above) and add a browser scenario.
 
-Schematic tools follow the same shape: `schematic/modules/tool.js`
-(`onToolSelected`), `draw-states.js`, `schematic-interactions.js` and the
-schematic ribbon description.
+Schematic tools follow the same shape: an entry in `SCHEMATIC_TOOLS`
+(`schematic/modules/schematic-tools.js`) names the tool's shortcut, ribbon label,
+set-up when chosen, and its press, move, release and finishing hooks, which the
+mouse states in `draw-states.js`, the keyboard, `onToolSelected` and the ribbon
+read; `test-schematic-tools` checks the entry and its draws.
 
 ### Add state an editor needs
 

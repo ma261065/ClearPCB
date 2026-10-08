@@ -45,6 +45,17 @@ rotate, select all wait while anything is in progress). `interactionState` in
 the same editor fields and owner-module predicates. `test-schematic-interactions`
 checks the table, routes and guards.
 
+Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as each
+PCB tool is in `pcb-tools.js`: its name, shortcut and ribbon label, what selecting it
+sets up (the component picker, the Net defaults, a placement ghost), and what a press,
+a move and a release do before and during a draw. A draw finishes the same three ways
+for every tool: a stationary right-click finishes it at the pointer
+(`finishAtPointer`), a double-click or Enter finishes it with the points already
+placed (`finishInPlace`), and releasing the button finishes single-click draws only
+(tools marked `multiClick` keep drawing). The `toolActive` and `drawing` mouse states,
+the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read the
+entry (`test-schematic-tools`).
+
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 `draw-states.js` keeps pending segment toggles and drag scratch buffers,
 `drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire axis-lock and

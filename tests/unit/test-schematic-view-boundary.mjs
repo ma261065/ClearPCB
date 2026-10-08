@@ -182,11 +182,10 @@ const files = [];
     }
 })(src);
 const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\bviewOf\(|\bensureView\(|\bcomponentViewOf\(|\bensureComponentView\(|\b_culled\b|\b_lodFar\b/;
-// The inline text editor adds its own overlay, and the component picker owns its panel.
+// The inline text editor adds its own overlay.
 const allowed = new Set([
     'schematic/modules/text-edit.js: app.viewport.addContent(group);',
     'schematic/modules/text-edit.js: app.viewport.addContent(temp);',
-    'schematic/modules/tool.js: const searchInput = app.componentPicker.element.querySelector(\'.cp-search-input\');',
 ]);
 const offenders = [];
 for (const file of files) {

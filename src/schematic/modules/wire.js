@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Wire drawing and management module.
  *
  * Design decisions:
@@ -516,7 +516,7 @@ function _lockDrawAdjustLast(pt) {
  * Add a waypoint (corner) to the wire being drawn.
  * Collinear points are collapsed automatically.
  * @param {object} app - SchematicApp instance
- * @param {{x: number, y: number, snapPin?: object}} waypointData
+ * @param {{x: number, y: number, snapPin?: object|null}} waypointData
  */
 export function addWireWaypoint(app, waypointData) {
     if (app.wirePoints.length === 0) return;

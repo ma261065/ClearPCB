@@ -1,3 +1,4 @@
+import { SCHEMATIC_TOOLS, schematicToolTitle } from './schematic-tools.js';
 import { hasClipboard } from './clipboard.js';
 import { renderRecentFiles } from '../../shared/ui/recents.js';
 import { toggleSelectionLock } from './selection.js';
@@ -10,6 +11,14 @@ import { PAPER_SIZES } from './paper.js';
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
 const T = (tool, content, title, props = {}) => ({ kind: 'toolButton', dataset: { tool }, title, content, ...props });
+/**
+ * A tool's ribbon button: label and tooltip from its entry in schematic-tools.js.
+ * @param {any} app
+ * @param {string} id
+ * @param {any} [content] - a label built from elements, for tools whose entry has none
+ */
+const toolButton = (app, id, content = SCHEMATIC_TOOLS[id].content) => T(id, content, schematicToolTitle(id),
+    { active: () => app.currentTool === id, run: () => app.selectTool(id) });
 const K = text => E('kbd', {}, text);
 const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] });
 
@@ -203,14 +212,8 @@ export function createSchematicRibbonDescription(app) {
                         itemsClassName: 'ribbon-shape-body',
                         items: [
                             E('div', { className: 'ribbon-group-items ribbon-shape-tools' }, [
-                                T('select', '⊹ Select', 'Select (V)', { active: () => app.currentTool === 'select', run: () => app.selectTool('select') }),
-                                T('wire', '●⏤● Wire', 'Wire (W)', { active: () => app.currentTool === 'wire', run: () => app.selectTool('wire') }),
-                                T('rect', '▢ Rectangle', 'Rectangle (R)', { active: () => app.currentTool === 'rect', run: () => app.selectTool('rect') }),
-                                T('circle', '○ Circle', 'Circle (C)', { active: () => app.currentTool === 'circle', run: () => app.selectTool('circle') }),
-                                T('arc', '◠ Arc', 'Arc (A)', { active: () => app.currentTool === 'arc', run: () => app.selectTool('arc') }),
-                                T('line', '╱ Line', 'Line (I)', { active: () => app.currentTool === 'line', run: () => app.selectTool('line') }),
-                                T('polygon', '⬠ Polygon', 'Polygon (P)', { active: () => app.currentTool === 'polygon', run: () => app.selectTool('polygon') }),
-                                T('text', labelIcon, 'Label (L)', { active: () => app.currentTool === 'text', run: () => app.selectTool('text') }),
+                                ...['select', 'wire', 'rect', 'circle', 'arc', 'line', 'polygon'].map(id => toolButton(app, id)),
+                                toolButton(app, 'text', labelIcon),
                                 {
                                     kind: 'splitDropdown',
                                     id: 'ribbonNetDropdown',
@@ -219,7 +222,7 @@ export function createSchematicRibbonDescription(app) {
                                     main: { id: 'ribbonNetTool', className: 'ribbon-tool-btn ribbon-split-main', dataset: { tool: 'net' },
                                         title: () => {
                                             const meta = NET_STYLE_META[normalizenetStyle(app.toolOptions?.netStyle || 't')] || NET_STYLE_META.t;
-                                            return `Net (${meta.title}) (N)`;
+                                            return `${SCHEMATIC_TOOLS.net.name} (${meta.title}) (${(SCHEMATIC_TOOLS.net.key || '').toUpperCase()})`;
                                         },
                                         content: () => {
                                             const meta = NET_STYLE_META[normalizenetStyle(app.toolOptions?.netStyle || 't')] || NET_STYLE_META.t;
@@ -241,8 +244,8 @@ export function createSchematicRibbonDescription(app) {
                                         },
                                     })),
                                 },
-                                T('noconnect', '✕ No Connect', 'No Connect (X)', { active: () => app.currentTool === 'noconnect', run: () => app.selectTool('noconnect') }),
-                                T('component', '⊞ Component', 'Component (O)', { active: () => app.currentTool === 'component', run: () => app.selectTool('component') }),
+                                toolButton(app, 'noconnect'),
+                                toolButton(app, 'component'),
                             ]),
                             { kind: 'slot', id: 'ribbonShapeOptions', className: 'ribbon-shape-options' },
                         ],

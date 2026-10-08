@@ -321,7 +321,9 @@ Schematic editor:
   add/remove/delete/restore work behind the command view hooks.
 - `schematic/modules/properties.js` — the Properties panel (described as data);
   `property-host.js` — where it is rendered; `files.js` — Open, Save
-  and document loading; `tool.js` — tool selection and persisted tool options;
+  and document loading; `schematic-tools.js` — the tool catalog: one entry per tool
+  (shortcut, ribbon label, set-up, press/move/release and how its draw finishes);
+  `tool.js` — tool selection and persisted tool options;
   `tool-ghost.js` — single-click placement ghosts.
 
 Derived PCB work:

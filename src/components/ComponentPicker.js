@@ -2890,6 +2890,11 @@ export class ComponentPicker {
             this.toggle();
         }
     }
+
+    /** Put the keyboard in the search field, ready to type a part name. */
+    focusSearch() {
+        this.searchInput?.focus();
+    }
     
     /**
      * Appends the component picker element to a parent DOM node.

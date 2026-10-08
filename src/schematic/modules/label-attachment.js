@@ -254,7 +254,7 @@ export function updateLabelGuide(app) {
 /**
  * Attach a generic label Text shape to a target shape/component.
  * @param {object} labelShape
- * @param {object} target
+ * @param {object|null} target - null attaches to nothing
  * @param {{x:number,y:number}|null} [snapPos]
  * @param {{isNewLabel?:boolean}} [opts]
  */

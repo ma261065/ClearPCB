@@ -1,23 +1,13 @@
 import { updateSnapHighlight } from './wire.js';
 import { ShapeValidator } from '../../core/ShapeValidator.js';
 import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
-import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
-import {
-    createNetToolGhost,
-    createNoConnectToolGhost,
-    getToolGhost,
-    removeToolGhost,
-} from './tool-ghost.js';
+import { normalizeNetStyle } from '../../shapes/net.js';
+import { removeToolGhost } from './tool-ghost.js';
+import { SCHEMATIC_TOOLS } from './schematic-tools.js';
 export { getToolGhost } from './tool-ghost.js';
 export { updateToolGhost } from './tool-ghost.js';
 
 const STORAGE_KEY = 'clearpcb_tool_options';
-
-function _getnetToolOptionState(app) {
-    const style = normalizeNetStyle(app.toolOptions?.netStyle || 't');
-    const orientation = normalizeNetOrientation(app.toolOptions?.netOrientation || 'N');
-    return { style, orientation };
-}
 
 /**
  * Reads persisted tool options (line width, fill, font size) from localStorage.
@@ -70,8 +60,9 @@ export function saveToolOptions(options) {
 
 /**
  * Switches the active drawing tool: cancels current drawing, clears snap
- * highlight, clears selection for non-select tools, opens/closes the component
- * picker, and updates cursor and ribbon state.
+ * highlight, clears selection for non-select tools, closes the component picker
+ * unless the tool places components, runs the tool's own set-up (schematic-tools.js),
+ * and updates cursor, ribbon and Properties.
  * @param {object} app - Application state.
  * @param {string} tool - Tool identifier to activate.
  */
@@ -97,47 +88,24 @@ export function onToolSelected(app, tool) {
         app.renderShapes(true);
     }
 
-    if (tool !== 'component' && app.placingComponent) {
+    const entry = Object.hasOwn(SCHEMATIC_TOOLS, tool) ? SCHEMATIC_TOOLS[tool] : null;
+    if (!entry?.placesComponents && app.placingComponent) {
         app.cancelComponentPlacement();
     }
 
-    if (tool !== 'component' && app.componentPicker.isOpen) {
+    if (!entry?.placesComponents && app.componentPicker.isOpen) {
         app.componentPicker.close();
     }
 
-    if (tool === 'component') {
-        if (!app.componentPicker.isOpen) {
-            app.componentPicker.open();
-        }
-        const searchInput = app.componentPicker.element.querySelector('.cp-search-input');
-        if (searchInput) {
-            searchInput.focus();
-        }
-        // Don't show placement guides until the user clicks Place Component.
-        app.hideCrosshair();
-    }
-
-    const svg = app.viewport.svg;
-    app.setToolCursor(tool, svg);
-
-    // Keep Net placement preferences initialized
-    if (tool === 'net') {
-        const { style, orientation } = _getnetToolOptionState(app);
-        app.updateToolOptions?.({ netStyle: style, netOrientation: orientation });
-    }
-
-    // Manage placement ghost for single-click tools
+    app.setToolCursor(tool, app.viewport.svg);
+    // The previous tool's placement ghost goes; the new tool may show its own.
     removeToolGhost(app);
-    if (tool === 'noconnect') {
-        createNoConnectToolGhost(app);
-    } else if (tool === 'net') {
-        createNetToolGhost(app);
-    }
+    entry?.onSelected?.(app);
 
     app.refreshRibbon?.();
     app.updateShapePanelOptions(app.selection.getSelection(), tool);
     app.updatePropertiesPanel(app.selection.getSelection());
-    if (tool === 'wire' || tool === 'noconnect' || tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'polygon' || tool === 'text' || tool === 'net') {
+    if (entry?.newShapeDefaults) {
         app.setActiveRibbonTab?.('properties');
     } else if (tool === 'select' && app.selection.getSelection().length === 0) {
         app.setActiveRibbonTab?.('home');
@@ -150,7 +118,7 @@ export function onToolSelected(app, tool) {
  * @param {object} app - Application state.
  */
 export function onComponentPickerClosed(app) {
-    if (app.currentTool === 'component') {
+    if (SCHEMATIC_TOOLS[app.currentTool]?.placesComponents) {
         app.selectTool('select');
     }
 }

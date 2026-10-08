@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 10977,
+  "total": 10963,
   "cleanFolders": [
     "src/easyeda",
     "src/shared/3d"
@@ -189,11 +189,11 @@
     "src/schematic/modules/components.js": 101,
     "src/schematic/modules/context-menu.js": 60,
     "src/schematic/modules/drag.js": 176,
-    "src/schematic/modules/draw-states.js": 278,
+    "src/schematic/modules/draw-states.js": 277,
     "src/schematic/modules/drawing.js": 96,
     "src/schematic/modules/editor-actions.js": 23,
     "src/schematic/modules/files.js": 75,
-    "src/schematic/modules/keyboard.js": 57,
+    "src/schematic/modules/keyboard.js": 50,
     "src/schematic/modules/label-attachment.js": 55,
     "src/schematic/modules/locks.js": 8,
     "src/schematic/modules/mouse.js": 13,
@@ -217,7 +217,7 @@
     "src/schematic/modules/text-edit.js": 62,
     "src/schematic/modules/theme.js": 9,
     "src/schematic/modules/tool-ghost.js": 15,
-    "src/schematic/modules/tool.js": 35,
+    "src/schematic/modules/tool.js": 29,
     "src/schematic/modules/ui-utils.js": 6,
     "src/schematic/modules/value-dialog.js": 9,
     "src/schematic/modules/wire.js": 237,
