@@ -259,7 +259,7 @@ function _findWireNetConflict(app) {
  * accumulated waypoints, run reconciliation (merge, overlap,
  * junctions), and push an undo batch.
  * @param {SchematicEditor} app
- * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
+ * @param {{x: number, y: number, snapPin?: object}|null} [worldPos] - Final endpoint (unused: the last cursor position is app.drawCurrent)
  */
 export function finishWireDrawing(app, worldPos) {
     // Add final point if different from last waypoint

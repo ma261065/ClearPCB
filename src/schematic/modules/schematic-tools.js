@@ -162,7 +162,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             }
             addWireWaypoint(app, { ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
             if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || hasWireJunctionDot(app))) {
-                if (app.lastSnappedData) finishWireDrawing(app, app.lastSnappedData);
+                finishWireDrawing(app, app.lastSnappedData);
                 app.interactionState = 'toolActive';
             }
             event.preventDefault();
