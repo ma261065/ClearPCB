@@ -124,8 +124,6 @@ export class Component {
         // Selection-related properties
         this.visible = options.visible !== undefined ? options.visible : true;
         this.locked = options.locked !== undefined ? options.locked : false;
-        /** @type {boolean|undefined} Set by schematic viewport culling. */
-        this._culled = undefined;
         /** @type {{minX:number, minY:number, maxX:number, maxY:number}|null|undefined} */
         this._worldBounds = undefined;
         /** @type {string|undefined} */

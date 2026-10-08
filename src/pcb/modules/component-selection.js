@@ -17,7 +17,9 @@ import { hideNetTooltip } from './net-tooltip.js';
 /** @typedef {{x: number, y: number, width: number, height: number}} PlacementBounds */
 /** @typedef {{padId: string, width?: number, height?: number}} ComponentPadOffset */
 /** @typedef {{x: number, y: number}} PadPosition */
-/** @typedef {{x: number, y: number, rotation?: number, mirror?: boolean, side?: string, locked?: boolean, refVisible?: boolean, bounds?: PlacementBounds|null, elements?: Element[], pads?: Map<string, PadPosition>, padOffsets?: ComponentPadOffset[], lodEl?: SVGElement|null, _culled?: boolean, _lodFar?: boolean, _cullSig?: string, _cullBounds?: {minX:number,minY:number,maxX:number,maxY:number}}} ComponentPlacementLike */
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} WorldBounds */
+/** @typedef {{culled: boolean, lodFar: boolean, cullSig?: string, cullBounds?: WorldBounds}} PlacementViewState */
+/** @typedef {{x: number, y: number, rotation?: number, mirror?: boolean, side?: string, locked?: boolean, refVisible?: boolean, bounds?: PlacementBounds|null, elements?: Element[], pads?: Map<string, PadPosition>, padOffsets?: ComponentPadOffset[], lodEl?: SVGElement|null}} ComponentPlacementLike */
 
 /** @type {WeakMap<PcbEditor, {raf: number, pending: MouseEvent|null}>} */
 const componentDragFrames = new WeakMap();
@@ -26,6 +28,40 @@ const hoveredComponents = new WeakMap();
 /** @type {WeakMap<PcbEditor, HTMLDivElement>} */
 const componentPopups = new WeakMap();
 const PCB_LOD_PIXEL_THRESHOLD = 24;
+/** @type {WeakMap<object, PlacementViewState>} */
+const placementViewStates = new WeakMap();
+
+/** @param {object} placement */
+function ensurePlacementViewState(placement) {
+    let state = placementViewStates.get(placement);
+    if (!state) {
+        state = { culled: false, lodFar: false };
+        placementViewStates.set(placement, state);
+    }
+    return state;
+}
+
+/** @param {object|null|undefined} placement */
+export function isPlacementCulled(placement) {
+    return !!placement && !!placementViewStates.get(placement)?.culled;
+}
+
+/** @param {object|null|undefined} placement */
+export function isPlacementLodFar(placement) {
+    return !!placement && !!placementViewStates.get(placement)?.lodFar;
+}
+
+/** @param {object} placement */
+export function resetPlacementCullView(placement) {
+    const state = ensurePlacementViewState(placement);
+    state.culled = false;
+    state.lodFar = false;
+}
+
+/** @param {object|null|undefined} placement */
+export function getPlacementCullBounds(placement) {
+    return placement ? placementViewStates.get(placement)?.cullBounds || null : null;
+}
 
 /** @param {PcbEditor} app @param {any} placement */
 function showFootprintCrosshair(app, placement) {
@@ -134,14 +170,15 @@ export function updatePcbCulling(app) {
 
         // Detail (real geometry) is visible only when in view AND not far.
         const detailHidden = !inView || far;
-        if (detailHidden !== pl._culled) {
-            pl._culled = detailHidden;
+        const state = ensurePlacementViewState(pl);
+        if (detailHidden !== state.culled) {
+            state.culled = detailHidden;
             for (const el of pl.elements) el.classList.toggle('culled', detailHidden);
         }
         // Placeholder is visible only when in view AND far.
         const lodShown = inView && far;
-        if (lodShown === pl._lodFar) continue;
-        pl._lodFar = lodShown;
+        if (lodShown === state.lodFar) continue;
+        state.lodFar = lodShown;
         if (pl.lodEl) {
             if (lodShown) syncLodTransform(pl);
             pl.lodEl.classList.toggle('culled', !lodShown);
@@ -158,12 +195,13 @@ export function updatePcbCulling(app) {
  */
 export function uncullAllPlacements(app) {
     for (const [, pl] of app.placements) {
-        if (pl._culled) {
-            pl._culled = false;
+        const state = ensurePlacementViewState(pl);
+        if (state.culled) {
+            state.culled = false;
             for (const el of pl.elements) el.classList.remove('culled');
         }
-        if (pl._lodFar) {
-            pl._lodFar = false;
+        if (state.lodFar) {
+            state.lodFar = false;
             if (pl.lodEl) pl.lodEl.classList.add('culled');
         }
     }
@@ -203,7 +241,7 @@ function syncLodTransform(pl) {
  * outline rotated by the placement rotation and translated to position).
  * Cached and recomputed only when the placement's pose changes.
  * @param {any} pl
- * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null}
+ * @returns {WorldBounds|null}
  */
 function placementWorldBounds(pl) {
     const b = pl.bounds;
@@ -211,7 +249,8 @@ function placementWorldBounds(pl) {
     const rot = pl.rotation || 0;
     const mx = isPlacementMirrored(pl) ? -1 : 1;
     const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
-    if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
+    const state = ensurePlacementViewState(pl);
+    if (state.cullSig === sig && state.cullBounds) return state.cullBounds;
     const rad = rot * Math.PI / 180;
     const cos = Math.cos(rad), sin = Math.sin(rad);
     const corners = [
@@ -230,9 +269,9 @@ function placementWorldBounds(pl) {
         if (wy < minY) minY = wy;
         if (wy > maxY) maxY = wy;
     }
-    pl._cullBounds = { minX, minY, maxX, maxY };
-    pl._cullSig = sig;
-    return pl._cullBounds;
+    state.cullBounds = { minX, minY, maxX, maxY };
+    state.cullSig = sig;
+    return state.cullBounds;
 }
 
 /** @param {PcbEditor} app @param {Point} worldPos */

@@ -1,7 +1,7 @@
 /**
  * Geometry of a placement's reference designator, and the transforms between
- * a footprint's authored-local frame and the board. Pure functions of the
- * placement (and its rendered reference element): no editor state.
+ * a footprint's authored-local frame and the board. The module owns the
+ * rendered reference element/layout-box cache keyed by placement identity.
  */
 import { REF_DEFAULT_SIZE } from '../../shared/pcb/footprint.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
@@ -10,10 +10,55 @@ import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{bx:number,by:number,bw:number,bh:number,cx:number,cy:number}} RefBox */
-/** @typedef {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,refDx?:number,refDy?:number,refRot?:number,refSize?:number,reference?:string,refVisible?:boolean,elements?: Element[],_refEl?: Element|null,_refBox?: RefBox|null}} RefPlacement */
+/** @typedef {{element: Element|null, box: RefBox|null}} RefTextGeometryCache */
+/** @typedef {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,refDx?:number,refDy?:number,refRot?:number,refSize?:number,reference?:string,refVisible?:boolean,elements?: Element[]}} RefPlacement */
 
 /** Hit-test margin around a reference box, in mm (matches the drawn selection box). */
 export const REF_BOX_PAD = 0.6;
+/** @type {WeakMap<object, RefTextGeometryCache>} */
+const refTextGeometry = new WeakMap();
+
+/** @param {object} placement */
+function ensureRefTextGeometry(placement) {
+    let cache = refTextGeometry.get(placement);
+    if (!cache) {
+        cache = { element: null, box: null };
+        refTextGeometry.set(placement, cache);
+    }
+    return cache;
+}
+
+/**
+ * Seed or replace the cached reference text element and layout box for a placement.
+ * @param {RefPlacement} placement
+ * @param {Element|null} element
+ * @param {RefBox|null} box
+ */
+export function setRefTextGeometryCache(placement, element, box) {
+    if (!element && !box) {
+        refTextGeometry.delete(placement);
+        return;
+    }
+    const cache = ensureRefTextGeometry(placement);
+    cache.element = element;
+    cache.box = box;
+}
+
+/** @param {RefPlacement|null|undefined} placement */
+export function refTextElement(placement) {
+    return placement ? refTextGeometry.get(placement)?.element || null : null;
+}
+
+/** @param {RefPlacement|null|undefined} placement */
+export function cachedRefBox(placement) {
+    return placement ? refTextGeometry.get(placement)?.box || null : null;
+}
+
+/** @param {RefPlacement} placement */
+export function invalidateRefBox(placement) {
+    const cache = refTextGeometry.get(placement);
+    if (cache) cache.box = null;
+}
 
 /**
  * Board point to the placement's authored-local frame: undo translate, rotate, mirror.
@@ -61,14 +106,15 @@ export function placementLocalToWorld(pl, lx, ly) {
 
 /**
  * A placement's reference element and its footprint-local box `{bx,by,bw,bh,cx,cy}`
- * (the same frame as worldToPlacementLocal and the pad offsets), cached on the
- * placement. Null when the footprint has no reference group.
+ * (the same frame as worldToPlacementLocal and the pad offsets), cached by this
+ * module. Null when the footprint has no reference group.
  * @param {RefPlacement} pl placement
  * @returns {RefBox|null}
  */
 export function refBox(pl) {
     if (!pl) return null;
-    if (pl._refBox && pl._refEl?.isConnected) return pl._refBox;
+    const cache = ensureRefTextGeometry(pl);
+    if (cache.box && cache.element?.isConnected) return cache.box;
     let el = null;
     for (const layer of (pl.elements || [])) {
         el = layer.querySelector?.('[data-fp-ref]');
@@ -82,9 +128,9 @@ export function refBox(pl) {
     const cx = parseFloat(el.getAttribute('data-mx-center') || '');
     const cy = parseFloat(el.getAttribute('data-ref-cy') || '');
     if (![bx, by, bw, bh, cx, cy].every(Number.isFinite)) return null;
-    pl._refEl = el;
-    pl._refBox = { bx, by, bw, bh, cx, cy };
-    return pl._refBox;
+    cache.element = el;
+    cache.box = { bx, by, bw, bh, cx, cy };
+    return cache.box;
 }
 
 /** Board centre of a reference, including its offset (rotation about the centre leaves it fixed).
@@ -107,7 +153,7 @@ export function refEditBoxWorldCorners(pl, box) {
     const size = pl.refSize || REF_DEFAULT_SIZE;
     const width = measureStrokeText(pl.reference || '', size);
     const baseX = box.cx - width / 2;
-    const baseY = parseFloat(pl._refEl?.getAttribute('data-ref-anchor-y') || '');
+    const baseY = parseFloat(refTextElement(pl)?.getAttribute('data-ref-anchor-y') || '');
     if (!Number.isFinite(baseY)) return null;
 
     const padX = size * 0.15;

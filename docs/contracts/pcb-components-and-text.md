@@ -254,6 +254,8 @@ Viewport culling uses constant-time selection membership rather than rebuilding
 the selection list for each footprint. Every in-view selected footprint keeps
 its detailed artwork at low zoom; unselected footprints retain the 24-pixel
 placeholder threshold, and offscreen footprints still cull with 50% overdraw.
+The placement culling, LOD and world-bounds cache is owned by
+`pcb/modules/component-selection.js` in a WeakMap keyed by placement identity.
 
 ## Placement Metadata and References
 
@@ -274,6 +276,11 @@ Executed placement commands retain resolved footprint geometry for later replay
 if their schematic component is deleted. Undo/redo can restore placement metadata
 and bonded geometry without resurrecting that component or blocking earlier PCB
 history. Never-executed commands still reject missing targets.
+Reference-designator presentation caches (the rendered reference element and
+local layout box) are owned by `pcb/modules/ref-text-geometry.js`, behind
+WeakMap-backed accessors such as `refBox()`, `refTextElement()` and
+`invalidateRefBox()`. Metadata commands and selection overlays use those
+accessors rather than writing cache fields onto placements.
 
 The metadata editor command names are adapters. They project only edited fields
 into the current generated placement, retain transform/glyph, selection, overlay

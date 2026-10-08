@@ -14,7 +14,7 @@ import {
 } from '../../src/schematic/modules/schematic-view.js';
 import { Shape } from '../../src/shapes/shape.js';
 import { Component } from '../../src/components/Component.js';
-import { ensureView, viewOf, componentViewOf } from '../../src/schematic/render/shape-view-state.js';
+import { ensureView, viewOf, componentViewOf, setShapeCulled } from '../../src/schematic/render/shape-view-state.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function node(name) {
@@ -58,7 +58,7 @@ const document = installFakeDom();
 document.createElementNS = (_namespace, tag) => node(tag);
 
 class TestShape extends Shape {
-    constructor(id) { super({ id }); this._culled = false; }
+    constructor(id) { super({ id }); }
     clone() { return new TestShape(this.id + '-clone'); }
 }
 
@@ -105,7 +105,7 @@ function component(id) {
     assert.equal(cloneEntityElement(wire).clonedFrom, viewOf(wire).element);
     assert.equal(cloneEntityElement(shape('bare')), null, 'entities without SVG have no ghost');
     assert.equal(isCulled(wire), false);
-    wire._culled = true;
+    setShapeCulled(wire, true);
     assert.equal(isCulled(wire), true);
 
     discardShapeView(app, wire);

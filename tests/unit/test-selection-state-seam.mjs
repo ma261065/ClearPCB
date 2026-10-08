@@ -142,8 +142,6 @@ const files = [];
 // Unrelated "selected"/"hovered" fields: render options, anchor descriptors, PCB board-shape hover store.
 const unrelated = /\b(opts|anchor|state\(app\))\.(selected|hovered)\b/;
 const allowed = new Set([
-    'pcb/modules/selection-registry.js: selection._invalidateHitTestCache();',
-    'pcb/modules/selection-registry.js: selection._selectionCache = null;',
     'pcb/modules/selection-registry.js: selection.selected = new Set([...selection.selected].filter((id) => selection._getShape(id)));',
 ]);
 const offenders = [];

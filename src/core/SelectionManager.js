@@ -10,10 +10,10 @@
 
 /** @typedef {{minX:number, minY:number, maxX:number, maxY:number}} Bounds */
 /** @typedef {import('./geometry.js').Point} Point */
-/** @typedef {{id:string, visible?:boolean, _culled?:boolean, type?:string, kind?:string, object?:any, fieldKey?:string, parentComponent?:Shape|string|null, attachedLabels?:Set<Shape>|null, labelText?:Shape|null, locked?:boolean, invalidate:() => void, getBounds:() => Bounds|null, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean, [key:string]: any}} Shape */
+/** @typedef {{id:string, visible?:boolean, type?:string, kind?:string, object?:any, fieldKey?:string, parentComponent?:Shape|string|null, attachedLabels?:Set<Shape>|null, labelText?:Shape|null, locked?:boolean, invalidate:() => void, getBounds:() => Bounds|null, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean, [key:string]: any}} Shape */
 /**
  * @template {Shape} [T=Shape]
- * @typedef {{tolerance?:number, screenTolerancePx?:number, getScale?:() => number, onSelectionChanged?:(selection:T[]) => void, invalidateEntity?:(entity:T) => void}} SelectionManagerOptions
+ * @typedef {{tolerance?:number, screenTolerancePx?:number, getScale?:() => number, isCulled?:(entity:T) => boolean, onSelectionChanged?:(selection:T[]) => void, invalidateEntity?:(entity:T) => void}} SelectionManagerOptions
  */
 
 /**
@@ -53,6 +53,8 @@ export class SelectionManager {
         this.screenTolerancePx = options.screenTolerancePx || 6;
         /** @type {(() => number)|null} */
         this.getScale = options.getScale || null;
+        /** @type {((entity:T) => boolean)|null} */
+        this._isCulled = options.isCulled || null;
         
         // Cache for hitTest results (point-based)
         /** @type {{lastPoint:string|null, lastResult:T|null, lastAllResults:T[]|null}} */
@@ -96,6 +98,11 @@ export class SelectionManager {
         if (![minX, minY, maxX, maxY].every(Number.isFinite)) return true;
         return point.x >= minX - tolerance && point.x <= maxX + tolerance
             && point.y >= minY - tolerance && point.y <= maxY + tolerance;
+    }
+
+    /** @param {T} shape */
+    _canHit(shape) {
+        return !!shape.visible && !(this._isCulled && this._isCulled(shape));
     }
     
     /**
@@ -203,7 +210,7 @@ export class SelectionManager {
             const hits = [];
             for (let i = this.shapes.length - 1; i >= 0; i--) {
                 const shape = this.shapes[i];
-                if (!shape.visible || shape._culled) continue;
+                if (!this._canHit(shape)) continue;
                 if (!this._boundsMayHit(shape, point, tol)) continue;
                 if (shape.hitTest(point, tol)) {
                     hits.push(shape);
@@ -225,7 +232,7 @@ export class SelectionManager {
         for (const id of this.selected) {
             const shape = this._shapeMap.get(id);
             const index = /** @type {number} */ (this._shapeIndex.get(id));
-            if (!shape || index <= selectedIndex || !shape.visible || shape._culled) continue;
+            if (!shape || index <= selectedIndex || !this._canHit(shape)) continue;
             if (!this._boundsMayHit(shape, point, tol)) continue;
             if (shape.hitTest(point, tol)) {
                 selectedHit = shape;
@@ -243,7 +250,7 @@ export class SelectionManager {
         // so they need not be skipped.
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
-            if (!shape.visible || shape._culled) continue;
+            if (!this._canHit(shape)) continue;
             if (!this._boundsMayHit(shape, point, tol)) continue;
             
             if (shape.hitTest(point, tol)) {
@@ -527,6 +534,11 @@ export class SelectionManager {
     /** Discard cached hit results after shape geometry or membership changes. */
     invalidateHitCache() {
         this._invalidateHitTestCache();
+    }
+
+    /** Discard the cached selected-shape array after selection membership changes. */
+    invalidateSelectionCache() {
+        this._selectionCache = null;
     }
 
     /** Tell listeners about a selection change made without notification. */

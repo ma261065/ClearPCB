@@ -180,6 +180,8 @@ evaluation-order cycle fails.
   `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
   board-view panel state), `component-selection.js` (component hover outline,
   footprint culling/LOD and component-net lookup),
+  `ref-text-geometry.js` (reference-designator element and layout-box view
+  cache),
   `pcb-hover.js` (coalesced select-tool hover frame state),
   `pcb-editor-api.js` (the active and stale editor flags plus public editor services),
   `selection-registry.js` (the PCB SelectionManager per editor),
@@ -391,8 +393,9 @@ Schematic editor:
   interactions, with PCB's categories, owner modules and import-free WeakMap
   store; `schematic-interaction-routing.js` — their cancel handlers
   (counterparts of `pcb-interactions.js` and `pcb-interaction-routing.js`).
-- `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
-  detail; `schematic/render/` — shape and component renderers and their view state.
+- `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling policy and level of
+  detail; `schematic/render/` — shape and component renderers plus WeakMap view
+  state, including culled flags.
 - `schematic/modules/draw-states.js` — the pointer interaction state machine,
   overlap-cycle slot owner, pending segment-toggle state and drag-click flags;
   `drag-gestures.js` — starting and running drags (anchor, segment, move, box

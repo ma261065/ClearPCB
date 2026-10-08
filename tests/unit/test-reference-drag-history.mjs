@@ -10,7 +10,7 @@ import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { handleRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
-import { placementLocalToWorld } from '../../src/pcb/modules/ref-text-geometry.js';
+import { placementLocalToWorld, setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -19,15 +19,15 @@ const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true } = {}) {
     const pcbDocument = new PcbDocument();
+    const refElement = { isConnected: true, attributes: new Map([
+        ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
+    ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; } };
     const placement = { x: Math.PI, y: -Math.E, rotation, side, mirror,
         refDx: 1.234567, refDy: -2.345678, refRot: 23.456789,
         reference: 'R1', bounds: { x: -2, y: -1, width: 4, height: 2 },
-        _refEl: { isConnected: true, attributes: new Map([
-            ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
-        ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; } },
-        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
         padOffsets: [{ padId: '1', dx: 2, dy: 1, number: '1' }], pads: new Map() };
+    setRefTextGeometryCache(placement, refElement, { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
     updatePlacementPadPositions(placement);
     const pad = placement.pads.get('1');
     const track = new Track({ points: [{ x: pad.x, y: pad.y }, { x: 50, y: 60 }],

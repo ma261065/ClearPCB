@@ -9,6 +9,7 @@ import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
+import { setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -16,15 +17,16 @@ const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 
 function fixture(saved, selected = false) {
+    const refElement = { isConnected: true, attributes: new Map([
+        ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
+    ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; } };
     const placement = { x: Math.PI, y: -Math.E, rotation: 37.1234567, side: 'bottom', mirror: true,
         reference: 'R12', refDx: 1.234567, refDy: -2.345678,
         refSize: 1.234567, refStrokeWidth: 0.1234567, refRot: 23.456789,
         bounds: { x: -2, y: -1, width: 4, height: 2 },
-        _refEl: { isConnected: true, attributes: new Map([
-            ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
-        ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        getAttribute(name) { return this.attributes.get(name) ?? null; } },
-        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+    };
+    setRefTextGeometryCache(placement, refElement, { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
     const inputs = new Map();
     const pcbDocument = new PcbDocument();
     if (saved) pcbDocument.placementState.record('part', placement);

@@ -6,7 +6,7 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../../src/pcb/modules/ref-text-selection.js';
 import { applyRefGeometry } from '../../src/shared/pcb/footprint.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
-import { refBox } from '../../src/pcb/modules/ref-text-geometry.js';
+import { cachedRefBox, refBox, setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -26,12 +26,14 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     padNumber.setAttribute('data-mx-center', '2');
     group.appendChild(reference);
     group.appendChild(padNumber);
+    group.querySelector = selector => selector === '[data-fp-ref]' ? reference : null;
     group.querySelectorAll = () => group.children;
     applyRefGeometry(reference, 'R12', 3, -2.8, 1.2, 0.15);
     const placement = { x: 10, y: -20, rotation: 37, side, mirror,
         refDx: 1.234567, refDy: -2.345678, refRot: 23.456789,
         refSize: 1.2, refStrokeWidth: 0.15, reference: 'R12', elements: [group],
-        _refEl: reference, lodEl: element('g'), bounds: { x: -2, y: -1, width: 4, height: 2 } };
+        lodEl: element('g'), bounds: { x: -2, y: -1, width: 4, height: 2 } };
+    setRefTextGeometryCache(placement, reference, refBox(placement));
     Object.defineProperty(placement, 'padOffsets', {
         get() { assert.fail('Reference presentation must not recalculate physical pads'); },
     });
@@ -85,8 +87,8 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     assert.equal(reference.getAttribute('stroke-width'), '0.234567');
     assert.equal(reference.getAttribute('data-ref-size'), '2.345678');
     assert.ok(reference.children.length > 0 && reference.children.every(child => !oldGlyphs.includes(child)));
-    assert.notEqual(placement._refBox, oldBox, 'Style edits replace the stale reference layout box');
-    assert.ok(placement._refBox.bw > oldBox.bw && placement._refBox.bh > oldBox.bh,
+    assert.notEqual(cachedRefBox(placement), oldBox, 'Style edits replace the stale reference layout box');
+    assert.ok(cachedRefBox(placement).bw > oldBox.bw && cachedRefBox(placement).bh > oldBox.bh,
         'The refreshed reference layout box reflects the larger size and stroke width');
     assert.equal(highlights, 1);
     assert.equal(caretUpdates, 1);
@@ -98,17 +100,17 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     assert.ok(overlays >= 9);
     const rotatedGlyphs = [...reference.children];
     const cachedBox = { cy: Number(reference.getAttribute('data-ref-cy')) };
-    placement._refBox = cachedBox;
+    setRefTextGeometryCache(placement, reference, cachedBox);
     const beforeHighlights = highlights, beforeCarets = caretUpdates;
     app.history.execute(new SetRefStyleCommand(app, 'part', { refRot: placement.refRot }, { refRot: 123 }));
     verifyTransform();
-    assert.equal(placement._refBox, cachedBox, 'Rotation-only style edits preserve the local layout box');
+    assert.equal(cachedRefBox(placement), cachedBox, 'Rotation-only style edits preserve the local layout box');
     assert.equal(reference.children.length, rotatedGlyphs.length);
     assert.ok(reference.children.every((child, index) => child === rotatedGlyphs[index]),
         'Rotation-only style edits preserve glyph node identity');
     app.history.undo();
     verifyTransform();
-    assert.equal(placement._refBox, cachedBox);
+    assert.equal(cachedRefBox(placement), cachedBox);
     assert.equal(reference.children.length, rotatedGlyphs.length);
     assert.ok(reference.children.every((child, index) => child === rotatedGlyphs[index]));
     assert.equal(highlights, beforeHighlights + 2, 'Reusing glyphs still refreshes highlight presentation');

@@ -231,14 +231,14 @@ export function syncPcbSelection(app) {
     // Reused adapters keep the id map and selected ids valid; geometry may still have
     // moved, so hit caches always reset.
     if (unchanged) {
-        selection._invalidateHitTestCache();
-        selection._selectionCache = null;
+        selection.invalidateHitCache();
+        selection.invalidateSelectionCache();
         return;
     }
     selection.setShapes(next);
     pruneIdAdapters(app);
     selection.selected = new Set([...selection.selected].filter((id) => selection._getShape(id)));
-    selection._selectionCache = null;
+    selection.invalidateSelectionCache();
 }
 
 /** @param {PcbEditor} app @param {PcbSelectionValue[]} [values] */

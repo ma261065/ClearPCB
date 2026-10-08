@@ -3,7 +3,7 @@ import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { isLayerVisible, isLayerLocked } from './layers.js';
 import { getPropertyEditor } from './property-editors.js';
 import { renderPlacementPose, placementTransform } from './track-commands.js';
-import { hitTestRefText, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, worldToPlacementLocal } from './ref-text-geometry.js';
+import { hitTestRefText, invalidateRefBox, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, refTextElement, worldToPlacementLocal } from './ref-text-geometry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { hitTestText } from './pcb-text-render.js';
 import { applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
@@ -65,7 +65,7 @@ export function refreshRefHighlight(app, compId) {
     const active = isPcbSelected(app, 'reftext', compId)
         || activeTextInlineEdit(app)?.options?.componentId === compId;
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    pl._refEl.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
+    refTextElement(pl)?.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
         : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
 }
 
@@ -129,14 +129,14 @@ export function rerenderRef(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl) return;
     refBox(pl);
-    const el = pl._refEl;
+    const el = /** @type {SVGGElement|null} */ (refTextElement(pl));
     if (!el) return;
-    const cxRef = parseFloat(el.getAttribute('data-mx-center'));
-    const baseY = parseFloat(el.getAttribute('data-ref-anchor-y'));
+    const cxRef = parseFloat(el.getAttribute('data-mx-center') || '');
+    const baseY = parseFloat(el.getAttribute('data-ref-anchor-y') || '');
     if (!Number.isFinite(cxRef) || !Number.isFinite(baseY)) return;
     if (applyRefGeometry(el, /** @type {string} */ (pl.reference), cxRef, baseY,
         pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE)) {
-        pl._refBox = null;
+        invalidateRefBox(pl);
     }
     renderPlacementPose(app, compId);
     refreshRefHighlight(app, compId);
@@ -336,6 +336,8 @@ export function tryEditReferenceAt(app, worldPos) {
         layer,
     };
     const baseX = () => (refBox(placement)?.cx || 0) - measureStrokeText(text.content, text.size) / 2;
+    const el = refTextElement(placement);
+    if (!el) return false;
     const render = () => {
         placement.reference = text.content;
         app.rerenderRef(compId);
@@ -351,8 +353,8 @@ export function tryEditReferenceAt(app, worldPos) {
             text.size = pl.refSize || REF_DEFAULT_SIZE;
             text.strokeWidth = pl.refStrokeWidth || REF_DEFAULT_STROKE;
         },
-        transform: () => `${placementTransform(pl)} ${pl._refEl.getAttribute('transform') || ''}`
-            + ` translate(${baseX()},${pl._refEl.getAttribute('data-ref-anchor-y')})`,
+        transform: () => `${placementTransform(pl)} ${el.getAttribute('transform') || ''}`
+            + ` translate(${baseX()},${el.getAttribute('data-ref-anchor-y')})`,
         /** @param {Point} point */
         localX: point => {
             if (!app.viewport) return 0;
@@ -360,7 +362,11 @@ export function tryEditReferenceAt(app, worldPos) {
             const cursor = svg.createSVGPoint();
             cursor.x = point.x;
             cursor.y = point.y;
-            const local = cursor.matrixTransform(pl._refEl.getCTM().inverse().multiply(svg.getCTM()));
+            const refNode = /** @type {SVGGraphicsElement} */ (el);
+            const refMatrix = refNode.getCTM();
+            const svgMatrix = svg.getCTM();
+            if (!refMatrix || !svgMatrix) return 0;
+            const local = cursor.matrixTransform(refMatrix.inverse().multiply(svgMatrix));
             return local.x - baseX();
         },
         render,

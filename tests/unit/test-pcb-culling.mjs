@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getPcbSelectionManager, setPcbSelection, syncPcbSelection } from '../../src/pcb/modules/selection-registry.js';
-import { updatePcbCulling } from '../../src/pcb/modules/component-selection.js';
+import { getPlacementCullBounds, updatePcbCulling } from '../../src/pcb/modules/component-selection.js';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 globalThis.window = { addEventListener() {} };
@@ -24,7 +24,7 @@ function fixture(count = 3) {
         placements: new Map(Array.from({ length: count }, (_, index) => [`U${index}`, {
             x: (index % 32) * 2, y: Math.floor(index / 32) * 2, rotation: 0, refVisible: false,
             bounds: { x: 0, y: 0, width: 1, height: 1 }, elements: [node(false), node(false)],
-            lodEl: node(true), _culled: false, _lodFar: false,
+            lodEl: node(true),
         }])),
     };
     syncPcbSelection(app);
@@ -70,10 +70,10 @@ test('the 24-pixel LOD threshold and unchanged-frame fast paths are preserved', 
         view.cull();
         view.expect('U0', detail, !detail);
         const writes = view.writes;
-        const bounds = view.app.placements.get('U0')._cullBounds;
+        const bounds = getPlacementCullBounds(view.app.placements.get('U0'));
         view.cull();
         assert.equal(view.writes, writes, 'An unchanged frame does not rewrite visibility or transforms');
-        assert.equal(view.app.placements.get('U0')._cullBounds, bounds, 'Unchanged poses reuse world bounds');
+        assert.equal(getPlacementCullBounds(view.app.placements.get('U0')), bounds, 'Unchanged poses reuse world bounds');
     }
 });
 

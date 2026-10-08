@@ -28,6 +28,7 @@ for (const [id, button] of buttons) {
 const shared = await import('../../src/shared/ui/theme.js');
 const { bindThemeToggle, toggleTheme, loadTheme } = await import('../../src/schematic/modules/theme.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
+const { setRefTextGeometryCache } = await import('../../src/pcb/modules/ref-text-geometry.js');
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let schematicUpdates = 0;
 let pcbUpdates = 0;
@@ -52,11 +53,12 @@ const refElement = {
     setAttribute(name, value) { if (name === 'stroke') highlights.push('part'); this.attributes.set(name, value); },
     getAttribute(name) { return this.attributes.get(name) ?? null; },
 };
+const placement = { side: 'top' };
+setRefTextGeometryCache(placement, refElement, { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
 const pcb = pcbEditorFixture({
     themeToggle: buttons.get('pcbThemeToggle'),
     viewport: { updateTheme() { pcbUpdates++; }, addContent() {} },
-    placements: new Map([['part', { side: 'top', _refEl: refElement,
-        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } }]]),
+    placements: new Map([['part', placement]]),
 });
 setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
 highlights.length = 0;

@@ -6,6 +6,7 @@ import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../../src/pcb/modules/selection-registry.js';
 import '../../src/pcb/modules/component-selection.js';
 import { drawRefOverlay, refreshRefHighlight, tryEditReferenceAt } from '../../src/pcb/modules/ref-text-selection.js';
+import { setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { getPendingAnchorDrag, setPendingAnchorDrag } from '../../src/schematic/modules/drag.js';
@@ -45,13 +46,13 @@ const refEl = () => ({ isConnected: true, attributes: { 'data-ref-anchor-y': '0'
     setAttribute(name, value) { this.attributes[name] = value; },
     getAttribute(name) { return this.attributes[name] ?? null; } });
 const placement = { x: 10, y: 20, refDx: 0, refDy: 0, side: 'top',
-    bounds: { x: 0, y: 0, width: 10, height: 8 }, _refEl: refEl(),
-    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
+    bounds: { x: 0, y: 0, width: 10, height: 8 },
     elements: [{ classList: { toggle() {} } }] };
 const placement2 = { x: 30, y: 40, refDx: 2, refDy: 3, side: 'top',
-    bounds: { x: 20, y: 0, width: 10, height: 8 }, _refEl: refEl(),
-    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
+    bounds: { x: 20, y: 0, width: 10, height: 8 },
     elements: [{ classList: { toggle() {} } }] };
+setRefTextGeometryCache(placement, refEl(), { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
+setRefTextGeometryCache(placement2, refEl(), { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
 const overlayHost = svgElement();
 const app = { ...pcbEditorStubs(),
     placements: new Map([['U1', placement], ['U2', placement2]]),
@@ -491,11 +492,11 @@ document.documentElement = { getAttribute() { return theme; } };
 const refElement = { attributes: { 'data-ref-anchor-y': '-5', 'data-ref-cy': '-1.5' },
     setAttribute(name, value) { this.attributes[name] = value; },
     getAttribute(name) { return this.attributes[name] ?? null; } };
-const highlightPlacement = { x: 0, y: 0, side: 'top', reference: 'R1', _refEl: refElement,
-    _refBox: { bx: -1, by: -2, bw: 2, bh: 1, cx: 0, cy: -1.5 },
+const highlightPlacement = { x: 0, y: 0, side: 'top', reference: 'R1',
     refDx: 0, refDy: -30, refSize: 1.2, refStrokeWidth: 0.15,
     bounds: { x: 20, y: 0, width: 4, height: 2 } };
 refElement.isConnected = true;
+setRefTextGeometryCache(highlightPlacement, refElement, { bx: -1, by: -2, bw: 2, bh: 1, cx: 0, cy: -1.5 });
 const highlightApp = { ...pcbEditorStubs(), placements: new Map([['ref', highlightPlacement]]),
     viewport: { addContent(node) {
         Object.defineProperty(node, 'isConnected', { value: true, writable: true, configurable: true });

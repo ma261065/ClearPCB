@@ -14,6 +14,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -26,12 +27,13 @@ for (const side of ['top', 'bottom']) {
     const layer = PCB_LAYERS.find(item => item.id === `${side}-silk`);
     const other = PCB_LAYERS.find(item => item.id === `${side === 'top' ? 'bottom' : 'top'}-silk`);
     const previous = layer.locked, otherPrevious = other.locked;
+    const refElement = { isConnected: true, setAttribute() {}, getAttribute: name => ({
+        'data-ref-anchor-y': '0', 'data-ref-cy': '0',
+    })[name] ?? null };
     const placement = { x: 0, y: 0, side, refDx: 0, refDy: 0, refRot: 0, refSize: 1.2,
         refStrokeWidth: 0.15, reference: 'R1', elements: [],
-        _refEl: { isConnected: true, setAttribute() {}, getAttribute: name => ({
-            'data-ref-anchor-y': '0', 'data-ref-cy': '0',
-        })[name] ?? null },
-        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+    };
+    setRefTextGeometryCache(placement, refElement, { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
     const pcbDocument = new PcbDocument();
     pcbDocument.placementState.record('part', placement);
     const controls = new Map();

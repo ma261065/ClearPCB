@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { createPcbText } from '../../src/core/pcb-text.js';
+import { setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -73,6 +74,7 @@ function boardFixture() {
     const placement = { x: 170, y: 60, rotation: 30, side: 'top', mirror: false, reference: 'R12', outline,
         bounds: { x: -3, y: -2, width: 6, height: 4 }, refDx: 1, refDy: -4, refRot: 20, refSize: 1.2,
         refStrokeWidth: 0.15, refVisible: true, padOffsets: [], pads: new Map(), elements: [] };
+    setRefTextGeometryCache(placement, { isConnected: true, setAttribute() {}, getAttribute() { return null; } }, refBox);
 
     const app = { ...pcbEditorStubs(),
         pcbDocument, history: new CommandHistory(), currentTool: 'select',
@@ -80,7 +82,7 @@ function boardFixture() {
         viewport: { scale: 10, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {},
             getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
         getLayerGroup: () => element(), _shapeElements: new Map(), _layerGroups: new Map(),
-        _refBox: () => refBox, refreshText() {}, drawRefOverlay() {}, refreshSelectionHighlights() {},
+        refreshText() {}, drawRefOverlay() {}, refreshSelectionHighlights() {},
     };
     for (const name of ['texts', 'tracks', 'vias', 'pads', 'boardShapes']) {
         const descriptor = Object.getOwnPropertyDescriptor(PCBApp.prototype, name);

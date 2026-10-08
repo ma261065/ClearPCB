@@ -48,8 +48,11 @@ because selection changes are not always followed by a render pass. Editor
 code changes the selection through the public API: `keepSelected()`
 re-asserts a tracked shape after an edit (silently; untracked shapes are
 ignored), `dropSelected()`/`dropHover()`/`forget()` release a shape leaving the
-document, `clearSelection({ notify: false })` and `notifyChanged()` batch a
-change into one notification, and `invalidateHitCache()` discards cached hits.
+document, editor-owned culling state is supplied through the optional
+`isCulled` predicate, `clearSelection({ notify: false })` and `notifyChanged()`
+batch a change into one notification, `invalidateHitCache()` discards cached
+hits, and `invalidateSelectionCache()` discards the selected-array cache after
+external registry synchronization.
 `test-selection-state-seam` checks the API, the hook ordering and hit
 priority, and fails on any entity flag use or private access outside the
 manager. `tests/browser/schematic-smoke.mjs` checks in a real browser that

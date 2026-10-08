@@ -1,7 +1,7 @@
 /** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
 /** @typedef {import('../../components/Component.js').Component} Component */
-/** @typedef {{element: SVGElement|null, anchorsGroup: SVGGElement|null, lastScale: number|undefined, anchorRects: SVGElement[]|null, anchorsHaveLock: boolean}} ShapeView */
-/** @typedef {{element: SVGGElement|null, pinElements: Map<string|number|undefined, SVGGElement>, highlightEl: SVGRectElement|null, lockIconEl: SVGElement|null, lodFar: boolean}} ComponentView */
+/** @typedef {{element: SVGElement|null, anchorsGroup: SVGGElement|null, lastScale: number|undefined, anchorRects: SVGElement[]|null, anchorsHaveLock: boolean, culled: boolean}} ShapeView */
+/** @typedef {{element: SVGGElement|null, pinElements: Map<string|number|undefined, SVGGElement>, highlightEl: SVGRectElement|null, lockIconEl: SVGElement|null, lodFar: boolean, culled: boolean}} ComponentView */
 
 /** @type {WeakMap<SchematicShape, ShapeView>} */
 const shapeViews = new WeakMap();
@@ -21,6 +21,7 @@ export function ensureView(shape) {
             lastScale: undefined,
             anchorRects: null,
             anchorsHaveLock: false,
+            culled: false,
         };
         shapeViews.set(shape, view);
     }
@@ -30,6 +31,16 @@ export function ensureView(shape) {
 /** @param {SchematicShape} shape */
 export function deleteView(shape) {
     shapeViews.delete(shape);
+}
+
+/** @param {SchematicShape|null|undefined} shape */
+export function isShapeCulled(shape) {
+    return !!shape && !!shapeViews.get(shape)?.culled;
+}
+
+/** @param {SchematicShape} shape @param {boolean} culled */
+export function setShapeCulled(shape, culled) {
+    ensureView(shape).culled = culled;
 }
 
 /** @type {WeakMap<object, ComponentView>} */
@@ -50,6 +61,7 @@ export function ensureComponentView(component) {
             highlightEl: null,
             lockIconEl: null,
             lodFar: false,
+            culled: false,
         };
         componentViews.set(component, view);
     }
@@ -59,4 +71,14 @@ export function ensureComponentView(component) {
 /** @param {object} component */
 export function deleteComponentView(component) {
     componentViews.delete(component);
+}
+
+/** @param {object|null|undefined} component */
+export function isComponentCulled(component) {
+    return !!component && !!componentViews.get(component)?.culled;
+}
+
+/** @param {object} component @param {boolean} culled */
+export function setComponentCulled(component, culled) {
+    ensureComponentView(component).culled = culled;
 }

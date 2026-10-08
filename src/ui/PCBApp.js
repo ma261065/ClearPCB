@@ -79,7 +79,7 @@ import { bindPcbMouseEvents } from '../pcb/modules/mouse.js';
 import '../pcb/modules/layer-changes.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart } from '../pcb/modules/copper-fill-edit.js';
-import { openComponent3DPopout, showComponentPopup, updatePcbCulling } from '../pcb/modules/component-selection.js';
+import { openComponent3DPopout, resetPlacementCullView, showComponentPopup, updatePcbCulling } from '../pcb/modules/component-selection.js';
 import { clearTextElements, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
 import { drawRefOverlay, endRefDrag, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, SetRefStyleCommand } from '../pcb/modules/ref-text-selection.js';
 import { cancelHoverUpdate } from '../pcb/modules/pcb-hover.js';
@@ -1446,8 +1446,7 @@ export default class PCBApp {
         rect.setAttribute('transform', placementTransform(pl));
         this.getLayerGroup('fp-lod').appendChild(rect);
         pl.lodEl = rect;
-        pl._culled = false;
-        pl._lodFar = false;
+        resetPlacementCullView(pl);
     }
 
     /**

@@ -57,6 +57,7 @@ import {
     renderShapes,
     clearShapeSegmentSelection,
     refreshSelectionVisual,
+    isCulled,
 } from '../schematic/modules/schematic-view.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus } from '../schematic/modules/shape-focus.js';
 import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interactions.js';
@@ -146,6 +147,7 @@ export default class SchematicApp {
         /** @type {SelectionManager<SchematicShape>} */
         this.selection = new SelectionManager({
             getScale: () => this.viewport?.scale,
+            isCulled,
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes),
             invalidateEntity: (entity) => refreshSelectionVisual(this, entity),
         });

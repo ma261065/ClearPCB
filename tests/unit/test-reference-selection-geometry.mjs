@@ -5,6 +5,7 @@ import { createRefTextSelectionAdapter, hitTestReferenceText } from '../../src/p
 import { lockPositionOutsideOutline } from '../../src/pcb/modules/selection-anchors.js';
 import { PCB_LAYERS } from '../../src/pcb/modules/layers.js';
 import { getPcbSelectionHits } from '../../src/pcb/modules/selection-registry.js';
+import { setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
 
 globalThis.window = { addEventListener() {} };
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-10,
@@ -17,12 +18,15 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
             reference: 'R12345', outline: { x: 2, y: -4, width: 6 },
             refDx: 3.456789, refDy: -5.678912, refRot, refSize: 1.2, refStrokeWidth: 0.15 };
         const anchor = referenceAnchor(placement.outline);
-        const box = layoutReferenceText(placement.reference, anchor.cx, anchor.baseY,
+        const layoutBox = layoutReferenceText(placement.reference, anchor.cx, anchor.baseY,
             placement.refSize, placement.refStrokeWidth).box;
-        // refBox() resolves the layout box through placement._refBox: count those reads.
+        // Reference picking resolves the layout box through the geometry owner: count those reads.
         let boxReads = 0;
-        Object.defineProperty(placement, '_refBox', { configurable: true, get() { boxReads++; return box; }, set() {} });
-        placement._refEl = { isConnected: true };
+        const box = {};
+        for (const key of ['bx', 'by', 'bw', 'bh', 'cx', 'cy']) {
+            Object.defineProperty(box, key, { get() { boxReads++; return layoutBox[key]; } });
+        }
+        setRefTextGeometryCache(placement, { isConnected: true }, box);
         const app = { placements: new Map([['part', placement]]) };
         const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
         const rendered = resolveReferenceText(placement);
@@ -99,8 +103,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         ]),
     };
     for (const placement of app.placements.values()) {
-        placement._refBox = { bx: -2, by: -1, bw: 4, bh: 2, cx: 0, cy: 0 };
-        placement._refEl = { isConnected: true };
+        setRefTextGeometryCache(placement, { isConnected: true }, { bx: -2, by: -1, bw: 4, bh: 2, cx: 0, cy: 0 });
     }
     try {
         assert.equal(hitTestReferenceText(app, { x: 0, y: 0 }), 'back', 'Visible overlapping labels retain topmost ordering');

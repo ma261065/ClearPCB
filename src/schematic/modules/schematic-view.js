@@ -12,7 +12,15 @@ import { refreshAxisGlow } from '../../shapes/axis-glow.js';
 import { NO_SELECTION } from '../../shapes/selection-view.js';
 import { Component } from '../../components/Component.js';
 import { renderShape, updateShapeAnchors, effectiveStrokeWidth } from '../render/shape-renderer.js';
-import { viewOf, deleteView, componentViewOf } from '../render/shape-view-state.js';
+import {
+    viewOf,
+    deleteView,
+    componentViewOf,
+    isShapeCulled,
+    setShapeCulled,
+    isComponentCulled,
+    setComponentCulled,
+} from '../render/shape-view-state.js';
 import {
     buildComponentSymbol,
     componentTransform,
@@ -25,7 +33,6 @@ import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from '.
 /** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
 /** @typedef {import('../../shapes/selection-view.js').SelectionView} SelectionView */
 /** @typedef {{data: object, shapes: Array<{shape: SchematicShape}>, components: Component[]}} PreparedDocumentView */
-/** @typedef {Component & {_culled?: boolean}} CulledComponent */
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -234,7 +241,7 @@ export function shapePreviewElement(app, shape) {
 /** Whether viewport culling has hidden this entity. */
 /** @param {SchematicShape} entity */
 export function isCulled(entity) {
-    return !!entity._culled;
+    return entity instanceof Component ? isComponentCulled(entity) : isShapeCulled(entity);
 }
 
 /**
@@ -285,7 +292,7 @@ export function renderShapes(app, force = false) {
     const nodeFocus = getShapeNodeFocus(app);
     const segmentFocus = getShapeSegmentFocus(app);
     for (const shape of app.shapes) {
-        if (shape._culled) continue; // skip off-screen
+        if (isShapeCulled(shape)) continue; // skip off-screen
         const selected = view.isSelected(shape);
         if (force || shape._dirty || selected || view.isHovered(shape)) {
             const selectedNodeId = nodeFocus?.shapeId === shape.id ? nodeFocus.nodeId : null;
@@ -310,9 +317,7 @@ export function renderShapes(app, force = false) {
     
     // Only render components that actually need visual updates
     for (const comp of app.components) {
-        // Component owns the runtime culling flag here; its shared type does not declare it yet.
-        const cullComp = /** @type {CulledComponent} */ (comp);
-        if (cullComp._culled) continue; // skip off-screen
+        if (isComponentCulled(comp)) continue; // skip off-screen
         if (comp._dirty || view.isSelected(comp) || view.isHovered(comp) || comp.locked) {
             renderComponent(comp, scale, { selection: view });
         }
@@ -328,7 +333,7 @@ export function renderShapes(app, force = false) {
         const cl = app.viewport.contentLayer;
         for (const shape of app.shapes) {
             const shapeView = viewOf(shape);
-            if (shape._culled || !shapeView?.element) continue;
+            if (isShapeCulled(shape) || !shapeView?.element) continue;
             if (OVERLAY_TYPES.has(shape.type)) {
                 cl.appendChild(shapeView.element);
                 if (shapeView.anchorsGroup && shapeView.anchorsGroup.parentNode) {
@@ -414,16 +419,17 @@ export function updateViewportCulling(app) {
         const inView = b.maxX >= minX && b.minX <= maxX &&
                        b.maxY >= minY && b.minY <= maxY;
 
-        if (inView && shape._culled) {
+        const culled = isShapeCulled(shape);
+        if (inView && culled) {
             // scrolled into view — un-cull and re-render
-            shape._culled = false;
+            setShapeCulled(shape, false);
             const shapeView = viewOf(shape);
             if (shapeView?.element) shapeView.element.classList.remove('culled');
             if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.remove('culled');
             renderShape(shape, scale, { selection: view });
-        } else if (!inView && !shape._culled) {
+        } else if (!inView && !culled) {
             // scrolled out of view — cull
-            shape._culled = true;
+            setShapeCulled(shape, true);
             const shapeView = viewOf(shape);
             if (shapeView?.element) shapeView.element.classList.add('culled');
             if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.add('culled');
@@ -431,20 +437,19 @@ export function updateViewportCulling(app) {
     }
 
     for (const comp of app.components) {
-        // Component owns the runtime culling flag here; its shared type does not declare it yet.
-        const cullComp = /** @type {CulledComponent} */ (comp);
         const b = comp.getBounds();
         if (!b) continue;
         const compView = componentViewOf(comp);
         const inView = b.maxX >= minX && b.minX <= maxX &&
                        b.maxY >= minY && b.minY <= maxY;
 
-        if (inView && cullComp._culled) {
-            cullComp._culled = false;
+        const culled = isComponentCulled(comp);
+        if (inView && culled) {
+            setComponentCulled(comp, false);
             if (compView?.element) compView.element.classList.remove('culled');
             renderComponent(comp, scale, { selection: view });
-        } else if (!inView && !cullComp._culled) {
-            cullComp._culled = true;
+        } else if (!inView && !culled) {
+            setComponentCulled(comp, true);
             if (compView?.element) compView.element.classList.add('culled');
         }
 
@@ -452,7 +457,7 @@ export function updateViewportCulling(app) {
         // few pixels, collapse it to its placeholder rect so the SVG renderer
         // paints one node instead of dozens. Skip selected/hovered components
         // so editing always shows full detail.
-        if (!cullComp._culled && compView?.element) {
+        if (!isComponentCulled(comp) && compView?.element) {
             const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
             const far = px < LOD_PIXEL_THRESHOLD && !view.isSelected(comp) && !view.isHovered(comp);
             if (far !== compView.lodFar) {

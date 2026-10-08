@@ -8,13 +8,16 @@ picker.
 
 `schematic/modules/schematic-view.js` is the schematic's view lifecycle, the
 counterpart of the PCB render modules. It owns `renderShapes()`, viewport
-culling and level of detail, refined-segment overlays, and the helpers that
+culling policy and level of detail, refined-segment overlays, and the helpers that
 create, attach, redraw, re-pose, detach and discard entity SVG
 (`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
 `withContentDetached`, …). Shape and component entities are model-only: shape
 SVG/anchor handles and component symbols/highlights/pin dots/lock icons are
 owned by renderers in `src/schematic/render/`, backed by WeakMap view state
-keyed by entity identity. Commands, file loading, clipboard ghosts, theme
+keyed by entity identity. Their viewport-culled flags live in the same
+`shape-view-state.js` store and are read through schematic-view accessors (and
+SelectionManager's editor-supplied `isCulled` predicate), not on model objects.
+Commands, file loading, clipboard ghosts, theme
 changes and inline text editing call the lifecycle/render helpers; none of them
 touch entity `element`, `anchorsGroup`, `pinElements`, `render()` or the
 viewport content layers.
