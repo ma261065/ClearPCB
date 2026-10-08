@@ -7,6 +7,7 @@
 import { snapToViewportGrid } from './grid-snap.js';
 
 /** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
 /** @typedef {{x: number, y: number, width: number, height: number}} ViewBox */
 /** @typedef {{width: number, height: number}} PaperSize */
 /** @typedef {'mm'|'inch'} ViewportUnit */
@@ -156,7 +157,7 @@ export class Viewport {
         this._lastNotifiedScale = null;
         
         // Callbacks
-        /** @type {((view: {offset: Point, zoom: number, bounds: object, scaleChanged: boolean, boundsChanged: boolean}) => void)|null} */
+        /** @type {((view: {offset: Point, zoom: number, bounds: Bounds, scaleChanged: boolean, boundsChanged: boolean}) => void)|null} */
         this.onViewChanged = null;
         /** @type {((point: Point, snapped: Point) => void)|null} */
         this.onMouseMove = null;

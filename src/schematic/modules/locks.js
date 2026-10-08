@@ -17,7 +17,7 @@ import { createLockGuard } from '../../core/edit-guard.js';
  * The schematic editor's undo history, guarded by the lock gate (core/edit-guard.js).
  * SchematicApp and tests both build it here, so they cannot drift apart.
  * @param {SchematicEditor} app
- * @param {{onChanged?: () => void, onRefused?: (error: Error) => void}} [options] `onRefused` tells the user why
+ * @param {{onChanged?: () => void, onRefused?: (error: unknown) => void}} [options] `onRefused` tells the user why
  */
 export function createSchematicHistory(app, { onChanged, onRefused } = {}) {
     return new CommandHistory({

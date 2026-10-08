@@ -1,4 +1,6 @@
 
+import { errorMessage, isAbortError } from '../../core/errors.js';
+
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
 /** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
 /** @typedef {{viewport: Viewport}} ViewportExportApp */
@@ -67,7 +69,7 @@ export async function savePdf(app) {
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     } catch (err) {
-            app.alert('Failed to save PDF: ' + (err?.message || 'Unknown error'), { title: 'Export Failed' });
+            app.alert('Failed to save PDF: ' + (errorMessage(err)), { title: 'Export Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
@@ -158,7 +160,7 @@ export async function printSchematic(app) {
             iframe.addEventListener('load', doPrint, { once: true });
         }
     } catch (err) {
-            app.alert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
+            app.alert('Failed to print: ' + (errorMessage(err)), { title: 'Print Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
@@ -402,7 +404,7 @@ export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) 
             await writable.close();
             return;
         } catch (err) {
-            if (err?.name === 'AbortError') return;
+            if (isAbortError(err)) return;
             throw err;
         }
     }

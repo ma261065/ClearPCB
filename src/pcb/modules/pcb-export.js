@@ -17,6 +17,7 @@ import {
 import { PCB_LAYERS } from './layers.js';
 import { stripRemovalHatches } from './removal-hatch.js';
 import { boardBoundary } from '../../shared/pcb/board-outline.js';
+import { errorMessage, isAbortError } from '../../core/errors.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { uncullAllPlacements, updatePcbCulling } from './component-selection.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
@@ -84,7 +85,7 @@ export async function savePcbBlob(blob, suggestedName, opts = {}) {
             return true;
         } catch (err) {
             // User cancelled — not an error.
-            if (err && (err.name === 'AbortError' || err.code === 20)) return false;
+            if (isAbortError(err)) return false;
             throw err;
         }
     }
@@ -473,7 +474,7 @@ export async function savePcbPdf(app) {
         app.setStatus('PCB exported to PDF');
     } catch (err) {
         console.error('PCB PDF export failed:', err);
-        app.setStatus(`PDF export failed: ${err?.message || err}`);
+        app.setStatus(`PDF export failed: ${errorMessage(err)}`);
     }
 }
 
@@ -542,6 +543,6 @@ export async function printPcb(app) {
         }
     } catch (err) {
         console.error('PCB print failed:', err);
-        app.setStatus(`Print failed: ${err?.message || err}`);
+        app.setStatus(`Print failed: ${errorMessage(err)}`);
     }
 }

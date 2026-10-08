@@ -1,3 +1,4 @@
+import { errorMessage } from '../../core/errors.js';
 import { routeWithMazeRouter } from './autorouter-maze.js';
 import { routeWithPathfinderRouter } from './autorouter-pathfinder.js';
 
@@ -26,7 +27,7 @@ self.addEventListener('message', async (event) => {
         const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithMazeRouter;
         const result = await router(msg.routeInput, {
             cancelToken: activeCancelToken,
-            /** @param {number} done @param {number} total @param {string} net @param {Record<string, unknown>} [meta] */
+            /** @param {number} done @param {number} total @param {string} net @param {object} [meta] */
             onProgress: (done, total, net, meta = {}) => {
                 self.postMessage({ type: 'progress', done, total, net, meta });
             },
@@ -58,7 +59,7 @@ self.addEventListener('message', async (event) => {
             result,
         });
     } catch (err) {
-        const message = err && err.message ? err.message : String(err);
+        const message = errorMessage(err);
         self.postMessage({ type: 'error', error: message });
     } finally {
         running = false;

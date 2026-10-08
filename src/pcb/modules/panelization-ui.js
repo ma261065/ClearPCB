@@ -1,3 +1,4 @@
+import { errorMessage } from '../../core/errors.js';
 import { PANEL_DEFAULTS, panelSettings, buildPanelLayout } from './panelization.js';
 import { PCB_LAYERS } from './layers.js';
 import { createPcbText } from '../../core/pcb-text.js';
@@ -123,7 +124,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
     let layout;
     try { layout = buildPanelLayout(app, settings); }
     catch (error) {
-        const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${error.message}`,
+        const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${errorMessage(error)}`,
             x: 0, y: -boardDimensions(app).height - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
         note.style.pointerEvents = 'none';
         app.getLayerGroup('top-document').appendChild(note);
@@ -408,7 +409,7 @@ export function openPanelizeDialog(app) {
             apply.disabled = false;
             renderPanelPreview(app, layout.settings);
         } catch (reason) {
-            error.textContent = reason.message;
+            error.textContent = errorMessage(reason);
             summary.textContent = '';
             apply.disabled = true;
         }
@@ -449,7 +450,7 @@ export function openPanelizeDialog(app) {
             const viewport = app.viewport;
             if (viewport) viewport.fitToBounds(bounds.x, bounds.y - 12, bounds.x + bounds.w, bounds.y + bounds.h, 5);
         } catch (reason) {
-            error.textContent = reason.message;
+            error.textContent = errorMessage(reason);
             apply.disabled = true;
         }
     });

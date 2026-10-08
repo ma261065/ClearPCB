@@ -15,6 +15,7 @@
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {import('./autorouter-common.js').RoutePoint} RoutePoint */
 /** @typedef {import('./autorouter-common.js').ViaPoint} ViaPoint */
+/** @typedef {import('./autorouter-common.js').SkipIds} SkipIds */
 /** @typedef {{path:RoutePoint[], vias:ViaPoint[]}} PathResult */
 /** @typedef {{path:RoutePoint[], vias:ViaPoint[], net:string}} RouteData */
 /** @typedef {Map<string, RouteData|null>} RouteMap */
@@ -762,9 +763,11 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
     // segment check across pad + route hashes.
     const combinedObstacles = {
         isOnPad: /** @param {number} x @param {number} y @param {number} c */ (x, y, c) => padHash.isOnPad(x, y, c),
-        isSegmentBlocked: /** @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2 @param {number} c @param {Set<string>} skipIds @param {string|number} layer @param {string} skipNet */ (x1, y1, x2, y2, c, skipIds, layer, skipNet) =>
-            padHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, /** @type {any} */ (layer), /** @type {any} */ (skipNet))
-            || routeHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, /** @type {any} */ (layer), /** @type {any} */ (skipNet)),
+        isSegmentBlocked: /** @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2 @param {number} c @param {SkipIds} [skipIds] @param {string|number} [layer] @param {string|null} [skipNet] */ (x1, y1, x2, y2, c, skipIds = null, layer = undefined, skipNet = null) => {
+            const layerId = layer == null ? null : String(layer);
+            return padHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, layerId, skipNet)
+                || routeHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, layerId, skipNet);
+        },
     };
 
     let smoothed = 0;

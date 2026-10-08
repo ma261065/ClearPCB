@@ -821,9 +821,9 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
         },
         /**
          * @param {Point} point
-         * @param {number} tolerance
+         * @param {number} [tolerance=0]
          */
-        hitTest(point, tolerance) {
+        hitTest(point, tolerance = 0) {
             const shape = displayed();
             if (profile.hitTest) return profile.hitTest(app, shape, point, tolerance);
             if (boardShapeHitTest(shape, point, tolerance)) return true;
@@ -856,11 +856,11 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
          */
         moveAnchor(anchorId, x, y) { moveBoardShapeAnchor(app, shape, anchorId, { x, y }); },
         /**
-         * @param {number|string} anchorId
+         * @param {number|string|undefined} anchorId
          * @param {Point} worldPos
          */
         beginAnchorDrag(anchorId, worldPos) {
-            if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId, { editProfile: profile });
+            if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId ?? null, { editProfile: profile });
             getPropertyEditor(app, 'boardShape')?.commit();
             if (boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return false;
             if (!!getBoardShapeRotationPreview(app) || isRotationHandleDragActive(app) || getBoardShapeDrag(app)) {

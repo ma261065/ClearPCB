@@ -580,7 +580,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         updateMove(worldPos) { updateComponentDrag(app, worldPos); },
         /** @param {boolean} commit */
         endMove(commit) { endComponentDrag(app, commit); },
-        /** @param {string} anchorId @param {Point} worldPos */
+        /** @param {string|number|undefined} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             const placement = app.placements?.get(componentId);
             if (anchorId !== 'rotate' || !placement || placement.locked) return false;

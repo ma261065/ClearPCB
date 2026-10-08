@@ -205,7 +205,7 @@ export function describeLockedEdit(app, { kind, object }) {
  * The PCB editor's undo history, guarded by the lock gate (core/edit-guard.js).
  * PCBApp and the test fixtures both build it here, so they cannot drift apart.
  * @param {PcbEditor} app
- * @param {{onChanged?: Function, onRefused?: (error: Error) => void}} [options] `onRefused` tells the user why
+ * @param {{onChanged?: Function, onRefused?: (error: unknown) => void}} [options] `onRefused` tells the user why
  */
 export function createPcbHistory(app, { onChanged, onRefused } = {}) {
     return new CommandHistory({

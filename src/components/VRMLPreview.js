@@ -1,6 +1,7 @@
 /**
  * Simple VRML parser and isometric renderer for 3D model previews
  */
+import { errorMessage } from '../core/errors.js';
 import { escapeHtml } from '../core/ui-helpers.js';
 
 /**
@@ -346,7 +347,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error fetching/rendering 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 
@@ -414,7 +415,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error rendering EasyEDA 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 
@@ -444,7 +445,7 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, renderOptions);
         } catch (error) {
             console.error('Error rendering OBJ model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 

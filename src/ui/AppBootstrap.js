@@ -5,6 +5,7 @@ import PCBApp from './PCBApp.js';
 import { isEditorActive, isEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
+import { errorMessage } from '../core/errors.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { installLockedEditErrorFilter } from '../core/edit-guard.js';
@@ -364,7 +365,7 @@ export class AppBootstrap {
                     await app.alert(`Opened ${fileHandle.name}. ${message}`, { title: 'File Repaired' });
                 }
             } catch (error) {
-                app.alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
+                app.alert('Failed to open file: ' + errorMessage(error), { title: 'Open Failed' });
             }
         };
 

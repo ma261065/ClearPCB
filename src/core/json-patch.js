@@ -1,3 +1,5 @@
+import { errorMessage } from './errors.js';
+
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 /** @param {string} path */
@@ -158,7 +160,7 @@ export function applyJsonPatch(value, patch) {
                 throw new Error(`Unsupported operation: ${String(op)}`);
             }
         } catch (error) {
-            throw new Error(`JSON Patch operation ${index} failed: ${error.message}`);
+            throw new Error(`JSON Patch operation ${index} failed: ${errorMessage(error)}`);
         }
     });
     return document;

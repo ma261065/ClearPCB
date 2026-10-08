@@ -11,7 +11,7 @@ export class CommandHistory {
      * @param {Function} [options.onChanged] - Callback fired after every undo/redo/execute/clear
      * @param {(command: any) => void} [options.guard] - Throws to refuse a new command before it
      *   runs (see core/edit-guard.js); undo, redo and record() are not guarded
-     * @param {(error: Error) => void} [options.onRefused] - Told about a refusal, which is rethrown
+     * @param {(error: unknown) => void} [options.onRefused] - Told about a refusal, which is rethrown
      */
     constructor(options = {}) {
         /** @type {HistoryCommand[]} */

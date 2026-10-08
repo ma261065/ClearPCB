@@ -7,6 +7,7 @@ import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
 import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
+import { errorMessage } from '../../core/errors.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
 import { showSaveToast } from './ribbon.js';
 import { updateUndoRedoButtons } from './ui-utils.js';
@@ -461,7 +462,7 @@ export async function openFile(app) {
             app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app.alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + errorMessage(err), { title: 'Open Failed' });
     }
 }
 
@@ -490,7 +491,7 @@ export async function openRecentFile(app, name) {
             app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app.alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + errorMessage(err), { title: 'Open Failed' });
     }
 }
 
@@ -529,7 +530,7 @@ export async function importEasyEDA(app) {
         notifyDocumentReplaced(app, 'import');
         console.log('EasyEDA import complete');
     } catch (err) {
-        app.alert('Import failed: ' + err.message, { title: 'Import Failed' });
+        app.alert('Import failed: ' + errorMessage(err), { title: 'Import Failed' });
     }
 }
 

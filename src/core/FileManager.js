@@ -6,6 +6,7 @@
 
 import { zip, unzip, strToU8, strFromU8 } from '../../assets/vendor/fflate.module.js';
 import { compactProjectAliases } from './project-field-aliases.js';
+import { errorMessage } from './errors.js';
 import { ProjectIntegrityError, storableProject } from './project-format.js';
 
 // ==================== Project (de)serialisation ====================
@@ -182,7 +183,7 @@ export function parseProjectJSON(text, sourceName) {
         return JSON.parse(text);
     } catch (error) {
         const location = jsonErrorPosition(error, text);
-        const reason = String(error?.message || error)
+        const reason = errorMessage(error)
             .replace(/\s+at position\s+\d+(?:\s+\(line\s+\d+\s+column\s+\d+\))?$/i, '')
             .replace(/\s+at line\s+\d+\s+column\s+\d+.*$/i, '');
         if (!location) throw new Error(`Invalid JSON in ${sourceName}.\nReason: ${reason}`);

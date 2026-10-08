@@ -4,6 +4,7 @@
  * the wire and junction updates each drag carries along. drag.js owns the drag slot and
  * commits or cancels the gesture.
  */
+import { errorHasName } from '../../core/errors.js';
 import { updateSnapHighlight, COLLINEAR_EPSILON, VERTEX_EPSILON } from './wire.js';
 import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
 import { computeAnchorCollinearSnap, computeStickyWireSnaps, buildCollinearChain, bridgeCollinearPinEndpoints } from './wire-drag-snap.js';
@@ -515,7 +516,7 @@ export function handleDragEnd(app) {
     try {
         commitDragGesture(app);
     } catch (error) {
-        if (error?.name !== 'LockedEditError') throw error;
+        if (!errorHasName(error, 'LockedEditError')) throw error;
         // The lock gate refused the commit before anything ran (the editor already
         // showed why): restore the live preview, as Escape would.
         if (app.history?.undoStack?.at(-1) === lastRecorded) {

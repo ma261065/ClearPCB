@@ -6,6 +6,7 @@ import { ComponentProperties } from '../pcb/modules/component-properties.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
+import { errorMessage } from '../core/errors.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
@@ -293,7 +294,7 @@ export default class PCBApp {
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => this._onHistoryChanged(),
-            onRefused: error => showSaveToast(this, error.message),
+            onRefused: error => showSaveToast(this, errorMessage(error)),
         });
         /** @type {AutorouterSession|null} Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
@@ -1111,8 +1112,11 @@ export default class PCBApp {
         showBoardOutlineProperties(this);
     }
 
+    /** @returns {ComponentProperties} */
     _getComponentProperties() {
-        return getPropertyEditor(this, 'component') ?? setPropertyEditor(this, 'component', new ComponentProperties({
+        const editor = getPropertyEditor(this, 'component');
+        if (editor instanceof ComponentProperties) return editor;
+        return /** @type {ComponentProperties} */ (setPropertyEditor(this, 'component', new ComponentProperties({
             getPlacement: /** @param {string} id */ (id) => this.placements.get(id),
             isActive: () => isEditorActive(this),
             isSelected: /** @param {string} kind @param {string} id */ (kind, id) => isPcbSelected(this, kind, id),
@@ -1132,7 +1136,7 @@ export default class PCBApp {
             renderReference: /** @param {string} id */ (id) => this.rerenderRef(id),
             drawReferenceOverlay: (id, tether) => this.drawRefOverlay(id, tether),
             setReferenceStyle: (id, before, after) => this.history.execute(new SetRefStyleCommand(this, id, before, after)),
-        }));
+        })));
     }
 
     /**
@@ -1750,6 +1754,7 @@ export default class PCBApp {
      * @param {string|null} compId
      */
     showRefProperties(compId) {
+        if (!compId) return false;
         return PCBApp.prototype._getComponentProperties.call(this).showReference(compId);
     }
 
@@ -1924,7 +1929,7 @@ export default class PCBApp {
             this._testBoardRouteInput = routeInput;
 
         } catch (err) {
-            this.setStatus(`Error loading test board: ${err.message}`);
+            this.setStatus(`Error loading test board: ${errorMessage(err)}`);
             console.error(err);
         }
     }
@@ -2310,7 +2315,7 @@ export default class PCBApp {
             if (saved) this.setStatus(`Gerbers exported (${fileCount} files)`);
         } catch (err) {
             console.error('Gerber export failed:', err);
-            this.setStatus(`Gerber export failed: ${err?.message || err}`);
+            this.setStatus(`Gerber export failed: ${errorMessage(err)}`);
         } finally {
             showGerberProgress(/** @type {string} */ (/** @type {unknown} */ (null)));
             this._exportGerberPending = false;
@@ -2331,7 +2336,7 @@ export default class PCBApp {
             blob = new Blob([csv], { type: 'text/csv' });
         } catch (err) {
             console.error('BOM export failed:', err);
-            this.setStatus(`BOM export failed: ${err?.message || err}`);
+            this.setStatus(`BOM export failed: ${errorMessage(err)}`);
             return;
         }
         const suggestedName = `${projectBaseName(this, 'untitled')}-bom.csv`;
@@ -2342,7 +2347,7 @@ export default class PCBApp {
             if (saved) this.setStatus(`BOM exported (${this.placements.size} parts)`);
         }).catch(err => {
             console.error('BOM save failed:', err);
-            this.setStatus(`BOM save failed: ${err?.message || err}`);
+            this.setStatus(`BOM save failed: ${errorMessage(err)}`);
         });
     }
 
@@ -2360,7 +2365,7 @@ export default class PCBApp {
             blob = new Blob([csv], { type: 'text/csv' });
         } catch (err) {
             console.error('Pick-and-place export failed:', err);
-            this.setStatus(`Pick-and-place export failed: ${err?.message || err}`);
+            this.setStatus(`Pick-and-place export failed: ${errorMessage(err)}`);
             return;
         }
         const suggestedName = `${projectBaseName(this, 'untitled')}-pick-and-place.csv`;
@@ -2371,7 +2376,7 @@ export default class PCBApp {
             if (saved) this.setStatus(`Pick-and-place exported (${this.placements.size} parts)`);
         }).catch(err => {
             console.error('Pick-and-place save failed:', err);
-            this.setStatus(`Pick-and-place save failed: ${err?.message || err}`);
+            this.setStatus(`Pick-and-place save failed: ${errorMessage(err)}`);
         });
     }
 

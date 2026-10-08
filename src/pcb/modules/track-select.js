@@ -194,7 +194,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         },
         getBounds() { return current().getBounds(); },
         /** @param {Point} point @param {number} tolerance */
-        hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
+        hitTest(point, tolerance = 0) { return trackHitTest(current(), point, tolerance); },
         getEditPath() {
             const edit = getTrackEdit(app);
             if (edit?.track === track && edit.nodeId != null
@@ -239,7 +239,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             });
             return [...nodes, ...midpoints];
         },
-        /** @param {string|number} anchorId @param {Point} worldPos */
+        /** @param {string|number|undefined} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             getPropertyEditor(app, 'track')?.commit();
             if (String(anchorId).startsWith('bulge:')) {
@@ -248,7 +248,8 @@ export function createTrackSelectionAdapter(app, track, id) {
                 selectTrackSegment(app, track, edgeId);
                 return startTrackBulgeDrag(app, track, edgeId);
             }
-            const started = beginDrag(worldPos, { nodeId: current().nodes.has(/** @type {string} */ (anchorId)) ? /** @type {string} */ (anchorId) : null,
+            const nodeId = typeof anchorId === 'string' && current().nodes.has(anchorId) ? anchorId : null;
+            const started = beginDrag(worldPos, { nodeId,
                 allowMidpointInsert: String(anchorId).startsWith('mid:') });
             return started;
         },
@@ -319,7 +320,7 @@ export function createViaSelectionAdapter(app, via, id) {
         },
         getBounds() { return viaBounds(current()); },
         /** @param {Point} point @param {number} tolerance */
-        hitTest(point, tolerance) { return viaHitTest(current(), point, tolerance); },
+        hitTest(point, tolerance = 0) { return viaHitTest(current(), point, tolerance); },
         getPosition() { const via = current(); return { x: via.x, y: via.y }; },
         /** @param {Point} worldPos */
         beginMove(worldPos) {

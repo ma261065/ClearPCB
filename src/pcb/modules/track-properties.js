@@ -320,7 +320,8 @@ export function showTrackProperties(app, track) {
     /** @param {string} mode */
     const applyCopperMode = mode => {
         if (!binding.prepare()) return;
-        const layer = track.getEdgeLayer(track.edges.keys().next().value) || track.layer;
+        const firstEdgeId = track.edges.keys().next().value;
+        const layer = firstEdgeId ? track.getEdgeLayer(firstEdgeId) || track.layer : track.layer;
         if (mode === 'add' || isLayerLocked(layer) || !canMoveTrackToBoardLayer(track)) {
             showTrackSelectionProperties(app, track);
             return;

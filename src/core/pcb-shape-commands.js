@@ -6,7 +6,13 @@ import { validBoardOutline } from '../shared/pcb/board-outline.js';
 /** @typedef {import('./pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {import('./pcb-board-shapes.js').BoardShapeSnapshot|import('./pcb-board-shapes.js').BoardShapeGeometry} BoardShapeState */
 
-/** @param {PcbDocument} document @param {BoardShape} shape @param {BoardShapeState} state @param {(shape: BoardShape, state: BoardShapeState) => void} apply */
+/**
+ * @template {BoardShapeState} T
+ * @param {PcbDocument} document
+ * @param {BoardShape} shape
+ * @param {T} state
+ * @param {(shape: BoardShape, state: T) => void} apply
+ */
 function applyEdit(document, shape, state, apply) {
     if (shape.layer === 'board-outline') {
         const candidate = { ...shape };
@@ -68,7 +74,7 @@ export class RemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape @param {BoardShapeState} before @param {BoardShapeState} after */
+    /** @param {PcbDocument} document @param {any} shape @param {import('./pcb-board-shapes.js').BoardShapeGeometry} before @param {import('./pcb-board-shapes.js').BoardShapeGeometry} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;
@@ -76,7 +82,7 @@ export class MoveBoardShapeCommand {
         this.after = structuredClone(after);
     }
 
-    /** @param {any} geometry */
+    /** @param {import('./pcb-board-shapes.js').BoardShapeGeometry} geometry */
     _apply(geometry) { return applyEdit(this.document, this.shape, geometry, applyShapeGeometry); }
     lockTargets() { return [{ kind: 'shape', object: this.shape }]; }
     execute() { return this._apply(this.after); }
@@ -84,7 +90,7 @@ export class MoveBoardShapeCommand {
 }
 
 export class ModifyBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape @param {BoardShapeState} before @param {BoardShapeState} after */
+    /** @param {PcbDocument} document @param {any} shape @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} before @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;
@@ -92,7 +98,7 @@ export class ModifyBoardShapeCommand {
         this.after = copySnapshot(after);
     }
 
-    /** @param {any} state */
+    /** @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} state */
     _apply(state) { return applyEdit(this.document, this.shape, state, applyShapeSnapshot); }
     lockTargets() { return editTargets('shape', this.shape, this.before, this.after); }
     execute() { return this._apply(this.after); }

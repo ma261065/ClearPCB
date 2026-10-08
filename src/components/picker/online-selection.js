@@ -2,6 +2,7 @@
  * ComponentPicker online catalog selection owner. Loads EasyEDA/KiCad details and prepares placeable definitions.
  */
 
+import { errorMessage } from '../../core/errors.js';
 import { escapeHtml } from '../../core/ui-helpers.js';
 import { check3dModelForFootprint, filterPreviewablePinCompatibleCandidates, getSymbolPinCount, heuristicFootprintCandidates, rankFootprintCandidatesByPinCount, renderFootprintSVG, renderKiCadFootprintChoices, renderKiCadStepPreviewInteractive, set3dPreviewStatus, setFootprintPreviewStatus, update3dPreview, updateFootprintPreview } from './footprint-preview.js';
 import { beginPlacement } from './placement.js';
@@ -344,7 +345,7 @@ export async function fetchAndPlaceKiCad(/** @type {ComponentPicker} */ picker, 
         }
     } catch (error) {
         console.error('Failed to fetch KiCad symbol:', error);
-        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
+        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(errorMessage(error))}</span>`;
     } finally {
         picker.placeBtn.disabled = false;
         picker.placeBtn.textContent = 'Place Component';
@@ -543,7 +544,7 @@ export async function fetchAndPlace(/** @type {ComponentPicker} */ picker, resul
         }
     } catch (error) {
         console.error('Failed to fetch component:', error);
-        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
+        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(errorMessage(error))}</span>`;
     } finally {
         if (!fetchedDefinition) {
             picker.placeBtn.disabled = false;
@@ -595,7 +596,7 @@ export async function placePrefetchedLCSC(/** @type {ComponentPicker} */ picker,
         }
     } catch (error) {
         console.error('Failed to place component:', error);
-        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(error.message)}</span>`;
+        picker.previewInfo.innerHTML += `<br><span style="color:var(--accent-color)">Failed: ${escapeHtml(errorMessage(error))}</span>`;
         picker.placeBtn.disabled = false;
         picker.placeBtn.textContent = 'Place Component';
     }

@@ -245,11 +245,13 @@ export function showPictureImport(app) {
         const contourMode = tracing || halftoning;
         field('threshold').disabled = halftoning;
         field('dotSize').disabled = !halftoning;
-        dialog.querySelectorAll('[data-trace-control]').forEach((/** @type {HTMLElement} */ control) => {
+        dialog.querySelectorAll('[data-trace-control]').forEach((control) => {
+            if (!(control instanceof HTMLElement)) return;
             const engine = control.getAttribute('data-trace-control');
             control.hidden = !contourMode || !!engine && engine !== conversion;
         });
-        dialog.querySelectorAll('[data-pixel-control]').forEach((/** @type {HTMLElement} */ control) => {
+        dialog.querySelectorAll('[data-pixel-control]').forEach((control) => {
+            if (!(control instanceof HTMLElement)) return;
             control.hidden = contourMode;
         });
         const layer = field('layer').value;

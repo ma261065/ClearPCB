@@ -242,7 +242,11 @@ export class PolylineGraph extends Shape {
         for (const nid of this.nodes.keys()) {
             if (this.degree(nid) === 1) { startId = nid; break; }
         }
-        if (!startId) startId = this.nodes.keys().next().value;
+        if (!startId) {
+            const first = this.nodes.keys().next().value;
+            if (!first) return [];
+            startId = first;
+        }
 
         const chain = [];
         const visited = new Set();

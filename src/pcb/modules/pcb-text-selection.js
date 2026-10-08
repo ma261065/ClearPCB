@@ -121,7 +121,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         hitTest(point) { return pcbTextHitTest(current(), point.x, point.y); },
         getPosition() { const text = current(); return { x: text.x, y: text.y }; },
         getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale ?? 1)]; },
-        /** @param {string} anchorId @param {Point} worldPos */
+        /** @param {string|number|undefined} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             getPropertyEditor(app, 'text')?.commit();
             const text = current();

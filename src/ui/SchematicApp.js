@@ -6,6 +6,7 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { SchematicDocument } from '../core/SchematicDocument.js';
+import { errorMessage } from '../core/errors.js';
 import { ProjectIntegrityError, duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -128,7 +129,7 @@ export default class SchematicApp {
         this.eventBus = globalEventBus;
         this.history = createSchematicHistory(this, {
             onChanged: () => this._onHistoryChanged(),
-            onRefused: error => showRibbonSaveToast(this, error.message),
+            onRefused: error => showRibbonSaveToast(this, errorMessage(error)),
         });
         // fileManager already created above
         this.fileManager.onDirtyChanged = () => this._onDirtyChanged();
@@ -403,7 +404,7 @@ export default class SchematicApp {
                 }
                 console.log('Recovered auto-saved content');
             } catch (error) {
-                await this.alert(`Failed to recover autosave: ${error.message}`, { title: 'Recovery Failed' });
+                await this.alert(`Failed to recover autosave: ${errorMessage(error)}`, { title: 'Recovery Failed' });
                 return false;
             }
         }

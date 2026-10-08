@@ -139,7 +139,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
     let disposed = false;
     const hold = pictureRefreshHold(app);
     const isEditingThis = () => textEdit()?.text?.id === text.id;
-    /** @param {PcbText} model @param {string} value */
+    /** @param {StrokeTextModel} model @param {string} value */
     const layerApply = (model, value) => {
         const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
         const willBottom = typeof value === 'string' && value.startsWith('bottom-');

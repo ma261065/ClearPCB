@@ -52,7 +52,7 @@ function queueResume(app) {
         resumeDrcRefresh(app);
     });
 }
-onEditSettled(queueResume);
+onEditSettled(app => queueResume(/** @type {PcbEditor} */ (app)));
 
 /**
  * Hold an owed check until nothing defers it: whatever ends last (an edit, or the pour

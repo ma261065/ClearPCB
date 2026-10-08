@@ -10,6 +10,7 @@
  * the cheap single-polygon path. Rational/NURBS edges and unsupported surface
  * types fall back to a straight-chord / fan approximation.
  */
+import { errorMessage } from '../core/errors.js';
 import { escapeHtml } from '../core/ui-helpers.js';
 
 /**
@@ -1103,7 +1104,7 @@ export class STEPPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error fetching/rendering STEP:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 }

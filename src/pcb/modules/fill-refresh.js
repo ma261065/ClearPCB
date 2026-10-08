@@ -64,7 +64,7 @@ function queueResume(app) {
         resumeFillRefresh(app);
     });
 }
-onEditSettled(queueResume);
+onEditSettled(app => queueResume(/** @type {PcbEditor} */ (app)));
 
 /**
  * Hold an owed recompute until nothing defers it: whatever ends last notes the edit

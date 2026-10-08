@@ -11,7 +11,7 @@ import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/text.js').Text & {[key: string]: any}} EditableTextShape */
-/** @typedef {{destroy: () => void, group: SVGGElement, box: SVGElement, caret: SVGElement, blinkTimer?: number|null, updateGeometry: (geometry: object) => void, keepCaretVisible: () => void}} InlineTextOverlay */
+/** @typedef {import('../../shared/ui/inline-text-overlay.js').InlineTextOverlay} InlineTextOverlay */
 /** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
 /** @typedef {{x: number, width: number}} CaretProbe */
 

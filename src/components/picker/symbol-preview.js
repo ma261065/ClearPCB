@@ -2,6 +2,7 @@
  * ComponentPicker symbol preview owner. Renders symbol SVGs, thumbnails, package choices, and preview metadata.
  */
 
+import { errorMessage } from '../../core/errors.js';
 import { escapeHtml, sanitizeImageUrl } from '../../core/ui-helpers.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from '../BuiltInPackages.js';
 import { createSymbolGraphicElement, createSymbolPinElement } from '../symbol-svg.js';
@@ -356,7 +357,7 @@ export async function updatePreview(/** @type {ComponentPicker} */ picker, comp,
     } catch (error) {
         console.error('Error updating preview:', error);
         picker.previewSvg.innerHTML = '<div style="color:var(--accent-color);text-align:center;padding:20px">Preview error</div>';
-        picker.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${escapeHtml(error.message)}</span>`;
+        picker.previewInfo.innerHTML = `<span style="color:var(--accent-color);font-size:12px">${escapeHtml(errorMessage(error))}</span>`;
         if (!options.skipFootprint3d) {
             setFootprintPreviewStatus(picker, 'Footprint preview error', false);
             set3dPreviewStatus(picker, '3D preview error', false);
