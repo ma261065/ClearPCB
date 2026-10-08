@@ -210,8 +210,7 @@ separate boundaries; this does not make every entity type presentation-free.
 Generic board-shape add/remove/move/modify operations live in
 `core/pcb-shape-commands.js` and take `PcbDocument`, retaining its collection and
 shape identities. Geometry and property snapshot/apply helpers live alongside
-persistence in `core/pcb-board-shapes.js`; the rendering module re-exports them
-for existing callers. Commands own their full-precision geometry and nested
+persistence in `core/pcb-board-shapes.js`, which callers import directly. Commands own their full-precision geometry and nested
 property snapshots, while imported image artwork remains shared read-only.
 Generic add/remove commands retain the protected-outline no-op behavior.
 Move/modify validate existing outline edits before mutation and return `false`
@@ -484,8 +483,10 @@ they do not enlarge the cutout when switching from copper or silk. The shared
 subtree and preserves the visible border width. Panel positioning holes use
 the same treatment; geometry, hit tests and exports are not inset.
 
-`board-shapes.js` owns interaction, mutation, commands, SVG rendering, the
-selection adapter and Track conversion; `board-shape-properties.js` owns the
+`board-shapes.js` owns mutation, previews and the selection adapter, with SVG
+rendering in `board-shape-render.js`, drawing in `board-shape-draw.js`, dragging in
+`board-shape-drag.js` and Track conversion in `track-shape-conversion.js`;
+`board-shape-properties.js` owns the
 Properties panel (its description, and committing edits through previews and
 commands; `shared/ui/property-fields.js` renders it). Neither re-exports geometry functions. All geometry
 consumers, including editor adapters and tests, import directly from

@@ -161,9 +161,10 @@ evaluation-order cycle fails.
   `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
   visibility and halo caches), `picture-refresh.js` (pending/deferred
   shape-clearance refresh state), `track-select.js` (selected track node/segment
-  edit and hover-highlight state), `board-shapes.js` (rendered board-shape SVG
-  elements and document-backed shape ID allocation), `track-draw.js` (track snap, guide SVG
-  affordances and drawn-track commits), `track-connections.js` (track/via/pad/shape
+  edit), `copper-halos.js` (hover-highlight state), `board-shape-render.js` (rendered
+  board-shape SVG elements), `board-shapes.js` (document-backed shape ID allocation and
+  board-shape previews), `track-snap.js` (the track snap marker), `ratsnest.js` (the net
+  guide line), `track-connections.js` (track/via/pad/shape
   copper connection discovery), `track-commit.js` (drawn-track command assembly),
   `save-toast.js` (PCB save
   toast presentation), `svg-defs.js` (editor-owned SVG `<defs>` cache) and
@@ -241,11 +242,21 @@ PCB editor:
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
   with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
-- `pcb/modules/board-shapes.js` — board-shape rendering and its SVG element
-  registry, document-backed shape ID allocation, selection, interaction, Track
-  conversion and the shared path-edit/profile machinery also used by copper fills;
+- `pcb/modules/board-shapes.js` — board shapes' document-backed ID allocation, the
+  shared path-edit/profile machinery also used by copper fills, live previews, the
+  selection adapter, handles, node and segment edits, deletion and copper cuts;
+  `board-shape-render.js` — their SVG elements, styles and hover; `board-shape-draw.js`
+  and `board-shape-drag.js` — the shape-drawing tools and shape drags (each owns its
+  interaction slot); `track-shape-conversion.js` — turning tracks into shapes and back;
   `board-shape-properties.js` — board-shape Properties and shared geometry
   preview transactions.
+- Tracks: `track-draw.js` — the Track tool's drawing session; `track-snap.js` — where the
+  cursor lands (pads, nodes, vias, copper, grid) for drawing and node drags;
+  `ratsnest.js` — ratlines and the net guide line; `track-drag.js` — node and segment
+  drags; `track-edits.js` — track hit tests and structural edits (split, delete,
+  collapse); `track-drop.js` — what dropped copper joins and the gesture's command;
+  `terminal-drag.js` — via and pad drags; `track-select.js` — track and via selection;
+  `copper-halos.js` — selection and hover halos.
 - `shared/pcb/board-outline.js` — board-outline geometry, canonical/projected
   board dimensions and the board-dimension preview store shared by render/export
   helpers; `pcb/modules/board-outline-resize.js` — board-outline draw/selection
@@ -256,7 +267,8 @@ PCB editor:
   inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
   the placement); `ref-text-selection.js` — its selection adapter, direct selection
   and inline-edit entry points.
-- Properties panels by object: `track-select.js` (tracks, segments, nodes, vias),
+- Properties panels by object: `track-properties.js` (tracks, segments, nodes),
+  `via-properties.js` (vias),
   `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
   Text tool, and the stroke-text field binder shared with reference designators),
   `copper-fill-edit.js` (pour-specific fill fields plus the fill edit profile used

@@ -59,7 +59,7 @@ Following one change through the PCB editor shows how the pieces fit: the user
 selects a via and clicks the Diameter spinner up three times.
 
 1. **Selection to panel.** Selecting the via calls `showViaProperties`
-   (`pcb/modules/track-select.js`). It builds a `describe()` function returning a
+   (`pcb/modules/via-properties.js`). It builds a `describe()` function returning a
    `PropertyPanel`, starting with `lockedProperty(app, entries)` (the Locked row
    and whether the panel is read-only), and hands it to the editor's host,
    `app.openPropertyPanel(describe())`.
