@@ -10,13 +10,15 @@ const ITEM_STYLE = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 sys
 
 /** @typedef {{text: string, onClick: (event?: MouseEvent) => void}} MenuItem */
 /** @typedef {{timer: ReturnType<typeof setTimeout>, dismiss: (event: MouseEvent) => void, onKey: (event: KeyboardEvent) => void}} DismissHandlers */
-/** @typedef {HTMLDivElement & {_dismiss?: DismissHandlers}} DismissibleMenu */
+
+/** Each open menu's global listeners and their pending attach timer. */
+const dismissHandlers = /** @type {WeakMap<Element, DismissHandlers>} */ (new WeakMap());
 
 /** Close the menu with this id, and its global listeners, if it is open. @param {string} id */
 export function dismissContextMenu(id) {
-    const menu = /** @type {DismissibleMenu|null} */ (document.getElementById(id));
+    const menu = document.getElementById(id);
     if (!menu) return;
-    const handlers = menu._dismiss;
+    const handlers = dismissHandlers.get(menu);
     if (handlers) {
         // The listeners attach a tick after opening; a menu closed sooner must not attach them.
         clearTimeout(handlers.timer);
@@ -70,6 +72,6 @@ export function showContextMenu(id, items, clientX, clientY, { className = '', o
         document.addEventListener('mousedown', dismiss, { capture: true });
         document.addEventListener('keydown', onKey, { capture: true });
     }, 0);
-    /** @type {DismissibleMenu} */ (menu)._dismiss = { dismiss, onKey, timer };
+    dismissHandlers.set(menu, { dismiss, onKey, timer });
     return menu;
 }
