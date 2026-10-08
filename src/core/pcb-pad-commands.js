@@ -1,7 +1,7 @@
 import { editTargets } from './edit-guard.js';
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('../shapes/pad.js').Pad} Pad */
-/** @typedef {Partial<ReturnType<Pad['captureState']>>} PadState */
+/** @typedef {Partial<import('../shapes/pad.js').PadState>} PadState */
 /** @typedef {{x:number, y:number}} Point */
 
 export class AddPadCommand {

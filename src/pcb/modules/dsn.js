@@ -11,16 +11,22 @@
 
 // ── DSN Export ────────────────────────────────────────────────────
 
+/** @typedef {import('../../shapes/track.js').Point} Point */
+/** @typedef {{dx: number, dy: number, width?: number, height?: number, number: string|number, layer?: string, shape?: string}} DsnPadOffset */
+/** @typedef {{x: number, y: number, reference?: string, padOffsets?: DsnPadOffset[]}} DsnPlacement */
+/** @typedef {{componentId: string, pinNumber: string}} DsnNetPin */
+/** @typedef {{net: string, pins: DsnNetPin[]}} DsnNet */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} DsnBounds */
+/** @typedef {{placements: Map<string, DsnPlacement>, netlist: DsnNet[], bounds?: DsnBounds, trackWidth: number, clearance: number, viaDiameter: number}} ExportDsnOptions */
+/** @typedef {{width: number, height: number, layer: 'top'|'bottom'|'both'}} DsnPadstack */
+/** @typedef {{padstackName: string, dx: number, dy: number}} DsnPinDef */
+/** @typedef {{imageName: string, x: number, y: number}} DsnComponent */
+/** @typedef {{x: number, y: number, width: number, height: number, layer: 'top'|'bottom'|'both'}} DsnPad */
+
 /**
  * Build a Specctra DSN string from current board state.
  *
- * @param {object} opts
- * @param {Map<string, object>} opts.placements  - componentId → { x, y, reference, padOffsets }
- * @param {Array<{net: string, pins: Array<{componentId: string, pinNumber: string}>}>} opts.netlist
- * @param {{minX: number, minY: number, maxX: number, maxY: number}} [opts.bounds]
- * @param {number} opts.trackWidth - required, mm
- * @param {number} opts.clearance - required, mm
- * @param {number} opts.viaDiameter - required, mm
+ * @param {ExportDsnOptions} opts
  * @returns {string}
  */
 export function exportDSN(opts) {
@@ -37,6 +43,7 @@ export function exportDSN(opts) {
     const resolution = 1000; // units per mm (microns)
 
     // Convert mm to DSN resolution units
+    /** @param {number} mm */
     const u = (mm) => Math.round(mm * resolution);
 
     // Compute board boundary from placements
@@ -64,6 +71,11 @@ export function exportDSN(opts) {
     const padstacks = new Map(); // key → { w, h, shape, name }
     const images = new Map();    // reference → image def string
 
+    /**
+     * @param {number} w
+     * @param {number} h
+     * @param {string} shape
+     */
     const padstackName = (w, h, shape) => {
         const key = `${shape}_${u(w)}x${u(h)}`;
         if (!padstacks.has(key)) {
@@ -206,8 +218,9 @@ export function importDSN(dsnText) {
     const resUnit = resNode?.[1] || 'mm';
     let resolution = parseFloat(resNode?.[2]);
     if (!Number.isFinite(resolution) || resolution <= 0) resolution = 1000;
+    /** @param {unknown} v */
     const toMM = (v) => {
-        const n = parseFloat(v);
+        const n = parseFloat(String(v));
         if (!Number.isFinite(n)) return 0;
         if (resUnit === 'mil') return (n / resolution) * 0.0254;
         if (resUnit === 'um') return (n / resolution) / 1000;
@@ -258,12 +271,14 @@ export function importDSN(dsnText) {
     }
 
     // Parse padstacks from library
+    /** @type {Map<string, DsnPadstack>} */
     const padstacks = new Map();
     for (const child of library) {
         if (!Array.isArray(child) || child[0] !== 'padstack') continue;
         const name = child[1];
         let width = 1.0;
         let height = 1.0;
+        /** @type {'top'|'bottom'|'both'} */
         let layer = 'both';
         for (const n of child) {
             if (!Array.isArray(n) || n[0] !== 'shape') continue;
@@ -305,6 +320,7 @@ export function importDSN(dsnText) {
     }
 
     // Parse images -> pin offsets and padstack refs
+    /** @type {Map<string, Map<string, DsnPinDef>>} */
     const images = new Map();
     for (const child of library) {
         if (!Array.isArray(child) || child[0] !== 'image') continue;
@@ -322,6 +338,7 @@ export function importDSN(dsnText) {
     }
 
     // Parse placements -> component reference world location + image mapping
+    /** @type {Map<string, DsnComponent>} */
     const components = new Map();
     for (const compNode of placement) {
         if (!Array.isArray(compNode) || compNode[0] !== 'component') continue;
@@ -335,7 +352,9 @@ export function importDSN(dsnText) {
         }
     }
 
+    /** @type {Map<string, DsnPad>} */
     const padByRefPin = new Map();
+    /** @type {DsnPad[]} */
     const allObstaclePads = [];
     for (const [ref, comp] of components.entries()) {
         const imgPins = images.get(comp.imageName);
@@ -357,10 +376,11 @@ export function importDSN(dsnText) {
     }
 
     // Parse nets -> pins list to RouteInput connections
+    /** @type {Array<{net: string, pads: DsnPad[]}>} */
     const connections = [];
     for (const netNode of network) {
         if (!Array.isArray(netNode) || netNode[0] !== 'net' || netNode.length < 2) continue;
-        const netName = _unquote(String(netNode[1]));
+        const netName = String(_unquote(String(netNode[1])));
         const pinsNode = _findDirectNode(netNode, 'pins');
         if (!pinsNode || pinsNode.length < 3) continue;
 
@@ -410,6 +430,7 @@ export function importDSN(dsnText) {
 
 /**
  * Quote a net name for DSN if it contains special characters.
+ * @param {string} name
  */
 function _q(name) {
     if (/^[A-Za-z0-9_.+\-/]+$/.test(name)) return name;
@@ -426,6 +447,7 @@ function _q(name) {
  * @returns {{ tracks: Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>, vias: Array<{net: string, x: number, y: number}> }}
  */
 export function importSES(sesText, resolution = 1000) {
+    /** @type {Array<{net: string, points: Point[], layer: string}>} */
     const tracks = [];
     const tree = _parseSExp(sesText);
     if (!tree) { console.warn('[SES] Failed to parse S-expression'); return { tracks, vias: [] }; }
@@ -452,7 +474,8 @@ export function importSES(sesText, resolution = 1000) {
         console.log(`[SES] Resolution: ${unit} ${res} → toMM=${toMM}`);
     }
 
-    const fromU = (v) => parseFloat(v) * toMM;
+    /** @param {unknown} v */
+    const fromU = (v) => parseFloat(String(v)) * toMM;
 
     const networkOut = _findNode(routes, 'network_out');
     if (!networkOut) { console.warn('[SES] No (network_out) node found'); return { tracks, vias: [] }; }
@@ -483,14 +506,15 @@ export function importSES(sesText, resolution = 1000) {
         break;
     }
 
-    const fromUCorrected = (v) => parseFloat(v) * toMM;
+    /** @param {unknown} v */
+    const fromUCorrected = (v) => parseFloat(String(v)) * toMM;
 
     /** @type {Array<{net: string, x: number, y: number}>} */
     const vias = [];
 
     for (const child of networkOut) {
         if (!Array.isArray(child) || child[0] !== 'net') continue;
-        const netName = _unquote(child[1]);
+        const netName = String(_unquote(child[1]));
 
         for (const wireOrVia of child) {
             if (!Array.isArray(wireOrVia)) continue;
@@ -530,6 +554,8 @@ export function importSES(sesText, resolution = 1000) {
 
 /**
  * Remove surrounding quotes from a DSN/SES string token.
+ * @param {unknown} s
+ * @returns {unknown}
  */
 function _unquote(s) {
     if (typeof s === 'string' && s.startsWith('"') && s.endsWith('"')) {
@@ -543,8 +569,11 @@ function _unquote(s) {
 /**
  * Minimal S-expression parser for DSN/SES files.
  * Returns nested arrays: (a b (c d)) → ['a', 'b', ['c', 'd']]
+ * @param {string} text
+ * @returns {any[]}
  */
 function _parseSExp(text) {
+    /** @type {string[]} */
     const tokens = [];
     let i = 0;
     while (i < text.length) {
@@ -585,9 +614,11 @@ function _parseSExp(text) {
     }
 
     // Build tree
+    /** @type {any[][]} */
     const stack = [[]];
     for (const tok of tokens) {
         if (tok === '(') {
+            /** @type {any[]} */
             const node = [];
             stack[stack.length - 1].push(node);
             stack.push(node);
@@ -602,6 +633,9 @@ function _parseSExp(text) {
 
 /**
  * Find a named node in an S-expression tree.
+ * @param {any[]|null|undefined} tree
+ * @param {string} name
+ * @returns {any[]|null}
  */
 function _findNode(tree, name) {
     if (!Array.isArray(tree)) return null;
@@ -615,6 +649,11 @@ function _findNode(tree, name) {
     return null;
 }
 
+/**
+ * @param {any[]|null|undefined} tree
+ * @param {string} name
+ * @returns {any[]|null}
+ */
 function _findDirectNode(tree, name) {
     if (!Array.isArray(tree)) return null;
     for (const child of tree) {

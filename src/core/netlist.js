@@ -20,9 +20,9 @@
  * @property {PinRef[]} pins    - Array of component-pin references on this net
  */
 /** @typedef {{componentId?:string, pinNumber?:string|number|null}} PinConnection */
-/** @typedef {{type?:string, net?:string, pinConnections?:Map<any, PinConnection>|Iterable<[any, PinConnection]>}} NetShape */
+/** @typedef {{type?:string, net?:string, captureState?: () => object, pinConnections?:Map<any, PinConnection>|Iterable<[any, PinConnection]>}} NetShape */
 /** @typedef {{number?:string|number|null, name?:string}} SymbolPin */
-/** @typedef {{name?:string, footprint?:string, footprintName?:string, footprintShapes?:any, footprintBBox?:any, _source?:string, model3dObj?:string|null, model3dUrl?:string|null}} ComponentDefinition */
+/** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
 /** @typedef {{pins?:SymbolPin[], _source?:string}} ComponentSymbol */
 /** @typedef {{id:string, reference?:string, value?:string, definition?:ComponentDefinition|null, symbol?:ComponentSymbol|null}} SchematicComponent */
 /** @typedef {{shapes?:NetShape[], components?:SchematicComponent[]}} SchematicState */

@@ -5,12 +5,23 @@ import { spatialCrossPairs } from '../../core/spatial-pairs.js';
 
 const SCALE = 1e6;
 const TOLERANCE = 1e-4;
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./copper-fill-geom.js').ClipperPoint} ClipperPoint */
+/** @typedef {import('./track-contact-geometry.js').CopperRegion} CopperRegion */
+/** @typedef {import('./drc.js').CopperFeature} CopperFeature */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {(item: CopperFeature) => Bounds} BoundsResolver */
+
+/** @param {Point[]} ring */
 const toPath = ring => ring.map(point => ({ X: Math.round(point.x * SCALE), Y: Math.round(point.y * SCALE) }));
+/** @param {ClipperPoint[]} ring */
 const fromPath = ring => ring.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE }));
-const fromTree = tree => ClipperLib.JS.PolyTreeToExPolygons(tree).map(region => ({
+/** @param {any} tree @returns {CopperRegion[]} */
+const fromTree = tree => ClipperLib.JS.PolyTreeToExPolygons(tree).map(/** @param {{outer: ClipperPoint[], holes: ClipperPoint[][]}} region */ region => ({
     outer: fromPath(region.outer), holes: region.holes.map(fromPath),
 }));
 
+/** @param {CopperRegion[]} regions */
 function regionPaths(regions) {
     return regions.flatMap(region => [region.outer, ...region.holes].map((ring, index) => {
         const path = toPath(ring);
@@ -19,6 +30,7 @@ function regionPaths(regions) {
     }));
 }
 
+/** @param {CopperRegion[]} regions @param {CopperRegion[]} [clips] */
 function combine(regions, clips = []) {
     if (!regions.length) return [];
     const clipper = new ClipperLib.Clipper();
@@ -30,6 +42,7 @@ function combine(regions, clips = []) {
     return fromTree(tree);
 }
 
+/** @param {number} x @param {number} y @param {number} radius @returns {Point[]} */
 function circleRing(x, y, radius) {
     const count = Math.max(16, Math.ceil(Math.PI / Math.acos(Math.max(-1, 1 - TOLERANCE / radius))));
     return Array.from({ length: count }, (_, index) => ({
@@ -38,6 +51,7 @@ function circleRing(x, y, radius) {
     }));
 }
 
+/** @param {Point[]} points @param {number} width @param {boolean} [closed] */
 function strokeRegions(points, width, closed = false) {
     if (!points.length || !(width > 0)) return [];
     if (points.length === 1 || points.every(point => point.x === points[0].x && point.y === points[0].y)) {
@@ -51,6 +65,7 @@ function strokeRegions(points, width, closed = false) {
     return contourRegions(paths.map(fromPath));
 }
 
+/** @param {CopperFeature} shape */
 function shapeRegions(shape) {
     const geometry = resolveBoardShapeGeometry(shape);
     const arc = boardShapeArcGeometry(shape);
@@ -64,6 +79,7 @@ function shapeRegions(shape) {
         return [{ outer: circleRing(circle.x, circle.y, circle.outerRadius),
             holes: inner > 0 ? [circleRing(circle.x, circle.y, inner)] : [] }];
     }
+    /** @type {CopperRegion[]} */
     const regions = geometry.filled && geometry.areaOutline?.length >= 3
         ? [{ outer: geometry.areaOutline, holes: [] }] : [];
     if (geometry.strokeSegments?.length) {
@@ -74,6 +90,7 @@ function shapeRegions(shape) {
     return combine(regions);
 }
 
+/** @param {CopperFeature} feature */
 function featureRegions(feature) {
     if (feature.kind === 'area') return [{ outer: feature.outer, holes: feature.holes || [] }];
     if (feature.kind === 'pad' || feature.kind === 'via') {
@@ -101,6 +118,11 @@ function featureRegions(feature) {
     return strokeRegions([{ x: feature.ax, y: feature.ay }, { x: feature.bx, y: feature.by }], feature.hw * 2);
 }
 
+/**
+ * @param {CopperFeature[]} features
+ * @param {CopperFeature[]} boardShapes
+ * @param {BoundsResolver} bounds
+ */
 export function subtractCopperArtwork(features, boardShapes, bounds) {
     const cuts = [];
     for (const shape of boardShapes || []) {
@@ -118,13 +140,13 @@ export function subtractCopperArtwork(features, boardShapes, bounds) {
     }
     if (!candidates.size) return features;
     return features.flatMap(feature => {
-        const nearby = candidates.get(feature);
+        const nearby = /** @type {CopperFeature[]|undefined} */ (candidates.get(feature));
         if (!nearby) return [feature];
         const regions = featureRegions(feature);
         return (feature.layer === 'both' ? ['top', 'bottom'] : [feature.layer]).flatMap(layer => {
             const clips = nearby.filter(cut => cut.layer === layer);
             if (!clips.length) return [{ ...feature, layer, source: feature }];
-            return combine(regions, clips).map(region => ({ ...feature, ...region,
+            return combine(regions, /** @type {CopperRegion[]} */ (clips)).map(region => ({ ...feature, ...region,
                 kind: 'area', originalKind: feature.kind, layer, source: feature,
                 x: region.outer[0].x, y: region.outer[0].y }));
         });

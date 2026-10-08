@@ -1,4 +1,12 @@
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./drc.js').DrcMarker} DrcMarker */
+/** @typedef {import('./drc.js').DrcViolation} DrcViolation */
+/** @typedef {import('./drc.js').DrcResult} DrcResult */
+/** @typedef {{id: number, revision: number, inputs: any, resolve: (value: DrcResult|null) => void, reject: (reason?: any) => void}} DrcJob */
+
+/** @param {any} value */
 const point = value => value && Number.isFinite(value.x) && Number.isFinite(value.y);
+/** @param {any} marker */
 function validMarker(marker) {
     if (marker === null) return true;
     if (!marker) return false;
@@ -7,6 +15,7 @@ function validMarker(marker) {
     return ['clearance', 'ratline'].includes(marker.type) && point(marker.a) && point(marker.b)
         && (marker.type !== 'ratline' || typeof marker.net === 'string');
 }
+/** @param {any} result */
 function validResult(result) {
     if (!result || typeof result.ok !== 'boolean' || !Array.isArray(result.violations)) return false;
     let errors = 0, warnings = 0;
@@ -21,10 +30,18 @@ function validResult(result) {
 }
 
 /** Latest-only transport: one active check and one replaceable pending snapshot. */
+/** @param {() => Worker} [createWorker] */
 export function createDrcWorker(createWorker = () => new Worker(
     new URL('./drc-worker.js', import.meta.url), { type: 'module' },
 )) {
-    let worker = null, active = null, pending = null, revision = 0, nextId = 0, disposed = false;
+    /** @type {Worker|null} */
+    let worker = null;
+    /** @type {DrcJob|null} */
+    let active = null;
+    /** @type {DrcJob|null} */
+    let pending = null;
+    let revision = 0, nextId = 0, disposed = false;
+    /** @param {any} error */
     const fail = error => {
         worker?.terminate();
         worker = null;
@@ -55,6 +72,7 @@ export function createDrcWorker(createWorker = () => new Worker(
         } catch (error) { fail(error); }
     };
     return {
+        /** @param {any} inputs */
         build(inputs) {
             if (disposed) return Promise.resolve(null);
             revision++;

@@ -1,11 +1,19 @@
 import { viaCopperPathD } from './track-render.js';
 
+/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./autorouter-maze.js').RoutedTrack} RoutedTrack */
+/** @typedef {{net?: string, pads?: Point[]}} RouteConnection */
+/** @typedef {{type: string, done?: number, total?: number, net?: string, meta?: RouteProgressMeta, netTracks?: RoutedTrack[], conn?: RouteConnection, connId?: string, netName?: string, pendingConnections?: number, from?: Point, to?: Point}} RouterMessage */
+/** @typedef {{phase?: string, pendingConnections?: number, pendingNets?: number, ripupDone?: number, ripupTotal?: number, ripupPass?: number, ripupMaxPasses?: number}} RouteProgressMeta */
+/** @typedef {{done: number, total: number, netName: string, phase: string, pendingConnections: number, pendingNets: number, ripupDone: number, ripupTotal: number, ripupPass: number, ripupMaxPasses: number}} RouteProgressState */
+
 /**
  * @typedef {object} AutorouterPresentationCapabilities
  * @property {() => HTMLElement|null} getProgressHost
  * @property {(id: string) => SVGElement|null} getLayerGroup
  * @property {() => SVGElement|null} getSvg
- * @property {() => object} getRoutingParams
+ * @property {() => RoutingParams} getRoutingParams
  * @property {() => void} refreshClearanceHalos
  *
  * @typedef {object} AutorouterPresentationRuntime
@@ -29,7 +37,7 @@ export class AutorouterPresentation {
     constructor(capabilities, stop, runtime = {}) {
         this.capabilities = capabilities;
         this.stop = stop;
-        this.runtime = {
+        this.runtime = /** @type {AutorouterPresentationRuntime} */ ({
             now: () => performance.now(),
             setInterval: (callback, delay) => setInterval(callback, delay),
             clearInterval: id => clearInterval(id),
@@ -39,15 +47,21 @@ export class AutorouterPresentation {
             cancelAnimationFrame: id => cancelAnimationFrame(id),
             createSvgElement: tag => document.createElementNS('http://www.w3.org/2000/svg', tag),
             ...runtime,
-        };
+        });
+        /** @type {RouteProgressState|null} */
         this._progress = null;
         this._startMs = 0;
+        /** @type {number|null} */
         this._progressTimer = null;
+        /** @type {Map<string, boolean>|null} */
         this._netUnrouted = null;
         this._lastBoundaryKey = '';
+        /** @type {Map<string, boolean>} */
         this._visibilityQueue = new Map();
         this._visibilityFrame = 0;
+        /** @type {Map<SVGElement, number>} */
         this._fadeFrames = new Map();
+        /** @type {{id: number|null, resolve: () => void}|null} */
         this._phaseDelay = null;
         this._generation = 0;
         this._skipPhases = false;
@@ -62,17 +76,19 @@ export class AutorouterPresentation {
         });
     }
 
+    /** @param {Array<{net: string}>} connections */
     beginConnections(connections) {
         this._netUnrouted = new Map(connections.map(connection => [connection.net, true]));
         this._lastBoundaryKey = '';
         this.reconcileRouteVisibility();
     }
 
+    /** @param {RouterMessage} message */
     handleMessage(message) {
         switch (message.type) {
             case 'progress':
-                this.showProgress(message.done, message.total, message.net, message.meta || {});
-                this.reconcilePhaseBoundary(message.done, message.total, message.meta || {});
+                this.showProgress(message.done || 0, message.total || 0, message.net || '', message.meta || {});
+                this.reconcilePhaseBoundary(message.done || 0, message.total || 0, message.meta || {});
                 break;
             case 'netRouted': {
                 const tracks = message.netTracks || [];
@@ -86,17 +102,20 @@ export class AutorouterPresentation {
             }
             case 'netFailed':
                 this.clearTryingLines();
-                this.flashFailedNet(message.conn);
+                if (message.conn) this.flashFailedNet(message.conn);
                 break;
             case 'connRipped':
                 if (message.connId) this.clearIncrementalConnection(message.connId);
                 break;
             case 'netPendingChanged':
-                this.setNetUnrouted(message.netName, message.pendingConnections > 0);
-                this.setRatsnestVisibilityForNet(message.netName, message.pendingConnections > 0);
+                if (message.netName) {
+                    const pendingConnections = message.pendingConnections || 0;
+                    this.setNetUnrouted(message.netName, pendingConnections > 0);
+                    this.setRatsnestVisibilityForNet(message.netName, pendingConnections > 0);
+                }
                 break;
             case 'trying':
-                this.flashTryingLine(message.from, message.to);
+                if (message.from && message.to) this.flashTryingLine(message.from, message.to);
                 break;
         }
     }
@@ -104,7 +123,7 @@ export class AutorouterPresentation {
     skipRemainingPhases() {
         this._skipPhases = true;
         if (this._phaseDelay) {
-            this.runtime.clearTimeout(this._phaseDelay.id);
+            if (this._phaseDelay.id !== null) this.runtime.clearTimeout(this._phaseDelay.id);
             this._phaseDelay.resolve();
             this._phaseDelay = null;
         }
@@ -129,6 +148,7 @@ export class AutorouterPresentation {
 
     dispose() { this.reset(); }
 
+    /** @param {string} netName @param {boolean} isUnrouted */
     setNetUnrouted(netName, isUnrouted) {
         if (!this._netUnrouted || !netName) return;
         this._netUnrouted.set(netName, !!isUnrouted);
@@ -143,6 +163,7 @@ export class AutorouterPresentation {
         this.applyRatsnestVisibilityMap(visibility);
     }
 
+    /** @param {number} done @param {number} total @param {RouteProgressMeta} [meta] */
     reconcilePhaseBoundary(done, total, meta = {}) {
         const phase = meta?.phase || 'initial';
         if (phase === 'initial' && total > 0 && done === total) {
@@ -154,9 +175,9 @@ export class AutorouterPresentation {
         }
 
         if (phase === 'ripup') {
-            const pass = Number.isFinite(meta?.ripupPass) ? meta.ripupPass : 0;
-            const ripDone = Number.isFinite(meta?.ripupDone) ? meta.ripupDone : -1;
-            const ripTotal = Number.isFinite(meta?.ripupTotal) ? meta.ripupTotal : -2;
+            const pass = Number.isFinite(meta?.ripupPass) ? Number(meta.ripupPass) : 0;
+            const ripDone = Number.isFinite(meta?.ripupDone) ? Number(meta.ripupDone) : -1;
+            const ripTotal = Number.isFinite(meta?.ripupTotal) ? Number(meta.ripupTotal) : -2;
             if (pass > 0 && ripTotal >= 0 && ripDone === ripTotal) {
                 const key = `ripup:${pass}:end`;
                 if (this._lastBoundaryKey === key) return;
@@ -166,6 +187,7 @@ export class AutorouterPresentation {
         }
     }
 
+    /** @param {() => boolean} [isCurrent] */
     async finishRipupPhases(isCurrent = () => true) {
         const generation = this._generation;
         const state = this._progress;
@@ -189,10 +211,11 @@ export class AutorouterPresentation {
                 ripupMaxPasses: maxPasses,
             });
             await new Promise(resolve => {
-                const delay = { id: null, resolve };
+                /** @type {{id: number|null, resolve: () => void}} */
+                const delay = { id: null, resolve: () => resolve(undefined) };
                 delay.id = this.runtime.setTimeout(() => {
                     if (this._phaseDelay === delay) this._phaseDelay = null;
-                    resolve();
+                    resolve(undefined);
                 }, 1000);
                 this._phaseDelay = delay;
             });
@@ -201,8 +224,13 @@ export class AutorouterPresentation {
 
     /**
      * Show routing progress in the status bar.
+     * @param {number} done
+     * @param {number} total
+     * @param {string} netName
+     * @param {RouteProgressMeta} [meta]
      */
     showProgress(done, total, netName, meta = {}) {
+        /** @type {RouteProgressState} */
         const prev = this._progress || {
             done: 0,
             total: 1,
@@ -232,9 +260,9 @@ export class AutorouterPresentation {
         if (!host) return;
 
         // Only build the DOM structure once; update text/width on subsequent calls
-        let bar = host.querySelector('.route-progress-bar-fill');
-        let label = host.querySelector('.route-progress-label');
-        let elapsed = host.querySelector('.route-progress-elapsed');
+        let bar = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-bar-fill'));
+        let label = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-label'));
+        let elapsed = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-elapsed'));
         if (!bar) {
             host.innerHTML = `
                 <span style="display:inline-flex;align-items:center;gap:8px">
@@ -249,9 +277,9 @@ export class AutorouterPresentation {
                         transition: background 0.1s, color 0.1s;
                     ">Stop</button>
                 </span>`;
-            bar = host.querySelector('.route-progress-bar-fill');
-            label = host.querySelector('.route-progress-label');
-            elapsed = host.querySelector('.route-progress-elapsed');
+            bar = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-bar-fill'));
+            label = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-label'));
+            elapsed = /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-elapsed'));
 
             const generation = this._generation;
             const cancelBtn = /** @type {HTMLButtonElement|null} */ (host.querySelector('#pcbRouteCancelBtn'));
@@ -275,8 +303,10 @@ export class AutorouterPresentation {
         this.refreshProgress(label, bar, elapsed);
     }
 
+    /** @param {HTMLElement|null} [labelEl] @param {HTMLElement|null} [barEl] @param {HTMLElement|null} [elapsedEl] */
     refreshProgress(labelEl = null, barEl = null, elapsedEl = null) {
-        if (!this.capabilities.getProgressHost()) return;
+        const host = this.capabilities.getProgressHost();
+        if (!host) return;
         const state = this._progress || {
             done: 0,
             total: 1,
@@ -289,9 +319,9 @@ export class AutorouterPresentation {
             ripupPass: 0,
             ripupMaxPasses: 4,
         };
-        const label = labelEl || this.capabilities.getProgressHost().querySelector('.route-progress-label');
-        const bar = barEl || this.capabilities.getProgressHost().querySelector('.route-progress-bar-fill');
-        const elapsed = elapsedEl || this.capabilities.getProgressHost().querySelector('.route-progress-elapsed');
+        const label = labelEl || /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-label'));
+        const bar = barEl || /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-bar-fill'));
+        const elapsed = elapsedEl || /** @type {HTMLElement|null} */ (host.querySelector('.route-progress-elapsed'));
 
         const pct = state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
         const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
@@ -341,13 +371,13 @@ export class AutorouterPresentation {
             ripupPass: 0,
             ripupMaxPasses: 4,
         };
-        if (this.capabilities.getProgressHost()) {
-            this.capabilities.getProgressHost().textContent = '';
-        }
+        const host = this.capabilities.getProgressHost();
+        if (host) host.textContent = '';
     }
 
     /**
      * Render a single net's tracks incrementally during routing animation.
+     * @param {RoutedTrack[]} netTracks
      */
     renderNetTracks(netTracks) {
         const topCopper = this.capabilities.getLayerGroup('top-copper');
@@ -357,6 +387,7 @@ export class AutorouterPresentation {
         for (const track of netTracks) {
             if (track.points.length < 2) continue;
             const parent = track.layer === 'bottom' ? bottomCopper : topCopper;
+            if (!parent) continue;
             const color = track.layer === 'bottom' ? '#0066ff' : '#ff3333';
 
             const polyline = this.runtime.createSvgElement('polyline');
@@ -376,6 +407,7 @@ export class AutorouterPresentation {
             // Render vias for this track
             if (track.vias?.length) {
                 const viaLayer = this.capabilities.getLayerGroup('vias');
+                if (!viaLayer) continue;
                 const viaRadius = params.viaDiameter / 2;
                 const drillRadius = params.viaDrill / 2;
                 for (const v of track.vias) {
@@ -399,18 +431,22 @@ export class AutorouterPresentation {
         this.capabilities.refreshClearanceHalos();
     }
 
+    /** @param {string} netName */
     clearIncrementalNet(netName) {
-        if (!netName || !this.capabilities.getSvg()) return;
-        for (const el of this.capabilities.getSvg().querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
-            this._removeArtwork(el);
+        const svg = this.capabilities.getSvg();
+        if (!netName || !svg) return;
+        for (const el of svg.querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
+            this._removeArtwork(/** @type {SVGElement} */ (el));
         }
         this.capabilities.refreshClearanceHalos();
     }
 
+    /** @param {string} connId */
     clearIncrementalConnection(connId) {
-        if (!connId || !this.capabilities.getSvg()) return;
-        for (const el of this.capabilities.getSvg().querySelectorAll(`.pcb-route-anim[data-connid="${connId}"]`)) {
-            this._removeArtwork(el);
+        const svg = this.capabilities.getSvg();
+        if (!connId || !svg) return;
+        for (const el of svg.querySelectorAll(`.pcb-route-anim[data-connid="${connId}"]`)) {
+            this._removeArtwork(/** @type {SVGElement} */ (el));
         }
         this.capabilities.refreshClearanceHalos();
     }
@@ -430,9 +466,11 @@ export class AutorouterPresentation {
 
     /**
      * Show a brief "trying" line for a connection being attempted.
+     * @param {Point} from @param {Point} to
      */
     flashTryingLine(from, to) {
         const layer = this.capabilities.getLayerGroup('ratlines');
+        if (!layer) return;
 
         // Remove all previous trying lines
         for (const el of layer.querySelectorAll('.pcb-trying-line')) el.remove();
@@ -461,22 +499,24 @@ export class AutorouterPresentation {
 
     /**
      * Flash a failed net's ratline(s) in yellow.
+     * @param {RouteConnection} conn
      */
     flashFailedNet(conn) {
         if (!conn.pads || conn.pads.length < 2) return;
         const layer = this.capabilities.getLayerGroup('ratlines');
+        if (!layer) return;
 
         // Keep failed overlays bounded and replace previous overlays for this net.
         const netName = conn.net || '';
         if (netName) {
             for (const old of layer.querySelectorAll(`.pcb-failed-line[data-net="${netName}"]`)) {
-                this._removeArtwork(old);
+                this._removeArtwork(/** @type {SVGElement} */ (old));
             }
         }
         const allFailed = layer.querySelectorAll('.pcb-failed-line');
         if (allFailed.length > 24) {
             const toRemove = allFailed.length - 24;
-            for (let i = 0; i < toRemove; i++) this._removeArtwork(allFailed[i]);
+            for (let i = 0; i < toRemove; i++) this._removeArtwork(/** @type {SVGElement} */ (allFailed[i]));
         }
 
         for (let i = 0; i < conn.pads.length - 1; i++) {
@@ -512,10 +552,12 @@ export class AutorouterPresentation {
         }
     }
 
+    /** @param {string} netName */
     hideRatsnestForNet(netName) {
         this.setRatsnestVisibilityForNet(netName, false);
     }
 
+    /** @param {string} netName @param {boolean} visible */
     setRatsnestVisibilityForNet(netName, visible) {
         if (!netName) return;
         this._visibilityQueue.set(netName, !!visible);
@@ -535,6 +577,7 @@ export class AutorouterPresentation {
         this.applyRatsnestVisibilityMap(updates);
     }
 
+    /** @param {Map<string, boolean>} visibilityByNet */
     applyRatsnestVisibilityMap(visibilityByNet) {
         if (!visibilityByNet || !visibilityByNet.size) return;
         const ratLayer = this.capabilities.getLayerGroup('ratlines');
@@ -552,10 +595,12 @@ export class AutorouterPresentation {
         }
     }
 
+    /** @param {SVGElement|null|undefined} element */
     _removeArtwork(element) {
         if (!element) return;
         if (this._fadeFrames.has(element)) {
-            this.runtime.cancelAnimationFrame(this._fadeFrames.get(element));
+            const frame = this._fadeFrames.get(element);
+            if (frame !== undefined) this.runtime.cancelAnimationFrame(frame);
             this._fadeFrames.delete(element);
         }
         element.remove();

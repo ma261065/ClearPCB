@@ -46,6 +46,15 @@ import { getLastCrosshairWorld } from './cursor-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {ReturnType<typeof createBoardShapePropertyBinding>} ShapePropertyBinding */
+/** @typedef {ReturnType<typeof createBoardShapePropertyPreview>} ShapePropertyPreview */
+/** @typedef {import('./board-shapes.js').BoardShapeSnapshot} BoardShapeSnapshot */
+/** @typedef {'width'|'height'} OutlineDimensionKey */
+/** @typedef {'x'|'y'} AxisKey */
+/** @typedef {'w'|'h'} BoundaryDimensionKey */
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -83,7 +92,7 @@ function boardNetNames(app) {
 export function showBoardShapeToolProperties(app, kind) {
     const defaults = getShapeDefaults(app);
     if (!getShapeDraw(app)) app.activeLayer = resolveShapeDrawLayer(app, app.activeLayer);
-    const redraw = () => updateShapeDrawPreview(app, getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1));
+    const redraw = () => updateShapeDrawPreview(app, /** @type {Point} */ (getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1)));
     const refresh = () => app.refreshPropertyPanel?.(describe());
     /** @returns {PropertyPanel} */
     const describe = () => {
@@ -148,15 +157,24 @@ export function showBoardShapeToolProperties(app, kind) {
     app.setPcbStatus?.();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
+ */
 export function showImageProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
-    shape = canonicalBoardShape(app, shape);
+    shape = canonicalBoardShape(app, shape || null);
+    if (!shape) return;
+    /** @type {ShapePropertyBinding|null} */
     let binding = null;
+    /** @type {ShapePropertyPreview|null} */
     let widthPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let heightPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let rotationPreview = null;
     const hold = pictureRefreshHold(app);
+    /** @returns {{width:number,height:number,rotation:number}} */
     const geometryValues = () => {
         const { points } = displayedBoardShape(app, shape);
         return {
@@ -168,6 +186,7 @@ export function showImageProperties(app, shape) {
     };
     const lockEntries = [{ kind: 'shape', object: shape }];
     const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
+    /** @param {(candidate: BoardShape) => void} mutate */
     const commit = mutate => {
         if (!binding?.prepare()) return;
         const before = shapeSnapshot(shape);
@@ -177,16 +196,19 @@ export function showImageProperties(app, shape) {
         if (JSON.stringify(before) !== JSON.stringify(after)) app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
         refresh();
     };
+    /** @param {ShapePropertyPreview|null|undefined} preview */
     const finishPreview = preview => {
         if (!preview || binding?.disposed) return;
         preview.commit({ rebuild: false });
         refresh();
     };
+    /** @param {ShapePropertyPreview|null|undefined} preview */
     const cancelPreview = preview => {
         const active = preview?.cancel() || false;
         refresh();
         return active;
     };
+    /** @param {OutlineDimensionKey} axis @param {number} value */
     const previewResize = (axis, value) => {
             if (binding?.disposed) return;
             const { width, height } = geometryValues();
@@ -198,17 +220,20 @@ export function showImageProperties(app, shape) {
             if (Math.abs(Math.hypot(current.points[edge].x - current.points[0].x,
                 current.points[edge].y - current.points[0].y) - value) < 1e-9) return;
             const resizePreview = axis === 'width' ? widthPreview : heightPreview;
-            resizePreview.update((before, [candidate]) => {
+            if (!resizePreview) return;
+            resizePreview.update(/** @param {BoardShapeSnapshot[]} before @param {BoardShape[]} copies */ (before, copies) => {
+                const candidate = /** @type {BoardShape} */ (copies[0]);
                 applyShapeSnapshot(candidate, before[0]);
                 const baseline = Math.hypot(candidate.points[edge].x - candidate.points[0].x,
                     candidate.points[edge].y - candidate.points[0].y);
                 const scale = value / baseline;
                 const center = { x: (candidate.points[0].x + candidate.points[2].x) / 2, y: (candidate.points[0].y + candidate.points[2].y) / 2 };
-                if (scale !== 1) candidate.points = candidate.points.map(point => ({ x: center.x + (point.x - center.x) * scale,
+                if (scale !== 1) candidate.points = candidate.points.map((/** @type {Point} */ point) => ({ x: center.x + (point.x - center.x) * scale,
                     y: center.y + (point.y - center.y) * scale }));
             });
             refresh();
     };
+    /** @param {number} value */
     const previewRotation = value => {
         if (binding?.disposed) return;
         if (!Number.isFinite(value)) return;
@@ -217,7 +242,9 @@ export function showImageProperties(app, shape) {
         const currentAngle = ((-Math.atan2(current.points[1].y - current.points[0].y,
             current.points[1].x - current.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
         if (Math.abs(next - currentAngle) < 1e-9) return;
-        rotationPreview.update((before, [candidate]) => {
+        if (!rotationPreview) return;
+        rotationPreview.update(/** @param {BoardShapeSnapshot[]} before @param {BoardShape[]} copies */ (before, copies) => {
+            const candidate = /** @type {BoardShape} */ (copies[0]);
             applyShapeSnapshot(candidate, before[0]);
             const baseline = ((-Math.atan2(candidate.points[1].y - candidate.points[0].y,
                 candidate.points[1].x - candidate.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
@@ -237,7 +264,7 @@ export function showImageProperties(app, shape) {
         return {
             title: 'Image',
             fields: [
-                { ...lock.field, commit: value => { lock.field.commit(value); refresh(); } },
+                { ...lock.field, commit: value => { /** @type {PropertyField & {commit: (value: unknown) => void}} */ (lock.field).commit(value); refresh(); } },
                 { key: 'layer', id: 'pcbPropImageLayer', type: 'select', label: 'Layer', value: shape.layer, disabled: readOnly,
                     options: PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id)).map(layer => pcbLayerOption(layer.id, layer.name)),
                     commit: value => {
@@ -290,6 +317,7 @@ const openShapePanels = new WeakMap();
  * preview changed values it displays). Opening a new panel each pointer move would
  * churn editors and focus.
  * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
  */
 export function syncBoardShapePanel(app, shape) {
     const panel = openShapePanels.get(app);
@@ -299,10 +327,13 @@ export function syncBoardShapePanel(app, shape) {
     else showBoardShapeProperties(app, shape);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
+ */
 export function showBoardShapeProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
-    shape = canonicalBoardShape(app, shape);
+    shape = canonicalBoardShape(app, shape || null);
     const drag = getBoardShapeDrag(app);
     if (drag?.original === shape) shape = drag.shape;
     if (!shape) return;
@@ -310,8 +341,10 @@ export function showBoardShapeProperties(app, shape) {
     app.setPcbStatus?.();
 
     const selectedTargets = getPcbSelection(app, 'shape');
+    /** @type {BoardShape[]} */
     const propertyOriginals = (selectedTargets.length > 0 ? selectedTargets : [shape])
-        .map(target => canonicalBoardShape(app, target));
+        .map((/** @type {BoardShape} */ target) => canonicalBoardShape(app, target));
+    /** @returns {BoardShape[]} */
     const propertyTargets = () => propertyOriginals.map(target => displayedBoardShape(app, target));
     const initialTargets = propertyTargets();
     const outlineTarget = initialTargets.length === 1 && shape.layer === 'board-outline';
@@ -327,10 +360,11 @@ export function showBoardShapeProperties(app, shape) {
     const selectedSegment = initialTargets.length === 1 && segmentFocus?.shapeId === shape.id
         && (shape.kind === 'arc' || shape.points?.[segmentFocus.segment])
         ? segmentFocus.segment : null;
+    const nodeFocus = getBoardShapeNodeFocus(app);
     const selectedNode = initialTargets.length === 1
-        && getBoardShapeNodeFocus(app)?.shapeId === shape.id
-        && shape.points?.[getBoardShapeNodeFocus(app).index]
-        ? getBoardShapeNodeFocus(app).index
+        && nodeFocus?.shapeId === shape.id
+        && shape.points?.[nodeFocus.index]
+        ? nodeFocus.index
         : null;
     const panelTitle = () => {
         const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
@@ -349,28 +383,38 @@ export function showBoardShapeProperties(app, shape) {
     )).toFixed(6));
     const allCircleTargets = initialTargets.every((target) => target.kind === 'circle');
     const allRoundedTargets = initialTargets.every((target) => ['line', 'rect', 'polygon'].includes(target.kind));
+    /** @param {BoardShape} target */
     const targetCornerRadius = (target) => target.kind === 'rect'
         ? rectCornerRadius(target)
         : polygonCornerRadius(target);
+    /** @param {unknown} id */
     const isCopperLayer = (id) => id === 'top-copper' || id === 'bottom-copper';
     const lockEntries = selectedNode == null && selectedSegment == null && !hasOutline
         ? propertyOriginals.map(object => ({ kind: 'shape', object })) : [];
     const lock = lockEntries.length ? lockedProperty(app, lockEntries) : null;
     const readOnly = !!lock?.readOnly;
     const hold = pictureRefreshHold(app);
+    /** @type {ShapePropertyBinding|null} */
     let binding = null;
+    /** @type {ShapePropertyPreview|null} */
     let lineWidthPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let diameterPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let cornerRadiusPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let nodeCornerRadiusPreview = null;
+    /** @type {ShapePropertyPreview|null} */
     let bulgePreview = null;
     const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
 
     /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
+    /** @param {(target: BoardShape) => void} mutate */
     const commit = (mutate) => {
         if (!binding?.prepare()) return false;
+        /** @type {Track[]} */
         const tracks = [];
-        const commands = propertyTargets().flatMap(displayed => {
+        const commands = propertyTargets().flatMap((displayed) => {
             const target = canonicalBoardShape(app, displayed);
             const before = shapeSnapshot(target), candidate = copyBoardShape(target);
             mutate(candidate);
@@ -394,23 +438,27 @@ export function showBoardShapeProperties(app, shape) {
         app.refreshSelectionHighlights?.();
         return false;
     };
+    /** @param {ShapePropertyPreview|null|undefined} preview */
     const finishPreview = preview => {
         if (!preview || binding?.disposed) return;
         preview.commit({ rebuild: false });
         refresh();
     };
+    /** @param {ShapePropertyPreview|null|undefined} preview */
     const cancelPreview = preview => {
         const active = preview?.cancel() || false;
         refresh();
         return active;
     };
+    /** @param {number} value */
     const previewCornerRadius = value => {
         if (binding?.disposed) return;
         const radius = Math.min(25, Math.max(0, value));
         const targets = propertyTargets().filter((target) => ['line', 'rect', 'polygon'].includes(target.kind));
         if (targets.every((target) => Math.abs(targetCornerRadius(target) - radius) < 1e-9
             && !Object.keys(target.nodeCornerRadii || {}).length)) return;
-        cornerRadiusPreview.update((_before, copies) => {
+        if (!cornerRadiusPreview) return;
+        cornerRadiusPreview.update(/** @param {BoardShapeSnapshot[]} _before @param {BoardShape[]} copies */ (_before, copies) => {
             for (const target of copies) {
                 target.cornerRadius = radius;
                 target.nodeCornerRadii = {};
@@ -419,21 +467,28 @@ export function showBoardShapeProperties(app, shape) {
         refresh();
     };
 
+    /** @param {number} value */
     const previewNodeCornerRadius = value => {
         if (binding?.disposed || selectedNode == null) return;
         const radius = Math.min(25, Math.max(0, value));
         if (Math.abs(boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode) - radius) < 1e-9) return;
-        nodeCornerRadiusPreview.update((_before, [candidate]) => setBoardShapeNodeCornerRadius(candidate, selectedNode, radius));
+        if (!nodeCornerRadiusPreview) return;
+        nodeCornerRadiusPreview.update(/** @param {BoardShapeSnapshot[]} _before @param {BoardShape[]} copies */ (_before, copies) => {
+            const candidate = /** @type {BoardShape} */ (copies[0]);
+            setBoardShapeNodeCornerRadius(candidate, selectedNode, radius);
+        });
         refresh();
     };
 
+    /** @param {number} value */
     const previewDiameter = value => {
         if (binding?.disposed) return;
         const diameter = Number(value.toFixed(6));
         if (diameter < diameterMinimum()) return;
         const targets = propertyTargets().filter((target) => target.kind === 'circle');
         if (targets.every((target) => Math.abs(circleFilledRadius(target) * 2 - diameter) < 1e-9)) return;
-        diameterPreview.update((before, copies) => {
+        if (!diameterPreview) return;
+        diameterPreview.update(/** @param {BoardShapeSnapshot[]} before @param {BoardShape[]} copies */ (before, copies) => {
             copies.forEach((target, index) => {
                 target.lineWidth = Math.min(normalizedBoardShapeLineWidth(target, before[index].lineWidth), diameter / 2);
                 target.radius = Math.max(0.05, diameter / 2);
@@ -442,6 +497,7 @@ export function showBoardShapeProperties(app, shape) {
         refresh();
     };
 
+    /** @param {number} value */
     const previewLineWidth = value => {
         if (binding?.disposed) return;
         const targets = propertyTargets();
@@ -454,7 +510,8 @@ export function showBoardShapeProperties(app, shape) {
         if (selectedSegment == null
             && targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9
                 && !Object.keys(target.segmentWidths || {}).length)) return;
-        lineWidthPreview.update((_before, copies) => {
+        if (!lineWidthPreview) return;
+        lineWidthPreview.update(/** @param {BoardShapeSnapshot[]} _before @param {BoardShape[]} copies */ (_before, copies) => {
             for (const target of copies) {
                 if (selectedSegment != null && target.kind !== 'arc') {
                     target.segmentWidths ||= {};
@@ -471,11 +528,14 @@ export function showBoardShapeProperties(app, shape) {
         });
         refresh();
     };
+    /** @param {number} value */
     const previewBulge = value => {
         if (binding?.disposed) return;
         value = Number(formatNumberInputValue(Math.max(-1, Math.min(1, value))));
         if (value === editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) return;
-        bulgePreview.update((_before, [candidate]) => {
+        if (!bulgePreview) return;
+        bulgePreview.update(/** @param {BoardShapeSnapshot[]} _before @param {BoardShape[]} copies */ (_before, copies) => {
+            const candidate = /** @type {BoardShape} */ (copies[0]);
             if (candidate.kind === 'arc') candidate.bulge = bulgePointFromRatio(candidate.start, candidate.end, value);
             else if (selectedSegment != null) {
                 candidate.segmentBulges ||= {};
@@ -486,19 +546,26 @@ export function showBoardShapeProperties(app, shape) {
     };
     const commitBulge = () => {
         if (binding?.disposed) return;
+        if (!bulgePreview) return;
         if (!bulgePreview.active && Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS) {
             bulgePreview.update(() => {});
         }
         finishPreview(bulgePreview);
     };
+    /** @param {(target: BoardShape) => void} mutate @param {boolean} [rebuild] */
     const commitAndRefresh = (mutate, rebuild = false) => {
         const replaced = commit(mutate);
         if (!replaced) (rebuild ? showBoardShapeProperties(app, shape) : refresh());
         return replaced;
     };
     // Board outline width/height scale the outline about its bounds; each step previews it live.
+    /** @type {Partial<Record<OutlineDimensionKey, ShapePropertyPreview>>} */
     const outlineDimensionPreviews = {};
-    /** @returns {PropertyField} */
+    /**
+     * @param {OutlineDimensionKey} key @param {string} id @param {string} label
+     * @param {AxisKey} axis @param {BoundaryDimensionKey} dimension
+     * @returns {PropertyField}
+     */
     const outlineDimensionField = (key, id, label, axis, dimension) => ({
         key, id, type: 'number', label, value: boardBoundary(app)?.[dimension] ?? 0, min: 0.1, step: 1,
         format: formatNumberInputValue, disabled: isLayerLocked(shape.layer), hold,
@@ -506,14 +573,15 @@ export function showBoardShapeProperties(app, shape) {
         preview: value => {
             const preview = outlineDimensionPreviews[key];
             if (binding?.disposed || !preview || isLayerLocked(shape.layer)) return;
-            preview.update((before, [candidate]) => {
+            preview.update(/** @param {BoardShapeSnapshot[]} before @param {BoardShape[]} copies */ (before, copies) => {
+                const candidate = /** @type {BoardShape} */ (copies[0]);
                 // Scale from the outline as it was before this run.
                 applyShapeSnapshot(candidate, before[0]);
-                const coords = shapeOutline(candidate).map(point => point[axis]);
+                const coords = shapeOutline(candidate).map((/** @type {Point} */ point) => point[axis]);
                 const start = Math.min(...coords), size = Math.max(...coords) - start;
                 if (!(size > 0)) return;
                 const factor = value / size;
-                candidate.points = candidate.points.map(point => ({ ...point, [axis]: start + (point[axis] - start) * factor }));
+                candidate.points = candidate.points.map((/** @type {Point} */ point) => ({ ...point, [axis]: start + (point[axis] - start) * factor }));
             });
         },
         commit: () => finishPreview(outlineDimensionPreviews[key]),
@@ -583,7 +651,7 @@ export function showBoardShapeProperties(app, shape) {
                 format: formatNumberInputValue, normalize: value => Math.max(-1, Math.min(1, value)),
                 preview: previewBulge, commit: commitBulge, cancel: () => cancelPreview(bulgePreview) });
         } else {
-            if (lock) fields.push({ ...lock.field, commit: value => { lock.field.commit(value); showBoardShapeProperties(app, shape); } });
+            if (lock) fields.push({ ...lock.field, commit: value => { /** @type {PropertyField & {commit: (value: unknown) => void}} */ (lock.field).commit(value); showBoardShapeProperties(app, shape); } });
             if (outlineTarget) {
                 fields.push(
                     { key: 'locked', id: 'pcbPropOutlineLocked', type: 'checkbox', label: 'Locked',
@@ -595,7 +663,7 @@ export function showBoardShapeProperties(app, shape) {
                             if (isLayerLocked(shape.layer) || shape.kind === value || !['rect', 'polygon', 'circle'].includes(value)) return;
                             const bounds = boardBoundary(app);
                             const keepCorners = shape.kind === 'rect' && value === 'polygon';
-                            const points = keepCorners ? shape.points.map(point => ({ ...point })) : shapeOutline(shape);
+                            const points = keepCorners ? shape.points.map((/** @type {Point} */ point) => ({ ...point })) : shapeOutline(shape);
                             commitAndRefresh(candidate => {
                                 candidate.kind = value;
                                 if (!keepCorners) {
@@ -708,17 +776,26 @@ export function showBoardShapeProperties(app, shape) {
     refresh();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
+ */
 export function syncShapeBulgeProperty(app, shape) {
     syncBoardShapePanel(app, shape);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
+ */
 export function syncCircleDiameterProperty(app, shape) {
     if (shape?.kind === 'circle') syncBoardShapePanel(app, shape);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardShape|null|undefined} shape
+ */
 export function refreshBoardShapeProperties(app, shape) {
     if (!shape || !isPcbSelected(app, 'shape', shape)) return;
     // A multi-selection may be showing the shared panel (mixed kinds or locked members).

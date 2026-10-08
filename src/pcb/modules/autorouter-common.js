@@ -65,6 +65,52 @@
  * @property {Array<{connId: string, count: number, blockerClass: string, blockerNet: string|null, blockerConnId: string|null, blockerId: string|null}>} [connectionOnlyTopNoPathBlockers] - blocker summary for top connection-only no-path connIds
  */
 
+/**
+ * @typedef {{x: number, y: number, width: number, height: number, shape?: string}} PadLike
+ * @typedef {{x: number, y: number, layer: string}} RoutePoint
+ * @typedef {{x: number, y: number}} ViaPoint
+ * @typedef {{minX: number, minY: number, maxX: number, maxY: number}} RouteBounds
+ * @typedef {{cancelled: boolean}} CancelToken
+ * @typedef {string|Set<string|undefined>|null} SkipIds
+ * @typedef {{x: number, y: number, layer: string, f: number}} HeapNode
+ * @typedef {{x: number, y: number, layer: string, dx: number, dy: number}} AstarBackref
+ * @typedef {{pad: PadLike, mode: string, margin: number}} CenterlineInfo
+ * @typedef {{
+ *   maxIter?: number,
+ *   stagnationIters?: number,
+ *   cancelToken?: CancelToken|null,
+ *   yieldEvery?: number,
+ *   minYieldIntervalMs?: number,
+ *   yieldToUI?: (() => (void|Promise<void>))|null,
+ *   onTick?: (() => void)|null,
+ *   maxDetourFactor?: number,
+ *   corridorMargin?: number|null,
+ *   bounds?: RouteBounds|null,
+ *   viaCostScale?: number,
+ *   bendCostScale?: number,
+ *   padDiagCostScale?: number,
+ *   dirPenaltyScale?: number,
+ *   congestionPenaltyScale?: number,
+ *   viaCongestionScale?: number,
+ *   congestionGrid?: CongestionGrid|null,
+ *   historyWeight?: number,
+ *   cellCostFn?: ((x: number, y: number, layer: string) => number)|null,
+ *   routingNet?: string|null,
+ *   viaRadius?: number|null,
+ *   startPad?: PadLike|null,
+ *   endPad?: PadLike|null
+ * }} AstarRouteOptions
+ * @typedef {{
+ *   maxIter?: number,
+ *   cancelToken?: CancelToken|null,
+ *   yieldEvery?: number,
+ *   yieldToUI?: (() => (void|Promise<void>))|null,
+ *   bounds?: RouteBounds|null,
+ *   routingNet?: string|null
+ * }} AstarProbeOptions
+ * @typedef {{net: string, points: Array<{x: number, y: number}>}} CongestionTrack
+ */
+
 // ── Binary Min-Heap (shared by astarRoute / astarProbe) ──────────
 
 /**
@@ -72,10 +118,12 @@
  * Shared between the cost-based router and the rip-up probe so that
  * both use identical priority-queue semantics.
  *
- * @returns {{ push: (node: {f: number, [key: string]: any}) => void, pop: () => any, size: () => number }}
+ * @returns {{ push: (node: HeapNode) => void, pop: () => HeapNode, size: () => number }}
  */
 export function createMinHeap() {
+    /** @type {HeapNode[]} */
     const heap = [];
+    /** @param {HeapNode} node */
     const push = (node) => {
         heap.push(node);
         let i = heap.length - 1;
@@ -89,8 +137,8 @@ export function createMinHeap() {
         }
     };
     const pop = () => {
-        const top = heap[0];
-        const last = heap.pop();
+        const top = /** @type {HeapNode} */ (heap[0]);
+        const last = /** @type {HeapNode} */ (heap.pop());
         if (heap.length > 0) {
             heap[0] = last;
             let i = 0;
@@ -116,25 +164,48 @@ export function createMinHeap() {
 // ── Spatial Hash Index ────────────────────────────────────────────
 
 /**
- * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a track segment.
- * @typedef {Object} SpatialObstacle
- * @property {string} net - owning net name
- * @property {string} [id] - pad identifier (pads only)
+ * @typedef {Object} SpatialSegmentObstacle
+ * @property {string} [net] - owning net name; omitted for fixed copper without a net
+ * @property {string} [id] - obstacle identifier
  * @property {string} [connId] - connection identifier
  * @property {string} layer - 'top', 'bottom', or 'both'
- * @property {boolean} [isPad] - true for pads/vias
- * @property {boolean} [isVia] - true for via obstacles
- * @property {number} hw - half-width (pads) or half-track-width (segments)
- * @property {number} [cx] - pad center X (pads only)
- * @property {number} [cy] - pad center Y (pads only)
- * @property {number} [hh] - half-height (pads only)
- * @property {number} [x1] - segment start X (segments only)
- * @property {number} [y1] - segment start Y (segments only)
- * @property {number} [x2] - segment end X (segments only)
- * @property {number} [y2] - segment end Y (segments only)
- * @property {string} [shape] - pad outline: 'rect', 'ellipse' or 'oval' (pads only)
- * @property {string} [netName] - routed net name of fixed copper (pads only)
+ * @property {false} [isPad]
+ * @property {false} [isVia]
+ * @property {number} hw - half-track-width
+ * @property {number} x1 - segment start X
+ * @property {number} y1 - segment start Y
+ * @property {number} x2 - segment end X
+ * @property {number} y2 - segment end Y
+ * @property {string} [netName] - routed net name of fixed copper
  * @property {boolean} [fixedCopper] - board copper the router keeps (never ripped up)
+ */
+
+/**
+ * @typedef {Object} SpatialPadObstacle
+ * @property {string} net - pad identifier
+ * @property {string} [id] - pad identifier alias
+ * @property {string} [connId] - connection identifier
+ * @property {string} layer - 'top', 'bottom', or 'both'
+ * @property {true} isPad - true for pads/vias
+ * @property {boolean} [isVia] - true for via obstacles
+ * @property {number} hw - half-width
+ * @property {number} cx - pad center X
+ * @property {number} cy - pad center Y
+ * @property {number} hh - half-height
+ * @property {number} [x1] - absent for pads; present on segment obstacles
+ * @property {number} [y1] - absent for pads; present on segment obstacles
+ * @property {number} [x2] - absent for pads; present on segment obstacles
+ * @property {number} [y2] - absent for pads; present on segment obstacles
+ * @property {string} [shape] - pad outline: 'rect', 'ellipse' or 'oval'
+ * @property {string} [netName] - routed net name of fixed copper
+ * @property {boolean} [fixedCopper] - board copper the router keeps (never ripped up)
+ */
+
+/**
+ * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a track segment.
+ * @typedef {SpatialSegmentObstacle|SpatialPadObstacle} SpatialObstacle
+ * @typedef {{cx: number, cy: number, hw: number, hh: number, shape?: string}} PadObstacleLike
+ * @typedef {{isOnPad: (x: number, y: number, clearance: number) => any, isSegmentBlocked: (x1: number, y1: number, x2: number, y2: number, clearance: number, skipIds?: SkipIds, layer?: string|number, skipNet?: string|null) => boolean}} PathObstacleView
  */
 
 export class SpatialHash {
@@ -165,11 +236,13 @@ export class SpatialHash {
      * Insert a line segment obstacle with half-width clearance.
      * @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2
      * @param {number} hw - half-width (track radius + clearance)
-     * @param {string} net - which net this belongs to (same-net doesn't block)
+     * @param {string|undefined} net - which net this belongs to (same-net doesn't block)
      * @param {string} [layer='top']
      * @param {string} [connId]
+     * @param {boolean} [fixedCopper=false]
      */
     insert(x1, y1, x2, y2, hw, net, layer = 'top', connId = undefined, fixedCopper = false) {
+        /** @type {SpatialSegmentObstacle} */
         const obj = { x1, y1, x2, y2, hw, net, layer, connId, fixedCopper };
         const minCX = Math.floor((Math.min(x1, x2) - hw) / this.cellSize);
         const maxCX = Math.floor((Math.max(x1, x2) + hw) / this.cellSize);
@@ -223,6 +296,7 @@ export class SpatialHash {
      */
     insertPad(cx, cy, w, h, net, padLayer = 'both', options = {}) {
         const hw = w / 2, hh = h / 2;
+        /** @type {SpatialPadObstacle} */
         const obj = { cx, cy, hw, hh, net, isPad: true, layer: padLayer, isVia: !!options.isVia, connId: options.connId || undefined, shape: options.shape || 'rect', netName: options.netName || '', fixedCopper: !!options.fixedCopper };
         // Register in all cells the pad overlaps
         const minCX = Math.floor((cx - hw) / this.cellSize);
@@ -273,7 +347,7 @@ export class SpatialHash {
     /**
      * Check if a point is blocked (too close to any obstacle).
      * @param {number} x @param {number} y @param {number} clearance
-     * @param {string|Set<string>} skipIds - obstacle IDs to skip (source/dest pads)
+     * @param {SkipIds} skipIds - obstacle IDs to skip (source/dest pads)
      * @param {string|null} [layer=null] - restrict to this layer
      * @param {string|null} [skipNet=null] - skip same-net tracks (not pads)
      * @returns {boolean}
@@ -313,7 +387,9 @@ export class SpatialHash {
     /**
      * Check if a segment is blocked.
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
-     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {number} clearance @param {SkipIds} skipIds
+     * @param {string|null} [layer=null]
+     * @param {string|null} [skipNet=null]
      * @returns {boolean}
      */
     isSegmentBlocked(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null, skipNet = null) {
@@ -353,7 +429,7 @@ export class SpatialHash {
     /**
      * Find which nets' tracks block a segment (for rip-up).
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
-     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {number} clearance @param {SkipIds} skipIds
      * @param {string|null} [layer=null]
      * @returns {Set<string>}
      */
@@ -387,7 +463,7 @@ export class SpatialHash {
     /**
      * Find which foreign connection IDs' tracks block a segment (for rip-up).
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
-     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {number} clearance @param {SkipIds} skipIds
      * @param {string|null} [layer=null]
      * @returns {Set<string>}
      */
@@ -422,7 +498,7 @@ export class SpatialHash {
      * Return the nearest blocking obstacle for a segment, if any.
      * This is diagnostic-only and does not affect routing behavior.
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
-     * @param {number} clearance @param {string|Set<string>} skipIds
+     * @param {number} clearance @param {SkipIds} skipIds
      * @param {string|null} [layer=null]
      */
     firstBlockingObstacleForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
@@ -485,7 +561,7 @@ export class SpatialHash {
     /**
      * Estimate local obstacle density near a point.
      * @param {number} x @param {number} y
-     * @param {string|Set<string>|null} [skipIds=null]
+     * @param {SkipIds} [skipIds=null]
      * @param {string|null} [layer=null]
      * @param {number} [radiusCells=1]
      * @returns {number}
@@ -516,6 +592,12 @@ export class SpatialHash {
     /**
      * Find which connection IDs' tracks a point overlaps.
      * Returns set of connId strings. Pads are ignored.
+     * @param {number} x
+     * @param {number} y
+     * @param {number} clearance
+     * @param {SkipIds} skipIds
+     * @param {string|null} [layer=null]
+     * @returns {Set<string>}
      */
     crossingConnIdsAtPoint(x, y, clearance, skipIds, layer = null) {
         const crossed = new Set();
@@ -544,6 +626,14 @@ export class SpatialHash {
 
     /**
      * Find which connection IDs' tracks a segment crosses.
+     * @param {number} ax1
+     * @param {number} ay1
+     * @param {number} ax2
+     * @param {number} ay2
+     * @param {number} clearance
+     * @param {SkipIds} skipIds
+     * @param {string|null} [layer=null]
+     * @returns {Set<string>}
      */
     crossingConnIdsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
         const crossed = new Set();
@@ -619,11 +709,12 @@ export function insertCopperObstacles(hash, copperObstacles) {
         if (!o) continue;
         const layer = o.layer || 'both';
         if (o.kind === 'segment') {
-            const hw = (Number.isFinite(o.width) && o.width > 0 ? o.width : 0) / 2;
+            const width = typeof o.width === 'number' && Number.isFinite(o.width) && o.width > 0 ? o.width : 0;
+            const hw = width / 2;
             hash.insert(o.x1, o.y1, o.x2, o.y2, hw, o.net || undefined, layer, undefined, !!o.net);
         } else {
             const w = Number.isFinite(o.width) && o.width > 0 ? o.width : 0;
-            const h = Number.isFinite(o.height) && o.height > 0 ? o.height : w;
+            const h = typeof o.height === 'number' && Number.isFinite(o.height) && o.height > 0 ? o.height : w;
             hash.insertPad(o.x, o.y, w, h, `copperobs_${id++}`, layer, {
                 shape: o.shape || 'rect',
                 netName: o.net || '',
@@ -696,6 +787,13 @@ export function isNearPad(px, py, pad, margin) {
 
 /**
  * Distance from point (px,py) to line segment (x1,y1)-(x2,y2).
+ * @param {number} px
+ * @param {number} py
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @returns {number}
  */
 export function pointToSegmentDist(px, py, x1, y1, x2, y2) {
     const dx = x2 - x1, dy = y2 - y1;
@@ -709,6 +807,15 @@ export function pointToSegmentDist(px, py, x1, y1, x2, y2) {
 /**
  * Test if a line segment intersects an axis-aligned bounding box.
  * Uses the Liang-Barsky algorithm.
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {number} rxMin
+ * @param {number} ryMin
+ * @param {number} rxMax
+ * @param {number} ryMax
+ * @returns {boolean}
  */
 export function segmentIntersectsAABB(x1, y1, x2, y2, rxMin, ryMin, rxMax, ryMax) {
     // Check if either endpoint is inside the box
@@ -740,6 +847,15 @@ export function segmentIntersectsAABB(x1, y1, x2, y2, rxMin, ryMin, rxMax, ryMax
 
 /**
  * Test if two line segments intersect (proper + collinear overlap).
+ * @param {number} ax1
+ * @param {number} ay1
+ * @param {number} ax2
+ * @param {number} ay2
+ * @param {number} bx1
+ * @param {number} by1
+ * @param {number} bx2
+ * @param {number} by2
+ * @returns {boolean}
  */
 export function segmentsIntersect(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
     const dax = ax2 - ax1, day = ay2 - ay1;
@@ -754,6 +870,15 @@ export function segmentsIntersect(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
         ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
 
     // Collinear/on-segment cases
+    /**
+     * @param {number} x1
+     * @param {number} y1
+     * @param {number} x2
+     * @param {number} y2
+     * @param {number} px
+     * @param {number} py
+     * @returns {boolean}
+     */
     const onSeg = (x1, y1, x2, y2, px, py) =>
         px >= Math.min(x1, x2) && px <= Math.max(x1, x2) &&
         py >= Math.min(y1, y2) && py <= Math.max(y1, y2);
@@ -768,6 +893,15 @@ export function segmentsIntersect(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
 /**
  * Minimum distance between two line segments.
  * Returns 0 if they intersect.
+ * @param {number} ax1
+ * @param {number} ay1
+ * @param {number} ax2
+ * @param {number} ay2
+ * @param {number} bx1
+ * @param {number} by1
+ * @param {number} bx2
+ * @param {number} by2
+ * @returns {number}
  */
 export function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
     // If segments cross, distance is zero
@@ -810,8 +944,9 @@ export function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
 /**
  * Returns true if point (x, y) is within `clearance` of the pad obstacle's copper.
  * @param {number} x @param {number} y
- * @param {{cx?:number, cy?:number, hw:number, hh?:number, shape?:string}} obj a pad obstacle
+ * @param {PadObstacleLike} obj a pad obstacle
  * @param {number} clearance
+ * @returns {boolean}
  */
 export function padPointBlocked(x, y, obj, clearance) {
     const dx = x - obj.cx;
@@ -852,6 +987,13 @@ export function padPointBlocked(x, y, obj, clearance) {
 
 /**
  * Returns true if segment (ax1,ay1)-(ax2,ay2) is within `clearance` of the pad.
+ * @param {number} ax1
+ * @param {number} ay1
+ * @param {number} ax2
+ * @param {number} ay2
+ * @param {PadObstacleLike} obj
+ * @param {number} clearance
+ * @returns {boolean}
  */
 export function padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance) {
     if (obj.shape === 'ellipse' && obj.hw === obj.hh) {
@@ -887,6 +1029,11 @@ export function padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance) {
     if (segmentIntersectsAABB(ax1, ay1, ax2, ay2, xMin, yMin, xMax, yMax)) return true;
     // Either endpoint within Minkowski (point-to-rect distance ≤ clearance)?
     const c2 = clearance * clearance;
+    /**
+     * @param {number} px
+     * @param {number} py
+     * @returns {number}
+     */
     const ptToRectSq = (px, py) => {
         const dxr = px < xMin ? xMin - px : (px > xMax ? px - xMax : 0);
         const dyr = py < yMin ? yMin - py : (py > yMax ? py - yMax : 0);
@@ -910,16 +1057,30 @@ export function padSegmentBlocked(ax1, ay1, ax2, ay2, obj, clearance) {
  * get higher costs, encouraging routes to spread out.
  */
 export class CongestionGrid {
+    /**
+     * @param {number} [cellSize=1.0]
+     */
     constructor(cellSize = 1.0) {
         this.cellSize = cellSize;
-        this.cells = new Map(); // "cx,cy" -> Set<netName>
+        /** @type {Map<string, Set<string>>} "cx,cy" -> Set<netName> */
+        this.cells = new Map();
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {string}
+     */
     _key(x, y) {
         return `${Math.floor(x / this.cellSize)},${Math.floor(y / this.cellSize)}`;
     }
 
-    /** Record that a net uses this cell. */
+    /**
+     * Record that a net uses this cell.
+     * @param {number} x
+     * @param {number} y
+     * @param {string} net
+     */
     recordUsage(x, y, net) {
         const key = this._key(x, y);
         let s = this.cells.get(key);
@@ -927,7 +1088,14 @@ export class CongestionGrid {
         s.add(net);
     }
 
-    /** Record usage along a track segment. */
+    /**
+     * Record usage along a track segment.
+     * @param {number} x1
+     * @param {number} y1
+     * @param {number} x2
+     * @param {number} y2
+     * @param {string} net
+     */
     recordSegment(x1, y1, x2, y2, net) {
         const dist = Math.hypot(x2 - x1, y2 - y1);
         const steps = Math.max(1, Math.ceil(dist / this.cellSize));
@@ -937,13 +1105,21 @@ export class CongestionGrid {
         }
     }
 
-    /** Get congestion at a point (number of different nets using this cell). */
+    /**
+     * Get congestion at a point (number of different nets using this cell).
+     * @param {number} x
+     * @param {number} y
+     * @returns {number}
+     */
     getCongestion(x, y) {
         const s = this.cells.get(this._key(x, y));
         return s ? s.size : 0;
     }
 
-    /** Build from an iterable of track objects [{net, points: [{x,y},...]}]. */
+    /**
+     * Build from an iterable of track objects [{net, points: [{x,y},...]}].
+     * @param {CongestionTrack[]} tracks
+     */
     buildFromTracks(tracks) {
         this.cells.clear();
         for (const t of tracks) {
@@ -955,7 +1131,14 @@ export class CongestionGrid {
         }
     }
 
-    /** Also record demand from connections that WANT to route (even if they failed). */
+    /**
+     * Also record demand from connections that WANT to route (even if they failed).
+     * @param {number} x1
+     * @param {number} y1
+     * @param {number} x2
+     * @param {number} y2
+     * @param {string} net
+     */
     recordDemandLine(x1, y1, x2, y2, net) {
         this.recordSegment(x1, y1, x2, y2, net);
     }
@@ -979,6 +1162,9 @@ export class CongestionGrid {
  * both layers at their position.
  */
 export class PathfinderGrid {
+    /**
+     * @param {number} [cellSize=0.5]
+     */
     constructor(cellSize = 0.5) {
         this.cellSize = cellSize;
         /** @type {Map<number, Map<string, number>>} cellKey -> (net -> hitCount) */
@@ -987,6 +1173,12 @@ export class PathfinderGrid {
         this.history = new Map();
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {string|number} layer
+     * @returns {number}
+     */
     _key(x, y, layer) {
         const cx = Math.floor(x / this.cellSize);
         const cy = Math.floor(y / this.cellSize);
@@ -995,6 +1187,12 @@ export class PathfinderGrid {
         return ((cx + 4194304) * 33554432) + ((cy + 4194304) * 2) + lbit;
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {string} layer
+     * @param {string} net
+     */
     addUsage(x, y, layer, net) {
         const k = this._key(x, y, layer);
         let m = this.demand.get(k);
@@ -1002,7 +1200,15 @@ export class PathfinderGrid {
         m.set(net, (m.get(net) || 0) + 1);
     }
 
-    /** Record a per-layer segment by sampling at cellSize resolution. */
+    /**
+     * Record a per-layer segment by sampling at cellSize resolution.
+     * @param {number} x1
+     * @param {number} y1
+     * @param {number} x2
+     * @param {number} y2
+     * @param {string} layer
+     * @param {string} net
+     */
     recordSegment(x1, y1, x2, y2, layer, net) {
         const dist = Math.hypot(x2 - x1, y2 - y1);
         const steps = Math.max(1, Math.ceil(dist / this.cellSize));
@@ -1012,23 +1218,46 @@ export class PathfinderGrid {
         }
     }
 
-    /** A via consumes resources on BOTH layers at its position. */
+    /**
+     * A via consumes resources on BOTH layers at its position.
+     * @param {number} x
+     * @param {number} y
+     * @param {string} net
+     */
     recordVia(x, y, net) {
         this.addUsage(x, y, 'top', net);
         this.addUsage(x, y, 'bottom', net);
     }
 
-    /** Distinct nets using this cell (=cell demand). */
+    /**
+     * Distinct nets using this cell (=cell demand).
+     * @param {number} x
+     * @param {number} y
+     * @param {string} layer
+     * @returns {number}
+     */
     getDemand(x, y, layer) {
         const m = this.demand.get(this._key(x, y, layer));
         return m ? m.size : 0;
     }
 
-    /** Overuse = max(0, demand - 1). 0 means this cell has at most one net. */
+    /**
+     * Overuse = max(0, demand - 1). 0 means this cell has at most one net.
+     * @param {number} x
+     * @param {number} y
+     * @param {string} layer
+     * @returns {number}
+     */
     getOveruse(x, y, layer) {
         return Math.max(0, this.getDemand(x, y, layer) - 1);
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {string} layer
+     * @returns {number}
+     */
     getHistory(x, y, layer) {
         return this.history.get(this._key(x, y, layer)) || 0;
     }
@@ -1036,6 +1265,11 @@ export class PathfinderGrid {
     /**
      * Pathfinder cost: `history + presentFactor * overuse`. Used as a cost
      * multiplier passed into astarRoute via the cellCostFn option.
+     * @param {number} x
+     * @param {number} y
+     * @param {string} layer
+     * @param {number} presentFactor
+     * @returns {number}
      */
     cellCost(x, y, layer, presentFactor) {
         const k = this._key(x, y, layer);
@@ -1104,13 +1338,16 @@ export function packNodeKey(x, y, layer) {
  * @param {number} sx @param {number} sy - start
  * @param {number} ex @param {number} ey - end
  * @param {SpatialHash} obstacles
- * @param {string|Set<string>} skipIds - pad IDs to skip
+ * @param {SkipIds} skipIds - pad IDs to skip
  * @param {number} gridStep - routing grid resolution (mm)
  * @param {number} trackWidth - track width (mm)
  * @param {number} clearance - min clearance from obstacles (mm)
  * @param {number} [greedyWeight=3.0] - A* greedy multiplier
  * @param {boolean} [allowVias=true] - allow layer transitions
- * @returns {Promise<{path: Array<{x: number, y: number, layer: string}>, vias: Array<{x: number, y: number}>}|null>}
+ * @param {string} [startLayer='top']
+ * @param {string} [endPadLayer='both']
+ * @param {AstarRouteOptions} [options={}]
+ * @returns {Promise<{path: RoutePoint[], vias: ViaPoint[]}|null>}
  */
 export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', options = {}) {
     const {
@@ -1171,6 +1408,10 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
     // Cap the effective step — never coarser than 2mm, gives enough resolution
     const effectiveStep = Math.min(Math.max(gridStep, routeDist / 200), 2.0);
 
+    /**
+     * @param {PadLike|null} pad
+     * @returns {CenterlineInfo|null}
+     */
     const buildCenterlineInfo = (pad) => {
         if (!pad) return null;
         const w = pad.width, h = pad.height;
@@ -1191,6 +1432,10 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
     const startCenterline = buildCenterlineInfo(startPad);
     const endCenterline = buildCenterlineInfo(endPad);
 
+    /**
+     * @param {number} v
+     * @returns {number}
+     */
     const snap = (v) => Math.round(v / effectiveStep) * effectiveStep;
     let startX = snap(sx), startY = snap(sy);
     let endX = snap(ex), endY = snap(ey);
@@ -1203,18 +1448,18 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
     // mode) lock both axes so the start cell IS the pad centre.
     if (startCenterline) {
         if (startCenterline.mode === 'vertical' || startCenterline.mode === 'either') {
-            startX = startPad.x;
+            startX = startCenterline.pad.x;
         }
         if (startCenterline.mode === 'horizontal' || startCenterline.mode === 'either') {
-            startY = startPad.y;
+            startY = startCenterline.pad.y;
         }
     }
     if (endCenterline) {
         if (endCenterline.mode === 'vertical' || endCenterline.mode === 'either') {
-            endX = endPad.x;
+            endX = endCenterline.pad.x;
         }
         if (endCenterline.mode === 'horizontal' || endCenterline.mode === 'either') {
-            endY = endPad.y;
+            endY = endCenterline.pad.y;
         }
     }
     const effectiveRouteDist = Math.max(routeDist, effectiveStep);
@@ -1538,6 +1783,20 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
  *
  * This is used during rip-up to surgically identify which connections to rip
  * instead of blasting every net along the direct bounding-box path.
+ *
+ * @param {number} sx
+ * @param {number} sy
+ * @param {number} ex
+ * @param {number} ey
+ * @param {SpatialHash} obstacles
+ * @param {SkipIds} skipIds
+ * @param {number} gridStep
+ * @param {number} trackWidth
+ * @param {number} clearance
+ * @param {string} [startLayer='top']
+ * @param {string} [endPadLayer='both']
+ * @param {AstarProbeOptions} [options={}]
+ * @returns {Promise<Set<string>|null>}
  */
 export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, startLayer = 'top', endPadLayer = 'both', options = {}) {
     const {
@@ -1555,6 +1814,10 @@ export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
     const VIA_COST = gridStep * 30;
     const routeDist = Math.hypot(ex - sx, ey - sy);
     const effectiveStep = Math.min(Math.max(gridStep, routeDist / 150), 2.0);
+    /**
+     * @param {number} v
+     * @returns {number}
+     */
     const snap = (v) => Math.round(v / effectiveStep) * effectiveStep;
     const startX = snap(sx), startY = snap(sy);
     const endX = snap(ex), endY = snap(ey);
@@ -1674,6 +1937,11 @@ export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
 
 /**
  * Check if a segment is at a valid PCB angle (0°, 45°, 90°, 135°).
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @returns {boolean}
  */
 export function isValidAngle(x1, y1, x2, y2) {
     const dx = Math.abs(x2 - x1);
@@ -1689,6 +1957,8 @@ export function isValidAngle(x1, y1, x2, y2) {
 /**
  * Fix non-H/V/45° segments by inserting dog-leg waypoints.
  * Also merges consecutive collinear segments.
+ * @param {RoutePoint[]} path
+ * @returns {RoutePoint[]}
  */
 export function fixAngles(path) {
     if (path.length <= 1) return path;
@@ -1745,6 +2015,9 @@ export function fixAngles(path) {
 /**
  * Build candidate 1–3 segment routes between two points using clean patterns:
  * direct, L-shaped, and 45°+straight combinations.
+ * @param {RoutePoint} si
+ * @param {RoutePoint} sj
+ * @returns {RoutePoint[][]}
  */
 export function buildCandidateRoutes(si, sj) {
     const layer = si.layer;
@@ -1788,6 +2061,12 @@ export function buildCandidateRoutes(si, sj) {
  * Optimize path by replacing staircase patterns with clean L-shaped
  * or 45°+straight routes.  Runs after simplifyPath + fixAngles so it
  * can collapse dog-leg staircases into 1–3 segment routes.
+ * @param {RoutePoint[]} path
+ * @param {PathObstacleView} obstacles
+ * @param {SkipIds} skipIds
+ * @param {number} totalClear
+ * @param {string|null} [skipNet=null]
+ * @returns {RoutePoint[]}
  */
 export function optimizePath(path, obstacles, skipIds, totalClear, skipNet = null) {
     if (path.length <= 3) return path;
@@ -1847,6 +2126,15 @@ export function optimizePath(path, obstacles, skipIds, totalClear, skipNet = nul
     return result;
 }
 
+/**
+ * Simplify a routed path while preserving legal angles and clearance.
+ * @param {RoutePoint[]} path
+ * @param {PathObstacleView} obstacles
+ * @param {SkipIds} skipIds
+ * @param {number} totalClear
+ * @param {string|null} [skipNet=null]
+ * @returns {RoutePoint[]}
+ */
 export function simplifyPath(path, obstacles, skipIds, totalClear, skipNet = null) {
     if (path.length <= 2) return path;
 
@@ -1896,6 +2184,8 @@ export function simplifyPath(path, obstacles, skipIds, totalClear, skipNet = nul
  * Final sanitization: forcefully decompose every segment that is not
  * at a valid PCB angle into a 45°+H/V pair. Runs on the final output
  * points before rendering.
+ * @param {RoutePoint[]} pts
+ * @returns {RoutePoint[]}
  */
 export function sanitizeAngles(pts) {
     if (pts.length <= 1) return pts;
@@ -1919,4 +2209,3 @@ export function sanitizeAngles(pts) {
     }
     return out;
 }
-

@@ -71,7 +71,8 @@ export function hoverSelectTool(app, e) {
  */
 function pressSelectionInteraction(app, press) {
     const { e, worldPos, additiveSelection } = press;
-    const svg = app.viewport.svg;
+    const svg = app.viewport?.svg;
+    if (!svg) return false;
     // Rectangle, arc, and circle selection is owned by the shared
     // adapter controller. Other PCB entities stay on their legacy
     // paths until their adapters implement the same contract.
@@ -123,7 +124,8 @@ function pressToggleShape(app, press) {
  */
 function pressBoxSelection(app, press) {
     const { worldPos, selectedGroupHit } = press;
-    const svg = app.viewport.svg;
+    const svg = app.viewport?.svg;
+    if (!svg) return false;
     // Box-selection group drag: clicking on any member of an
     // active multi-selection moves the whole group together.
     // Clicking elsewhere drops the multi-selection and falls
@@ -167,7 +169,8 @@ function pressBoxSelection(app, press) {
  */
 function pressCurrentSelection(app, press) {
     const { e, worldPos } = press;
-    const svg = app.viewport.svg;
+    const svg = app.viewport?.svg;
+    if (!svg) return false;
     // Continue interacting with an already-selected fill: grab a
     // vertex or drag the whole region without re-clicking.
     const selectedFill = getPcbSelection(app, 'fill')[0] || null;
@@ -251,7 +254,8 @@ function pressCurrentSelection(app, press) {
  */
 function pressNewTarget(app, press) {
     const { e, worldPos } = press;
-    const svg = app.viewport.svg;
+    const svg = app.viewport?.svg;
+    if (!svg) return false;
     const trackHit = hitTestTrack(app, worldPos);
     if (trackHit) {
         hoverComponent(app, null);

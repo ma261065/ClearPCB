@@ -86,6 +86,32 @@ import { isEditorActive } from './pcb-editor-api.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{track: Track, nodeId?: string|null, edgeId?: string|null}} TrackEdit */
+/** @typedef {{type:'track', track: Track}|{type:'via', via: Via}} TrackViaHit */
+/** @typedef {{type:'pad', componentId: string, pinNumber: string|number}|{type:'standalone-pad', pad: Pad}|{type:'shape', shape: CopperShape}|TrackViaHit} CopperHoverHit */
+/** @typedef {CopperHoverHit|{type: string, componentId: string, pinNumber: string|number}|{type: string, pad: Pad}|{type: string, shape: CopperShape}} PublicCopperHoverHit */
+/** @typedef {{id?: string, type?: string, net?: string, layer?: string, copperMode?: string}} CopperShape */
+/** @typedef {{kind:'pad', key:string}|{kind:'track', track:Track}|{kind:'via', via:Via}} HoverQueueItem */
+/** @typedef {{place?: boolean, moved?: boolean}} FinishMoveOptions */
+/** @typedef {{nodeId?: string|null, edgeId?: string|null, whole?: boolean, allowMidpointInsert?: boolean}} TrackDragOptions */
+/** @typedef {import('./track-commands.js').TrackPropertyScope} TrackPropertyScope */
+/** @typedef {import('./track-commands.js').TrackPropertyPreview} TrackPropertyPreview */
+/** @typedef {import('../../core/pcb-track-commands.js').TrackState} TrackState */
+/** @typedef {{read: (track: Track) => number, changed: (track: Track, value: number) => boolean, apply: (track: Track, value: number, before: TrackState) => void, fills?: boolean, rebuild?: boolean}} TrackNumberSpec */
+/** @typedef {{min?: number, max?: number, step?: number, normalize?: (value: number) => number}} TrackNumberExtra */
+/** @typedef {{track: Track, active: boolean, disposed: boolean, affectsLayer: (layerId: string) => boolean, commit: () => void, cancel: () => void, dispose: () => void, prepare: () => boolean, refresh: () => void, numberField: (key: string, id: string, label: string, spec: TrackNumberSpec, extra?: TrackNumberExtra) => PropertyField}} TrackPropertyBinding */
+/** @typedef {import('./track-commands.js').ViaPropertyPreview} ViaPropertyPreview */
+/** @typedef {'diameter'|'drill'} ViaNumberKey */
+/** @typedef {{vias: Via[], active: boolean, affectsLayer: (layerId: string) => boolean, commit: () => void, cancel: () => void, dispose: () => void, prepare: () => boolean}} ViaPropertyBinding */
+/** @typedef {{via: Via, before: object, after: object}} ViaPropertyChange */
+/** @typedef {{kind:'track', object: Track}|{kind:'via', object: Via}|{kind:'pad', object: Pad}} CopperSelectionEntry */
+/** @typedef {{tracks: Set<Track>, vias: Set<Via>, padNets: Set<string>, padNetByKey: Map<string, string>}} BondedCopperGroup */
+/** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -117,7 +143,10 @@ export function getTrackEdit(app) {
     return trackSelectState(app).trackEdit;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {TrackEdit|null} edit
+ */
 export function setTrackEdit(app, edit) {
     trackSelectState(app).trackEdit = edit;
 }
@@ -142,8 +171,10 @@ export function getSelectedVia(app) {
     return getPcbSelection(app, 'via')[0] || null;
 }
 
+/** @param {Track|null|undefined} track */
 export function trackIsSelectable(track) {
     if (track?.visible === false) return false;
+    if (!track) return false;
     for (const [edgeId] of track?.edges || []) {
         const layer = track.getEdgeLayer(edgeId);
         if (!isLayerLocked(layer) && isLayerVisible(layer)) return true;
@@ -151,14 +182,21 @@ export function trackIsSelectable(track) {
     return false;
 }
 
+/** @param {Track|null|undefined} track */
 function trackIsVisible(track) {
     if (track?.visible === false) return false;
+    if (!track) return false;
     for (const [edgeId] of track?.edges || []) {
         if (isLayerVisible(track.getEdgeLayer(edgeId))) return true;
     }
     return false;
 }
 
+/**
+ * @param {Track} track
+ * @param {Point} point
+ * @param {number} tolerance
+ */
 function trackHitTest(track, point, tolerance) {
     for (const { start, end, width, layer } of resolveTrackSegments(track)) {
         if (!isLayerVisible(layer)) continue;
@@ -171,20 +209,31 @@ function trackHitTest(track, point, tolerance) {
 /**
  * Adapter bridge for the graph-based Track model.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} id
  */
 export function createTrackSelectionAdapter(app, track, id) {
-    track = canonicalTrack(app, track);
+    track = /** @type {Track} */ (canonicalTrack(app, track));
     const current = () => displayedTrack(app, track);
+    /**
+     * @param {Point} worldPos
+     * @param {TrackDragOptions} options
+     */
     const beginDrag = (worldPos, options) => {
-        const started = startVertexDrag(app, track, worldPos, options);
+        const started = startVertexDrag(app, track, worldPos, /** @type {any} */ (options));
         app.setPcbStatus?.();
         return started;
     };
+    /** @param {Point} worldPos */
     const updateDrag = (worldPos) => {
         if (!isDraggingTrack(app, track)) return;
         updateVertexDrag(app, worldPos);
         updateVertexDragCrosshair(app);
     };
+    /**
+     * @param {boolean} commit
+     * @param {FinishMoveOptions} [options]
+     */
     const finishNodeMove = (commit, options = {}) => {
         if (!isDraggingTrack(app, track)) return;
         if (!commit) {
@@ -220,6 +269,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         get object() { return current(); },
         get visible() { return trackIsVisible(current()); },
         get locked() { return isPcbObjectLocked(app, 'track', track); },
+        /** @param {Point} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             const track = current();
             const paths = [...resolveTrackEdgePaths(track).entries()];
@@ -232,6 +282,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             );
         },
         getBounds() { return current().getBounds(); },
+        /** @param {Point} point @param {number} tolerance */
         hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
         getEditPath() {
             const edit = getTrackEdit(app);
@@ -277,6 +328,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             });
             return [...nodes, ...midpoints];
         },
+        /** @param {string|number} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             getPropertyEditor(app, 'track')?.commit();
             if (String(anchorId).startsWith('bulge:')) {
@@ -285,13 +337,15 @@ export function createTrackSelectionAdapter(app, track, id) {
                 selectTrackSegment(app, track, edgeId);
                 return startTrackBulgeDrag(app, track, edgeId);
             }
-            const started = beginDrag(worldPos, { nodeId: current().nodes.has(anchorId) ? anchorId : null,
+            const started = beginDrag(worldPos, { nodeId: current().nodes.has(/** @type {string} */ (anchorId)) ? /** @type {string} */ (anchorId) : null,
                 allowMidpointInsert: String(anchorId).startsWith('mid:') });
             return started;
         },
+        /** @param {Point} worldPos */
         updateAnchorDrag(worldPos) {
             updateDrag(worldPos);
         },
+        /** @param {boolean} commit @param {FinishMoveOptions} [options] */
         endAnchorDrag(commit, options = {}) {
             const drag = getVertexDrag(app);
             if (drag?.original !== track) return;
@@ -306,15 +360,16 @@ export function createTrackSelectionAdapter(app, track, id) {
         // The selecting click must not split a midpoint. The legacy flow
         // requires a deliberate second click on the insertion handle.
         ...pathMoveInteraction({
-            segmentAt: point => hitTestTrackEdge(app, current(), point)?.edgeId ?? null,
+            segmentAt: /** @param {Point} point */ point => hitTestTrackEdge(app, current(), point)?.edgeId ?? null,
             selectedSegment: () => getTrackEdit(app)?.track === track ? getTrackEdit(app).edgeId : null,
-            selectSegment: edgeId => selectTrackSegment(app, track, edgeId),
+            selectSegment: /** @param {string} edgeId */ edgeId => selectTrackSegment(app, track, edgeId),
+            /** @param {Point} point @param {string|null} edgeId */
             begin: (point, edgeId) => {
                 if (edgeId != null) setTrackEdit(app, { track, edgeId });
                 return beginDrag(point, { whole: edgeId == null, edgeId, allowMidpointInsert: false });
             },
             update: updateDrag,
-            end: commit => finishNodeMove(commit, { moved: true }),
+            end: /** @param {boolean} commit */ commit => finishNodeMove(commit, { moved: true }),
         }),
         invalidate() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
         render() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
@@ -324,7 +379,11 @@ export function createTrackSelectionAdapter(app, track, id) {
 
 registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Via} via
+ * @param {string} id
+ */
 export function createViaSelectionAdapter(app, via, id) {
     via = canonicalVia(app, via);
     const current = () => displayedVia(app, via);
@@ -334,6 +393,7 @@ export function createViaSelectionAdapter(app, via, id) {
         get object() { return current(); },
         get visible() { return isViaVisible(); },
         get locked() { return isPcbObjectLocked(app, 'via', via); },
+        /** @param {Point} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             const via = current();
             const radius = (Number(via.diameter) || 0.6) / 2;
@@ -347,13 +407,17 @@ export function createViaSelectionAdapter(app, via, id) {
             return lockPositionOutsideOutline(outline, pointer, scale);
         },
         getBounds() { return viaBounds(current()); },
+        /** @param {Point} point @param {number} tolerance */
         hitTest(point, tolerance) { return viaHitTest(current(), point, tolerance); },
         getPosition() { const via = current(); return { x: via.x, y: via.y }; },
+        /** @param {Point} worldPos */
         beginMove(worldPos) {
             getPropertyEditor(app, 'via')?.commit();
             return startViaDrag(app, via, worldPos);
         },
+        /** @param {Point} worldPos */
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
+        /** @param {boolean} commit */
         endMove(commit) { if (commit) finishViaDrag(app); else cancelViaDrag(app); },
         invalidate() { renderVia(current(), (layerId) => app.getLayerGroup(layerId)); },
         render() { renderVia(current(), (layerId) => app.getLayerGroup(layerId)); },
@@ -367,7 +431,9 @@ registerPcbSelectionAdapter('via', createViaSelectionAdapter);
 /**
  * Find the topmost track/via under `worldPos` (vias preferred).
  * @param {PcbEditor} app
- * @returns {{type:'track', track:object}|{type:'via', via:object}|null}
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
+ * @returns {TrackViaHit|null}
  */
 export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const scale = app.viewport?.scale || 1;
@@ -425,6 +491,11 @@ export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     return null;
 }
 
+/**
+ * @param {Point} p
+ * @param {Point} a
+ * @param {Point} b
+ */
 function _pointSegDist(p, a, b) {
     const vx = b.x - a.x, vy = b.y - a.y;
     const wx = p.x - a.x, wy = p.y - a.y;
@@ -440,7 +511,7 @@ function _pointSegDist(p, a, b) {
 /**
  * Set the current track/via selection. Pass `null` to clear.
  * @param {PcbEditor} app
- * @param {{type:'track', track:object}|{type:'via', via:object}|null} hit
+ * @param {TrackViaHit|null} hit
  */
 export function selectTrackOrVia(app, hit) {
     if (hit?.type === 'track') hit = { ...hit, track: canonicalTrack(app, hit.track) };
@@ -475,7 +546,7 @@ export function selectTrackOrVia(app, hit) {
  * remains owned by the registry.
  *
  * @param {PcbEditor} app
- * @param {object} track
+ * @param {Track} track
  * @param {string} edgeId
  */
 export function selectTrackSegment(app, track, edgeId) {
@@ -498,7 +569,11 @@ export function selectTrackSegment(app, track, edgeId) {
     app.syncClipboardButtons?.();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} nodeId
+ */
 export function selectTrackNode(app, track, nodeId) {
     track = canonicalTrack(app, track);
     if (!track.nodes.has(nodeId)) return;
@@ -508,7 +583,10 @@ export function selectTrackNode(app, track, nodeId) {
     app.setPcbStatus?.();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 export function showTrackSelectionProperties(app, track) {
     track = canonicalTrack(app, track);
     const edit = getTrackEdit(app);
@@ -582,46 +660,45 @@ export function refreshTrackSelectionHalo(app) {
  * Selected objects keep their selection halo while the rest of the hovered
  * net receives hover halos.
  * @param {PcbEditor} app
+ * @param {PublicCopperHoverHit|null} hit
  */
 export function setHoverHighlight(app, hit) {
-    if (hit?.type === 'track') {
+    /** @type {CopperHoverHit|null} */
+    let hover = null;
+    if (hit?.type === 'track' && 'track' in hit) {
         const track = displayedTrack(app, canonicalTrack(app, hit.track));
-        if (track !== hit.track) hit = { ...hit, track };
-    }
-    if (hit?.type === 'via') {
-        const via = displayedVia(app, hit.via);
-        if (via !== hit.via) hit = { ...hit, via };
+        hover = { type: 'track', track };
+    } else if (hit?.type === 'via' && 'via' in hit) {
+        hover = { type: 'via', via: displayedVia(app, hit.via) };
+    } else if (hit?.type === 'pad' && 'componentId' in hit && 'pinNumber' in hit) {
+        hover = { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
+    } else if (hit?.type === 'standalone-pad' && 'pad' in hit) {
+        hover = { type: 'standalone-pad', pad: hit.pad };
+    } else if (hit?.type === 'shape' && 'shape' in hit) {
+        hover = { type: 'shape', shape: hit.shape };
     }
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
     const selectedPad = getPcbSelection(app, 'pad')[0] || null;
-    const key = hit
-        ? (hit.type === 'track' ? hit.track
-            : hit.type === 'via' ? hit.via
-            : hit.type === 'pad' ? `pad:${hit.componentId}|${hit.pinNumber}`
-                : hit.type === 'standalone-pad' ? `standalone-pad:${hit.pad.id}`
-                    : hit.type === 'shape' ? `shape:${hit.shape.id}`
+    const key = hover
+        ? (hover.type === 'track' ? hover.track
+            : hover.type === 'via' ? hover.via
+            : hover.type === 'pad' ? `pad:${hover.componentId}|${hover.pinNumber}`
+                : hover.type === 'standalone-pad' ? `standalone-pad:${hover.pad.id}`
+                    : hover.type === 'shape' ? `shape:${hover.shape.id}`
             : null)
         : null;
     const state = trackSelectState(app);
     if (state.hoveredTrackOrVia === key) return;
     state.hoveredTrackOrVia = key;
     _removeHalos(app, HOVER_CLASS);
-    if (!hit) {
+    if (!hover) {
         setBoardShapeNetHover(app, []);
         return;
     }
-    if (hit.type === 'track' || hit.type === 'via'
-        || hit.type === 'pad' || hit.type === 'standalone-pad' || hit.type === 'shape') {
-        const seed = hit.type === 'track'
-            ? { type: 'track', track: hit.track }
-            : hit.type === 'via'
-                ? { type: 'via', via: hit.via }
-                : hit.type === 'standalone-pad'
-                    ? { type: 'standalone-pad', pad: hit.pad }
-                    : hit.type === 'shape'
-                        ? { type: 'shape', shape: hit.shape }
-                    : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
+    if (hover.type === 'track' || hover.type === 'via'
+        || hover.type === 'pad' || hover.type === 'standalone-pad' || hover.type === 'shape') {
+        const seed = hover;
         const net = collectHoveredNet(app, seed);
         for (const track of net.tracks) {
             if (track !== selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
@@ -636,7 +713,7 @@ export function setHoverHighlight(app, hit) {
         for (const pad of net.standalonePads) {
             if (pad !== selectedPad) drawStandalonePadHalo(app, pad, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
-        setBoardShapeNetHover(app, net.shapes);
+        setBoardShapeNetHover(app, /** @type {Iterable<import('./board-shapes.js').BoardShape>} */ (net.shapes));
     }
 }
 
@@ -646,20 +723,31 @@ export function setHoverHighlight(app, hit) {
  * indexed by node position and pad once per walk, so a hover costs linear time on large
  * boards; the walk visits tracks in board order, as a scan would.
  * @param {PcbEditor} app
- * @param {any} seed
+ * @param {CopperHoverHit} seed
  */
 export function collectHoveredNet(app, seed) {
+    /** @type {Set<Track>} */
     const tracks = new Set();
+    /** @type {Set<Via>} */
     const vias = new Set();
+    /** @type {Set<string>} */
     const pads = new Set();
+    /** @type {Set<Pad>} */
     const standalonePads = new Set();
+    /** @type {Set<CopperShape>} */
     const shapes = new Set();
+    /** @type {Map<string, Via>} */
     const viaByPos = new Map();
     for (const via of app.vias || []) viaByPos.set(_posKey(via.x, via.y), via);
-    /** @type {Map<string, any[]>} */
+    /** @type {Map<string, Track[]>} */
     const tracksByPos = new Map();
-    /** @type {Map<string, any[]>} */
+    /** @type {Map<string, Track[]>} */
     const tracksByPad = new Map();
+    /**
+     * @param {Map<string, Track[]>} map
+     * @param {string} key
+     * @param {Track} track
+     */
     const index = (map, key, track) => {
         const list = map.get(key);
         if (!list) map.set(key, [track]);
@@ -697,6 +785,7 @@ export function collectHoveredNet(app, seed) {
         for (const pin of netEntry?.pins || []) pads.add(`${pin.componentId}|${pin.pinNumber}`);
     }
 
+    /** @type {HoverQueueItem[]} */
     const queue = [];
     if (seed.type === 'pad') {
         const key = `${seed.componentId}|${seed.pinNumber}`;
@@ -719,6 +808,7 @@ export function collectHoveredNet(app, seed) {
 
     while (queue.length) {
         const item = queue.shift();
+        if (!item) continue;
         if (item.kind === 'pad') {
             for (const track of tracksByPad.get(item.key) || []) {
                 if (tracks.has(track)) continue;
@@ -751,6 +841,10 @@ export function collectHoveredNet(app, seed) {
     return { tracks, vias, pads, standalonePads, shapes };
 }
 
+/**
+ * @param {number} x
+ * @param {number} y
+ */
 function _posKey(x, y) {
     // 0.01 mm bucket — matches the autorouter-adapter's pad lookup.
     return `${Math.round(x * 100)},${Math.round(y * 100)}`;
@@ -759,6 +853,8 @@ function _posKey(x, y) {
 /**
  * Look up the net name a pad belongs to, or '' if unknown.
  * @param {PcbEditor} app
+ * @param {string} componentId
+ * @param {string|number} pinNumber
  */
 function _netForPad(app, componentId, pinNumber) {
     for (const entry of app.netlist || []) {
@@ -777,6 +873,10 @@ function _netForPad(app, componentId, pinNumber) {
  * Extracted from _drawPadHighlights so we can target one pad without
  * a Track context.
  * @param {PcbEditor} app
+ * @param {string} componentId
+ * @param {string|number} pinNumber
+ * @param {string} cls
+ * @param {number} opacity
  */
 function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     const pl = app.placements?.get(componentId);
@@ -833,7 +933,10 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     }
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} cls
+ */
 function _removeHalos(app, cls) {
     const groups = app.existingLayerGroups?.();
     if (!groups) return;
@@ -847,6 +950,9 @@ function _removeHalos(app, cls) {
 /**
  * Draw a selection halo over a track using the given CSS class.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} cls
+ * @param {number} [opacity]
  */
 export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawTrackHalo(app, track, cls, opacity);
@@ -855,12 +961,20 @@ export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) 
 /**
  * Draw a selection halo over a via using the given CSS class.
  * @param {PcbEditor} app
+ * @param {Via} via
+ * @param {string} cls
+ * @param {number} [opacity]
  */
 export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawViaHalo(app, via, cls, opacity);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Pad} pad
+ * @param {string} cls
+ * @param {number} [opacity]
+ */
 export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELECTED) {
     const parent = app.getLayerGroup?.('selection-overlay');
     if (!parent) return;
@@ -880,6 +994,7 @@ export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELE
 /**
  * Remove every halo with the given CSS class from all layers.
  * @param {PcbEditor} app
+ * @param {string} cls
  */
 export function removeHalosByClass(app, cls) {
     _removeHalos(app, cls);
@@ -934,6 +1049,8 @@ export function deleteSelectedTrack(app) {
  * Delete a single segment (edge) of `track`, replacing it with the
  * remaining connected pieces. Runs as one undoable compound command.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string|null|undefined} edgeId
  */
 export function deleteTrackSegmentAt(app, track, edgeId) {
     track = canonicalTrack(app, track);
@@ -959,10 +1076,10 @@ export function dismissTrackContextMenu() {
  * Intended for the select tool only (caller enforces that).
  *
  * @param {PcbEditor} app
- * @param {{type:'track', track:object}|{type:'via', via:object}} hit
+ * @param {TrackViaHit} hit
  * @param {number} clientX
  * @param {number} clientY
- * @param {{x:number,y:number}} [worldPos] - cursor position, used to
+ * @param {Point} [worldPos] - cursor position, used to
  *   target a specific segment for "Delete segment".
  */
 export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
@@ -994,20 +1111,25 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
             app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
             selectTrackSegment(app, track, edgeId);
             if (!curved) {
-                const adapter = createTrackSelectionAdapter(app, track, track.id);
-                const anchor = adapter.getAnchors().find(item => item.id === `bulge:${edgeId}`);
+                const adapter = /** @type {import('./selection-registry.js').SelectionAdapter} */ (createTrackSelectionAdapter(app, track, track.id));
+                const anchor = adapter.getAnchors?.().find(item => item.id === `bulge:${edgeId}`);
                 if (anchor) beginPcbAnchorInteraction(app, adapter, anchor, anchor, true);
             }
         },
         deleteObject: () => { clearTrackSelection(app); app.history.execute(new RemoveTrackCommand(app, track)); },
         label: 'track',
     });
-    return showPathContextMenu('pcbTrackContextMenu', items, clientX, clientY, () => refreshTrackSelectionHalo(app));
+    return showPathContextMenu('pcbTrackContextMenu', /** @type {import('../../shared/ui/context-menu.js').MenuItem[]} */ (items.filter(Boolean)), clientX, clientY, () => refreshTrackSelectionHalo(app));
 }
 
 /* ──────────────────────────── halos ──────────────────────────── */
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} [cls]
+ * @param {number} [opacity]
+ */
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     if (!trackIsVisible(track)) return;
     const edit = getTrackEdit(app);
@@ -1023,7 +1145,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
         if (!parent) continue;
         const poly = document.createElementNS(NS, 'polyline');
         poly.setAttribute('class', cls);
-        poly.setAttribute('points', run.points.map((p) => `${p.x},${p.y}`).join(' '));
+        poly.setAttribute('points', run.points.map(/** @param {Point} p */ (p) => `${p.x},${p.y}`).join(' '));
         poly.setAttribute('fill', 'none');
         poly.setAttribute('stroke', HALO_COLOR);
         poly.setAttribute('stroke-width', String(run.width));
@@ -1042,6 +1164,11 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
  * Draw the selection halo for a single track edge (segment selection).
  * Overlays just that one edge plus handles at its two endpoints.
  * @param {PcbEditor} app
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} edgeId
+ * @param {string} [cls]
+ * @param {number} [opacity]
  */
 function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const e = track.edges?.get(edgeId);
@@ -1055,7 +1182,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
     if (parent) {
         const line = document.createElementNS(NS, 'polyline');
         line.setAttribute('class', cls);
-        line.setAttribute('points', resolveTrackEdgePaths(track).get(edgeId).map(point => `${point.x},${point.y}`).join(' '));
+        line.setAttribute('points', resolveTrackEdgePaths(track).get(edgeId).map(/** @param {Point} point */ (point) => `${point.x},${point.y}`).join(' '));
         line.setAttribute('fill', 'none');
         line.setAttribute('stroke-linejoin', 'round');
         line.setAttribute('stroke', HALO_COLOR);
@@ -1073,6 +1200,9 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
  * translucent-white overlay, so the user can see which component pins
  * the track lands on.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} cls
+ * @param {number} opacity
  */
 function _drawPadHighlights(app, track, cls, opacity) {
     if (!track.padConnections?.size || !app.placements) return;
@@ -1123,7 +1253,12 @@ function _drawPadHighlights(app, track, cls, opacity) {
     }
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Via} via
+ * @param {string} [cls]
+ * @param {number} [opacity]
+ */
 function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const layer = app.getLayerGroup('vias');
     if (!layer) return;
@@ -1145,6 +1280,9 @@ function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTE
  *   - hover  → just the X (the bore stays open)
  *   - select → the X plus a filled disc
  * @param {PcbEditor} app
+ * @param {{x: number, y: number, diameter?: number}} hole
+ * @param {string} [cls]
+ * @param {number} [opacity]
  */
 function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const layer = app.getLayerGroup('hole');
@@ -1194,18 +1332,29 @@ function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELEC
  * A layer change rebuilds the bonded copper region, removing and re-adding its
  * other tracks and vias; refuse it when that would rewrite a locked one.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {{removeTracks: object[], removeVias: object[]}} region
  */
 function regionRewritesLockedCopper(app, track, region) {
-    const locked = region.removeTracks.some(other => other !== track && isPcbObjectLocked(app, 'track', other))
-        || region.removeVias.some(via => isPcbObjectLocked(app, 'via', via));
+    const locked = region.removeTracks.some((other) => other !== track && isPcbObjectLocked(app, 'track', other))
+        || region.removeVias.some((via) => isPcbObjectLocked(app, 'via', via));
     if (locked) app.setStatus?.('Connected copper is locked. Unlock it to change this layer.');
     return locked;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {TrackPropertyScope} [scope]
+ * @param {() => void} [refresh]
+ * @returns {TrackPropertyBinding}
+ */
 function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) {
+    /** @type {TrackPropertyPreview|null} */
     let preview = null;
+    /** @type {TrackNumberSpec|null} */
     let activeSpec = null;
+    /** @type {string|null} */
     let activeKey = null;
     let disposed = false;
     const layers = () => [...track.edges].filter(([id, edge]) => scope.edgeId != null
@@ -1223,6 +1372,7 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         cancelVertexDrag(app);
         renderPcbSelectionAnchors(app);
     };
+    /** @param {boolean} commit */
     const finish = commit => {
         if (!preview) return;
         const refreshFills = activeSpec?.fills;
@@ -1232,10 +1382,10 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         activeKey = null;
         let committed = false;
         try {
-            finishTrackPropertyPreview(app, commit ? (before, after) => {
+            finishTrackPropertyPreview(app, commit ? /** @param {TrackState} before @param {TrackState} after */ (before, after) => {
                 app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
                 committed = true;
-            } : null);
+            } : undefined);
         } finally {
             refreshTrackSelectionHalo(app);
             if (!committed) {
@@ -1245,6 +1395,11 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
             refresh();
         }
     };
+    /**
+     * @param {string} key
+     * @param {TrackNumberSpec} spec
+     * @param {number} value
+     */
     const previewNumber = (key, spec, value) => {
         if (!Number.isFinite(value)) return;
         if (!editable()) { binding.cancel(); return; }
@@ -1256,16 +1411,18 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         activeSpec = spec;
         activeKey = key;
         spec.apply(preview.track, value, preview.before);
-        renderTrack(preview.track, layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
+        renderTrack(preview.track, /** @param {string} layerId */ layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
         refreshTrackSelectionHalo(app);
         app.refreshClearanceHalos?.();
         if (spec.fills) app.refreshFills?.();
         refresh();
     };
+    /** @type {TrackPropertyBinding} */
     const binding = {
         track,
         get active() { return !!preview; },
         get disposed() { return disposed; },
+        /** @param {string} layerId */
         affectsLayer(layerId) { return layers().includes(layerId); },
         commit() { finish(editable()); },
         cancel() { finish(false); },
@@ -1287,7 +1444,7 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
                 key, id, type: 'number', label,
                 value: spec.read(currentTrack()),
                 disabled: !editable(),
-                preview: value => previewNumber(key, spec, value),
+                preview: /** @param {number} value */ value => previewNumber(key, spec, value),
                 commit: () => {
                     const changed = !!preview;
                     binding.commit();
@@ -1305,39 +1462,53 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
     return binding;
 }
 
+/**
+ * @param {TrackPropertyBinding} binding
+ * @param {string|null} [nodeId]
+ */
 function trackCornerRadiusProperty(binding, nodeId = null) {
     return binding.numberField('cornerRadius', 'pcbPropTrackCornerRadius', 'Corner Radius (mm)', {
-        read: track => nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId),
+        read: (track) => nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId),
         changed: (track, radius) => Math.abs((nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId)) - radius) >= 1e-9
             || (nodeId == null && Object.keys(track.nodeCornerRadii || {}).length > 0),
         apply: (track, radius, before) => {
+            const beforeRadii = before.nodeCornerRadii || {};
             if (nodeId == null) {
                 track.cornerRadius = radius;
                 track.nodeCornerRadii = {};
                 track.invalidate();
-            } else if (radius === (before.nodeCornerRadii[nodeId] ?? before.cornerRadius)) {
-                if (Object.hasOwn(before.nodeCornerRadii, nodeId)) track.nodeCornerRadii[nodeId] = before.nodeCornerRadii[nodeId];
+            } else if (radius === (beforeRadii[nodeId] ?? before.cornerRadius)) {
+                if (Object.hasOwn(beforeRadii, nodeId)) track.nodeCornerRadii[nodeId] = beforeRadii[nodeId];
                 else delete track.nodeCornerRadii[nodeId];
                 track.invalidate();
             } else track.setNodeCornerRadius(nodeId, radius);
         },
         fills: true,
-    }, { min: 0, step: 0.5, normalize: value => Math.max(0, value) });
+    }, { min: 0, step: 0.5, normalize: (value) => Math.max(0, value) });
 }
 
+/**
+ * @param {TrackPropertyBinding} binding
+ * @param {string|null} [nodeId]
+ */
 function bindTrackCornerRadius(binding, nodeId = null) {
     return trackCornerRadiusProperty(binding, nodeId);
 }
 
+/**
+ * @param {TrackPropertyBinding} binding
+ * @param {string|null} [edgeId]
+ */
 function bindTrackWidth(binding, edgeId = null) {
     return binding.numberField('lineWidth', 'pcbPropTrackWidth', 'Width (mm)', {
-        read: track => edgeId == null ? track.width : track.getEdgeWidth(edgeId),
+        read: (track) => edgeId == null ? track.width : track.getEdgeWidth(edgeId),
         changed: (track, width) => edgeId == null
             ? track.width !== width || [...track.edges.keys()].some(id => track.getEdgeWidth(id) !== width)
             : track.getEdgeWidth(edgeId) !== width,
         apply: (track, width, before) => {
+            /** @param {string} id */
             const setWidth = id => {
-                const edge = track.edges.get(id), original = before.edges[id];
+                const edge = track.edges.get(id), original = /** @type {Record<string, any>} */ (before.edges?.[id] || {});
                 if (width === (original.width ?? before.width)) {
                     if (Object.hasOwn(original, 'width')) edge.width = original.width;
                     else delete edge.width;
@@ -1349,13 +1520,18 @@ function bindTrackWidth(binding, edgeId = null) {
                 for (const id of track.edges.keys()) setWidth(id);
             } else setWidth(edgeId);
         },
-    }, { min: 0.05, step: 0.05, normalize: value => value > 0 ? value : NaN });
+    }, { min: 0.05, step: 0.05, normalize: (value) => value > 0 ? value : NaN });
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} nodeId
+ */
 function _showTrackNodeProperties(app, track, nodeId) {
     const node = track.nodes.get(nodeId);
     if (!node) return;
+    /** @type {TrackPropertyBinding} */
     let binding;
     /** @returns {PropertyPanel} */
     const describe = () => {
@@ -1377,8 +1553,12 @@ function _showTrackNodeProperties(app, track, nodeId) {
     setPropertyEditor(app, 'track', binding);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 function _showTrackProperties(app, track) {
+    /** @type {TrackPropertyBinding} */
     let binding;
     const layers = new Set();
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
@@ -1394,8 +1574,9 @@ function _showTrackProperties(app, track) {
         ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can use a removal mode.'
         : 'This track branches. Only a track that is a single line or loop can use a removal mode.';
     const lockEntries = [{ kind: 'track', object: track }];
-    const netSeedEdgeId = hitTestTrackEdge(app, track, getLastPointerWorld(app) || {})?.edgeId
+    const netSeedEdgeId = hitTestTrackEdge(app, track, /** @type {Point} */ (getLastPointerWorld(app) || {}))?.edgeId
         || track.edges.keys().next().value;
+    /** @param {string} value */
     const applyNet = value => {
         if (!binding.prepare()) return;
         const v = String(value || '').trim();
@@ -1404,6 +1585,7 @@ function _showTrackProperties(app, track) {
             showTrackSelectionProperties(app, track);
         } else showTrackSelectionProperties(app, track);
     };
+    /** @param {string} mode */
     const applyCopperMode = mode => {
         if (!binding.prepare()) return;
         const layer = track.getEdgeLayer(track.edges.keys().next().value) || track.layer;
@@ -1416,6 +1598,7 @@ function _showTrackProperties(app, track) {
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
     };
+    /** @param {string} v */
     const applyLayer = v => {
         if (!binding.prepare()) return;
         if (!v) return; // the Mixed placeholder
@@ -1450,10 +1633,10 @@ function _showTrackProperties(app, track) {
         // present and rendered (see the segment handler for why).
         clearTrackSelection(app);
         const cmds = [];
-        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, t));
-        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, vv));
-        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, t));
-        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
+        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, /** @type {Track} */ (t)));
+        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, /** @type {Via} */ (vv)));
+        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, /** @type {Track} */ (t)));
+        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, /** @type {Via} */ (vv)));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
@@ -1462,7 +1645,7 @@ function _showTrackProperties(app, track) {
     const describe = () => {
         const lock = lockedProperty(app, lockEntries);
         const readOnly = lock.readOnly;
-        const fields = [
+        const fields = /** @type {PropertyField[]} */ ([
             lock.field,
             { key: 'layer', id: 'pcbPropTrackLayer', type: 'select', label: 'Layer',
                 value: currentLayer, mixed, disabled: readOnly,
@@ -1491,7 +1674,7 @@ function _showTrackProperties(app, track) {
                 } }]) : []),
             bindTrackWidth(binding),
             bindTrackCornerRadius(binding),
-        ];
+        ]);
         for (const field of fields) if (field.key !== 'locked') field.disabled ||= readOnly;
         return { title: 'Track', fields };
     };
@@ -1506,16 +1689,20 @@ function _showTrackProperties(app, track) {
  * Net is track-wide; the Layer and Width retarget only this edge so a
  * single segment can hop layers and change width independently.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string} edgeId
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
+    /** @type {TrackPropertyBinding} */
     let binding;
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const bulgeField = () => binding.numberField('bulge', 'pcbPropTrackBulge', 'Bulge', {
-        read: track => track.edges.get(edgeId)?.bulge || 0,
+        read: (track) => track.edges.get(edgeId)?.bulge || 0,
         changed: (track, bulge) => (track.edges.get(edgeId)?.bulge || 0) !== bulge,
         apply: (track, bulge) => track.setEdgeAttr(edgeId, 'bulge', bulge),
         fills: true, rebuild: true,
-    }, { min: -1, max: 1, step: 0.05, normalize: value => Number(formatNumberInputValue(Math.max(-1, Math.min(1, value)))) });
+    }, { min: -1, max: 1, step: 0.05, normalize: (value) => Number(formatNumberInputValue(Math.max(-1, Math.min(1, value)))) });
+    /** @param {string} value */
     const applyNet = value => {
         if (!binding.prepare()) return;
         const v = String(value || '').trim();
@@ -1524,6 +1711,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
             showTrackSelectionProperties(app, track);
         } else showTrackSelectionProperties(app, track);
     };
+    /** @param {string} v */
     const applyLayer = v => {
         if (!binding.prepare()) return;
         if (!v) return;
@@ -1549,24 +1737,24 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         // that.
         clearTrackSelection(app);
         const cmds = [];
-        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, t));
-        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, vv));
-        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, t));
-        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
+        for (const t of region.removeTracks) cmds.push(new RemoveTrackCommand(app, /** @type {Track} */ (t)));
+        for (const vv of region.removeVias) cmds.push(new RemoveViaCommand(app, /** @type {Via} */ (vv)));
+        for (const t of region.addTracks) cmds.push(new AddTrackCommand(app, /** @type {Track} */ (t)));
+        for (const vv of region.addVias) cmds.push(new AddViaCommand(app, /** @type {Via} */ (vv)));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
     };
     /** @returns {PropertyPanel} */
     const describe = () => {
-        const fields = [
+        const fields = /** @type {PropertyField[]} */ ([
             { key: 'layer', id: 'pcbPropSegLayer', type: 'select', label: 'Layer',
                 value: track.getEdgeLayer(edgeId) || 'top-copper', disabled: !binding.affectsLayer(currentLayer),
                 options: COPPER_LAYERS.map((l) => pcbLayerOption(l.id, l.name)), commit: applyLayer },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
                 nets: copperNetNames(app), commit: applyNet },
             bindTrackWidth(binding, edgeId),
-        ];
+        ]);
         if (track.edges.get(edgeId)?.bulge) fields.push(bulgeField());
         return { title: track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment', fields };
     };
@@ -1583,28 +1771,31 @@ function _showTrackSegmentProperties(app, track, edgeId) {
  * (the schematic is authoritative — rename it there instead).
  *
  * @param {PcbEditor} app
+ * @param {{track: Track, edgeId?: string}} seed
+ * @param {string} v
  * @returns {boolean} true if applied (or a no-op), false if refused.
  */
 export function _applyNetToBondedCopper(app, seed, v) {
     let replacement = null;
+    /** @type {BondedCopperGroup|undefined} */
     let group;
     const components = seed.track?.connectedComponents?.() || [];
     if (seed.edgeId && components.length > 1) {
         const edge = seed.track.edges.get(seed.edgeId);
         const selectedNodes = edge
-            ? components.find(nodes => nodes.has(edge.from) && nodes.has(edge.to))
+            ? components.find(/** @param {Set<string>} nodes */ nodes => nodes.has(edge.from) && nodes.has(edge.to))
             : null;
         if (selectedNodes) {
-            const parts = components.map(nodes => seed.track.extractSubgraph(nodes));
+            const parts = /** @type {Track[]} */ (components.map(/** @param {Set<string>} nodes */ nodes => seed.track.extractSubgraph(nodes)));
             const selectedIndex = components.indexOf(selectedNodes);
             const selectedTrack = parts[selectedIndex];
-            const tracks = (app.tracks || []).filter(track => track !== seed.track);
+            const tracks = (app.tracks || []).filter(/** @param {Track} track */ (track) => track !== seed.track);
             tracks.push(...parts);
-            group = collectBondedCopper(copperBoardWith(app, { tracks }), { track: selectedTrack });
+            group = /** @type {BondedCopperGroup} */ (collectBondedCopper(copperBoardWith(app, { tracks }), { track: selectedTrack }));
             replacement = { original: seed.track, parts, selectedTrack };
         }
     }
-    group ||= collectBondedCopper(app, seed);
+    group ||= /** @type {BondedCopperGroup} */ (collectBondedCopper(app, seed));
     // Authoritative pad-net guard: if the bonded copper reaches a pad, that
     // pad's schematic net is the truth; renaming the copper to something
     // else would contradict it.
@@ -1618,6 +1809,7 @@ export function _applyNetToBondedCopper(app, seed, v) {
         );
         return false;
     }
+    /** @type {HistoryCommand[]} */
     const cmds = [];
     if (replacement) {
         replacement.selectedTrack.net = v;
@@ -1641,13 +1833,15 @@ export function _applyNetToBondedCopper(app, seed, v) {
 /**
  * Apply a net to all selected vias and the copper bonded to each of them.
  * @param {PcbEditor} app
+ * @param {Via[]} vias
+ * @param {string} v
  */
 function _applyNetToSelectedVias(app, vias, v) {
     const tracks = new Set();
     const bondedVias = new Set();
     const padNets = new Set();
     for (const via of vias) {
-        const group = collectBondedCopper(app, { via });
+        const group = /** @type {BondedCopperGroup} */ (collectBondedCopper(app, { via }));
         for (const track of group.tracks) tracks.add(track);
         for (const bondedVia of group.vias) bondedVias.add(bondedVia);
         for (const padNet of group.padNets) if (padNet) padNets.add(padNet);
@@ -1661,6 +1855,7 @@ function _applyNetToSelectedVias(app, vias, v) {
         );
         return false;
     }
+    /** @type {HistoryCommand[]} */
     const commands = [];
     for (const track of tracks) {
         if ((track.net || '') !== v) {
@@ -1689,26 +1884,29 @@ function _applyNetToSelectedVias(app, vias, v) {
 /**
  * Apply a net to the union of copper bonded to selected tracks and vias.
  * @param {PcbEditor} app
+ * @param {CopperSelectionEntry[]} entries
+ * @param {string} v
+ * @param {HistoryCommand[]} [additionalCommands]
  */
 export function applyNetToCopperSelection(app, entries, v, additionalCommands = []) {
     const tracks = new Set();
     const vias = new Set();
     const padNets = new Set();
     const selectedPadKeys = new Set(entries
-        .filter(entry => entry.kind === 'pad')
-        .map(entry => `null|${entry.object.id}`));
+        .filter((entry) => entry.kind === 'pad')
+        .map((entry) => `null|${entry.object.id}`));
     for (const entry of entries) {
         const seed = entry.kind === 'track' ? { track: entry.object }
             : entry.kind === 'via' ? { via: entry.object } : null;
         if (!seed) continue;
-        const group = collectBondedCopper(app, seed);
+        const group = /** @type {BondedCopperGroup} */ (collectBondedCopper(app, seed));
         for (const track of group.tracks) tracks.add(track);
         for (const via of group.vias) vias.add(via);
         for (const [padKey, padNet] of group.padNetByKey) {
             if (padNet && !selectedPadKeys.has(padKey)) padNets.add(padNet);
         }
     }
-    const conflict = [...padNets].find(padNet => padNet !== v);
+    const conflict = [...padNets].find((padNet) => padNet !== v);
     if (conflict !== undefined) {
         showAlert(
             `This copper is connected to a pad on net "${conflict}" (assigned by the schematic). ` +
@@ -1724,8 +1922,8 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
         }
     }
     const viaChanges = [...vias]
-        .filter(via => (via.net || '') !== v)
-        .map(via => ({ via, before: { net: via.net || '' }, after: { net: v } }));
+        .filter((via) => (via.net || '') !== v)
+        .map((via) => ({ via, before: { net: via.net || '' }, after: { net: v } }));
     if (viaChanges.length === 1) {
         const change = viaChanges[0];
         commands.push(new ModifyViaCommand(app, change.via, change.before, change.after));
@@ -1738,28 +1936,36 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
     return true;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Via} via
+ */
 export function showViaProperties(app, via) {
     via = canonicalVia(app, via);
-    const selectedVias = getPcbSelection(app, 'via').map(target => canonicalVia(app, target));
-    const vias = selectedVias.includes(via) && selectedVias.length ? selectedVias : [via];
+    const selectedVias = /** @type {Via[]} */ (getPcbSelection(app, 'via').map(/** @param {Via} target */ target => canonicalVia(app, target)));
+    const vias = /** @type {Via[]} */ (selectedVias.includes(via) && selectedVias.length ? selectedVias : [via]);
+    /** @type {ViaPropertyPreview|null} */
     let preview = null;
+    /** @type {ViaNumberKey|null} */
     let activeProperty = null;
     let disposed = false;
+    /** @param {Via} target */
     const shown = target => preview?.copies.get(target) || target;
+    /** @param {ViaNumberKey|'net'} property */
     const mixed = property => vias.map(shown).some((target) => (target[property] ?? '') !== (shown(via)[property] ?? ''));
     const limits = () => ({
-        minDiameter: Math.max(...vias.map(target => shown(target).drill)),
-        maxDrill: Math.min(...vias.map(target => shown(target).diameter)),
+        minDiameter: Math.max(...vias.map((target) => shown(target).drill)),
+        maxDrill: Math.min(...vias.map((target) => shown(target).diameter)),
     });
-    const lockEntries = vias.map(target => ({ kind: 'via', object: target }));
+    const lockEntries = vias.map((target) => ({ kind: 'via', object: target }));
+    /** @type {number|null} */
     let renderFrame = null;
     const refresh = () => { if (!disposed) app.refreshPropertyPanel(describe()); };
     const reRender = () => {
         if (renderFrame !== null) return;
         renderFrame = requestAnimationFrame(() => {
             renderFrame = null;
-            for (const target of preview?.copies.values() || []) renderVia(target, (id) => app.getLayerGroup(id));
+            for (const target of preview?.copies.values() || []) renderVia(target, /** @param {string} id */ (id) => app.getLayerGroup(id));
             // renderVia replaces the circles that the existing selection halo
             // was painted above, so rebuild that overlay after the redraw.
             refreshTrackSelectionHalo(app);
@@ -1770,6 +1976,7 @@ export function showViaProperties(app, via) {
         cancelAnimationFrame(renderFrame);
         renderFrame = null;
     };
+    /** @param {boolean} commit */
     const finish = commit => {
         if (!preview) return;
         preview = null;
@@ -1778,7 +1985,7 @@ export function showViaProperties(app, via) {
         cancelLiveRender();
         let committed = false;
         try {
-            finishViaPropertyPreview(app, commit ? changes => {
+            finishViaPropertyPreview(app, commit ? /** @param {ViaPropertyChange[]} changes */ changes => {
                 app.history.execute(changes.length === 1
                     ? new ModifyViaCommand(app, changes[0].via, changes[0].before, changes[0].after)
                     : new ModifyViasCommand(app, changes));
@@ -1790,10 +1997,11 @@ export function showViaProperties(app, via) {
         }
     };
     const editable = () => !disposed && isEditorActive(app) && !isViaLocked() && isViaVisible()
-        && vias.every(target => !target.locked && target.visible !== false);
+        && vias.every((target) => !target.locked && target.visible !== false);
+    /** @type {ViaPropertyBinding} */
     const binding = {
         vias,
-        affectsLayer: layerId => layerId === 'vias',
+        affectsLayer: /** @param {string} layerId */ layerId => layerId === 'vias',
         get active() { return preview !== null; },
         commit: () => finish(editable()),
         cancel: () => finish(false),
@@ -1808,6 +2016,10 @@ export function showViaProperties(app, via) {
             return true;
         },
     };
+    /**
+     * @param {ViaNumberKey} key
+     * @param {number} value
+     */
     const live = (key, value) => {
         if (!editable()) {
             binding.cancel();
@@ -1817,14 +2029,19 @@ export function showViaProperties(app, via) {
             binding.commit();
         }
         if (!Number.isFinite(value) || value <= 0) return;
-        if (vias.every(target => shown(target)[key] === value)) return;
+        if (vias.every((target) => shown(target)[key] === value)) return;
         preview ??= beginViaPropertyPreview(app, vias);
         activeProperty = key;
         for (const target of preview.copies.values()) target[key] = value;
         reRender();
         refresh();
     };
-    /** @returns {PropertyField} */
+    /**
+     * @param {ViaNumberKey} key
+     * @param {string} id
+     * @param {string} label
+     * @returns {PropertyField}
+     */
     const numberField = (key, id, label) => {
         const current = shown(via);
         const currentLimits = limits();
@@ -1834,13 +2051,14 @@ export function showViaProperties(app, via) {
             min: isDiameter ? currentLimits.minDiameter : 0.05,
             max: isDiameter ? undefined : currentLimits.maxDrill,
             step: 0.05,
-            normalize: value => isDiameter ? Math.max(value, limits().minDiameter)
+            normalize: /** @param {number} value */ value => isDiameter ? Math.max(value, limits().minDiameter)
                 : Math.min(Math.max(value, 0.05), limits().maxDrill),
-            preview: value => live(key, value),
+            preview: /** @param {number} value */ value => live(key, value),
             commit: () => binding.commit(),
             cancel: () => { const active = preview !== null; binding.cancel(); return active; },
         };
     };
+    /** @param {string} value */
     const applyNet = value => {
         if (!editable()) {
             binding.cancel();
@@ -1850,7 +2068,7 @@ export function showViaProperties(app, via) {
         try {
             binding.commit();
             const v = String(value || '').trim();
-            applied = vias.every(target => (target.net || '') === v) || _applyNetToSelectedVias(app, vias, v);
+            applied = vias.every((target) => (target.net || '') === v) || _applyNetToSelectedVias(app, vias, v);
         } finally {
             if (!applied) refresh();
         }

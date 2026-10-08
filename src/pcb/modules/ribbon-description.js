@@ -10,13 +10,19 @@ import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizeP
 import { placementBlockMessage } from './layers.js';
 import { peekDrcPresentation } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {Record<string, any>} RibbonNode */
 
+/** @param {string} tag @param {RibbonNode} [props] @param {any} [children] */
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
+/** @param {string} id @param {any} content @param {string|undefined} title @param {RibbonNode} [props] */
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
+/** @param {string} text */
 const K = text => E('kbd', {}, text);
+/** @param {any} children */
 const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] });
 
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
+/** @typedef {keyof typeof MINIMUM_MM} RoutingDesignKey */
 
 /** @param {PcbEditor} app */
 function designFactor(app) {
@@ -28,7 +34,7 @@ function designDigits(app) {
     return app.designSettings.values.units === 'inch' ? 4 : 3;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {RoutingDesignKey} key */
 function designDisplay(app, key) {
     return String(Number((app.designSettings.values[key] * designFactor(app)).toFixed(designDigits(app))));
 }
@@ -75,10 +81,14 @@ function saveDesignDefaults(app) {
     }
 }
 
+/** @param {string} label @param {RibbonNode} control */
 const routingRow = (label, control) => E('div', { className: 'routing-param-row' }, [
     E('label', { attrs: { for: control.id } }, label),
     control,
 ]);
+
+/** @param {Event} _e @param {{closeMenus: () => void}} api */
+const closeSpecctraHelp = (_e, api) => api.closeMenus();
 
 const specctraFlyout = {
     kind: 'dropdown',
@@ -90,7 +100,7 @@ const specctraFlyout = {
     items: [
         E('div', { className: 'specctra-help-flyout-header' }, [
             E('span', {}, 'External Routing with Freerouting'),
-            B('specctraHelpClose', '×', undefined, { className: 'specctra-help-flyout-close', run: (_e, api) => api.closeMenus() }),
+            B('specctraHelpClose', '×', undefined, { className: 'specctra-help-flyout-close', run: closeSpecctraHelp }),
         ]),
         E('div', { className: 'specctra-help-flyout-body' }, [
             E('p', {}, [
@@ -119,41 +129,67 @@ const shapeItems = [...SHAPE_TOOLS].map(shape => ({
 /** @param {PcbEditor} app */
 export function createPcbRibbonDescription(app) {
     let lastShape = 'circle';
+    /** @type {Array<[string, string, RoutingDesignKey, string]>} */
+    const routingControls = [
+        ['Track Width', 'pcbTrackWidth', 'trackWidth', '0.01'],
+        ['Clearance', 'pcbClearance', 'clearance', '0.01'],
+        ['Via Dia', 'pcbViaDiameter', 'viaDiameter', '0.05'],
+        ['Via Drill', 'pcbViaDrill', 'viaDrill', '0.05'],
+    ];
+    /** @param {string} tool */
     const setTool = tool => selectPcbTool(app, tool);
     const project = () => app.project;
     const canCopyCut = () => app.canCopyCutPcbSelection?.() || false;
     const canPaste = () => app.hasPcbClipboardData?.() || false;
     // A placement tool's button carries a lock or hidden badge while its layer is blocked.
+    /** @param {string} tool */
     const blockBadge = tool => ({
         'tool-layer-locked': () => pcbToolBlock(app, tool)?.reason === 'locked',
         'tool-layer-hidden': () => pcbToolBlock(app, tool)?.reason === 'hidden',
     });
+    /** @param {string} title @param {string} tool */
     const blockTitle = (title, tool) => () => {
         const block = pcbToolBlock(app, tool);
         return block ? `${title} (${placementBlockMessage(block)})` : title;
     };
     const shapeTool = () => (SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape);
     // A tool's ribbon button, from its entry in pcb-tools.js; placement tools carry block badges.
+    /** @param {string} id */
     const toolButton = id => {
-        const { button, targets } = PCB_TOOLS[id];
+        const { button, targets } = /** @type {Record<string, any>} */ (PCB_TOOLS)[id];
         return {
             kind: 'toolButton', id: button.id, content: button.content,
             title: targets ? blockTitle(button.title, id) : button.title, ...(targets ? { classes: blockBadge(id) } : {}),
             active: () => normalizePcbTool(app.currentTool) === id, run: () => setTool(id),
         };
     };
+    /** @param {string} id */
     const presetButton = id => {
-        const { button, tool, layer } = PCB_TOOL_PRESETS[id];
+        const { button, tool, layer } = /** @type {Record<string, any>} */ (PCB_TOOL_PRESETS)[id];
         return {
             kind: 'toolButton', id: button.id, content: button.content, title: blockTitle(button.title, id),
             classes: blockBadge(id), run: () => { app.activeLayer = layer; setTool(tool); },
         };
     };
+    /** @param {boolean} checked */
+    const onShowGridChange = checked => { const vp = ensureViewport(app); if (!vp) return; vp.setGridVisible(checked); if (!checked) vp.snapToGrid = false; syncGridSettings(app); app.markDirty?.(); };
+    /** @param {boolean} checked */
+    const onSnapToGridChange = checked => { const vp = ensureViewport(app); if (!vp?.gridVisible) return; vp.snapToGrid = checked; syncGridSettings(app); app.markDirty?.(); };
+    /** @param {string} value */
+    const onGridSizeChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridSize(parseFloat(value)); syncGridSettings(app); app.markDirty?.(); };
+    /** @param {string} value */
+    const onViewportUnitsChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setUnits(/** @type {import('../../core/Viewport.js').ViewportUnit} */ (value)); nearestGridValue(app); syncGridSettings(app); app.markDirty?.(); };
+    /** @param {string} value */
+    const onGridStyleChange = value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridStyle(/** @type {'lines'|'dots'} */ (value)); syncGridSettings(app); app.markDirty?.(); };
     return {
-        onBeforeTabChange({ from, to, userInitiated }) {
+        /** @param {{from: string, to: string, userInitiated: boolean}} event */
+        onBeforeTabChange(event) {
+            const { from, to, userInitiated } = event;
             preparePcbRibbonTransition(app, from, to, userInitiated);
         },
-        onTabChange({ to }) {
+        /** @param {{to: string}} event */
+        onTabChange(event) {
+            const { to } = event;
             app.syncClipboardButtons?.();
             if (to === 'pcb-home') app.refreshPcbRibbon?.();
             peekDrcPresentation(app)?.setDesignActive(to === 'pcb-design');
@@ -205,8 +241,9 @@ export function createPcbRibbonDescription(app) {
                                 main: { id: 'pcbRibbonOpen', title: 'Open (Ctrl+O)', content: '📂 Open', run: () => project()?.open() },
                                 arrow: { id: 'pcbRibbonOpenRecent', title: 'Recent files', attrs: { 'aria-haspopup': 'true', 'aria-label': 'Recent files' }, content: '▾' },
                                 menuId: 'pcbRibbonRecentMenu',
-                                onOpen: ({ menu }) => void renderRecentFiles({
-                                    container: menu,
+                                /** @param {{menu: HTMLElement}} event */
+                                onOpen: (event) => void renderRecentFiles({
+                                    container: event.menu,
                                     getFileManager: () => project()?.fileManager,
                                     openRecent: name => project()?.openRecent(name),
                                 }),
@@ -279,16 +316,16 @@ export function createPcbRibbonDescription(app) {
                         title: 'Grid',
                         items: [
                             { kind: 'checkbox', id: 'pcbShowGrid', label: 'Grid', checked: () => !!app.viewport?.gridVisible,
-                                onChange: checked => { const vp = ensureViewport(app); if (!vp) return; vp.setGridVisible(checked); if (!checked) vp.snapToGrid = false; syncGridSettings(app); app.markDirty?.(); } },
+                                onChange: onShowGridChange },
                             { kind: 'checkbox', id: 'pcbSnapToGrid', label: 'Snap', checked: () => !!app.viewport?.snapToGrid && !!app.viewport?.gridVisible,
-                                disabled: () => !app.viewport?.gridVisible, onChange: checked => { const vp = ensureViewport(app); if (!vp?.gridVisible) return; vp.snapToGrid = checked; syncGridSettings(app); app.markDirty?.(); } },
+                                disabled: () => !app.viewport?.gridVisible, onChange: onSnapToGridChange },
                             { kind: 'select', id: 'pcbGridSize', title: 'Grid size', options: () => gridOptions(app), value: () => nearestGridValue(app),
-                                onChange: value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridSize(parseFloat(value)); syncGridSettings(app); app.markDirty?.(); } },
+                                onChange: onGridSizeChange },
                             { kind: 'select', id: 'pcbUnits', title: 'Units', value: () => app.viewport?.units || 'mm',
-                                onChange: value => { const vp = ensureViewport(app); if (!vp) return; vp.setUnits(value); nearestGridValue(app); syncGridSettings(app); app.markDirty?.(); },
+                                onChange: onViewportUnitsChange,
                                 options: [{ value: 'mm', label: 'mm', selected: true }, { value: 'inch', label: 'inch' }] },
                             { kind: 'select', id: 'pcbGridStyle', title: 'Grid style', value: () => app.viewport?.gridStyle || 'lines',
-                                onChange: value => { const vp = ensureViewport(app); if (!vp) return; vp.setGridStyle(value); syncGridSettings(app); app.markDirty?.(); },
+                                onChange: onGridStyleChange,
                                 options: [{ value: 'lines', label: 'Lines', selected: true }, { value: 'dots', label: 'Dots' }] },
                         ],
                     },
@@ -327,12 +364,7 @@ export function createPcbRibbonDescription(app) {
                         title: 'Parameters',
                         itemsClassName: 'ribbon-group-items routing-params',
                         items: [
-                            ...[
-                                ['Track Width', 'pcbTrackWidth', 'trackWidth', '0.01'],
-                                ['Clearance', 'pcbClearance', 'clearance', '0.01'],
-                                ['Via Dia', 'pcbViaDiameter', 'viaDiameter', '0.05'],
-                                ['Via Drill', 'pcbViaDrill', 'viaDrill', '0.05'],
-                            ].map(([label, id, key, step]) => routingRow(label, E('input', {
+                            ...routingControls.map(([label, id, key, step]) => routingRow(label, E('input', {
                                 id,
                                 value: () => designDisplay(app, key),
                                 attrs: {
@@ -342,12 +374,15 @@ export function createPcbRibbonDescription(app) {
                                     step: () => app.designSettings.values.units === 'inch' ? '0.001' : step,
                                     'data-number-format': 'precise',
                                 },
+                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e */
                                 onInput: (_value, e) => commitDesignInput(app, key, e.target, app.designSettings.values.units),
+                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e */
                                 onChange: (_value, e) => { if (!commitDesignInput(app, key, e.target, app.designSettings.values.units)) e.target.reportValidity?.(); },
                                 refreshOnInput: false,
                                 refreshOnChange: false,
                             }))),
                             routingRow('Units', { kind: 'select', id: 'pcbRouteUnits', value: () => app.designSettings.values.units,
+                                /** @param {string} value */
                                 onChange: value => { if (app.designSettings.update({ units: value })) { saveDesignDefaults(app); app.markDirty?.(); app.refreshPcbRibbon?.(); } },
                                 options: [{ value: 'mm', label: 'mm', selected: true }, { value: 'inch', label: 'inch' }] }),
                         ],
@@ -357,6 +392,7 @@ export function createPcbRibbonDescription(app) {
                         B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => app.runAutoRoute?.() }),
                         { kind: 'select', id: 'pcbRouterMode', className: 'auto-router-mode', title: 'Router algorithm', attrs: { 'aria-label': 'Router algorithm' },
                             value: () => app.designSettings.values.router,
+                            /** @param {string} value */
                             onChange: value => { if (app.designSettings.update({ router: value })) { saveDesignDefaults(app); app.markDirty?.(); } },
                             options: [{ value: 'maze', label: 'Maze', selected: true }, { value: 'pathfinder', label: 'Pathfinder' }] },
                         B('pcbClearRoutes', '✕ Clear Routes', 'Clear all tracks and restore ratlines', { run: () => app.clearRoutes?.() }),

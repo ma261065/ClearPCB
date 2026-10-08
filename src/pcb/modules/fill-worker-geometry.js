@@ -3,6 +3,8 @@ import { computeFillPolygonsInOrder, loadClipper } from './copper-fill-geom.js';
 import { serializePcbText } from '../../core/pcb-text.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./copper-fill-geom.js').FillContext & {tracks: Array<any>, fills: Array<any>}} SerializedFillInputs */
+/** @typedef {{edges: Map<string, {width: number, layer: string}>}} SerializedTrackGeometry */
 
 /**
  * Capture only pour inputs, never editor projections, SVG or rounded file data.
@@ -29,10 +31,20 @@ export function captureFillInputs(app) {
     };
 }
 
+/** @param {SerializedTrackGeometry} track */
+function reviveTrackGeometry(track) {
+    return {
+        ...track,
+        /** @param {string} id */
+        getEdgeWidth: id => /** @type {{width: number}} */ (track.edges.get(id)).width,
+        /** @param {string} id */
+        getEdgeLayer: id => /** @type {{layer: string}} */ (track.edges.get(id)).layer,
+    };
+}
+
+/** @param {SerializedFillInputs} inputs */
 export async function computeFillBatch(inputs) {
     const clipper = await loadClipper();
-    const context = { ...inputs, tracks: inputs.tracks.map(track => ({
-        ...track, getEdgeWidth: id => track.edges.get(id).width, getEdgeLayer: id => track.edges.get(id).layer,
-    })) };
+    const context = { ...inputs, tracks: inputs.tracks.map(reviveTrackGeometry) };
     return computeFillPolygonsInOrder(inputs.fills, context, clipper);
 }

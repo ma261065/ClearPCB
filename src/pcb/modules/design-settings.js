@@ -2,6 +2,8 @@ import { refreshBoardView } from './refresh-state.js';
 import { PCB_DESIGN_MAX_MM, clampDesignDimensions } from '../../core/PcbDesignSettings.js';
 import { areClearancesVisible } from './clearance-overlay.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/PcbDesignSettings.js').PcbRoutingField} PcbRoutingField */
+/** @typedef {string} DesignUnits */
 
 const STORAGE_KEY = 'clearpcb_pcb_design_params';
 const INPUTS = {
@@ -40,9 +42,10 @@ export function refreshDesignSettings(app) {
 export function bindDesignSettings(app) {
     if (!app.designSettings) return;
     try {
-        const stored = app.designSettings.hasAppliedSettings
-            ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        const stored = /** @type {Record<string, any>|null} */ (app.designSettings.hasAppliedSettings
+            ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
         if (stored) {
+            /** @type {Record<string, any>} */
             const restored = { units: stored.units || 'mm', router: stored.router || 'maze' };
             const factor = restored.units === 'inch' ? 25.4 : 1;
             for (const [key, id] of Object.entries(INPUTS)) {
@@ -57,9 +60,10 @@ export function bindDesignSettings(app) {
     renderDesignSettings(app);
 }
 
+/** @param {PcbRoutingField|string} key @param {string|number} rawValue @param {DesignUnits} units */
 function readDesignValue(key, rawValue, units) {
     const value = Number(rawValue) * (units === 'inch' ? 25.4 : 1);
-    const maximum = PCB_DESIGN_MAX_MM[key];
+    const maximum = PCB_DESIGN_MAX_MM[/** @type {PcbRoutingField} */ (key)];
     let message = '';
     if (!Number.isFinite(value) || value <= 0) message = 'Enter a positive finite number.';
     // A small tolerance accepts the rounded inch display of the maximum itself.
@@ -71,13 +75,14 @@ function readDesignValue(key, rawValue, units) {
     return { value: message ? null : Math.min(value, maximum), message };
 }
 
+/** @param {HTMLInputElement} element @param {DesignUnits} units @param {PcbRoutingField|string} key */
 function readDesignInput(element, units, key) {
     const result = readDesignValue(key, element.value, units);
     element.setCustomValidity(result.message);
     return result.value;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PcbRoutingField|string} key @param {number} value */
 function commitDesignUpdate(app, key, value) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
@@ -91,6 +96,9 @@ function commitDesignUpdate(app, key, value) {
 /**
  * Both ribbon and drawing-tool editors commit through the same mm conversion.
  * @param {PcbEditor} app
+ * @param {PcbRoutingField|string} key
+ * @param {HTMLInputElement} element
+ * @param {DesignUnits} units
  */
 export function commitDesignInput(app, key, element, units) {
     const value = readDesignInput(element, units, key);
@@ -102,6 +110,10 @@ export function commitDesignInput(app, key, element, units) {
 /**
  * Commit a design value without a DOM input; returns the validation message for panels.
  * @param {PcbEditor} app
+ * @param {PcbRoutingField|string} key
+ * @param {string|number} rawValue
+ * @param {DesignUnits} [units]
+ * @param {((message: string) => void)|null} [onError]
  */
 export function commitDesignValue(app, key, rawValue, units = 'mm', onError = null) {
     const { value, message } = readDesignValue(key, rawValue, units);

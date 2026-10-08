@@ -9,6 +9,9 @@ import { meshToGeometry, makeMaterial, makeComponentGroupMaterials } from '../..
 import { createViewerBackgroundTexture } from './viewer-background.js';
 import { BOARD_THICKNESS, LAYER_STYLE } from './board3d-params.js';
 import { makeDecalMaterial, makeBoardMaterial } from './board3d-layers.js';
+/** @typedef {import('../../shared/3d/model-rendering.js').ModelMesh} ModelMesh */
+/** @typedef {{groupVertCounts?: number[]}} GroupedGeometryUserData */
+/** @typedef {{ownedMaterials?: Array<{dispose: () => void}>|null}} OwnedMaterialUserData */
 
 /* ───────────────────────────── view host ────────────────────────────────── */
 
@@ -231,6 +234,11 @@ export function build3DHost(doc) {
 
 /* ───────────────────────────── scene helper ─────────────────────────────── */
 
+/**
+ * @param {THREE.PerspectiveCamera} camera
+ * @param {THREE.Box3} bounds
+ * @param {number} [depthBits]
+ */
 export function updateBoardCameraClipping(camera, bounds, depthBits = 24) {
     if (!bounds || bounds.isEmpty()) return;
     camera.updateMatrixWorld();
@@ -604,7 +612,7 @@ export class ThreeScene {
 
     /**
      * Add a mesh, returning the THREE.Mesh so callers can replace it later.
-    * @param {{verts:Array, faces:Array}|THREE.BufferGeometry} mesh
+     * @param {ModelMesh|THREE.BufferGeometry} mesh
      * @param {any} [material] optional material override
      * @param {boolean} [groupByColor] split a component body by colour and shade
      *   each group through a stepped polygonOffset so coincident detail faces
@@ -618,14 +626,14 @@ export class ThreeScene {
         let mat = material || this.material;
         let owned = null;
         if (groupByColor && !material) {
-            const counts = geo.userData.groupVertCounts || [];
+            const counts = /** @type {GroupedGeometryUserData} */ (geo.userData).groupVertCounts || [];
             if (counts.length > 1) {
                 owned = makeComponentGroupMaterials(counts);
                 mat = owned;
             }
         }
         const m = new THREE.Mesh(geo, mat);
-        m.userData.ownedMaterials = owned;
+        /** @type {OwnedMaterialUserData} */ (m.userData).ownedMaterials = owned;
         this.root.add(m);
         this._clippingBounds = null;
         this.requestRender();
@@ -635,7 +643,7 @@ export class ThreeScene {
     /**
      * Swap the geometry of an existing mesh in place.
      * @param {THREE.Mesh} obj
-     * @param {{verts:Array, faces:Array}} mesh
+     * @param {ModelMesh} mesh
      * @param {boolean} [groupByColor] see {@link addMesh}; rebuilds the stepped
      *   per-group materials for the new geometry.
      */
@@ -645,15 +653,16 @@ export class ThreeScene {
         obj.geometry = geo;
         this._clippingBounds = null;
         if (groupByColor) {
-            if (obj.userData.ownedMaterials) {
-                for (const mm of obj.userData.ownedMaterials) mm.dispose();
-                obj.userData.ownedMaterials = null;
+            const userData = /** @type {OwnedMaterialUserData} */ (obj.userData);
+            if (userData.ownedMaterials) {
+                for (const mm of userData.ownedMaterials) mm.dispose();
+                userData.ownedMaterials = null;
             }
-            const counts = geo.userData.groupVertCounts || [];
+            const counts = /** @type {GroupedGeometryUserData} */ (geo.userData).groupVertCounts || [];
             if (counts.length > 1) {
                 const owned = makeComponentGroupMaterials(counts);
                 obj.material = /** @type {any} */ (owned);
-                obj.userData.ownedMaterials = owned;
+                userData.ownedMaterials = owned;
             } else {
                 obj.material = /** @type {any} */ (this.material);
             }
@@ -670,9 +679,10 @@ export class ThreeScene {
         this.root.remove(obj);
         this._clippingBounds = null;
         obj.geometry?.dispose();
-        if (obj.userData?.ownedMaterials) {
-            for (const mm of obj.userData.ownedMaterials) mm.dispose();
-            obj.userData.ownedMaterials = null;
+        const userData = /** @type {OwnedMaterialUserData} */ (obj.userData);
+        if (userData.ownedMaterials) {
+            for (const mm of userData.ownedMaterials) mm.dispose();
+            userData.ownedMaterials = null;
         }
         this.requestRender();
     }

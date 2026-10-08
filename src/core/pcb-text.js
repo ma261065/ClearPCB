@@ -1,7 +1,7 @@
 /** Layers on which free-standing PCB text may be placed. */
 export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper', 'top-document', 'bottom-document'];
 
-/** @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, layer: string, strokeWidth: number, border: boolean, locked?: boolean}} PcbText */
+/** @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, layer: string, strokeWidth: number, border?: boolean, locked?: boolean}} PcbText */
 
 /**
  * @param {Partial<{id:string, content:string, x:number, y:number,

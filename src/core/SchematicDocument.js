@@ -6,7 +6,7 @@ import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
-/** @typedef {Record<string, any>} ProjectData Parsed project JSON remains loosely shaped until validated. */
+/** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
 /** @typedef {ReturnType<typeof createShape>} SchematicShape */
 
 /** @param {string} name */

@@ -5,7 +5,7 @@
  */
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{viewport: {scale: number, contentLayer: Element}}} MarqueeHost */
+/** @typedef {{viewport: {scale: number, contentLayer: Element}|null}} MarqueeHost */
 
 /** @type {WeakMap<object, {element: SVGRectElement, start: Point}>} */
 const marquees = new WeakMap();
@@ -17,13 +17,15 @@ const marquees = new WeakMap();
  */
 export function createBoxSelectElement(app, start) {
     removeBoxSelectElement(app);
+    const viewport = app.viewport;
+    if (!viewport) return;
     const element = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     element.setAttribute('fill', 'rgba(51, 153, 255, 0.15)');
     element.setAttribute('stroke', '#3399ff');
-    element.setAttribute('stroke-width', String(1 / app.viewport.scale));
-    element.setAttribute('stroke-dasharray', `${4 / app.viewport.scale} ${4 / app.viewport.scale}`);
+    element.setAttribute('stroke-width', String(1 / viewport.scale));
+    element.setAttribute('stroke-dasharray', `${4 / viewport.scale} ${4 / viewport.scale}`);
     element.style.pointerEvents = 'none';
-    app.viewport.contentLayer.appendChild(element);
+    viewport.contentLayer.appendChild(element);
     marquees.set(app, { element, start: { x: start.x, y: start.y } });
 }
 

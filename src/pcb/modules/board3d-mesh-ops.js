@@ -1,12 +1,25 @@
 import earcut from '../../../assets/vendor/earcut.module.js';
 
+/** @typedef {{x: number, y: number, z: number}} MeshVertex */
+/** @typedef {MeshVertex} Vertex */
+/** @typedef {{x: number, z: number}} XzPoint */
+/** @typedef {{idx: number[], color?: number[]}} MeshFace */
+/** @typedef {{verts: MeshVertex[], faces: MeshFace[]}} Mesh */
+/** @typedef {{minX: number, minZ: number, maxX: number, maxZ: number}} XzBounds */
+/** @typedef {{ax: number, az: number, bx: number, bz: number}} ClipEdge */
+/** @typedef {{x: number, z: number, r: number, ring?: XzPoint[], y?: number}} Hole */
+/** @typedef {{pts: XzPoint[], x: number, z: number, r: number, y?: number, minX: number, maxX: number, minZ: number, maxZ: number}} HoleRing */
+
 /**
  * A fresh empty `{verts, faces}` accumulator.
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export const emptyMesh = () => ({ verts: [], faces: [] });
 
-/** Append `src` mesh into `dst`, offsetting face indices. */
+/** Append `src` mesh into `dst`, offsetting face indices.
+ * @param {Mesh} dst
+ * @param {Mesh} src
+ */
 export function appendMesh(dst, src) {
     const base = dst.verts.length;
     for (const v of src.verts) dst.verts.push(v);
@@ -15,7 +28,10 @@ export function appendMesh(dst, src) {
     }
 }
 
-/** Signed area of a closed polygon in the x–z plane; its sign is the winding. */
+/** Signed area of a closed polygon in the x–z plane; its sign is the winding.
+ * @param {XzPoint[]} poly
+ * @returns {number}
+ */
 export function polygonAreaXZ(poly) {
     let a = 0;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -31,9 +47,9 @@ export function polygonAreaXZ(poly) {
  * exactly at the boundary instead of being dropped or left floating. The board
  * outline is triangulated when concave, so each clipping region stays convex
  * and its resulting polygons fan-triangulate cleanly.
- * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[],color:number[]}>}} mesh
- * @param {Array<{x:number,z:number}>} outline
- * @returns {{verts:Array, faces:Array}}
+ * @param {Mesh} mesh
+ * @param {XzPoint[]} outline
+ * @returns {Mesh}
  */
 export function clipMeshToOutline(mesh, outline) {
     if (!outline || outline.length < 3) return mesh;
@@ -46,7 +62,9 @@ export function clipMeshToOutline(mesh, outline) {
     });
     if (concave) {
         const indices = earcut(outline.flatMap(point => [point.x, point.z]));
+        /** @type {Array<{points: XzPoint[], bounds: XzBounds, faces: MeshFace[], lastFace: number}>} */
         const regions = [];
+        /** @param {XzPoint[]} points @returns {XzBounds} */
         const bounds = (points) => {
             const box = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
             for (const point of points) {
@@ -66,7 +84,9 @@ export function clipMeshToOutline(mesh, outline) {
         const gridSide = Math.max(1, Math.min(32, Math.ceil(Math.sqrt(regions.length))));
         const cellWidth = (extent.maxX - extent.minX) / gridSide || 1;
         const cellHeight = (extent.maxZ - extent.minZ) / gridSide || 1;
+        /** @param {number} value @param {number} min @param {number} size */
         const cell = (value, min, size) => Math.max(0, Math.min(gridSide - 1, Math.floor((value - min) / size)));
+        /** @type {Array<Array<(typeof regions)[number]>>} */
         const buckets = Array.from({ length: gridSide * gridSide }, () => []);
         for (const region of regions) {
             const box = region.bounds;
@@ -113,6 +133,7 @@ export function clipMeshToOutline(mesh, outline) {
     const maxX = Math.max(...outline.map(point => point.x));
     const minZ = Math.min(...outline.map(point => point.z));
     const maxZ = Math.max(...outline.map(point => point.z));
+    /** @type {ClipEdge[]} */
     const edges = [];
     for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
         edges.push({
@@ -121,10 +142,12 @@ export function clipMeshToOutline(mesh, outline) {
         });
     }
     // Signed distance of (px,pz) to a clip edge; ≥0 means on the inside.
+    /** @param {ClipEdge} e @param {number} px @param {number} pz */
     const side = (e, px, pz) =>
         orient * ((e.bx - e.ax) * (pz - e.az) - (e.bz - e.az) * (px - e.ax));
 
     const out = emptyMesh();
+    /** @param {Vertex} a @param {Vertex} b @param {Vertex} c @param {number[]} color */
     const emitTri = (a, b, c, color) => {
         const base = out.verts.length;
         out.verts.push(a, b, c);
@@ -149,10 +172,11 @@ export function clipMeshToOutline(mesh, outline) {
                     side(e, v2.x, v2.z) < 0) { allIn = false; break; }
             }
             if (allIn) {
-                emitTri({ ...v0 }, { ...v1 }, { ...v2 }, f.color);
+                emitTri({ ...v0 }, { ...v1 }, { ...v2 }, f.color || []);
                 continue;
             }
             // Sutherland–Hodgman: clip the triangle against each outline edge.
+            /** @type {Vertex[]} */
             let poly = [
                 { x: v0.x, y: v0.y, z: v0.z },
                 { x: v1.x, y: v1.y, z: v1.z },
@@ -160,6 +184,7 @@ export function clipMeshToOutline(mesh, outline) {
             ];
             for (const e of edges) {
                 if (poly.length === 0) break;
+                /** @type {Vertex[]} */
                 const next = [];
                 for (let k = 0; k < poly.length; k++) {
                     const S = poly[(k + poly.length - 1) % poly.length];
@@ -188,7 +213,7 @@ export function clipMeshToOutline(mesh, outline) {
                 poly = next;
             }
             for (let k = 1; k + 1 < poly.length; k++) {
-                emitTri(poly[0], poly[k], poly[k + 1], f.color);
+                emitTri(poly[0], poly[k], poly[k + 1], f.color || []);
             }
         }
     }
@@ -203,15 +228,16 @@ export function clipMeshToOutline(mesh, outline) {
  * the convex pieces of `triangle \ holePolygon` (the standard convex-difference
  * decomposition: the part outside edge i but inside edges 0..i-1, unioned over
  * all edges). Triangles clear of every hole pass straight through.
- * @param {{verts:Array, faces:Array}} mesh flat planar mesh (constant-ish y)
- * @param {Array<{x:number,z:number,r:number,ring?:Array<{x:number,z:number}>,y?:number}>} holes drilled holes (board plane)
+ * @param {Mesh} mesh flat planar mesh (constant-ish y)
+ * @param {Hole[]} holes drilled holes (board plane)
  * @param {number} [seg] polygon segments per hole
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     if (!holes || !holes.length || !mesh.faces.length) return mesh;
     // Pre-build each hole as a CCW polygon ring in the (x, z) board plane.
     // Circular bores sample a ring; polygon cutouts carry an explicit ring.
+    /** @type {HoleRing[]} */
     const rings = holes.filter((h) => {
         if (h.ring && h.ring.length >= 3) {
             return h.ring.every((point) => Number.isFinite(point.x) && Number.isFinite(point.z));
@@ -219,6 +245,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         return Number.isFinite(h.x) && Number.isFinite(h.z) && Number.isFinite(h.r) && h.r > 0;
     }).flatMap((h) => {
         if (h.ring && h.ring.length >= 3) {
+            /** @type {XzPoint[]} */
             let pts = h.ring.map((p) => ({ x: p.x, z: p.z }));
             // Half-plane subtraction expects CCW convex rings. Rounded polygons
             // can be concave, so decompose those into convex triangles first.
@@ -245,6 +272,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                 x: h.x, z: h.z, r: h.r, y: h.y,
             }));
         }
+        /** @type {XzPoint[]} */
         const pts = [];
         for (let i = 0; i < seg; i++) {
             const a = (i / seg) * Math.PI * 2;
@@ -271,7 +299,9 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     const gridSide = Math.max(1, Math.min(32, Math.ceil(Math.sqrt(rings.length))));
     const cellWidth = Math.max(1e-9, (maxX - minX) / gridSide);
     const cellHeight = Math.max(1e-9, (maxZ - minZ) / gridSide);
+    /** @type {Map<number, number[]>} */
     const buckets = new Map();
+    /** @param {number} value @param {number} origin @param {number} size */
     const cell = (value, origin, size) => Math.max(0, Math.min(gridSide - 1,
         Math.floor((value - origin) / size)));
     rings.forEach((ring, index) => {
@@ -282,11 +312,13 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         for (let z = z0; z <= z1; z++) {
             for (let x = x0; x <= x1; x++) {
                 const key = z * gridSide + x;
-                if (!buckets.has(key)) buckets.set(key, []);
-                buckets.get(key).push(index);
+                let bucket = buckets.get(key);
+                if (!bucket) buckets.set(key, bucket = []);
+                bucket.push(index);
             }
         }
     });
+    /** @param {Vertex} a @param {Vertex} b @param {Vertex} c @returns {HoleRing[]} */
     const nearbyRings = (a, b, c) => {
         const triangleMinX = Math.min(a.x, b.x, c.x);
         const triangleMaxX = Math.max(a.x, b.x, c.x);
@@ -308,13 +340,15 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             .map(index => rings[index])
             .filter(ring => triangleMinX <= ring.maxX && triangleMaxX >= ring.minX
                 && triangleMinZ <= ring.maxZ && triangleMaxZ >= ring.minZ
-                && !(Number.isFinite(ring.y) && Math.abs(a.y - ring.y) > 1e-6));
+                && !(ring.y !== undefined && Number.isFinite(ring.y) && Math.abs(a.y - ring.y) > 1e-6));
     };
 
     // Signed area-ish test against the directed edge P→Q in the (x,z) plane;
     // ≥0 is the polygon interior side (rings are CCW, so interior is left).
+    /** @param {XzPoint} P @param {XzPoint} Q @param {XzPoint} R */
     const dist = (P, Q, R) =>
         (Q.x - P.x) * (R.z - P.z) - (Q.z - P.z) * (R.x - P.x);
+    /** @param {Vertex} S @param {Vertex} E @param {number} dS @param {number} dE @returns {Vertex} */
     const lerp = (S, E, dS, dE) => {
         const u = dS / (dS - dE);
         return {
@@ -325,7 +359,9 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     };
     // Sutherland–Hodgman clip of a convex polygon against one half-plane.
     // keepInside=true keeps the interior side of edge P→Q, false the exterior.
+    /** @param {Vertex[]} poly @param {XzPoint} P @param {XzPoint} Q @param {boolean} keepInside @returns {Vertex[]} */
     const clipHalf = (poly, P, Q, keepInside) => {
+        /** @type {Vertex[]} */
         const res = [];
         const n = poly.length;
         const s = keepInside ? 1 : -1;
@@ -343,6 +379,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         }
         return res;
     };
+    /** @param {Vertex} first @param {Vertex} second @param {Vertex} third */
     const triangleHasArea = (first, second, third) => {
         const edgeX = second.x - first.x;
         const edgeY = second.y - first.y;
@@ -356,6 +393,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             edgeX * otherY - edgeY * otherX,
         ) > 1e-12;
     };
+    /** @param {Vertex[]} polygon */
     const polygonHasArea = (polygon) => {
         for (let index = 1; index + 1 < polygon.length; index++) {
             if (triangleHasArea(polygon[0], polygon[index], polygon[index + 1])) return true;
@@ -363,7 +401,9 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         return false;
     };
     // piece \ ringPoly → push the resulting convex sub-pieces onto `out`.
+    /** @param {Vertex[]} piece @param {HoleRing} ring @param {Vertex[][]} out */
     const subtractRing = (piece, ring, out) => {
+        /** @param {XzPoint[]} polygon @param {XzPoint[]} other */
         const separatedByEdge = (polygon, other) => {
             const area = polygonAreaXZ(polygon);
             if (area === 0) return false;
@@ -392,6 +432,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         }
         // Whatever remains `inside` every edge is the hole interior → dropped.
     };
+    /** @param {Vertex[]} piece @param {HoleRing} ring */
     const overlapsBounds = (piece, ring) => {
         let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
         for (const p of piece) {
@@ -403,6 +444,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     };
 
     const out = emptyMesh();
+    /** @param {Vertex} a @param {Vertex} b @param {Vertex} c @param {number[]} color */
     const emitTri = (a, b, c, color) => {
         const base = out.verts.length;
         out.verts.push(a, b, c);
@@ -422,10 +464,11 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
                     emitTri(
                         { x: v0.x, y: v0.y, z: v0.z },
                         { x: v1.x, y: v1.y, z: v1.z },
-                        { x: v2.x, y: v2.y, z: v2.z }, f.color);
+                        { x: v2.x, y: v2.y, z: v2.z }, f.color || []);
                 }
                 continue;
             }
+            /** @type {Vertex[][]} */
             let pieces = [[
                 { x: v0.x, y: v0.y, z: v0.z },
                 { x: v1.x, y: v1.y, z: v1.z },
@@ -434,6 +477,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             for (const ring of candidates) {
                 if (typeof ring.y === 'number' && Number.isFinite(ring.y)
                     && Math.abs(pieces[0][0].y - ring.y) > 1e-6) continue;
+                /** @type {Vertex[][]} */
                 const next = [];
                 for (const piece of pieces) {
                     if (overlapsBounds(piece, ring)) subtractRing(piece, ring, next);
@@ -445,7 +489,7 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
             for (const piece of pieces) {
                 for (let k = 1; k + 1 < piece.length; k++) {
                     if (!triangleHasArea(piece[0], piece[k], piece[k + 1])) continue;
-                    emitTri({ ...piece[0] }, { ...piece[k] }, { ...piece[k + 1] }, f.color);
+                    emitTri({ ...piece[0] }, { ...piece[k] }, { ...piece[k + 1] }, f.color || []);
                 }
             }
         }

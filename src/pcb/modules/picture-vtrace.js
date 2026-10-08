@@ -2,6 +2,10 @@ import initialize, { vectorize_rgba } from '../../../assets/vendor/vtracer_wasm.
 import { flattenSvgPath } from '../../shared/pcb/board-geometry.js';
 import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
+/** @typedef {{width: number, height: number, mask: Uint8Array|number[]}} TraceRaster */
+/** @typedef {{x: number, y: number}} Point */
+
+/** @param {TraceRaster} raster @param {{smooth?: number, speckle?: number}} [settings] */
 export async function tracePicture(raster, { smooth = 1, speckle = 0 } = {}) {
     if (!Number.isFinite(smooth) || smooth < 0 || smooth > 5
         || !Number.isInteger(speckle) || speckle < 0 || speckle > 128) {
@@ -38,7 +42,10 @@ export async function tracePicture(raster, { smooth = 1, speckle = 0 } = {}) {
         if (path.hasAttribute('transform') || path.getAttribute('fill') !== '#000000') {
             throw new Error('Unsupported VTracer path output.');
         }
-        for (const points of flattenSvgPath(path.getAttribute('d'), 16, 0.125)) {
+        const pathData = path.getAttribute('d');
+        if (pathData === null) throw new Error('Unsupported VTracer path output.');
+        for (const points of flattenSvgPath(pathData, 16, 0.125)) {
+            /** @type {Point[]} */
             const contour = [];
             for (const point of points) {
                 const bounded = { x: Math.max(0, Math.min(width, point.x)), y: Math.max(0, Math.min(height, point.y)) };
@@ -49,7 +56,8 @@ export async function tracePicture(raster, { smooth = 1, speckle = 0 } = {}) {
                 }
                 contour.push(bounded);
             }
-            if (contour.length > 1 && contour[0].x === contour.at(-1).x && contour[0].y === contour.at(-1).y) contour.pop();
+            const first = contour[0], last = contour.at(-1);
+            if (contour.length > 1 && first && last && first.x === last.x && first.y === last.y) contour.pop();
             if (contour.length >= 3) contours.push(contour);
         }
     }

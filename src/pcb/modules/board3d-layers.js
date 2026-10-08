@@ -22,6 +22,14 @@ import { flatPadMesh, throughHolePadMesh, discMesh, ribbonMesh, flatRingMesh, tu
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {import('./board3d-mesh-ops.js').XzPoint} XzPoint */
+/** @typedef {import('./board3d-mesh-ops.js').MeshVertex} MeshVertex */
+/** @typedef {import('./board3d-mesh-ops.js').MeshFace} MeshFace */
+/** @typedef {import('./board3d-mesh-ops.js').Mesh & {cull?: boolean}} Mesh */
+/** @typedef {{circle?: any, path?: Point[], pathClosed?: boolean, filled?: boolean, lineWidth?: number, strokeSegments?: any[], physicalContours?: Point[][], copperMode?: string}} ResolvedBoardGeometry */
+/** @typedef {{x:number,y?:number,z:number,dia?:number,r:number,slot?:null|{x2:number,y2:number,points?:Point[]}, plated?:boolean, ring?:Array<XzPoint>, layer?:string, boardShape?: boolean}} DrillHole */
+/** @typedef {{x:number,y:number,size:number,shape:string,layers?:string,rotation?:number,drill:number,holeLength?:number,ratio?:number,locked?:boolean,visible?:boolean,net?:string}} StandalonePad */
 
 /**
  * Build a mesh that strokes a list of 2D polylines as flat ribbons with
@@ -30,7 +38,7 @@ import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
  * @param {Array<Array<{x:number,y:number}>>} polys
  * @param {number} strokeWidth @param {number} y @param {number[]} color
  * @param {(px:number, py:number) => {x:number,z:number}} toWorld
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
     const mesh = emptyMesh();
@@ -60,7 +68,7 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
  * @param {any} shape picture board shape
  * @param {number} elevation
  * @param {number[]} color
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export function imageArtworkMesh(shape, elevation, color) {
     const mesh = emptyMesh();
@@ -99,9 +107,9 @@ export function imageArtworkMesh(shape, elevation, color) {
 /**
  * Build one combined copper mesh from all routed Tracks. Each edge becomes a
  * flat ribbon on its layer's surface with round end-caps so joints look smooth.
- * @param {Array} tracks
- * @param {Array} [circles] @param {Array} [boardShapes] @param {any} [texts] a Map of texts or an array
- * @returns {{verts:Array, faces:Array}}
+ * @param {Array<any>} tracks
+ * @param {Array<any>} [circles] @param {Array<any>} [boardShapes] @param {any} [texts] a Map of texts or an array
+ * @returns {Mesh}
  */
 export function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     const mesh = emptyMesh();
@@ -124,8 +132,8 @@ export function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = 
         const bottom = c.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         const color = bottom ? COLOR_COPPER_BOTTOM : COLOR_COPPER_TOP;
-        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, color, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, /** @type {{radius:number}} */ (geometry.circle).radius, geometry.lineWidth, y, color, 32));
     }
     // Non-circular board shapes authored on copper layers. Circles use the
     // specialised disc/ring path above so unfilled rings remain hollow.
@@ -149,7 +157,7 @@ export function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = 
             continue;
         }
         let tri = null;
-        try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
+        try { tri = triangulateWithHoles(o.map((/** @type {Point} */ p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
         if (!tri || !tri.tris.length) continue;
         const base = mesh.verts.length;
         for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
@@ -175,12 +183,16 @@ export function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = 
 }
 
 /**
+ * @param {Point[]} outline
+ * @param {boolean} closed
+ * @param {number} width
  * @returns {Array<{ring:Array<{x:number,z:number}>}>}
  */
 function strokeOutlineHoles(outline, closed, width) {
     const holes = [];
     const radius = width / 2;
     const circleSegments = 12;
+    /** @param {Point} point */
     const addDisc = (point) => {
         const ring = [];
         for (let index = 0; index < circleSegments; index++) {
@@ -210,7 +222,14 @@ function strokeOutlineHoles(outline, closed, width) {
     return holes;
 }
 
-/** Append a flat round-joined stroke for an open or closed sampled outline. */
+/** Append a flat round-joined stroke for an open or closed sampled outline.
+ * @param {Mesh} mesh
+ * @param {Point[]} outline
+ * @param {boolean} closed
+ * @param {number} width
+ * @param {number} y
+ * @param {number[]} color
+ */
 export function appendFlatStroke(mesh, outline, closed, width, y, color) {
     if (outline.length < 2 || !(width > 0)) return;
     const scale = 1e6;
@@ -219,6 +238,7 @@ export function appendFlatStroke(mesh, outline, closed, width, y, color) {
         ClipperLib.JoinType.jtRound, closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
     const tree = new ClipperLib.PolyTree();
     offset.Execute(tree, width * scale / 2);
+    /** @param {Array<{X:number,Y:number}>} ring */
     const convert = ring => ring.map(point => ({ x: point.X / scale, y: point.Y / scale }));
     for (const region of ClipperLib.JS.PolyTreeToExPolygons(tree)) {
         const triangulation = triangulateWithHoles(convert(region.outer), region.holes.map(convert));
@@ -230,6 +250,7 @@ export function appendFlatStroke(mesh, outline, closed, width, y, color) {
     }
 }
 
+/** @param {Mesh} mesh @param {ResolvedBoardGeometry & {centerlineClosed?: boolean}} geometry @param {number} y @param {number[]} color */
 function appendResolvedFlatStroke(mesh, geometry, y, color) {
     if (geometry.strokeSegments?.length) {
         let outline = [];
@@ -248,13 +269,17 @@ function appendResolvedFlatStroke(mesh, geometry, y, color) {
         appendFlatStroke(mesh, outline, false, width, y, color);
         return;
     }
-    appendFlatStroke(mesh, geometry.path, geometry.centerlineClosed, geometry.lineWidth, y, color);
+    appendFlatStroke(mesh, /** @type {Point[]} */ (geometry.path), !!geometry.centerlineClosed, geometry.lineWidth || 0, y, color);
 }
 
-/** Approximate a stroked circle with bounded convex annular sectors. */
+/** Approximate a stroked circle with bounded convex annular sectors.
+ * @param {any} circle
+ * @param {number} [segments]
+ */
 function circleStrokeHoles(circle, segments = 24) {
     const geometry = resolveBoardShapeGeometry(circle);
-    const radius = geometry.circle.radius;
+    const circleGeometry = /** @type {{radius:number,outerRadius:number}} */ (geometry.circle);
+    const radius = circleGeometry.radius;
     const halfWidth = geometry.lineWidth / 2;
     const outerRadius = radius + halfWidth;
     const innerRadius = Math.max(0, radius - halfWidth);
@@ -280,21 +305,24 @@ function circleStrokeHoles(circle, segments = 24) {
     return holes;
 }
 
+/** @param {ResolvedBoardGeometry} geometry */
 function resolvedRemovalHoles(geometry) {
     const contours = geometry.physicalContours;
-    if (contours) return regionFillContours(contours).map(contour => ({
+    if (contours) return regionFillContours(contours).map((/** @type {Point[]} */ contour) => ({
         ring: contour.map(point => ({ x: point.x, z: point.y })),
     }));
-    const holes = geometry.filled && geometry.path.length >= 3
-        ? [{ ring: geometry.path.map(point => ({ x: point.x, z: point.y })) }] : [];
+    const path = /** @type {Point[]} */ (geometry.path || []);
+    const holes = geometry.filled && path.length >= 3
+        ? [{ ring: path.map(point => ({ x: point.x, z: point.y })) }] : [];
     if (geometry.strokeSegments?.length) {
         for (const segment of geometry.strokeSegments) {
             holes.push(...strokeOutlineHoles([segment.start, segment.end], false, segment.lineWidth));
         }
-    } else holes.push(...strokeOutlineHoles(geometry.path, geometry.pathClosed, geometry.lineWidth));
+    } else holes.push(...strokeOutlineHoles(path, !!geometry.pathClosed, geometry.lineWidth || 0));
     return holes;
 }
 
+/** @param {Array<any>} [boardShapes] */
 export function collectCopperSubtractHoles(boardShapes = []) {
     const holes = [];
     for (const c of boardShapes || []) {
@@ -305,7 +333,7 @@ export function collectCopperSubtractHoles(boardShapes = []) {
         if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
         const y = c.layer === 'bottom-copper' ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
         if (geometry.filled) {
-            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius, y });
+            holes.push({ x: c.x, z: c.y, r: /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius, y });
         } else {
             holes.push(...circleStrokeHoles(c).map((hole) => ({ ...hole, y })));
         }
@@ -316,20 +344,22 @@ export function collectCopperSubtractHoles(boardShapes = []) {
         const geometry = resolveBoardShapeGeometry(shape);
         if (geometry.copperMode !== 'remove-copper' && geometry.copperMode !== 'remove-copper-mask') continue;
         const y = shape.layer === 'bottom-copper' ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-        holes.push(...resolvedRemovalHoles(geometry).map(hole => ({ ...hole, y })));
+        holes.push(...resolvedRemovalHoles(geometry).map((/** @type {any} */ hole) => ({ ...hole, y })));
     }
     return holes;
 }
 
 /**
  * Collect mask openings for one board side.
- * @param {Array} boardShapes
+ * @param {Array<any>} boardShapes
  * @param {'top'|'bottom'} side
+ * @param {Map<string, any>} [placements]
+ * @param {StandalonePad[]} [pads]
  * @returns {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>}
  */
 export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placements = new Map(), pads = []) {
      /** @type {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>} */
-    const holes = resolvePadMaskOpenings(placements, side).map(flash => ({
+    const holes = resolvePadMaskOpenings(placements, side).map((/** @type {any} */ flash) => ({
         ring: padFlashOutline(flash).map(point => ({ x: point.x, z: point.y })),
     }));
     const copperLayer = `${side}-copper`;
@@ -348,7 +378,7 @@ export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placemen
             const cSide = layer === 'bottom-mask' ? 'bottom' : 'top';
             if (cSide !== side) continue;
             const geometry = resolveBoardShapeGeometry(c);
-            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
+            holes.push({ x: c.x, z: c.y, r: /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius });
             continue;
         }
         if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
@@ -357,7 +387,7 @@ export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placemen
         const geometry = resolveBoardShapeGeometry(c);
         if (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask') continue;
         if (geometry.filled) {
-            holes.push({ x: c.x, z: c.y, r: geometry.circle.outerRadius });
+            holes.push({ x: c.x, z: c.y, r: /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius });
         } else {
             holes.push(...circleStrokeHoles(c));
         }
@@ -381,7 +411,7 @@ export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placemen
  * @param {Array<{x:number,z:number}>} outline
  * @param {number} y
  * @param {boolean} reverse winding for bottom face
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export function buildMaskFaceMesh(outline, y, reverse = false) {
     const mesh = emptyMesh();
@@ -408,8 +438,8 @@ export function buildMaskFaceMesh(outline, y, reverse = false) {
  * geometry (an array of ExPolygons {outer, holes} in world mm) is laid flat
  * on its copper plane and triangulated (holes punched) so it reads as solid
  * copper matching the tracks on that side.
- * @param {Array} fills  app.copperFills
- * @returns {{verts:Array, faces:Array}}
+ * @param {Array<any>} fills  app.copperFills
+ * @returns {Mesh}
  */
 export function buildFillMesh(fills) {
     const mesh = emptyMesh();
@@ -443,8 +473,8 @@ export function buildFillMesh(fills) {
  * rebuildSurfaces), and here we line that bore with a single gold barrel whose
  * top/bottom rings ARE the annular pads on each face. The open centre reads as
  * a genuine hole rather than a painted dot — matching the through-hole pads.
- * @param {Array} vias
- * @returns {{verts:Array, faces:Array}}
+ * @param {Array<any>} vias
+ * @returns {Mesh}
  */
 export function buildViaMesh(vias) {
     const mesh = emptyMesh();
@@ -467,6 +497,8 @@ export function buildViaMesh(vias) {
  * Build gold barrel walls for plated Hole-layer shapes. The board opening is
  * the union of every bore, but a wall segment is plated only when that exposed
  * union boundary came from a plated board shape.
+ * @param {DrillHole[]} drilledHoles
+ * @returns {Mesh}
  */
 export function buildPlatedShapeHoleMesh(drilledHoles) {
     const mesh = emptyMesh();
@@ -494,6 +526,7 @@ export function buildPlatedShapeHoleMesh(drilledHoles) {
         }
         return mesh;
     }
+    /** @param {Point} a @param {Point} b */
     const isPlatedBoundary = (a, b) => {
         const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         return platedRings.some((ring) => ring.some((start, index) => {
@@ -508,7 +541,10 @@ export function buildPlatedShapeHoleMesh(drilledHoles) {
     return mesh;
 }
 
-/** Copper flash of a standalone pad, optionally grown by a mask/paste expansion. */
+/** Copper flash of a standalone pad, optionally grown by a mask/paste expansion.
+ * @param {StandalonePad} pad
+ * @param {number} [expansion]
+ */
 function standalonePadFlash(pad, expansion = 0) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
     return {
@@ -520,10 +556,12 @@ function standalonePadFlash(pad, expansion = 0) {
     };
 }
 
+/** @param {StandalonePad} pad */
 function standalonePadBarrelRadius(pad) {
     return Math.max(0.05, pad.drill / 2 - 0.02);
 }
 
+/** @param {StandalonePad} pad */
 function standalonePadBarrelOutline(pad) {
     if (!(pad.drill > 0)) return [];
     const radius = standalonePadBarrelRadius(pad);
@@ -536,6 +574,7 @@ function standalonePadBarrelOutline(pad) {
     });
 }
 
+/** @param {StandalonePad} pad @returns {Mesh} */
 export function standalonePadMesh(pad) {
     const flash = standalonePadFlash(pad);
     if (!(pad.drill > 0)) {
@@ -560,6 +599,7 @@ export function standalonePadMesh(pad) {
     );
 }
 
+/** @param {StandalonePad} pad @param {XzPoint[]} boardOutline @returns {Mesh} */
 export function standalonePadEdgeMesh(pad, boardOutline) {
     const mesh = emptyMesh();
     if (!Array.isArray(boardOutline) || boardOutline.length < 3) return mesh;
@@ -569,7 +609,9 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
     const padPolygon = padOutline.map(point => ({ x: point.x, y: point.z }));
     const barrelOutline = standalonePadBarrelOutline(pad);
     const barrelPolygon = barrelOutline.map(point => ({ x: point.x, y: point.z }));
+    /** @param {number} ax @param {number} az @param {number} bx @param {number} bz */
     const cross = (ax, az, bx, bz) => ax * bz - az * bx;
+    /** @param {number[]} values @param {XzPoint} a @param {XzPoint} b @param {XzPoint} c @param {XzPoint} d */
     const addIntersection = (values, a, b, c, d) => {
         const rx = b.x - a.x;
         const rz = b.z - a.z;
@@ -583,6 +625,7 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
         const u = cross(qx, qz, rx, rz) / denominator;
         if (t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) values.push(t);
     };
+    /** @param {XzPoint} a @param {XzPoint} b @param {number} t */
     const pointAt = (a, b, t) => ({
         x: a.x + (b.x - a.x) * t,
         z: a.z + (b.z - a.z) * t,
@@ -625,18 +668,19 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
     return mesh;
 }
 
+/** @param {DrillHole[]} drilledHoles */
 export function boardCutoutEdgeRings(drilledHoles) {
     const rings = (drilledHoles || [])
-        .filter(hole => hole?.boardShape)
-        .flatMap(hole => {
+        .filter((/** @type {any} */ hole) => hole?.boardShape)
+        .flatMap((/** @type {any} */ hole) => {
             if (Array.isArray(hole.ring) && hole.ring.length >= 3) {
-                return [hole.ring.map(point => ({ x: point.x, y: point.z }))];
+                return [hole.ring.map((/** @type {XzPoint} */ point) => ({ x: point.x, y: point.z }))];
             }
             return hole.r > 0 ? [circleRing(hole.x, hole.z, hole.r, 48)] : [];
         });
     const unioned = unionBoreRings(rings);
     return (unioned || rings)
-        .map(ring => ring.map(point => ({ x: point.x, z: point.y })));
+        .map((/** @type {Point[]} */ ring) => ring.map(point => ({ x: point.x, z: point.y })));
 }
 
 /**
@@ -644,8 +688,8 @@ export function boardCutoutEdgeRings(drilledHoles) {
  * all component placements, in world board-plane coordinates. These are bored
  * clean through the board slab by {@link boardWithHoles}; plated holes are
  * additionally lined with a gold barrel by {@link padMesh}.
- * @param {Iterable<[string, object]>} placements
- * @param {Array} [pads] standalone pads
+ * @param {Iterable<[string, any]>} placements
+ * @param {StandalonePad[]} [pads] standalone pads
  * @returns {Array<{x:number,z:number,r:number,plated:boolean,boardShape?:boolean,ring?:Array<{x:number,z:number}>}>}
  */
 export function collectBoardHoles(placements, pads = []) {
@@ -683,8 +727,8 @@ export function collectBoardHoles(placements, pads = []) {
  * Drawn BETWEEN board and copper, so copper shows where it exists and raw
  * board remains where it does not.
  * Legacy mask-layer circles are treated as area openings (filled).
- * @param {Array} boardShapes
- * @returns {{verts:Array, faces:Array}}
+ * @param {Array<any>} boardShapes
+ * @returns {Mesh}
  */
 export function buildMaskOpeningMesh(boardShapes = []) {
     const mesh = emptyMesh();
@@ -696,7 +740,7 @@ export function buildMaskOpeningMesh(boardShapes = []) {
             const geometry = resolveBoardShapeGeometry(c);
             const bottom = layer === 'bottom-mask';
             const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-            appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
+            appendMesh(mesh, discMesh(c.x, c.y, /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
             continue;
         }
         if (layer !== 'top-copper' && layer !== 'bottom-copper') continue;
@@ -704,8 +748,8 @@ export function buildMaskOpeningMesh(boardShapes = []) {
         if (geometry.copperMode !== 'remove-solder-mask' && geometry.copperMode !== 'remove-copper-mask') continue;
         const bottom = layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
-        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, COLOR_RAW_BOARD, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius, y, COLOR_RAW_BOARD, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, /** @type {{radius:number}} */ (geometry.circle).radius, geometry.lineWidth, y, COLOR_RAW_BOARD, 32));
     }
     for (const shape of boardShapes || []) {
         if (!shape || shape.kind === 'circle') continue;
@@ -726,7 +770,7 @@ export function buildMaskOpeningMesh(boardShapes = []) {
         }
         if (outline.length < 3) continue;
         let tri = null;
-        try { tri = triangulateWithHoles(outline.map((point) => ({ x: point.x, y: point.y })), []); } catch { tri = null; }
+        try { tri = triangulateWithHoles(outline.map((/** @type {Point} */ point) => ({ x: point.x, y: point.y })), []); } catch { tri = null; }
         if (!tri?.tris?.length) continue;
         const base = mesh.verts.length;
         for (const point of tri.pts) mesh.verts.push({ x: point.x, y, z: point.y });
@@ -742,18 +786,19 @@ export function buildMaskOpeningMesh(boardShapes = []) {
  * or bottom face as appropriate. Stroke-font text is handled separately by
  * {@link buildTextMesh}.
  * @param {PcbBoard} app
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export function buildSilkMesh(app) {
     const placements = app?.placements || [];
-    const circles = (app?.boardShapes || []).filter((shape) => shape?.kind === 'circle');
+    const circles = (app?.boardShapes || []).filter((/** @type {any} */ shape) => shape?.kind === 'circle');
     const mesh = emptyMesh();
     const color = [...COLOR_SILK];
     // Footprint silk shapes via the shared resolver. Each descriptor carries
     // its effective side, so both faces are built from one pass. Stroke width
     // and the `filled` flag now match the 2D preview and Gerber output (the 3D
     // view previously defaulted stroke to 0.15 and never filled paths).
-    for (const sk of resolveSilk(placements)) {
+    for (const rawSk of resolveSilk(placements)) {
+        const sk = /** @type {any} */ (rawSk);
         const bottom = sk.side === 'bottom';
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         if (sk.kind === 'line') {
@@ -802,8 +847,8 @@ export function buildSilkMesh(app) {
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         const geometry = resolveBoardShapeGeometry(c);
-        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, color, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, /** @type {{outerRadius:number}} */ (geometry.circle).outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, /** @type {{radius:number}} */ (geometry.circle).radius, geometry.lineWidth, y, color, 32));
     }
     // Free-standing board shapes (rect/polygon/arc) on the silk layers.
     for (const s of (app.boardShapes || [])) {
@@ -821,7 +866,7 @@ export function buildSilkMesh(app) {
         }
         if (geometry.filled && o.length >= 3) {
             let tri = null;
-            try { tri = triangulateWithHoles(o.map((p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
+            try { tri = triangulateWithHoles(o.map((/** @type {Point} */ p) => ({ x: p.x, y: p.y })), []); } catch { tri = null; }
             if (tri && tri.tris.length) {
                 const base = mesh.verts.length;
                 for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
@@ -848,7 +893,9 @@ export function buildSilkMesh(app) {
 
 /** Viewer-owned immutable mesh cache; compare authored inputs, not expanded image triangles. */
 export function createSilkArtworkMeshCache() {
+    /** @type {{input: any, mesh: Mesh}|null} */
     let cached = null;
+    /** @param {Array<any>} boardShapes */
     return (boardShapes) => {
         const input = { boardShapes, color: [...COLOR_SILK] };
         if (cached && surfaceInputsEqual(cached.input, input)) return cached.mesh;
@@ -864,7 +911,7 @@ export function createSilkArtworkMeshCache() {
  * annotations plus component reference designators — as white silk strokes
  * (copper-coloured when the text lives on a copper layer).
  * @param {PcbEditor} app PCBApp instance
- * @returns {{verts:Array, faces:Array}}
+ * @returns {Mesh}
  */
 export function buildTextMesh(app) {
     const mesh = emptyMesh();

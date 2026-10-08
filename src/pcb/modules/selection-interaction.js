@@ -29,6 +29,12 @@ import { selectRefText } from './ref-text-selection.js';
 import { setLastPointerWorld } from './cursor-state.js';
 import { showFillProperties } from './copper-fill-edit.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./selection-registry.js').SelectionAnchor} SelectionAnchor */
+/** @typedef {import('./selection-registry.js').PcbSelectionEntry} SelectionEntry */
+/** @typedef {import('./selection-registry.js').SelectionAdapter} SelectionAdapter */
+/** @typedef {{adapter: SelectionAdapter, anchor: SelectionAnchor}} SelectionAnchorHit */
+/** @typedef {{mode: 'cycle', startWorld: Point, additive: boolean, adapter?: SelectionAdapter}|{mode: 'anchor'|'floating-anchor'|'circle-anchor', startWorld: Point, moved: boolean, adapter: SelectionAdapter, anchor: SelectionAnchor, anchorId: string|number|undefined, anchorKey?: string|number}|{mode: 'move', entry?: SelectionEntry, adapter?: SelectionAdapter}|{mode: 'move-adapter', entry: SelectionEntry, startWorld: Point, moved: boolean, adapter?: SelectionAdapter}} SelectionInteractionState */
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
@@ -37,10 +43,13 @@ const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'f
  * @param {PcbEditor} app
  */
 export function getSelectionInteraction(app) {
-    return getPcbInteraction(app, '_pcbSelectionInteraction');
+    return /** @type {SelectionInteractionState|null} */ (getPcbInteraction(app, '_pcbSelectionInteraction'));
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {SelectionInteractionState|null} state
+ */
 export function setSelectionInteraction(app, state) {
     setPcbInteraction(app, '_pcbSelectionInteraction', state);
 }
@@ -64,19 +73,22 @@ export function clearSelectionInteractionUi(app) {
     selectBoardShape(app, null);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {SelectionEntry} entry
+ */
 function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
-        app.selectComponent?.(entry.object);
+        app.selectComponent?.(/** @type {string} */ (entry.object));
         app.showComponentProperties?.(entry.object);
     } else if (entry.kind === 'text') {
         app.selectText?.(entry.object);
         app.showTextProperties?.(entry.object);
     } else if (entry.kind === 'reftext') {
-        selectRefText(app, entry.object);
-        app.showRefProperties?.(entry.object);
+        selectRefText(app, /** @type {string} */ (entry.object));
+        app.showRefProperties?.(/** @type {string} */ (entry.object));
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
-    else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);
+    else if (entry.kind === 'track') showTrackSelectionProperties(app, /** @type {import('../../shapes/track.js').Track} */ (entry.object));
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
     else if (entry.kind === 'pad') app.showPadProperties?.(entry.object);
     else if (entry.kind === 'fill') {
@@ -90,7 +102,7 @@ function showSingleProperties(app, entry) {
  * @param {PcbEditor} app
  */
 export function showPcbSelectionProperties(app) {
-    const selected = getPcbSelectionEntries(app);
+    const selected = /** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app));
     if (!selected.length) {
         app.clearProperties?.();
         return;
@@ -120,6 +132,10 @@ export function showPcbSelectionProperties(app) {
 /**
  * Start an anchor gesture; context-menu actions may request floating placement.
  * @param {PcbEditor} app
+ * @param {SelectionAdapter} adapter
+ * @param {SelectionAnchor} anchor
+ * @param {Point} worldPos
+ * @param {boolean} [floating]
  */
 export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floating = false) {
     if (adapter.locked) return false;
@@ -140,12 +156,17 @@ export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floati
     return true;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {boolean} additive
+ * @param {boolean} [cycle]
+ */
 export function beginSelectionInteraction(app, worldPos, additive, cycle = false) {
     setLastPointerWorld(app, worldPos);
-    const selected = getPcbSelectionEntries(app);
+    const selected = /** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app));
     if (cycle || additive) {
-        const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);
+        const entry = /** @type {(app: PcbEditor, point: Point, kinds: Set<string>) => SelectionEntry|null} */ (/** @type {unknown} */ (hitTestPcbSelectionEntry))(app, worldPos, SUPPORTED_KINDS);
         if (!entry) return false;
         if (cycle) {
             setSelectionInteraction(app, { mode: 'cycle', startWorld: { ...worldPos }, additive });
@@ -162,12 +183,12 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     // multi-selection drag through beginGroupDrag before inspecting anchors.
     if (!additive && selected.length > 1) return false;
 
-    const selectedAnchor = hitTestPcbSelectionAnchor(app, worldPos, SUPPORTED_KINDS);
+    const selectedAnchor = /** @type {SelectionAnchorHit|null} */ (/** @type {(app: PcbEditor, point: Point, kinds: Set<string>) => SelectionAnchorHit|null} */ (/** @type {unknown} */ (hitTestPcbSelectionAnchor))(app, worldPos, SUPPORTED_KINDS));
     if (selectedAnchor && beginPcbAnchorInteraction(app, selectedAnchor.adapter, selectedAnchor.anchor, worldPos)) {
         return true;
     }
 
-    const hits = getPcbSelectionHits(app, worldPos, SUPPORTED_KINDS);
+    const hits = /** @type {SelectionEntry[]} */ (/** @type {(app: PcbEditor, point: Point, kinds: Set<string>) => SelectionEntry[]} */ (/** @type {unknown} */ (getPcbSelectionHits))(app, worldPos, SUPPORTED_KINDS));
     const entry = hits.find(hit => selected.some(item => item.id === hit.id)) || hits[0];
     if (!entry) return false;
 
@@ -200,6 +221,7 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
 /**
  * Update the active supported-entity pointer state.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateSelectionInteraction(app, worldPos) {
     const state = getSelectionInteraction(app);
@@ -209,9 +231,9 @@ export function updateSelectionInteraction(app, worldPos) {
         if (Math.hypot(worldPos.x - state.startWorld.x, worldPos.y - state.startWorld.y) <= threshold) return true;
         setSelectionInteraction(app, null);
         if (!beginSelectionInteraction(app, state.startWorld, false)) {
-            const entry = hitTestPcbSelectionEntry(app, state.startWorld, SUPPORTED_KINDS);
+            const entry = /** @type {(app: PcbEditor, point: Point, kinds: Set<string>) => SelectionEntry|null} */ (/** @type {unknown} */ (hitTestPcbSelectionEntry))(app, state.startWorld, SUPPORTED_KINDS);
             if (!entry) return true;
-            if (getPcbSelectionEntries(app).some((item) => item.id === entry.id)) {
+            if ((/** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app))).some((item) => item.id === entry.id)) {
                 beginGroupDrag(app, state.startWorld);
                 setSelectionInteraction(app, { mode: 'move' });
             } else {
@@ -253,6 +275,8 @@ export function updateSelectionInteraction(app, worldPos) {
 /**
  * Finish the active supported-entity pointer state.
  * @param {PcbEditor} app
+ * @param {boolean} [commit]
+ * @param {Point|null} [worldPos]
  */
 export function finishSelectionInteraction(app, commit = true, worldPos = null) {
     if (commit && worldPos && getSelectionInteraction(app)?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
@@ -269,8 +293,8 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     try {
         if (state.mode === 'cycle') {
             if (commit) {
-                const selected = getPcbSelectionEntries(app);
-                const hits = getPcbSelectionHits(app, state.startWorld, SUPPORTED_KINDS);
+                const selected = /** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app));
+                const hits = /** @type {SelectionEntry[]} */ (/** @type {(app: PcbEditor, point: Point, kinds: Set<string>) => SelectionEntry[]} */ (/** @type {unknown} */ (getPcbSelectionHits))(app, state.startWorld, SUPPORTED_KINDS));
                 const index = hits.findIndex((hit) => selected.some((item) => item.id === hit.id));
                 const next = hits[(index + 1) % hits.length];
                 if (next) {
@@ -293,7 +317,7 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     } finally {
         setSelectionInteraction(app, null);
         refreshBoxSelectionHighlights(app);
-        if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
+        if ('anchor' in state && state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
     }
     return true;
 }

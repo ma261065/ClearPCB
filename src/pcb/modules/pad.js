@@ -2,17 +2,22 @@ import { padLayers, padOutline } from '../../shapes/pad-geometry.js';
 export { padLayers, padOutline, padBounds, padHitTest, padFlash } from '../../shapes/pad-geometry.js';
 import { textColorForLayer } from './pcb-text.js';
 import { renderDrillBore } from './drill-bore.js';
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
 
 const NS = 'http://www.w3.org/2000/svg';
 
 /** @type {WeakMap<object, SVGElement[]>} */
 const padElements = new WeakMap();
 
+/**
+ * @param {Pad} pad
+ * @param {Element|null|undefined} root
+ */
 export function updatePadHighlightGeometry(pad, root) {
     if (!root?.querySelectorAll) return;
     const points = padOutline({ ...pad, x: 0, y: 0 })
         .map(point => `${point.x},${point.y}`).join(' ');
-    for (const element of root.querySelectorAll('[data-pad-id]')) {
+    for (const element of /** @type {NodeListOf<SVGElement>} */ (root.querySelectorAll('[data-pad-id]'))) {
         if (element.dataset.padId !== pad.id
             || (!element.classList.contains('pcb-track-hover')
                 && !element.classList.contains('pcb-box-pad-sel'))) continue;
@@ -21,11 +26,13 @@ export function updatePadHighlightGeometry(pad, root) {
     }
 }
 
+/** @param {Pad} pad */
 export function removePadElements(pad) {
     for (const element of padElements.get(pad) || []) element.remove();
     padElements.delete(pad);
 }
 
+/** @param {Pad} pad */
 export function padCopperPathD(pad) {
     const points = padOutline(pad);
     if (!points.length) return '';
@@ -39,6 +46,11 @@ export function padCopperPathD(pad) {
     return path;
 }
 
+/**
+ * @param {Pad} pad
+ * @param {(layer: string) => SVGGElement|null} getLayerGroup
+ * @param {string|null} [strokeOverride]
+ */
 export function renderPad(pad, getLayerGroup, strokeOverride = null) {
     removePadElements(pad);
     if (pad.visible === false) return;

@@ -13,8 +13,16 @@ import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './tra
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{id: string, kind: 'pad', object: Pad, visible: boolean, locked: boolean, getBounds: () => ReturnType<Pad['getBounds']>, getLockPosition: (pointer: Point|null|undefined, scale: number) => Point|null, hitTest: (point: Point) => boolean, getPosition: () => Point, getAnchors: () => unknown[], beginMove: (worldPos: Point) => unknown, updateMove: (worldPos: Point) => void, endMove: (commit: boolean) => void, beginAnchorDrag: (anchorId: string, worldPos: Point) => boolean, updateAnchorDrag: (worldPos: Point) => void, endAnchorDrag: (commit: boolean) => void, invalidate: () => void}} PadSelectionAdapter */
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Pad} pad
+ * @param {string} id
+ * @returns {PadSelectionAdapter}
+ */
 export function createPadSelectionAdapter(app, pad, id) {
     pad = canonicalPad(app, pad);
     const current = () => displayedPad(app, pad);
@@ -37,7 +45,7 @@ export function createPadSelectionAdapter(app, pad, id) {
         getAnchors() {
             const pad = current();
             return pad.shape === 'round'
-                ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale)];
+                ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale ?? 1)];
         },
         beginMove(worldPos) {
             getPropertyEditor(app, 'pad')?.commit();
@@ -67,7 +75,7 @@ export function createPadSelectionAdapter(app, pad, id) {
             );
             if (current().rotation === rotation) return;
             const copy = previewPadRotation(app, pad, rotation);
-            renderPad(copy, layer => app.getLayerGroup(layer));
+            renderPad(copy, /** @param {string} layer */ (layer) => app.getLayerGroup(layer));
             updatePadHighlightGeometry(copy, app.getLayerGroup('selection-overlay'));
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropPadRotation'));
             if (input) input.value = String(Math.round(rotation) % 360);
@@ -80,7 +88,7 @@ export function createPadSelectionAdapter(app, pad, id) {
                 ? () => app.history.execute(new ModifyPadCommand(app, pad, before, { ...before, rotation }))
                 : undefined);
         },
-        invalidate() { renderPad(current(), layer => app.getLayerGroup(layer)); },
+        invalidate() { renderPad(current(), /** @param {string} layer */ (layer) => app.getLayerGroup(layer)); },
     };
 }
 

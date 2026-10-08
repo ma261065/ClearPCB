@@ -13,7 +13,13 @@ import { buildFillContext } from './fill-context.js';
 import { scheduleDrc } from './drc-state.js';
 import { invalidateDrcRefresh } from './drc-refresh.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {import('./copper-fill-geom.js').FillRegion} FillRegion */
+/** @typedef {{revision:number, frame:object|null, waiting:boolean, owed:boolean, worker:any, failed:boolean}} FillRefreshState */
+/** @typedef {{terminal?: boolean}} DisposeFillRefreshOptions */
 
+/** @type {WeakMap<PcbEditor, FillRefreshState>} */
 const states = new WeakMap();
 const disposedApps = new WeakSet();
 /** @param {PcbEditor} app */
@@ -25,21 +31,22 @@ function stateFor(app) {
     }
     return state;
 }
-/** @param {PcbEditor} app */
-const fillsFor = app => app.pcbDocument.copperFills || [];
+/** @param {PcbEditor} app @returns {CopperFill[]} */
+const fillsFor = app => /** @type {CopperFill[]} */ (app.pcbDocument.copperFills || []);
 /** @param {PcbEditor} app */
 const deferred = app => {
     const status = refreshStatus(app);
     return status.pictureCopperPending || status.overlaysDeferred || status.fillSuspended || app.isSectionEditing?.();
 };
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} message @param {any} error */
 function reportFailure(app, message, error) {
     setFillRefreshError(app, error);
     console.error(message, error);
     app.setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
 }
 
+/** @param {FillRefreshState} state */
 function stopWaiting(state) {
     state.waiting = false;
 }
@@ -63,6 +70,7 @@ onEditSettled(queueResume);
  * Hold an owed recompute until nothing defers it: whatever ends last notes the edit
  * settled (refresh-state.js) and the recompute runs then. Nothing polls.
  * @param {PcbEditor} app
+ * @param {FillRefreshState} state
  */
 function waitUntilSettled(app, state) {
     state.owed = true;
@@ -98,6 +106,7 @@ export function invalidateFillRefresh(app) {
 /**
  * Cancel callbacks and terminate the worker; activation may create a fresh service.
  * @param {PcbEditor} app
+ * @param {DisposeFillRefreshOptions} [options]
  */
 export function disposeFillRefresh(app, options = {}) {
     const state = states.get(app);
@@ -123,7 +132,7 @@ function cancelScheduled(app) {
     return state;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {FillRefreshState} state @param {number} revision @param {PcbDocument} model @param {CopperFill[]} fills */
 function current(app, state, revision, model, fills) {
     const loaded = fillsFor(app);
     return states.get(app) === state && state.revision === revision
@@ -134,17 +143,20 @@ function current(app, state, revision, model, fills) {
 /**
  * Publish the whole batch before any render or connectivity observer sees it.
  * @param {PcbEditor} app
+ * @param {CopperFill[]} fills
+ * @param {FillRegion[][]} results
+ * @param {any[][]} [contacts]
  */
 export function adoptFillResults(app, fills, results, contacts) {
     if (contacts) results.forEach((regions, index) => regions.forEach((region, regionIndex) =>
         validateCopperRegionContact(region, contacts[index]?.[regionIndex])));
     const previous = fills.map(getComputedFill);
-    const groups = new Map(['top-fill', 'bottom-fill'].map(id => [id, app.getLayerGroup(id)]));
+    const groups = /** @type {Map<string, SVGGElement|null|undefined>} */ (new Map(['top-fill', 'bottom-fill'].map(id => [id, app.getLayerGroup(id)])));
     const staged = new Map([...groups].map(([id, group]) => [id, /** @type {SVGGElement|undefined} */ (group?.cloneNode(false))]));
     const previousChildren = new Map([...groups].map(([id, group]) => [id, [...(group?.children || [])]]));
     try {
         for (const [index, fill] of fills.entries()) setComputedFill(fill, results[index]);
-        for (const fill of fills) renderCopperFill(fill, id => staged.get(id), {
+        for (const fill of fills) renderCopperFill(fill, id => /** @type {SVGGElement} */ (staged.get(id)), {
             selected: isPcbSelected(app, 'fill', fill),
         });
     } catch (error) {
@@ -155,13 +167,13 @@ export function adoptFillResults(app, fills, results, contacts) {
         clearFillGroups(app);
         for (const [id, group] of groups) {
             const source = staged.get(id);
-            while (source?.firstChild) group.appendChild(source.firstChild);
+            while (source?.firstChild && group) group.appendChild(source.firstChild);
         }
     } catch (error) {
         fills.forEach((fill, index) => setComputedFill(fill, previous[index]));
         for (const [id, group] of groups) {
             while (group?.firstChild) group.firstChild.remove();
-            for (const child of previousChildren.get(id)) group.appendChild(child);
+            if (group) for (const child of /** @type {Element[]} */ (previousChildren.get(id))) group.appendChild(child);
         }
         throw error;
     }
@@ -196,7 +208,7 @@ export function recomputeFillsNow(app) {
         const revision = state.revision, model = app.pcbDocument;
         loadClipper().then(() => {
             if (current(app, state, revision, model, fills)) recomputeFillsNow(app);
-        }).catch(error => {
+        }).catch(/** @param {any} error */ error => {
             if (!current(app, state, revision, model, fills)) return;
             reportFailure(app, 'Failed to load copper-fill geometry:', error);
             setFillRefreshPending(app, true);
@@ -266,7 +278,7 @@ export function scheduleFillRefresh(app) {
         }
         state.worker ||= createFillWorker();
         setFillRefreshPending(app, true);
-        state.worker.build(inputs).then(batch => {
+        state.worker.build(inputs).then(/** @param {{results: FillRegion[][], contacts: any[][][]}|null} batch */ batch => {
             if (!current(app, state, revision, model, fills)) {
                 if (states.get(app) === state && state.revision === revision) {
                     if (app.pcbDocument === model && fillsFor(app).length) scheduleFillRefresh(app);
@@ -285,7 +297,7 @@ export function scheduleFillRefresh(app) {
                     setFillRefreshPending(app, true);
                 }
             }
-        }, error => {
+        }, /** @param {any} error */ error => {
             if (states.get(app) !== state) return;
             if (!state.failed) reportFailure(app, 'Copper-fill worker failed; using synchronous refresh:', error);
             state.failed = true;

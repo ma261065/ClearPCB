@@ -7,6 +7,7 @@ import { pcbTextHitTest, renderPcbText } from './pcb-text.js';
 import { refreshBoardShapeClearance } from './clearance-overlay.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
 
 const textElements = new WeakMap();
 const hoveredTexts = new WeakMap();
@@ -24,6 +25,7 @@ function elementMap(app) {
 /**
  * Render `text` into its layer group, replacing any prior SVG for the same id.
  * @param {PcbEditor} app
+ * @param {PcbText} text
  */
 export function renderText(app, text) {
     removeTextElement(app, text.id);
@@ -53,6 +55,7 @@ export function renderText(app, text) {
 /**
  * Remove the SVG element for a text id (model untouched).
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function removeTextElement(app, id) {
     const map = elementMap(app);
@@ -64,6 +67,7 @@ export function removeTextElement(app, id) {
 /**
  * Return the currently rendered SVG element for a text id, or null.
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function getTextElement(app, id) {
     return elementMap(app).get(id) || null;
@@ -81,6 +85,7 @@ export function clearTextElements(app) {
  * Hit-test the given world point against every text. Returns the
  * topmost (last-added) hit, or null.
  * @param {PcbEditor} app
+ * @param {{x: number, y: number}} worldPos
  */
 export function hitTestText(app, worldPos) {
     let hit = null;
@@ -94,6 +99,7 @@ export function hitTestText(app, worldPos) {
 /**
  * Set/clear hover highlight for text annotations.
  * @param {PcbEditor} app
+ * @param {PcbText|null} text
  */
 export function setTextHover(app, text) {
     const prev = hoveredTexts.get(app) || null;
@@ -108,6 +114,7 @@ export function setTextHover(app, text) {
 /**
  * Re-render an existing text in place (e.g. after a property change).
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function refreshText(app, id) {
     const t = app.texts.get(id);

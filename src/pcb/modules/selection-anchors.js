@@ -6,6 +6,8 @@ import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers
 import { boundsOutline, lockPositionOutsideOutline } from '../../core/lock-position.js';
 import { getLastPointerWorld } from './cursor-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./selection-registry.js').SelectionAnchor} SelectionAnchor */
 
 export { lockPositionOutsideOutline };
 
@@ -13,6 +15,7 @@ const HANDLE_CLASS = 'pcb-selection-anchors';
 const NS = 'http://www.w3.org/2000/svg';
 const ROTATION_ICON_URL = new URL('../../../assets/icons/RotateIcon.svg', import.meta.url).href;
 
+/** @param {SelectionAnchor} anchor */
 function anchorId(anchor) {
     return anchor.id ?? anchor.key;
 }
@@ -25,6 +28,8 @@ function anchorSize(app) {
 /**
  * Return the selected adapter anchor under point, or null.
  * @param {PcbEditor} app
+ * @param {Point} point
+ * @param {Iterable<string>|null} [kinds]
  */
 export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
@@ -62,7 +67,7 @@ export function renderPcbSelectionAnchors(app) {
         if (adapter.locked) {
             const bounds = adapter.getBounds?.();
             if (!bounds) continue;
-            const pointerWorld = getLastPointerWorld(app);
+            const pointerWorld = getLastPointerWorld(app) || { x: bounds.minX, y: bounds.minY };
             const position = adapter.getLockPosition?.(pointerWorld, scale)
                 || lockPositionOutsideOutline(boundsOutline(bounds), pointerWorld, scale)
                 || {

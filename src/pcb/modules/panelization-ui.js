@@ -9,34 +9,62 @@ import { createPanelArtworkRaster } from './panelization-raster.js';
 import { insideStrokeGroup } from '../../core/ui-helpers.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/track.js').Point} Point */
+/** @typedef {import('../../core/pcb-panelization.js').PanelSettings} PanelSettings */
+/** @typedef {import('./panelization.js').PanelLayout} PanelLayout */
+/** @typedef {import('../../core/pcb-panelization.js').PanelSettingKey} PanelSettingKey */
+/** @typedef {[PanelSettingKey, string, number, number, number]} PanelFieldDef */
+/** @typedef {[PanelSettingKey, string, string]} PanelToggleDef */
+/** @typedef {{group: SVGElement, note?: SVGElement, layout?: PanelLayout, key?: string|null, viewport?: PcbEditor['viewport'], layers?: Array<[string, SVGGElement]>, dispose?: () => void}} PanelPreviewState */
 
 const NS = 'http://www.w3.org/2000/svg';
+/** @type {WeakMap<PcbEditor, PanelPreviewState>} */
 const previewState = new WeakMap();
 const dialogs = new WeakMap();
 let previewId = 0;
 
+/**
+ * @param {keyof SVGElementTagNameMap} tag
+ * @param {Record<string, string|number|boolean>} [attributes]
+ * @returns {SVGElement}
+ */
 function svg(tag, attributes = {}) {
     const element = document.createElementNS(NS, tag);
     for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
     return element;
 }
 
+/**
+ * @param {Point[][]} contours
+ * @returns {string}
+ */
 function outlinePath(contours) {
     return contours.map(points => `M${points.map(point => `${point.x},${point.y}`).join('L')}Z`).join('');
 }
 
+/**
+ * @param {PanelLayout} layout
+ * @returns {Point[][]}
+ */
 export function panelPreviewSupportContours(layout) {
     const scale = 1e6;
+    /** @param {Point[]} points */
     const toPath = points => points.map(point => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) }));
     const clipper = new ClipperLib.Clipper();
     clipper.AddPaths([...layout.rails, ...layout.tabs].map(toPath), ClipperLib.PolyType.ptSubject, true);
     clipper.AddPaths(layout.instances.map(instance => toPath(instance.points)), ClipperLib.PolyType.ptClip, true);
+    /** @type {Array<Array<{X:number,Y:number}>>} */
     const result = [];
     clipper.Execute(ClipperLib.ClipType.ctDifference, result,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
     return result.map(path => path.map(point => ({ x: point.X / scale, y: point.Y / scale })));
 }
 
+/**
+ * @param {Point[][]} contours
+ * @param {Point[]} source
+ * @returns {string}
+ */
 export function panelPreviewOutlinePath(contours, source) {
     const tolerance = 0.00002;
     const paths = [];
@@ -47,16 +75,20 @@ export function panelPreviewOutlinePath(contours, source) {
             const dx = end.x - start.x, dy = end.y - start.y;
             const length = Math.hypot(dx, dy);
             if (length <= tolerance) continue;
+            /** @type {Array<[number, number]>} */
             let intervals = [[0, 1]];
             for (let edge = 0; edge < source.length && intervals.length; edge++) {
                 const first = source[edge], last = source[(edge + 1) % source.length];
+                /** @param {Point} point */
                 const distance = point => Math.abs((point.x - start.x) * dy - (point.y - start.y) * dx) / length;
                 if (distance(first) > tolerance || distance(last) > tolerance) continue;
+                /** @param {Point} point */
                 const project = point => ((point.x - start.x) * dx + (point.y - start.y) * dy) / (length * length);
                 const firstPosition = project(first), lastPosition = project(last);
                 const low = Math.min(firstPosition, lastPosition), high = Math.max(firstPosition, lastPosition);
                 intervals = intervals.flatMap(([from, to]) => {
                     if (high <= from || low >= to) return [[from, to]];
+                    /** @type {Array<[number, number]>} */
                     const remaining = [];
                     if (low > from) remaining.push([from, low]);
                     if (high < to) remaining.push([high, to]);
@@ -77,6 +109,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
     const previous = previewState.get(app);
     const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app)]) : null;
     if (previous?.layout && previous.key === key && previous.viewport === app.viewport
+        && previous.layers
         && previous.group.parentNode
         && previous.layers.length === app.existingLayerGroups().size
         && previous.layers.every(([id, layer]) => app.existingLayerGroups().get(id) === layer)) {
@@ -104,7 +137,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
     group.appendChild(style);
     const defs = svg('defs');
     group.appendChild(defs);
-    const sourceLayers = [...app.existingLayerGroups()].filter(([id]) =>
+    const sourceLayers = /** @type {Array<[string, SVGGElement]>} */ ([...app.existingLayerGroups()]).filter(([id]) =>
         !id.includes('document') && !id.includes('overlay') && id !== 'ratlines' && id !== 'fp-lod');
     const artworkId = `pcb-panel-artwork-${++previewId}`;
     const bounds = layout.sourceBounds;
@@ -165,7 +198,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
         }));
     }
     for (const mark of layout.fiducials) {
-        group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.maskDiameter / 2,
+        group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: (mark.maskDiameter ?? 0) / 2,
             fill: 'none', stroke: PCB_LAYERS.find(layer => layer.id === 'top-mask')?.color || '#59b879', 'stroke-width': 0.1 }));
         group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.diameter / 2,
             fill: PCB_LAYERS.find(layer => layer.id === 'top-copper')?.color || '#e05050' }));
@@ -178,11 +211,18 @@ export function renderPanelPreview(app, settings = app.panelization) {
 }
 
 export class SetPanelizationCommand {
-    /** @param {PcbEditor} app */
+    /**
+     * @param {PcbEditor} app
+     * @param {Partial<PanelSettings>|PanelSettings|null} settings
+     */
     constructor(app, settings) {
+        /** @type {PcbEditor} */
         this.app = app;
+        /** @type {PanelSettings|null} */
         this.before = app.panelization ? { ...app.panelization } : null;
+        /** @type {PanelSettings|null} */
         this.after = settings ? panelSettings(settings) : null;
+        /** @type {AddTextCommand[]} */
         this.noteCommands = [];
         if (this.after && !this.before?.noteCreated) {
             const layout = buildPanelLayout(app, this.after);
@@ -203,21 +243,24 @@ export class SetPanelizationCommand {
         for (const command of [...this.noteCommands].reverse()) command.undo();
         this.apply(this.before);
     }
+    /** @param {PanelSettings|null} settings */
     apply(settings) {
         this.app.panelization = settings ? { ...settings } : null;
         renderPanelPreview(this.app);
     }
 }
 
+/** @param {HTMLFormElement} form */
 export function updatePanelRailConstraints(form) {
     let error = '';
     for (const [axis, key] of [
         ['horizontal', 'railTop'],
         ['vertical', 'railLeft'],
     ]) {
-        const features = form.querySelector(`input[name="${axis}PositioningHoles"]`).checked
-            || form.querySelector(`input[name="${axis}Fiducials"]`).checked;
-        const input = form.querySelector(`input[name="${key}"]`);
+        const positioning = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${axis}PositioningHoles"]`));
+        const fiducials = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${axis}Fiducials"]`));
+        const features = positioning.checked || fiducials.checked;
+        const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
         const required = features && (input.valueAsNumber > 0 || input.min === '5');
         input.min = required ? '5' : '0';
         const message = required && !(input.valueAsNumber >= 5)
@@ -234,6 +277,7 @@ export function openPanelizeDialog(app) {
     const settings = app.panelization ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
     settings.railTop = Math.max(settings.railTop, settings.railBottom);
     settings.railLeft = Math.max(settings.railLeft, settings.railRight);
+    /** @type {Array<{title: string, wide?: boolean, fields: PanelFieldDef[], toggles?: PanelToggleDef[]}>} */
     const groups = [
         { title: 'Layout', wide: true, fields: [
             ['rows', 'Rows', 1, 20, 1], ['columns', 'Columns', 1, 20, 1],
@@ -289,8 +333,9 @@ export function openPanelizeDialog(app) {
             <button type="submit" class="app-modal-btn app-modal-ok" data-apply>Apply</button>
         </div>
     </form>`;
-    const form = overlay.querySelector('form');
+    const form = /** @type {HTMLFormElement} */ (overlay.querySelector('form'));
     const title = /** @type {HTMLElement} */ (form.querySelector('.app-modal-title'));
+    /** @type {{pointerId: number, offsetX: number, offsetY: number}|null} */
     let drag = null;
     title.addEventListener('pointerdown', event => {
         if (event.button !== 0 || !event.isPrimary || drag) return;
@@ -309,6 +354,7 @@ export function openPanelizeDialog(app) {
         form.style.left = `${Math.max(0, Math.min(event.clientX - drag.offsetX, maxX))}px`;
         form.style.top = `${Math.max(0, Math.min(event.clientY - drag.offsetY, maxY))}px`;
     });
+    /** @param {PointerEvent} event */
     const stopDrag = (event) => {
         if (!drag || drag.pointerId !== event.pointerId) return;
         drag = null;
@@ -317,30 +363,31 @@ export function openPanelizeDialog(app) {
     title.addEventListener('pointerup', stopDrag);
     title.addEventListener('pointercancel', stopDrag);
     title.addEventListener('lostpointercapture', stopDrag);
-    const select = form.querySelector('select');
+    const select = /** @type {HTMLSelectElement} */ (form.querySelector('select'));
     select.value = settings.separation;
-    const error = overlay.querySelector('[data-error]');
-    const summary = overlay.querySelector('[data-summary]');
+    const error = /** @type {HTMLElement} */ (overlay.querySelector('[data-error]'));
+    const summary = /** @type {HTMLElement} */ (overlay.querySelector('[data-summary]'));
     const apply = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-apply]'));
     const remove = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-remove]'));
     remove.disabled = !app.panelization;
     const priorFocus = /** @type {HTMLElement} */ (document.activeElement);
+    /** @returns {PanelSettings} */
     const read = () => {
         const values = Object.fromEntries([...form.querySelectorAll('input,select')].map(element => {
             const input = /** @type {HTMLInputElement} */ (element);
             return [input.name, input.type === 'checkbox' ? input.checked : input.name === 'separation' ? input.value : input.valueAsNumber];
         }));
-        return { ...values, railBottom: values.railTop, railRight: values.railLeft };
+        return /** @type {PanelSettings} */ ({ ...values, railBottom: values.railTop, railRight: values.railLeft });
     };
     const refresh = () => {
         for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge', 'verticalTabOffset', 'horizontalTabOffset', 'tabWidth', 'holeDiameter', 'holePitch']) {
             const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
             input.disabled = select.value === 'vcut';
             if (key.endsWith('TabsPerEdge') || key.endsWith('TabOffset')) {
-                input.closest('label').style.display = select.value === 'vcut' ? 'none' : '';
+                /** @type {HTMLElement} */ (input.closest('label')).style.display = select.value === 'vcut' ? 'none' : '';
             }
         }
-        form.querySelector('input[name="tabWidth"]').closest('fieldset').style.display = select.value === 'vcut' ? 'none' : '';
+        /** @type {HTMLElement} */ (/** @type {HTMLInputElement} */ (form.querySelector('input[name="tabWidth"]')).closest('fieldset')).style.display = select.value === 'vcut' ? 'none' : '';
         try {
             const railError = updatePanelRailConstraints(form);
             if (railError) throw new Error(railError);
@@ -362,7 +409,7 @@ export function openPanelizeDialog(app) {
         priorFocus?.focus();
     };
     dialogs.set(app, close);
-    overlay.querySelector('[data-cancel]').addEventListener('click', close);
+    /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-cancel]')).addEventListener('click', close);
     remove.addEventListener('click', () => {
         app.history.execute(new SetPanelizationCommand(app, null));
         close();
@@ -388,7 +435,8 @@ export function openPanelizeDialog(app) {
             app.history.execute(new SetPanelizationCommand(app, layout.settings));
             close();
             const bounds = layout.bounds;
-            app.viewport.fitToBounds(bounds.x, bounds.y - 12, bounds.x + bounds.w, bounds.y + bounds.h, 5);
+            const viewport = app.viewport;
+            if (viewport) viewport.fitToBounds(bounds.x, bounds.y - 12, bounds.x + bounds.w, bounds.y + bounds.h, 5);
         } catch (reason) {
             error.textContent = reason.message;
             apply.disabled = true;

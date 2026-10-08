@@ -3,8 +3,8 @@ import { applyShapeGeometry, applyShapeSnapshot } from './pcb-board-shapes.js';
 import { validBoardOutline } from '../shared/pcb/board-outline.js';
 
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
-/** @typedef {Record<string, any>} BoardShape */
-/** @typedef {Record<string, any>} BoardShapeState */
+/** @typedef {import('./pcb-board-shapes.js').BoardShapeData} BoardShape */
+/** @typedef {Partial<import('./pcb-board-shapes.js').BoardShapeData> & Record<string, any>} BoardShapeState */
 
 /** @param {PcbDocument} document @param {BoardShape} shape @param {BoardShapeState} state @param {(shape: BoardShape, state: BoardShapeState) => void} apply */
 function applyEdit(document, shape, state, apply) {

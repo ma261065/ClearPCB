@@ -3,12 +3,34 @@ import { pcbTextSegments } from './pcb-text.js';
 import { pictureRegions } from '../../shared/pcb/picture-raster.js';
 import { getComputedFill } from './computed-fill-cache.js';
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{keyId: string, net: string, layer: 'top'|'bottom', label: string}} CopperMeta */
+/** @typedef {CopperMeta & {kind: 'track', uid: string, trackId: string, ax: number, ay: number, bx: number, by: number, hw: number}} CopperSegment */
+/** @typedef {CopperMeta & {kind: 'area', uid: string, outer: Point[], holes: Point[][], x: number, y: number}} CopperArea */
+/** @typedef {CopperMeta & {kind: 'circle', uid: string, x: number, y: number, outerRadius: number, innerRadius: number}} CopperCircle */
+/** @typedef {CopperMeta & {kind: 'arc', uid: string, x: number, y: number, radius: number, startAngle: number, endAngle: number, hw: number, filled: boolean}} CopperArc */
 
 /** @param {PcbBoard} app */
 export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
-    const segments = [], areas = [], circles = [], arcs = [];
+    /** @type {CopperSegment[]} */
+    const segments = [];
+    /** @type {CopperArea[]} */
+    const areas = [];
+    /** @type {CopperCircle[]} */
+    const circles = [];
+    /** @type {CopperArc[]} */
+    const arcs = [];
+    /** @param {string} layer */
     const isCopper = (layer) => layer === 'top-copper' || layer === 'bottom-copper';
+    /** @param {string} layer @returns {'top'|'bottom'} */
     const layerName = (layer) => layer === 'bottom-copper' ? 'bottom' : 'top';
+    /**
+     * @param {Point} start
+     * @param {Point} end
+     * @param {number} width
+     * @param {CopperMeta} meta
+     * @param {number} index
+     */
     const stroke = (start, end, width, meta, index) => segments.push({
         ...meta, kind: 'track', uid: `${meta.keyId}:${index}`, trackId: meta.keyId,
         ax: start.x, ay: start.y, bx: end.x, by: end.y, hw: width / 2,
@@ -26,11 +48,14 @@ export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
         if (shape.kind === 'image') {
             if (pictureBounds) {
                 areas.push({ ...meta, label: 'Copper image', kind: 'area', uid: meta.keyId,
-                    outer: shape.points.map(point => ({ ...point })), holes: [], x: shape.points[0].x, y: shape.points[0].y });
+                    outer: /** @type {Point[]} */ (shape.points).map((point) => ({ ...point })), holes: [], x: shape.points[0].x, y: shape.points[0].y });
                 continue;
             }
-            pictureRegions(shape).forEach(({ outer, holes }, index) => areas.push({ ...meta, kind: 'area',
-                uid: `${meta.keyId}:${index}`, outer, holes, x: outer[0].x, y: outer[0].y }));
+            let index = 0;
+            for (const { outer, holes } of pictureRegions(shape)) {
+                areas.push({ ...meta, kind: 'area',
+                    uid: `${meta.keyId}:${index++}`, outer, holes, x: outer[0].x, y: outer[0].y });
+            }
             continue;
         }
         const geometry = resolveBoardShapeGeometry(shape);
@@ -62,7 +87,7 @@ export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
             }
         }
     }
-    const fills = app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill');
+    const fills = app.copperFills || /** @type {Array<{type?: string}>} */ (app.boardShapes || []).filter((shape) => shape.type === 'fill');
     for (const fill of fills) {
         if (!isCopper(fill.layer)) continue;
         for (const [index, polygon] of (getComputedFill(fill) || []).entries()) {

@@ -33,6 +33,14 @@ import { pcbTextSegments } from './pcb-text.js';
 import { padCopperOutline } from './copper-model.js';
 import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{X:number,Y:number}} ClipperPoint */
+/** @typedef {ClipperPoint[]} ClipperPath */
+/** @typedef {ClipperPath[]} ClipperPaths */
+/** @typedef {{outer:Point[], holes:Point[][]}} FillRegion */
+/** @typedef {any} ClipperNamespace */
+
 const SCALE = 10000;            // 0.1 µm integer resolution
 const ARC_TOL = 0.001 * SCALE;   // offset arc flattening tolerance (scaled mm)
 const CIRCLE_SEGMENTS = 48;     // points used for via / round-pad discs
@@ -40,7 +48,9 @@ const ROUNDING_MARGIN = 2 / SCALE;
 const MAX_ARC_CHORD_ERROR = 2.25 * ARC_TOL / SCALE;
 const OFFSET_MARGIN = MAX_ARC_CHORD_ERROR + ROUNDING_MARGIN;
 
+/** @type {ClipperNamespace|null} */
 let _clipper = null;
+/** @type {Promise<ClipperNamespace>|null} */
 let _clipperPromise = null;
 
 /**
@@ -67,18 +77,20 @@ export function getClipper() {
     return _clipper;
 }
 
+/** @param {number} v */
 const S = (v) => Math.round(v * SCALE);
+/** @param {number} v */
 const U = (v) => v / SCALE;
 
 /**
  * @typedef {object} FillContext
- * @property {Array} tracks        - app.tracks (PolylineGraph tracks)
- * @property {Array} vias          - app.vias (Via)
+ * @property {Array<any>} tracks        - app.tracks (PolylineGraph tracks)
+ * @property {Array<any>} vias          - app.vias (Via)
  * @property {Array<{x:number,y:number,width:number,height:number,shape:string,layer:string,net:string}>} pads
- * @property {Array} boardShapes - app.boardShapes (including hole-layer cutouts)
- * @property {Array} texts
- * @property {Array} fills - every pour, in document (precedence) order
- * @property {Map<string, Array>} [poured] - copper already poured by earlier pours, by id (computeFillPolygonsInOrder)
+ * @property {Array<any>} boardShapes - app.boardShapes (including hole-layer cutouts)
+ * @property {Array<any>} texts
+ * @property {CopperFill[]} fills - every pour, in document (precedence) order
+ * @property {Map<string, FillRegion[]>} [poured] - copper already poured by earlier pours, by id (computeFillPolygonsInOrder)
  * @property {Array<{x:number,y:number,dia:number,slot?:null|{x2:number,y2:number}}>} holes
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number,x?:number,y?:number,points?:Array<{x:number,y:number}>}|null} board
@@ -88,8 +100,8 @@ const U = (v) => v / SCALE;
  * Compute the poured copper geometry for one fill.
  * @param {import('../../shapes/copper-fill.js').CopperFill} fill
  * @param {FillContext} ctx
- * @param {object} [C] - ClipperLib namespace (defaults to the loaded module)
- * @returns {Array<{outer:Array<{x:number,y:number}>, holes:Array<Array<{x:number,y:number}>>}>}
+ * @param {ClipperNamespace|null} [C] - ClipperLib namespace (defaults to the loaded module)
+ * @returns {FillRegion[]}
  */
 export function computeFillPolygons(fill, ctx, C = _clipper) {
     if (!C) return [];
@@ -134,7 +146,7 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
         clip.Execute(C.ClipType.ctDifference, polytree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
     }
 
-    const exPolys = C.JS.PolyTreeToExPolygons(polytree);
+    const exPolys = /** @type {Array<{outer:ClipperPath, holes?:ClipperPath[]}>} */ (C.JS.PolyTreeToExPolygons(polytree));
     return exPolys.map((ex) => ({
         outer: ex.outer.map((pt) => ({ x: U(pt.X), y: U(pt.Y) })),
         holes: (ex.holes || []).map((h) => h.map((pt) => ({ x: U(pt.X), y: U(pt.Y) }))),
@@ -142,6 +154,7 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
 }
 
 /** A pour's precedence: its place in document order (a pour not listed comes last). */
+/** @param {CopperFill[]} order @param {CopperFill} fill */
 function pourRank(order, fill) {
     const index = order.findIndex(other => other === fill || (other?.id != null && other.id === fill?.id));
     return index < 0 ? order.length : index;
@@ -151,17 +164,18 @@ function pourRank(order, fill) {
  * Compute pours in precedence order (document order), each seeing the copper the
  * earlier ones poured: where pours of different nets overlap, the earlier pour keeps the
  * copper and the later one flows around it.
- * @param {Array} fills
+ * @param {CopperFill[]} fills
  * @param {FillContext} ctx
- * @param {object} [C] ClipperLib namespace
+ * @param {ClipperNamespace|null} [C] ClipperLib namespace
  * @param {(done: number, total: number) => void} [onEach] called before each pour
- * @returns {Array} results in `fills` order
+ * @returns {FillRegion[][]} results in `fills` order
  */
 export function computeFillPolygonsInOrder(fills, ctx, C = _clipper, onEach = () => {}) {
     const order = ctx?.fills || fills;
     const poured = new Map();
     const context = { ...ctx, poured };
     const sorted = [...fills].sort((a, b) => pourRank(order, a) - pourRank(order, b));
+    /** @type {Map<CopperFill, FillRegion[]>} */
     const results = new Map();
     sorted.forEach((fill, index) => {
         onEach(index, sorted.length);
@@ -169,10 +183,11 @@ export function computeFillPolygonsInOrder(fills, ctx, C = _clipper, onEach = ()
         results.set(fill, result);
         poured.set(fill.id, result);
     });
-    return fills.map(fill => results.get(fill));
+    return fills.map(fill => /** @type {FillRegion[]} */ (results.get(fill)));
 }
 
 /** An earlier pour's copper (outer contours and holes), grown by the clearance. */
+/** @param {ClipperNamespace} C @param {FillRegion[]} regions @param {number} clearance @returns {ClipperPaths} */
 function offsetPouredCopper(C, regions, clearance) {
     const paths = [];
     for (const { outer, holes = [] } of regions || []) {
@@ -196,10 +211,12 @@ function offsetPouredCopper(C, regions, clearance) {
 }
 
 /** Build the (optional) board clip polygon, shrunk inward by `clearance`. */
+/** @param {ClipperNamespace} C @param {FillContext['board']} board @param {number} clearance @returns {ClipperPaths|null} */
 function buildBoardClip(C, board, clearance) {
     if (!board || !(board.w > 0) || !(board.h > 0)) return null;
-    if (board.points?.length >= 3) {
-        const path = board.points.map(point => ({ X: S(point.x), Y: S(point.y) }));
+    const boardPoints = board.points;
+    if (boardPoints && boardPoints.length >= 3) {
+        const path = boardPoints.map(point => ({ X: S(point.x), Y: S(point.y) }));
         if (!C.Clipper.Orientation(path)) path.reverse();
         if (!clearance) return [path];
         const offset = new C.ClipperOffset(2, 0.001 * SCALE);
@@ -218,10 +235,13 @@ function buildBoardClip(C, board, clearance) {
 }
 
 /** Collect all other-net copper obstacle paths (scaled, inflated). */
+/** @param {ClipperNamespace} C @param {CopperFill} fill @param {FillContext} ctx @param {number} clearance @returns {ClipperPaths} */
 function collectObstacles(C, fill, ctx, clearance) {
+    /** @type {ClipperPaths} */
     const out = [];
     const fillNet = fill.net || '';
-    const sameNet = (n) => fillNet && (n || '') === fillNet;
+    /** @param {string} n */
+    const sameNet = (n) => !!fillNet && (n || '') === fillNet;
 
     // ── Tracks (per-edge, on this copper layer, other net) ──
     for (const track of (ctx.tracks || [])) {
@@ -315,6 +335,7 @@ function collectObstacles(C, fill, ctx, clearance) {
     return out;
 }
 
+/** @param {ClipperNamespace} C @param {any} shape @param {number} clearance @param {any} [geometry] @returns {ClipperPaths} */
 function shapeObstaclePaths(C, shape, clearance, geometry = resolveBoardShapeGeometry(shape)) {
     const arc = boardShapeArcGeometry(shape);
     const halfStep = arc ? Math.abs(arc.endAngle - arc.startAngle) / (2 * (geometry.centerline.length - 1)) : 0;
@@ -322,6 +343,7 @@ function shapeObstaclePaths(C, shape, clearance, geometry = resolveBoardShapeGeo
     return resolvedShapeObstaclePaths(C, geometry, clearance + chordError);
 }
 
+/** @param {any} shape @param {number} clearance @returns {Point[][]} */
 export function boardShapeClearanceOutlines(shape, clearance) {
     if (!shape || shape.type === 'fill') return [];
     if (shape.layer !== 'hole' && !['top-copper', 'bottom-copper'].includes(shape.layer)) return [];
@@ -336,6 +358,7 @@ export function boardShapeClearanceOutlines(shape, clearance) {
     return mergeClearancePaths(paths);
 }
 
+/** @param {any} text @param {number} clearance @returns {Point[][]} */
 export function pcbTextClearanceOutlines(text, clearance) {
     if (!['top-copper', 'bottom-copper'].includes(text.layer)) return [];
     const paths = pcbTextSegments(text).flatMap(([start, end]) =>
@@ -343,6 +366,7 @@ export function pcbTextClearanceOutlines(text, clearance) {
     return mergeClearancePaths(paths);
 }
 
+/** @param {ClipperPaths} paths @returns {Point[][]} */
 function mergeClearancePaths(paths) {
     if (!paths.length) return [];
     const clipper = new ClipperLib.Clipper();
@@ -350,13 +374,14 @@ function mergeClearancePaths(paths) {
     const result = new ClipperLib.Paths();
     clipper.Execute(ClipperLib.ClipType.ctUnion, result,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-    return result.map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
+    return /** @type {ClipperPaths} */ (result).map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
+/** @param {ClipperNamespace} C @param {any} geometry @param {number} clearance @returns {ClipperPaths} */
 function resolvedShapeObstaclePaths(C, geometry, clearance) {
     if (geometry.physicalContours) {
         const offset = new C.ClipperOffset(2, ARC_TOL);
-        offset.AddPaths(geometry.physicalContours.map((contour) => contour.map((point) => ({ X: S(point.x), Y: S(point.y) }))),
+        offset.AddPaths(/** @type {Point[][]} */ (geometry.physicalContours).map((contour) => contour.map((point) => ({ X: S(point.x), Y: S(point.y) }))),
             C.JoinType.jtRound, C.EndType.etClosedPolygon);
         const result = new C.Paths();
         offset.Execute(result, (clearance + OFFSET_MARGIN) * SCALE);
@@ -383,6 +408,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
         return offsetClosedPath(C, geometry.path, geometry.lineWidth / 2 + clearance);
     }
     if (geometry.strokeSegments?.length) {
+        /** @type {ClipperPaths} */
         const paths = [];
         for (const segment of geometry.strokeSegments) {
             paths.push(...offsetOpenSegment(
@@ -390,6 +416,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
         }
         return paths;
     }
+    /** @type {ClipperPaths} */
     const paths = [];
     const points = geometry.centerline;
     const segmentCount = geometry.centerlineClosed ? points.length : points.length - 1;
@@ -405,6 +432,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
 }
 
 /** Does a pad's layer ('top'|'bottom'|'both') belong to the fill copper layer? */
+/** @param {string|undefined} padLayer @param {string} fillLayer */
 function padOnLayer(padLayer, fillLayer) {
     const pl = padLayer || 'top';
     if (pl === 'both') return true;
@@ -414,6 +442,7 @@ function padOnLayer(padLayer, fillLayer) {
 }
 
 /** Offset a single segment into a round-capped capsule. Returns Paths. */
+/** @param {ClipperNamespace} C @param {Point} a @param {Point} b @param {number} delta @returns {ClipperPaths} */
 function offsetOpenSegment(C, a, b, delta) {
     const co = new C.ClipperOffset(2, ARC_TOL);
     co.AddPath([{ X: S(a.x), Y: S(a.y) }, { X: S(b.x), Y: S(b.y) }],
@@ -423,6 +452,7 @@ function offsetOpenSegment(C, a, b, delta) {
     return sol;
 }
 
+/** @param {ClipperNamespace} C @param {Point[]} points @param {number} delta @returns {ClipperPaths} */
 function offsetClosedPath(C, points, delta) {
     const path = points.map((point) => ({ X: S(point.x), Y: S(point.y) }));
     if (delta <= 0) return [path];
@@ -434,7 +464,9 @@ function offsetClosedPath(C, points, delta) {
 }
 
 /** Enclose circular obstacles; keep their inner voids inside the exact circle. */
+/** @param {ClipperNamespace} C @param {number} cx @param {number} cy @param {number} r @param {boolean} [enclose] @returns {ClipperPath} */
 function circlePath(C, cx, cy, r, enclose = true) {
+    /** @type {ClipperPath} */
     const path = [];
     const radius = enclose ? (r + ROUNDING_MARGIN) / Math.cos(Math.PI / CIRCLE_SEGMENTS)
         : Math.max(0, r - ROUNDING_MARGIN);
@@ -446,6 +478,7 @@ function circlePath(C, cx, cy, r, enclose = true) {
 }
 
 /** Expand a conservative enclosure of the physical pad outline measured by DRC. */
+/** @param {ClipperNamespace} C @param {any} pad @param {number} clearance @returns {ClipperPaths} */
 function padObstaclePaths(C, pad, clearance) {
     return offsetClosedPath(C, pad.outline || padCopperOutline(pad), clearance);
 }
@@ -459,7 +492,10 @@ const THERMAL_SPOKE_WIDTH = 0.4;
  * axes (its width and height, turned by its rotation like its outline), so the
  * returned obstacle leaves four copper bridges tying the pad to the surrounding
  * pour, whatever the pad's aspect ratio and rotation.
- * @returns {Array} scaled int paths to subtract from the pour
+ * @param {ClipperNamespace} C
+ * @param {any} pad
+ * @param {number} clearance
+ * @returns {ClipperPaths} scaled int paths to subtract from the pour
  */
 function thermalReliefPaths(C, pad, clearance) {
     const hw = (pad.width || 0) / 2;
@@ -471,6 +507,7 @@ function thermalReliefPaths(C, pad, clearance) {
     const armY = hh + clearance * 2;
     const rad = -(pad.rotation || 0) * Math.PI / 180;
     const cos = Math.cos(rad), sin = Math.sin(rad);
+    /** @param {number} halfAlong @param {number} halfAcross @returns {ClipperPath} */
     const bar = (halfAlong, halfAcross) => [[-halfAlong, -halfAcross], [halfAlong, -halfAcross],
         [halfAlong, halfAcross], [-halfAlong, halfAcross]]
         .map(([x, y]) => ({ X: S(pad.x + x * cos - y * sin), Y: S(pad.y + x * sin + y * cos) }));
@@ -486,6 +523,7 @@ function thermalReliefPaths(C, pad, clearance) {
 }
 
 /** Rounded-rectangle polygon (scaled int path). x,y = top-left, w,h size. */
+/** @param {ClipperNamespace} C @param {number} x @param {number} y @param {number} w @param {number} h @param {number} r @returns {ClipperPath} */
 function roundedRectPath(C, x, y, w, h, r) {
     r = Math.max(0, Math.min(r, w / 2, h / 2));
     if (r <= 0) {

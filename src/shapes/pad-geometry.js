@@ -1,10 +1,10 @@
 /** Physical pad geometry in SVG-Y-down millimetres; no rendering or file output. */
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{shape: string, layers: string, x: number, y: number, size: number, drill: number, width?: number, height?: number, ratio?: number, rotation?: number}} PadLike */
+/** @typedef {{shape: string, layers: string, x: number, y: number, size: number, drill: number, width?: number, height?: number, ratio?: number, rotation?: number}} PadGeometryLike */
 /** @typedef {{x: number, y: number, w: number, h: number, shape: string, rotation?: number, rad?: number}} PadFlash */
 
-/** @param {PadLike} pad */
+/** @param {PadGeometryLike} pad */
 function flashShape(pad) {
     if (pad.shape === 'round') return 'circle';
     if (pad.shape === 'oval') return 'ellipse';
@@ -12,14 +12,14 @@ function flashShape(pad) {
     return 'rect';
 }
 
-/** @param {PadLike} pad */
+/** @param {PadGeometryLike} pad */
 export function padLayers(pad) {
     if (pad.layers === 'both') return ['top-copper', 'bottom-copper'];
     return [pad.layers];
 }
 
 /** Geometric aperture descriptor, also usable with detached plain pad data. */
-/** @param {PadLike} pad */
+/** @param {PadGeometryLike} pad */
 export function padFlash(pad) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
     const width = typeof pad.width === 'number' && Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
@@ -80,12 +80,12 @@ export function padFlashOutline(flash, tolerance = 0.001, enclose = false) {
 }
 
 /** Outer copper outline; drill cutouts are handled by each rendering/export consumer. */
-/** @param {PadLike} pad */
+/** @param {PadGeometryLike} pad */
 export function padOutline(pad) {
     return padFlashOutline(padFlash(pad));
 }
 
-/** @param {PadLike} pad */
+/** @param {PadGeometryLike} pad */
 export function padBounds(pad) {
     const points = padOutline(pad);
     const radius = pad.drill / 2;
@@ -98,7 +98,7 @@ export function padBounds(pad) {
 }
 
 /**
- * @param {PadLike} pad
+ * @param {PadGeometryLike} pad
  * @param {Point} point
  */
 export function padHitTest(pad, point) {

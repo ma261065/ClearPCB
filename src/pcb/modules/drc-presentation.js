@@ -5,7 +5,7 @@
  * @property {() => void} clearBoardSelection Clear board interaction/properties, not DRC selection.
  * @property {(id:'drc-overlay'|'ratlines', create?:boolean) => SVGElement|null} getLayerGroup
  * @property {() => DrcViewport|null} getViewport Viewbox, SVG and screen conversion/navigation only.
- * @property {(violation:object) => object|null} [resolvePairMarker] Recheck the selected pair's displayed copper.
+ * @property {(violation:DrcViolation) => DrcViolation|null} [resolvePairMarker] Recheck the selected pair's displayed copper.
  *
  * @typedef {object} DrcViewport
  * @property {{x:number,y:number,width:number,height:number}} viewBox
@@ -15,6 +15,13 @@
  * @property {() => void} updateViewBox
  * @property {() => void} notifyViewChanged
  */
+/**
+ * @typedef {{x:number,y:number}} Point
+ * @typedef {import('./drc.js').DrcMarker} DrcMarker
+ * @typedef {import('./drc.js').DrcViolation} DrcViolation
+ * @typedef {import('./drc.js').DrcResult} DrcResult
+ * @typedef {{id: string, handle: number}} MarkerFrame
+ */
 
 /** DRC UI ownership. Computation, worker revisions and refresh debt stay in drc-refresh. */
 export class DrcPresentation {
@@ -22,26 +29,42 @@ export class DrcPresentation {
     constructor(capabilities, dom = globalThis.document) {
         this.capabilities = capabilities;
         this.dom = dom;
+        /** @type {DrcViolation[]} */
         this.violations = [];
+        /** @type {string|null} */
         this.selectedId = null;
         this.designActive = false;
         this.collapsedGroups = new Set();
+        /** @type {SVGSVGElement|null} */
         this.connectorSvg = null;
+        /** @type {SVGPolylineElement|null} */
         this.connectorLine = null;
         this.pending = false;
+        /** @type {unknown} */
         this.error = null;
         this.initialized = false;
         this.disposed = false;
         this.suspended = false;
+        /** @type {Array<() => void>} */
         this.listeners = [];
+        /** @type {Array<() => void>} */
         this.rowListeners = [];
+        /** @type {MarkerFrame|null} */
         this.markerFrame = null;
+        /** @type {{id:string, violation:DrcViolation|null}|null} */
         this.markerPreview = null;
     }
 
+    /**
+     * @param {EventTarget|null|undefined} target
+     * @param {string} type
+     * @param {(event: any) => void} callback
+     * @param {boolean|AddEventListenerOptions} [options]
+     * @param {Array<() => void>} [listeners]
+     */
     listen(target, type, callback, options, listeners = this.listeners) {
         if (!target) return;
-        const guarded = event => {
+        const guarded = (/** @type {Event} */ event) => {
             if (!this.disposed && !this.suspended) callback(event);
         };
         target.addEventListener(type, guarded, options);
@@ -72,6 +95,7 @@ export class DrcPresentation {
         this.updateConnector();
     }
 
+    /** @returns {DrcViolation|null|undefined} */
     selectedMarker() {
         return this.markerPreview?.id === this.selectedId ? this.markerPreview.violation
             : this.violations.find(v => v.id === this.selectedId);
@@ -86,8 +110,9 @@ export class DrcPresentation {
     scheduleMarkerRefresh() {
         const selected = this.violations.find(v => v.id === this.selectedId);
         const group = selected?.rule === 'short' ? 'Shorted Nets' : 'Clearance';
+        const resolvePairMarker = this.capabilities.resolvePairMarker;
         if (this.disposed || this.suspended || !selected?.marker?.pair
-            || this.collapsedGroups.has(group) || !this.capabilities.resolvePairMarker || this.markerFrame) return;
+            || this.collapsedGroups.has(group) || !resolvePairMarker || this.markerFrame) return;
         const frame = { id: selected.id, handle: 0 };
         this.markerFrame = frame;
         frame.handle = requestAnimationFrame(() => {
@@ -95,7 +120,7 @@ export class DrcPresentation {
             this.markerFrame = null;
             if (this.disposed || this.suspended || this.selectedId !== frame.id) return;
             try {
-                this.markerPreview = { id: frame.id, violation: this.capabilities.resolvePairMarker(selected) };
+                this.markerPreview = { id: frame.id, violation: resolvePairMarker(selected) };
                 this.refreshSelectedMarker();
             } catch (error) {
                 console.error('[DRC] live marker check failed', error);
@@ -109,6 +134,7 @@ export class DrcPresentation {
         if (this.capabilities.getLayerGroup('drc-overlay')?.firstChild) this.refreshSelectedMarker();
     }
 
+    /** @param {boolean} active */
     setDesignActive(active) {
         this.designActive = active;
         if (active && !this.disposed && !this.suspended) this.capabilities.requestRefresh();
@@ -134,7 +160,7 @@ export class DrcPresentation {
     initialize() {
         if (this.disposed || this.initialized) return;
         this.initialized = true;
-        /** @type {Array} */
+        /** @type {DrcViolation[]} */
         this.violations = [];
         this.designActive = false;
         this.selectedId = null;
@@ -153,18 +179,20 @@ export class DrcPresentation {
         });
         const slidePanel = this.dom.getElementById('pcbDrcSlidePanel');
         const clearBoardSelection = () => this.capabilities.clearBoardSelection();
-        slidePanel?.setAttribute('tabindex', '-1');
-        this.listen(slidePanel, 'pointerdown', () => {
-            clearBoardSelection();
-            slidePanel.focus({ preventScroll: true });
-        }, { capture: true });
-        this.listen(slidePanel, 'focusin', clearBoardSelection);
-        this.listen(slidePanel, 'keydown', (e) => {
-            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-            e.preventDefault();
-            e.stopPropagation();
-            this.moveSelection(e.key === 'ArrowDown' ? 1 : -1);
-        });
+        if (slidePanel) {
+            slidePanel.setAttribute('tabindex', '-1');
+            this.listen(slidePanel, 'pointerdown', () => {
+                clearBoardSelection();
+                slidePanel.focus({ preventScroll: true });
+            }, { capture: true });
+            this.listen(slidePanel, 'focusin', clearBoardSelection);
+            this.listen(slidePanel, 'keydown', (e) => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.moveSelection(e.key === 'ArrowDown' ? 1 : -1);
+            });
+        }
 
         // Suppress the browser/app context menu on the DRC panel.
         this.listen(slidePanel, 'contextmenu', (e) => {
@@ -194,6 +222,7 @@ export class DrcPresentation {
         return !!panel && panel.classList.contains('open');
     }
 
+    /** @param {DrcResult} result */
     adoptResult(result) {
         if (this.disposed) return;
         this.cancelMarkerRefresh();
@@ -209,6 +238,7 @@ export class DrcPresentation {
         // Keep the selected marker in sync: if the violation still exists,
         // redraw it at its (possibly moved) location; otherwise drop it.
         if (this.selectedId) {
+            /** @type {DrcViolation|null|undefined} */
             let sel = this.violations.find(v => v.id === this.selectedId);
             // An incomplete-connection violation's id is keyed on its endpoint
             // coordinates, so moving the connected copper renumbers it — the
@@ -230,11 +260,14 @@ export class DrcPresentation {
         }
     }
 
+    /** @param {DrcViolation|null|undefined} prev @returns {DrcViolation|null} */
     rematchRatlineViolation(prev) {
         const pm = prev?.marker;
         if (!pm || pm.type !== 'ratline' || !pm.a || !pm.b) return null;
         const net = pm.net || '';
+        /** @param {Point} p @param {Point} q */
         const dist2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
+        /** @type {DrcViolation|null} */
         let best = null, bestD = Infinity;
         for (const v of this.violations) {
             const m = v.marker;
@@ -249,6 +282,7 @@ export class DrcPresentation {
         return best;
     }
 
+    /** @param {DrcResult} result @param {boolean} [pending] */
     updateStatus(result, pending = false) {
         if (this.disposed) return;
         const btn = this.dom.getElementById('pcbDrcStatus');
@@ -310,6 +344,7 @@ export class DrcPresentation {
         // they have at least one violation (built from the data below), so an
         // empty category never shows a header. Shorted nets are listed first
         // (highest severity), then clearance, then incomplete connections.
+        /** @param {DrcViolation} v */
         const groupOf = (v) => {
             if (v.rule === 'short') return 'Shorted Nets';
             if (v.rule === 'unrouted') return 'Incomplete Connections';
@@ -325,11 +360,12 @@ export class DrcPresentation {
             .sort((a, b) => ORDER.indexOf(groupOf(a)) - ORDER.indexOf(groupOf(b)))
             .slice(0, MAX_ROWS);
 
+        /** @type {Map<string, DrcViolation[]>} */
         const groups = new Map();
         for (const v of shown) {
             const g = groupOf(v);
             if (!groups.has(g)) groups.set(g, []);
-            groups.get(g).push(v);
+            /** @type {DrcViolation[]} */ (groups.get(g)).push(v);
         }
         const names = [...ORDER.filter(n => groups.has(n)), ...[...groups.keys()].filter(n => !ORDER.includes(n))];
 
@@ -346,7 +382,7 @@ export class DrcPresentation {
             chevron.textContent = '▸';
             const label = this.dom.createElement('span');
             label.className = 'drc-group-label';
-            label.textContent = `${name} (${groups.get(name).length})`;
+            label.textContent = `${name} (${groups.get(name)?.length || 0})`;
             heading.appendChild(chevron);
             heading.appendChild(label);
 
@@ -374,7 +410,7 @@ export class DrcPresentation {
 
             if (collapsed) continue;
 
-            for (const v of groups.get(name)) {
+            for (const v of groups.get(name) || []) {
                 const li = this.dom.createElement('li');
                 li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
                 li.dataset.drcId = v.id;
@@ -438,6 +474,7 @@ export class DrcPresentation {
         this.clearMarker();
     }
 
+    /** @param {number} direction */
     moveSelection(direction) {
         if (this.disposed || this.suspended) return;
         const list = this.dom.getElementById('pcbDrcList');
@@ -449,11 +486,14 @@ export class DrcPresentation {
             ? (direction > 0 ? 0 : rows.length - 1)
             : Math.max(0, Math.min(rows.length - 1, current + direction));
         const row = rows[next];
-        this.selectViolation(row.dataset.drcId);
+        const id = row.dataset.drcId;
+        if (!id) return;
+        this.selectViolation(id);
         row.focus({ preventScroll: true });
         row.scrollIntoView({ block: 'nearest' });
     }
 
+    /** @param {string} id */
     selectViolation(id) {
         if (this.disposed || this.suspended) return;
         const v = this.violations.find(x => x.id === id);
@@ -476,6 +516,7 @@ export class DrcPresentation {
         this.updateConnector();
     }
 
+    /** @param {DrcViolation} v */
     drawMarker(v) {
         if (this.disposed || this.suspended) return;
         const NS = 'http://www.w3.org/2000/svg';
@@ -484,6 +525,7 @@ export class DrcPresentation {
         while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
 
         const COLOR = '#ffd400';
+        /** @param {number} x @param {number} y @param {number} r @param {string} dash */
         const dot = (x, y, r, dash) => {
             const c = this.dom.createElementNS(NS, 'circle');
             c.setAttribute('cx', String(x));
@@ -521,16 +563,18 @@ export class DrcPresentation {
         }
     }
 
+    /** @param {Point} a @param {Point} b */
     isRatlineVisible(a, b) {
         const layer = this.capabilities.getLayerGroup('ratlines');
         if (!layer || layer.style.display === 'none') return false;
+        /** @param {number} p @param {number} q */
         const near = (p, q) => Math.abs(p - q) < 1e-3;
         for (const el of layer.querySelectorAll('line.ratsnest-line, line.ratsnest-failed')) {
             if (/** @type {HTMLElement} */ (el).style.display === 'none') continue;
-            const x1 = parseFloat(el.getAttribute('x1'));
-            const y1 = parseFloat(el.getAttribute('y1'));
-            const x2 = parseFloat(el.getAttribute('x2'));
-            const y2 = parseFloat(el.getAttribute('y2'));
+            const x1 = parseFloat(el.getAttribute('x1') || '');
+            const y1 = parseFloat(el.getAttribute('y1') || '');
+            const x2 = parseFloat(el.getAttribute('x2') || '');
+            const y2 = parseFloat(el.getAttribute('y2') || '');
             if ((near(x1, a.x) && near(y1, a.y) && near(x2, b.x) && near(y2, b.y)) ||
                 (near(x1, b.x) && near(y1, b.y) && near(x2, a.x) && near(y2, a.y))) {
                 return true;
@@ -590,10 +634,12 @@ export class DrcPresentation {
         }
         const svg = this.ensureConnector();
         const viewport = this.capabilities.getViewport();
-        if (!svg || !viewport?.worldToScreen) return;
+        if (!svg || !viewport?.worldToScreen || !this.connectorLine) return;
 
         const row = panel.querySelector(`.drc-item[data-drc-id="${id}"]`);
-        const containerRect = svg.parentElement.getBoundingClientRect();
+        const container = svg.parentElement;
+        if (!container) return;
+        const containerRect = container.getBoundingClientRect();
         const vpSvg = viewport.svg;
         const sp = viewport.worldToScreen({ x: v.x, y: v.y });
         const svgRect = vpSvg.getBoundingClientRect();
@@ -642,17 +688,22 @@ export class DrcPresentation {
      * covered by overlays: the DRC panel docked on the left and the 2D/3D viewer
      * docked on the right at whatever width its splitter was dragged to.
      */
+    /** @param {number} x @param {number} y */
     ensurePointVisible(x, y) {
         const vp = this.capabilities.getViewport();
         if (!vp || !vp.viewBox) return;
         const vb = vp.viewBox;
         const rect = vp.svg?.getBoundingClientRect();
+        if (!rect) return;
+        /** @param {HTMLElement} element */
         const overlaps = (element) => rect?.width > 0 && element.offsetParent && (() => {
             const box = element.getBoundingClientRect();
             return box.width > 0 && box.bottom > rect.top && box.top < rect.top + rect.height;
         })();
         // Overlays slide in with transforms; use their settled docked positions.
-        const settledLeft = element => element.offsetParent.getBoundingClientRect().left + element.offsetLeft;
+        /** @param {HTMLElement} element */
+        const settledLeft = element => /** @type {HTMLElement} */ (element.offsetParent).getBoundingClientRect().left + element.offsetLeft;
+        /** @param {number} px */
         const share = px => Math.max(0, Math.min(1, px / rect.width)) * vb.width;
         let leftInset = 0;
         const panel = this.dom.getElementById('pcbDrcSlidePanel');
@@ -685,7 +736,9 @@ export class DrcPresentation {
         if (!m || m.type !== 'ratline' || !m.a || !m.b) return;
 
         const net = m.net || '';
+        /** @param {number} ax @param {number} ay @param {number} bx @param {number} by */
         const dist2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
+        /** @type {{a: Point, b: Point}|null} */
         let best = null, bestD = Infinity;
         for (const r of this.capabilities.collectRatlines()) {
             if ((r.net || '') !== net) continue;

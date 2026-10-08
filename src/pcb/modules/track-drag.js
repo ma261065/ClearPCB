@@ -74,6 +74,11 @@ import { getSelectionInteraction, setSelectionInteraction } from './selection-in
 import { refreshSelectedDrcMarker } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../shapes/track.js').TrackEdge} TrackEdge */
+/** @typedef {{track: Track, nodeId: string}} TrackNodeRef */
+/** @typedef {{excludeTracks?: Set<Track>, layers?: string[]}} SplitTrackOptions */
+/** @typedef {any} VertexDrag */
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -83,6 +88,7 @@ const VIA_NODE_EPS = 1e-4;
 
 /** World-space tolerance for treating two dropped nodes as coincident. */
 const NODE_MERGE_EPS = 1e-3;
+/** @type {WeakMap<PcbEditor, {downScreen: Point|null, segmentEdgeId: string|null}>} */
 const vertexClickState = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -92,7 +98,7 @@ function clickState(app) {
     return state;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point|null|undefined} point */
 export function setVertexDragDownScreen(app, point) {
     clickState(app).downScreen = point ? { x: point.x, y: point.y } : null;
 }
@@ -102,7 +108,7 @@ export function getVertexDragDownScreen(app) {
     return clickState(app).downScreen;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string|null|undefined} edgeId */
 export function setSegmentClickEdgeId(app, edgeId) {
     clickState(app).segmentEdgeId = edgeId || null;
 }
@@ -112,25 +118,26 @@ export function getSegmentClickEdgeId(app) {
     return clickState(app).segmentEdgeId;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag */
 function _endVertexDragOverlayDeferral(app, drag) {
     releaseDragSession(app, drag.session);
     if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
     else if (drag.preview) refreshTrackClearance(app, drag.original);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track|null} track */
 function prepareTrackPointer(app, track) {
-    track = canonicalTrack(app, track);
+    track = track ? canonicalTrack(app, track) : null;
+    if (!track) return null;
     commitPropertyEditors(app, ['track', 'via', 'pad', 'fill']);
     if (getViaDrag(app)) finishViaDrag(app);
     if (getVertexDrag(app) || getPlacementPreviewTracks(app)) return null;
     return track;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track} track @param {any} details */
 function beginTrackPointer(app, track, details) {
-    const nodes = new Set(details.nodes.map(node => node.nodeId));
+    const nodes = new Set(/** @type {any[]} */ (details.nodes).map(node => node.nodeId));
     const layers = new Set([...track.edges].filter(([id, edge]) => details.mode === 'move'
         || (details.mode === 'bulge' ? id === details.edgeId : nodes.has(edge.from) || nodes.has(edge.to)))
         .map(([id]) => track.getEdgeLayer(id)));
@@ -142,7 +149,7 @@ function beginTrackPointer(app, track, details) {
     return drag;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag */
 function beginTrackPointerPreview(app, drag) {
     if (drag.preview) return drag.track;
     const originals = app.pcbDocument?.tracks || app.tracks;
@@ -203,6 +210,7 @@ export function draggedVia(app) {
 /**
  * Whether a node/bulge drag is moving this authored track.
  * @param {PcbEditor} app
+ * @param {Track|null|undefined} track
  */
 export function isDraggingTrack(app, track) {
     return !!track && getVertexDrag(app)?.original === track;
@@ -211,28 +219,31 @@ export function isDraggingTrack(app, track) {
 /**
  * Cancel a node/bulge drag of this track, e.g. before a command replaces the track.
  * @param {PcbEditor} app
+ * @param {Track|null|undefined} track
  */
 export function cancelTrackDragOf(app, track) {
     if (isDraggingTrack(app, track)) cancelVertexDrag(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layerId */
 export function trackPointerTouchesLayer(app, layerId) {
     return getVertexDrag(app)?.layers?.has(layerId) || false;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track|null} track @param {string} edgeId */
 export function startTrackBulgeDrag(app, track, edgeId) {
-    track = prepareTrackPointer(app, track);
+    track = /** @type {Track} */ (prepareTrackPointer(app, track));
     if (!track?.edges.has(edgeId)) return false;
     const edge = track.edges.get(edgeId), a = track.nodes.get(edge.from), b = track.nodes.get(edge.to);
-    return !!beginTrackPointer(app, track, { mode: 'bulge', edgeId, nodes: [], initialBulge: edge.bulge || 0,
+    return !!beginTrackPointer(app, /** @type {Track} */ (track), { mode: 'bulge', edgeId, nodes: [], initialBulge: edge.bulge || 0,
         bulgeOrigin: arcFromBulge(a, b, edge.bulge)?.bulgePoint || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } });
 }
 
 /**
  * True if any standalone Via sits on `(x, y)`.
  * @param {PcbEditor} app
+ * @param {number} x
+ * @param {number} y
  */
 function _viaAtPoint(app, x, y) {
     for (const via of (app.vias || [])) {
@@ -241,7 +252,7 @@ function _viaAtPoint(app, x, y) {
     return false;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track} [track] */
 function _opts(app, track = getVertexDrag(app)?.track) {
     return {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter,
@@ -254,6 +265,9 @@ function _opts(app, track = getVertexDrag(app)?.track) {
  * Hit-test a Track's nodes against the world position. Returns the
  * nodeId of the closest node within tolerance, else null.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
  */
 export function hitTestTrackNode(app, track, worldPos, pxTol = NODE_HIT_PX) {
     const scale = app.viewport?.scale || 1;
@@ -273,6 +287,9 @@ export function hitTestTrackNode(app, track, worldPos, pxTol = NODE_HIT_PX) {
  * tolerance of `worldPos`, else null. Mirrors the schematic Wire
  * midpoint-anchor model: grabbing a midpoint inserts a new vertex.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
  */
 export function hitTestTrackMidpoint(app, track, worldPos, pxTol = NODE_HIT_PX) {
     const scale = app.viewport?.scale || 1;
@@ -296,6 +313,9 @@ export function hitTestTrackMidpoint(app, track, worldPos, pxTol = NODE_HIT_PX) 
  * perpendicular projection within `track.width/2 + tol`). Returns
  * { edgeId, edge, t } or null.
  * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
  */
 export function hitTestTrackEdge(app, track, worldPos, pxTol = 6) {
     const scale = app.viewport?.scale || 1;
@@ -327,7 +347,10 @@ const SPLIT_ENDPOINT_EPS = 0.05;
  * so that mid-segment drops split while end drops attach.
  *
  * @param {PcbEditor} app
- * @returns {{track:object, edgeId:string, edge:object, px:number, py:number}|null}
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
+ * @param {SplitTrackOptions} [options]
+ * @returns {{track:Track, edgeId:string, edge:TrackEdge, px:number, py:number}|null}
  */
 export function findSplittableTrackEdge(app, worldPos, pxTol = 6, options = {}) {
     const scale = app.viewport?.scale || 1;
@@ -354,7 +377,7 @@ export function findSplittableTrackEdge(app, worldPos, pxTol = 6, options = {}) 
     return best;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} worldPos @param {Via|null} [excludeVia] */
 function _findNearbyVia(app, worldPos, excludeVia = null) {
     const tolerance = 6 / (app.viewport?.scale || 1);
     let best = null;
@@ -371,7 +394,7 @@ function _findNearbyVia(app, worldPos, excludeVia = null) {
     return best;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} trackNet @param {string} viaNet @param {string} [kind] */
 function _showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
     const message = `Cannot connect track net "${trackNet}" to ${kind} net "${viaNet}".`;
     app.alert(message, { title: 'Net Conflict' });
@@ -388,7 +411,10 @@ function _showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
  * of each. If the cut does not disconnect the graph (e.g. a loop), a
  * single Track with a node at the point is returned instead.
  *
- * @returns {Array<object>|null} new Track objects, or null on failure.
+ * @param {Track} track
+ * @param {string} edgeId
+ * @param {Point} splitPoint
+ * @returns {any[]|null} new Track objects, or null on failure.
  */
 export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
     const clone = track.clone();
@@ -421,7 +447,9 @@ export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
  * layer, per-edge layers and pad connections). Nodes left with no edges
  * are dropped. Returns an empty array if the track had only that segment.
  *
- * @returns {Array<object>} replacement Track objects (possibly empty).
+ * @param {Track} track
+ * @param {string} edgeId
+ * @returns {any[]} replacement Track objects (possibly empty).
  */
 export function deleteTrackSegment(track, edgeId) {
     const clone = track.clone();
@@ -444,7 +472,7 @@ export function deleteTrackSegment(track, edgeId) {
  * ModifyTrackGraphCommand. Returns true if the node was deleted.
  *
  * @param {PcbEditor} app
- * @param {object} track
+ * @param {Track} track
  * @param {string} nodeId
  * @returns {boolean}
  */
@@ -558,12 +586,12 @@ export function commitCollinearCleanup(app, track) {
  * Returns true if the split started.
  *
  * @param {PcbEditor} app
- * @param {object} track
+ * @param {Track} track
  * @param {string} nodeId
  * @returns {boolean}
  */
 export function splitTrackNodeAndDrag(app, track, nodeId) {
-    track = prepareTrackPointer(app, track);
+    track = /** @type {Track} */ (prepareTrackPointer(app, track));
     if (!track?.nodes?.has(nodeId) || track.degree(nodeId) < 2) return false;
     const pos = track.nodes.get(nodeId);
     if (!pos) return false;
@@ -602,12 +630,12 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
  * collapse pass removes it again (net no-op).
  *
  * @param {PcbEditor} app
- * @param {object} track
+ * @param {Track} track
  * @param {string} edgeId
  * @returns {boolean} true if an insertion drag was started.
  */
 export function startMidpointInsertDrag(app, track, edgeId) {
-    track = prepareTrackPointer(app, track);
+    track = /** @type {Track} */ (prepareTrackPointer(app, track));
     if (!track?.edges?.has(edgeId)) return false;
     const e = track.edges.get(edgeId);
     const a = track.nodes.get(e.from);
@@ -639,10 +667,11 @@ export function startMidpointInsertDrag(app, track, edgeId) {
 /**
  * A locked track is never a join target: joining would rewrite or delete it.
  * @param {PcbEditor} app
+ * @param {Track} track
  */
 const lockedJoinTarget = (app, track) => !!canonicalTrack(app, track)?.locked;
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track} dragTrack @param {string} dragNodeId @param {number} x @param {number} y */
 function _findCoincidentNode(app, dragTrack, dragNodeId, x, y) {
     for (const t of (app.tracks || [])) {
         if (t !== dragTrack && lockedJoinTarget(app, t)) continue;
@@ -657,6 +686,7 @@ function _findCoincidentNode(app, dragTrack, dragNodeId, x, y) {
 }
 
 /** Set of copper layers of the edges incident to `nodeId` on `track`. */
+/** @param {Track} track @param {string} nodeId */
 function _incidentLayers(track, nodeId) {
     const layers = new Set();
     for (const [eid, e] of track.edges) {
@@ -674,7 +704,12 @@ function _incidentLayers(track, nodeId) {
  * committed) are skipped.
  *
  * @param {PcbEditor} app
- * @returns {{track:object, nodeId:string}|null}
+ * @param {number} x
+ * @param {number} y
+ * @param {string} net
+ * @param {string} layer
+ * @param {Iterable<Track>|Set<Track>|null|undefined} exclude
+ * @returns {TrackNodeRef|null}
  */
 function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     const excludeSet = exclude instanceof Set ? exclude : new Set(exclude || []);
@@ -693,14 +728,16 @@ function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     return null;
 }
 
+/** @param {any} bonded @param {any[]} [shapes] */
 function _bondedNets(bonded, shapes = bonded.shapes) {
     return new Set([...bonded.tracks, ...bonded.vias, ...shapes].map(object => object.net || '')
         .concat([...bonded.padNets]).filter(Boolean));
 }
 
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} bonded @param {string} net @param {any[]} [shapes] @param {boolean} [includeTracks] */
 function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
+    /** @type {any[]} */
     const commands = [];
     if (!net) return commands;
     if (includeTracks) {
@@ -745,7 +782,7 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
 
 /** Capture Net edits after the move/merge so snapshots reference the final topology. */
 class AdoptDroppedCopperNetCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {any} bonded @param {string} net */
     constructor(app, bonded, net) {
         this.app = app;
         this.bonded = bonded;
@@ -759,18 +796,18 @@ class AdoptDroppedCopperNetCommand {
             const tracks = new Set();
             const trackNodes = new Map();
             for (const [preview, nodes] of this.bonded.trackNodes) {
-                const track = this.app.tracks.find(candidate => candidate.id === preview.id);
+                const track = /** @type {Track[]} */ (this.app.tracks).find(candidate => candidate.id === preview.id);
                 if (!track) continue; // Absorbed tracks are now part of the surviving graph.
-                const connected = track.connectedComponents().filter(component =>
+                const connected = /** @type {Set<string>[]} */ (track.connectedComponents()).filter(component =>
                     [...component].some(id => nodes.has(id)));
                 if (!connected.length) continue;
                 tracks.add(track);
-                trackNodes.set(track, new Set(connected.flatMap(component => [...component])));
+                trackNodes.set(track, new Set(connected.flatMap((/** @param {Set<string>} component */ component) => [...component])));
             }
             const vias = new Set();
             for (const preview of this.bonded.vias) {
-                const via = this.app.vias.find(candidate => candidate.id === preview.id)
-                    || this.app.vias.find(candidate => candidate.x === preview.x && candidate.y === preview.y);
+                const via = /** @type {Via[]} */ (this.app.vias).find(candidate => candidate.id === preview.id)
+                    || /** @type {Via[]} */ (this.app.vias).find(candidate => candidate.x === preview.x && candidate.y === preview.y);
                 if (!via) throw new Error('Validated node-drop Via is missing after the geometry command.');
                 vias.add(via);
             }
@@ -779,26 +816,33 @@ class AdoptDroppedCopperNetCommand {
         }
         this.command.execute();
     }
-    undo() { this.command.undo(); }
+    undo() { this.command?.undo(); }
 }
 
 /**
  * True if a standalone Via already sits at `(x, y)`.
  * @param {PcbEditor} app
+ * @param {number} x
+ * @param {number} y
  */
 function _hasViaAt(app, x, y) {
-    return (app.vias || []).some(
+    return /** @type {Via[]} */ (app.vias || []).some(
         (v) => Math.abs(v.x - x) < NODE_MERGE_EPS && Math.abs(v.y - y) < NODE_MERGE_EPS);
 }
 
 /**
  * Build a standalone Via at `(x, y)` on `net` using the app's routing params.
  * @param {PcbEditor} app
+ * @param {number} x
+ * @param {number} y
+ * @param {string} net
  */
 function _makeViaAt(app, x, y, net) {
     const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-    const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-    const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+    const viaDiameter = p.viaDiameter;
+    const viaDrill = p.viaDrill;
+    const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;
+    const drill = typeof viaDrill === 'number' && Number.isFinite(viaDrill) && viaDrill > 0 ? viaDrill : 0.3;
     return new Via({ x, y, diameter, drill, net: net || '' });
 }
 
@@ -836,6 +880,7 @@ function _makeViaAt(app, x, y, net) {
  */
 export function reconcileCopperRegion(app, seedTrack) {
     const EPS = NODE_MERGE_EPS;
+    /** @param {number} x @param {number} y */
     const key = (x, y) => `${Math.round(x / EPS)}|${Math.round(y / EPS)}`;
 
     // Index every track node by rounded position for fast coincidence lookup.
@@ -868,7 +913,7 @@ export function reconcileCopperRegion(app, seedTrack) {
     const regionPosSet = new Set();
     for (const t of regionTracks)
         for (const [, p] of t.nodes) regionPosSet.add(key(p.x, p.y));
-    const regionVias = (app.vias || []).filter((v) => regionPosSet.has(key(v.x, v.y)));
+    const regionVias = /** @type {Via[]} */ (app.vias || []).filter((v) => regionPosSet.has(key(v.x, v.y)));
 
     // Net for rebuilt copper: first non-empty among region tracks, then vias.
     let net = '';
@@ -972,7 +1017,7 @@ export function reconcileCopperRegion(app, seedTrack) {
     return { removeTracks: [...regionTracks], addTracks, removeVias, addVias };
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag */
 function _droppedNodeTarget(app, drag) {
     const nd = drag.nodes[0];
     const track = drag.track;
@@ -997,6 +1042,8 @@ function _droppedNodeTarget(app, drag) {
  * nodes joined by a Via, preserving the single-layer graph-node invariant.
  * Builds canonical commands from the detached graph, or null for a plain move.
  * @param {PcbEditor} app
+ * @param {PcbEditor} view
+ * @param {VertexDrag} drag
  */
 function droppedNodeCommands(app, view, drag) {
     const nd = drag.nodes[0];
@@ -1070,8 +1117,8 @@ function droppedNodeCommands(app, view, drag) {
  * started, false if the click missed.
  *
  * @param {PcbEditor} app
- * @param {object} track
- * @param {{x:number,y:number}} worldPos
+ * @param {Track} track
+ * @param {Point} worldPos
  * @param {{allowMidpointInsert?:boolean, nodeId?:string, edgeId?:string, whole?:boolean}} [opts] - When `allowMidpointInsert`
  *   is false, a click on a midpoint "+" handle is ignored (it won't start a
  *   split). Used on the click that first selects a track so the plus requires
@@ -1083,7 +1130,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     if (activeDrag?.preparingSplit
         && canonicalTrack(app, track) === activeDrag.original
         && opts.nodeId === activeDrag.splitNodeId) return true;
-    track = prepareTrackPointer(app, track);
+    track = /** @type {Track} */ (prepareTrackPointer(app, track));
     if (!track) return false;
     if (opts.whole) {
         return !!beginTrackPointer(app, track, { mode: 'move', topology: true,
@@ -1194,6 +1241,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
 /**
  * Update the dragged node(s) from the current mouse world pos.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateVertexDrag(app, worldPos) {
     const drag = getVertexDrag(app);
@@ -1225,17 +1273,18 @@ export function updateVertexDrag(app, worldPos) {
 
     if (drag.mode === 'rectangle') {
         const snap = snapPathPoint(app, worldPos, [], true);
-        const corners = drag.nodes.map(node => ({ x: node.startX, y: node.startY }));
+        const nodes = /** @type {any[]} */ (drag.nodes);
+        const corners = nodes.map(node => ({ x: node.startX, y: node.startY }));
         const opposite = corners[(drag.handle + 2) % 4];
         // A zero-width rectangle has no side axis left to resize along.
         if (Math.abs(snap.x - opposite.x) < 1e-6 || Math.abs(snap.y - opposite.y) < 1e-6) return;
         const points = resizeRectanglePoints(corners, drag.handle, snap);
-        if (drag.nodes.every((node, index) => {
+        if (nodes.every((node, index) => {
             const current = drag.track.nodes.get(node.nodeId);
             return current.x === points[index].x && current.y === points[index].y;
         })) return;
         beginTrackPointerPreview(app, drag);
-        drag.nodes.forEach((node, index) => Object.assign(drag.track.nodes.get(node.nodeId), points[index]));
+        nodes.forEach((node, index) => Object.assign(drag.track.nodes.get(node.nodeId), points[index]));
         drag.track.invalidate();
         app.viewport?.setCrosshair(points[drag.handle]);
         renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
@@ -1253,14 +1302,15 @@ export function updateVertexDrag(app, worldPos) {
         const rawDx = worldPos.x - drag.grabX;
         const rawDy = worldPos.y - drag.grabY;
         if (!drag.translationPoints) {
-            drag.translationPoints = drag.nodes.map(node => ({ x: node.startX, y: node.startY }));
-            const movedIds = new Set(drag.nodes.map(node => node.nodeId));
-            drag.constraints = drag.mode === 'segment' ? drag.nodes.map((node, index) => ({
+            const nodes = /** @type {any[]} */ (drag.nodes);
+            drag.translationPoints = nodes.map(node => ({ x: node.startX, y: node.startY }));
+            const movedIds = new Set(nodes.map(node => node.nodeId));
+            drag.constraints = drag.mode === 'segment' ? nodes.map((node, index) => ({
                 index,
                 neighbours: [
-                    ...drag.track.incidentEdges(node.nodeId).filter(edge => !movedIds.has(edge.otherNode))
+                    .../** @type {any[]} */ (drag.track.incidentEdges(node.nodeId)).filter(edge => !movedIds.has(edge.otherNode))
                         .map(edge => drag.track.nodes.get(edge.otherNode)),
-                    ...(drag.bridges.some(bridge => bridge.nodeId === node.nodeId)
+                    ...(/** @type {any[]} */ (drag.bridges).some(bridge => bridge.nodeId === node.nodeId)
                         ? [{ x: node.startX, y: node.startY }] : []),
                 ],
             })) : [];
@@ -1304,7 +1354,7 @@ export function updateVertexDrag(app, worldPos) {
     // its directly-connected neighbours (snapping onto an adjacent node would
     // collapse that edge to zero length).
     const draggedId = nd.nodeId;
-    const neighborIds = drag.neighborIds ||= new Set(drag.track.incidentEdges(draggedId).map(edge => edge.otherNode));
+    const neighborIds = drag.neighborIds ||= new Set(/** @type {any[]} */ (drag.track.incidentEdges(draggedId)).map(edge => edge.otherNode));
     const snap = resolveTrackSnap(app, worldPos, {
         layer: drag.track.getEdgeLayer(drag.track.incidentEdges(draggedId)[0]?.edgeId) || drag.track.layer,
         excludeNode: (track, nid) =>
@@ -1425,6 +1475,7 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
     // Coupled 45°/collinear candidates: full delta, smallest nudge wins.
     /** @type {{dx:number, dy:number, nudge:number}|null} */
     let coupled = null;
+    /** @param {number} dx @param {number} dy */
     const considerCoupled = (dx, dy) => {
         const nudge = Math.hypot(dx - rawDx, dy - rawDy);
         if (nudge <= threshold && (!coupled || nudge < coupled.nudge)) {
@@ -1530,6 +1581,7 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
 function _incidentSegments(track, nodes) {
     const draggedSet = new Set(nodes.map((n) => n.nodeId));
     const segMap = new Map(); // edgeId → segment record (deduped)
+    /** @param {string} edgeId */
     const addEdge = (edgeId) => {
         if (segMap.has(edgeId)) return segMap.get(edgeId);
         const e = track.edges.get(edgeId);
@@ -1673,7 +1725,7 @@ export function finishVertexDrag(app) {
         }
         const view = { ...app, tracks: tracks.map(track => track === drag.original ? drag.track : track),
             vias: app.vias, pads: app.pads, boardShapes: app.boardShapes, texts: app.texts };
-        const commands = trackPointerCommands(app, view, drag);
+        const commands = trackPointerCommands(app, /** @type {PcbEditor} */ (/** @type {unknown} */ (view)), drag);
         setPcbInteraction(app, '_vertexDrag', null);
         removeTrackElements(drag.track);
         if (commands.length) {
@@ -1685,7 +1737,7 @@ export function finishVertexDrag(app) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PcbEditor} view @param {VertexDrag} drag */
 function trackPointerCommands(app, view, drag) {
     if (drag.mode === 'bulge') {
         const edge = drag.track.edges.get(drag.edgeId);
@@ -1694,7 +1746,7 @@ function trackPointerCommands(app, view, drag) {
         return JSON.stringify(after) === JSON.stringify(drag.before) ? []
             : [new ModifyTrackGraphCommand(app, drag.original, drag.before, after)];
     }
-    const moved = drag.nodes.some(nd => {
+    const moved = /** @type {any[]} */ (drag.nodes).some(nd => {
         const n = drag.track.nodes.get(nd.nodeId);
         return n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6);
     });
@@ -1703,17 +1755,17 @@ function trackPointerCommands(app, view, drag) {
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
         const nodeId = drag.nodes[0].nodeId;
         const target = _droppedNodeTarget(view, drag);
-        let prospectiveApp = view;
+        let prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ (view));
         if (target && !drag.topology) {
             const fromLayers = _incidentLayers(drag.track, nodeId);
             const toLayers = _incidentLayers(target.track, target.nodeId);
             const point = target.track.nodes.get(target.nodeId);
-            if (fromLayers.size && toLayers.size && ![...fromLayers].some(layer => toLayers.has(layer))
+            if (fromLayers.size && toLayers.size && ![...fromLayers].some((/** @param {string} layer */ layer) => toLayers.has(layer))
                 && !_hasViaAt(app, point.x, point.y)) {
                 // Validate the connection the merge will create across layers,
                 // including the transition Via that is not on the board yet.
-                prospectiveApp = { ...view,
-                    vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
+                prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ ({ ...view,
+                    vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] }));
             }
         }
         const bonded = collectNodeConnections(prospectiveApp,
@@ -1729,21 +1781,22 @@ function trackPointerCommands(app, view, drag) {
         const net = [...nets][0];
         if (net) netCommand = new AdoptDroppedCopperNetCommand(app, bonded, net);
     }
+    /** @param {any[]} commands */
     const withNet = commands => netCommand && commands.length ? [...commands, netCommand] : commands;
     if (drag.topology) {
         if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
         if (drag.splitNodeId) {
             const components = drag.track.connectedComponents();
             if (components.length > 1) {
-                const movingNodes = components.find(nodes => nodes.has(drag.splitNodeId));
+                const movingNodes = /** @type {Set<string>[]} */ (components).find(nodes => nodes.has(drag.splitNodeId));
                 const movingPart = drag.track.extractSubgraph(movingNodes);
                 movingPart.sourceBoardShape = drag.track.sourceBoardShape;
-                const remainder = components.filter(nodes => nodes !== movingNodes)
+                const remainder = /** @type {Set<string>[]} */ (components).filter(nodes => nodes !== movingNodes)
                     .map(nodes => drag.track.extractSubgraph(nodes));
                 const after = movingPart.captureState();
                 return withNet([
                     new ModifyTrackGraphCommand(app, drag.original, drag.before, after),
-                    ...remainder.map(track => new AddTrackCommand(app, track)),
+                    ...remainder.map((/** @param {Track} track */ track) => new AddTrackCommand(app, track)),
                 ]);
             }
         }
@@ -1763,6 +1816,7 @@ function trackPointerCommands(app, view, drag) {
         if (merged) return withNet(merged);
     }
 
+    /** @type {any[]} */
     const moves = [];
     for (const nd of drag.nodes) {
         const n = drag.track.nodes.get(nd.nodeId);
@@ -1792,7 +1846,7 @@ export function cancelVertexDrag(app) {
     endTrackPointer(app, drag, false);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag */
 function clearTrackPointerGuides(app, drag) {
     if (drag.mode !== 'bulge') app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
@@ -1800,7 +1854,7 @@ function clearTrackPointerGuides(app, drag) {
     clearNetGuideLine(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag @param {boolean} committed */
 function endTrackPointer(app, drag, committed) {
     const interaction = getSelectionInteraction(app);
     if (interaction?.adapter?.kind === 'track'
@@ -1840,6 +1894,9 @@ const VIA_HIT_PX = 6;
  * Hit-test a Via against the world position. Returns true if the
  * cursor is within the via's annular-ring radius (plus pixel tolerance).
  * @param {PcbEditor} app
+ * @param {Via} via
+ * @param {Point} worldPos
+ * @param {number} [pxTol]
  */
 function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
     const scale = app.viewport?.scale || 1;
@@ -1851,6 +1908,8 @@ function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
  * on it. Captures any Track nodes colocated with the via so they drag
  * along — the via acts as a hinge that connected wires follow.
  * @param {PcbEditor} app
+ * @param {Via} via
+ * @param {Point} worldPos
  */
 export function startViaDrag(app, via, worldPos) {
     if (!via || !_hitVia(app, via, worldPos)) return false;
@@ -1860,16 +1919,18 @@ export function startViaDrag(app, via, worldPos) {
 /**
  * Pads and vias share attached-node movement, snapping and atomic history.
  * @param {PcbEditor} app
+ * @param {Pad} pad
+ * @param {Point} worldPos
  */
 export function startPadDrag(app, pad, worldPos) {
     return startTerminalDrag(app, pad, worldPos, 'pad');
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Via|Pad} via @param {Point} worldPos @param {'via'|'pad'} kind */
 function startTerminalDrag(app, via, worldPos, kind) {
     if (getVertexDrag(app)) finishVertexDrag(app);
     getPropertyEditor(app, 'track')?.commit();
-    const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
+    const layers = kind === 'pad' ? padLayers(/** @type {Pad} */ (via)) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
     // and layer-change nodes commonly sit exactly on a via.
     const EPS = 1e-4;
@@ -1877,7 +1938,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
     for (const t of app.tracks || []) {
         for (const [nid, n] of t.nodes) {
             if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
-                if (!t.incidentEdges(nid).some(edge => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
+                if (!/** @type {any[]} */ (t.incidentEdges(nid)).some((edge) => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
                 attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
             }
         }
@@ -1894,13 +1955,13 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         attached,
-        session: beginDragSession(app, { nets: copperNets([via, ...attached.map(item => item.track)]) }),
+        session: beginDragSession(app, { nets: copperNets([via, ...attached.map((/** @param {any} item */ item) => item.track)]) }),
     });
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag */
 function beginTerminalPreview(app, drag) {
     if (drag.preview) return;
     const copy = drag.kind === 'pad' ? new Pad({ id: drag.original.id }) : new Via({ id: drag.original.id });
@@ -1916,11 +1977,11 @@ function beginTerminalPreview(app, drag) {
     }
     const collection = drag.kind === 'pad' ? 'pads' : 'vias';
     const preview = {
-        tracks: app.pcbDocument.tracks.map(track => copies.get(track) || track),
-        [collection]: app.pcbDocument[collection].map(item => item === drag.original ? copy : item),
+        tracks: app.pcbDocument.tracks.map((/** @param {Track} track */ track) => copies.get(track) || track),
+        [collection]: app.pcbDocument[collection].map((/** @param {any} item */ item) => item === drag.original ? copy : item),
         copies, originals,
     };
-    drag.attached = drag.attached.map(item => ({
+    drag.attached = /** @type {any[]} */ (drag.attached).map((item) => ({
         ...item, originalTrack: item.track, track: copies.get(item.track),
     }));
     drag.preview = preview;
@@ -1929,23 +1990,26 @@ function beginTerminalPreview(app, drag) {
     for (const track of copies.keys()) removeTrackElements(track);
 }
 
+/** @param {VertexDrag} drag */
 function removeTerminalPreviewArtwork(drag) {
     drag.remove(drag.via);
     for (const copy of drag.preview.copies.values()) removeTrackElements(copy);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {VertexDrag} drag @param {boolean} committed */
 function restoreTerminalArtwork(app, drag, committed) {
     if (!drag.preview) return;
     removeTerminalPreviewArtwork(drag);
     if (!committed) {
         const collection = drag.kind === 'pad' ? 'pads' : 'vias';
+        /** @param {string} id */
+        const layerGroup = (id) => app.getLayerGroup(id);
         if (app.pcbDocument[collection].includes(drag.original)) {
-            drag.render(drag.original, id => app.getLayerGroup(id));
+            drag.render(drag.original, layerGroup);
         }
         for (const track of drag.preview.copies.keys()) {
             if (app.pcbDocument.tracks.includes(track)) {
-                renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
+                renderTrack(track, layerGroup, _opts(app, track));
             }
         }
         refreshTrackSelectionHalo(app);
@@ -1962,6 +2026,7 @@ function restoreTerminalArtwork(app, drag, committed) {
 /**
  * Update a dragged Via or standalone Pad and its layer-compatible Track nodes.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateViaDrag(app, worldPos) {
     const drag = getViaDrag(app);
@@ -1973,9 +2038,10 @@ export function updateViaDrag(app, worldPos) {
     // Skip the via's own attached nodes when snapping — they ride along with
     // the via, so letting the snap catch them (within the coarse track-node
     // tolerance) would override the finer grid snap and feel sticky.
+    /** @param {Track} track @param {string} nodeId */
     const excludeNode = (track, nodeId) =>
-        drag.attached.some(a => a.track === track && a.nodeId === nodeId)
-        || !track.incidentEdges(nodeId).some(edge => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
+        /** @type {any[]} */ (drag.attached).some((a) => a.track === track && a.nodeId === nodeId)
+        || !track.incidentEdges(nodeId).some((/** @param {any} edge */ edge) => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
     const snap = resolveTrackSnap(app, targetPos, {
         excludeNode,
         excludePad: drag.kind === 'pad' ? drag.via : null,
@@ -1985,7 +2051,7 @@ export function updateViaDrag(app, worldPos) {
         Object.assign(snap, app.viewport?.getSnappedPosition?.(targetPos) || targetPos);
     }
     let pos = { x: snap.x, y: snap.y };
-    const attachedTracks = new Set(drag.attached.map(item => item.track));
+    const attachedTracks = new Set(/** @type {any[]} */ (drag.attached).map(item => item.track));
     const trackTarget = app.viewport?.shiftHeld || snap.snapType === 'pad'
         ? null
         : snap.snapType === 'track-node'
@@ -2010,8 +2076,10 @@ export function updateViaDrag(app, worldPos) {
     // attached nodes all move with it, so they're excluded as neighbours.
     if (!app.viewport?.shiftHeld && snap.snapType !== 'pad' && snap.snapType !== 'track-node' && !trackTarget) {
         const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
+        /** @param {Track} track @param {string} nid */
         const isAttached = (track, nid) =>
-            drag.attached.some(a => a.track === track && a.nodeId === nid);
+            /** @type {any[]} */ (drag.attached).some(a => a.track === track && a.nodeId === nid);
+        /** @param {any} a */
         const neighboursOf = (a) => {
             const nbs = [];
             for (const { otherNode } of a.track.incidentEdges(a.nodeId)) {
@@ -2037,7 +2105,7 @@ export function updateViaDrag(app, worldPos) {
         // 2. Fall back to H/V/45° against any attached node's neighbour.
         if (!snapped) {
             const allNeighbours = [];
-            for (const a of drag.attached) allNeighbours.push(...neighboursOf(a));
+            for (const a of /** @type {any[]} */ (drag.attached)) allNeighbours.push(...neighboursOf(a));
             snapped = snapNodeToAxis(rawPos, allNeighbours, threshold, gridPos);
         }
         if (snapped) pos = { x: snapped.x, y: snapped.y };
@@ -2050,29 +2118,31 @@ export function updateViaDrag(app, worldPos) {
     drag.via.y = pos.y;
     // Drag attached track nodes in lock-step.
     const touched = new Set();
-    for (const a of drag.attached) {
+    for (const a of /** @type {any[]} */ (drag.attached)) {
         const n = a.track.nodes.get(a.nodeId);
         if (!n) continue;
         n.x = pos.x;
         n.y = pos.y;
         touched.add(a.track);
     }
-    for (const track of touched) track.invalidate();
+    for (const track of /** @type {Set<Track>} */ (touched)) track.invalidate();
     // Build the axis glow from every attached track's incident segments, then
     // render: glow halos UNDER the copper, centerlines ON TOP (two-pass).
     const byTrack = new Map();
-    for (const a of drag.attached) {
+    for (const a of /** @type {any[]} */ (drag.attached)) {
         if (!byTrack.has(a.track)) byTrack.set(a.track, []);
         byTrack.get(a.track).push({ nodeId: a.nodeId });
     }
     const glowSegs = [];
-    for (const [track, nodes] of byTrack) glowSegs.push(..._incidentSegments(track, nodes));
+    for (const [track, nodes] of /** @type {Map<Track, any[]>} */ (byTrack)) glowSegs.push(..._incidentSegments(track, nodes));
     renderTrackAxisGlow(app, glowSegs);
-    for (const t of touched) {
-        renderTrack(t, (id) => app.getLayerGroup(id), _opts(app, t));
+    /** @param {string} id */
+    const layerGroup = (id) => app.getLayerGroup(id);
+    for (const t of /** @type {Set<Track>} */ (touched)) {
+        renderTrack(t, layerGroup, _opts(app, t));
         refreshTrackClearance(app, t);
     }
-    drag.render(drag.via, (id) => app.getLayerGroup(id));
+    drag.render(drag.via, layerGroup);
     if (drag.kind === 'via') refreshViaClearance(app, drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
@@ -2109,7 +2179,7 @@ export function finishViaDrag(app) {
         if (!app.pcbDocument[collection].includes(drag.original)) {
             throw new Error(`Cannot move a missing ${drag.kind}.`);
         }
-        for (const { originalTrack, nodeId } of drag.attached) {
+        for (const { originalTrack, nodeId } of /** @type {any[]} */ (drag.attached)) {
             if (!app.pcbDocument.tracks.includes(originalTrack) || !originalTrack.nodes.has(nodeId)) {
                 throw new Error('Cannot move a missing attached track node.');
             }
@@ -2119,7 +2189,7 @@ export function finishViaDrag(app) {
         const cmds = [drag.kind === 'pad'
             ? new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
             : new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY)];
-        for (const a of drag.attached) {
+        for (const a of /** @type {any[]} */ (drag.attached)) {
             cmds.push(new MoveVertexCommand(app, a.originalTrack, a.nodeId, a.startX, a.startY, toX, toY));
         }
         if (drag.snapTargetTrack) {

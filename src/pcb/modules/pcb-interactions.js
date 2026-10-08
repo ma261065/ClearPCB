@@ -18,7 +18,10 @@
  */
 import { noteEditSettled } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{key: string, category: string, blocksExport: boolean, owner: string}} PcbInteractionEntry */
+/** @typedef {Record<string, any>} PcbInteractionSlotState */
 
+/** @type {readonly Readonly<PcbInteractionEntry>[]} */
 export const PCB_INTERACTIONS = Object.freeze([
     { key: '_boardOutlineResize', category: 'gesture', blocksExport: true, owner: 'board-outline-resize.js' },
     { key: '_pasteDrop', category: 'gesture', blocksExport: false, owner: 'pcb-paste.js' },
@@ -38,10 +41,12 @@ export const PCB_INTERACTIONS = Object.freeze([
 ].map(entry => Object.freeze(entry)));
 
 const INTERACTION_KEYS = new Set(PCB_INTERACTIONS.map(entry => entry.key));
+/** @param {(entry: Readonly<PcbInteractionEntry>) => boolean} predicate */
 const keysWhere = predicate => Object.freeze(PCB_INTERACTIONS.filter(predicate).map(entry => entry.key));
 const GESTURE_KEYS = keysWhere(entry => entry.category === 'gesture');
 const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const EXPORT_BLOCKING_KEYS = keysWhere(entry => entry.blocksExport);
+/** @type {WeakMap<PcbEditor, PcbInteractionSlotState>} */
 const interactionState = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -49,11 +54,12 @@ function slotState(app) {
     let state = interactionState.get(app);
     if (!state) {
         state = Object.create(null);
-        interactionState.set(app, state);
+        interactionState.set(app, /** @type {PcbInteractionSlotState} */ (state));
     }
-    return state;
+    return /** @type {PcbInteractionSlotState} */ (state);
 }
 
+/** @param {string} key */
 function assertInteractionKey(key) {
     if (!INTERACTION_KEYS.has(key)) throw new Error(`Unknown PCB interaction slot ${key}.`);
 }
@@ -61,6 +67,8 @@ function assertInteractionKey(key) {
 /**
  * Return one interaction slot's value, or null when inactive.
  * @param {PcbEditor} app
+ * @param {string} key
+ * @returns {any}
  */
 export function getPcbInteraction(app, key) {
     assertInteractionKey(key);
@@ -70,6 +78,8 @@ export function getPcbInteraction(app, key) {
 /**
  * Set one interaction slot. Passing null/undefined/false clears the slot.
  * @param {PcbEditor} app
+ * @param {string} key
+ * @param {any} value
  */
 export function setPcbInteraction(app, key, value) {
     assertInteractionKey(key);
@@ -82,11 +92,12 @@ export function setPcbInteraction(app, key, value) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {readonly string[]} keys */
 const anyActive = (app, keys) => {
     const state = interactionState.get(app);
     if (!state) return false;
-    for (const key of keys) if (state[key]) return true;
+    const slots = /** @type {PcbInteractionSlotState} */ (state);
+    for (const key of keys) if (slots[key]) return true;
     return false;
 };
 

@@ -20,9 +20,13 @@ import {
     SetRefStyleCommand as ModelSetRefStyleCommand,
 } from '../../core/pcb-placement-commands.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{refSize?: number, refStrokeWidth?: number, refRot?: number}} RefStyleState */
 
 const refOverlays = new WeakMap();
 
+/** @param {Placement|null|undefined} placement */
 export function isRefTextLocked(placement) {
     return !!placement && (!!placement.locked
         || isLayerLocked(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
@@ -45,13 +49,16 @@ function ensureRefOverlay(app) {
         overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         overlay.setAttribute('class', 'pcb-ref-overlay');
         overlay.setAttribute('pointer-events', 'none');
-        app.viewport.addContent(overlay);
+        app.viewport?.addContent(overlay);
         refOverlays.set(app, overlay);
     }
     return overlay;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} compId
+ */
 export function refreshRefHighlight(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl || !refBox(pl)) return;
@@ -62,7 +69,11 @@ export function refreshRefHighlight(app, compId) {
         : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string|null} compId
+ * @param {boolean} withTether
+ */
 export function drawRefOverlay(app, compId, withTether) {
     if (!compId) {
         const existing = refOverlays.get(app);
@@ -110,7 +121,10 @@ export function drawRefOverlay(app, compId, withTether) {
     }
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} compId
+ */
 export function rerenderRef(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl) return;
@@ -120,7 +134,7 @@ export function rerenderRef(app, compId) {
     const cxRef = parseFloat(el.getAttribute('data-mx-center'));
     const baseY = parseFloat(el.getAttribute('data-ref-anchor-y'));
     if (!Number.isFinite(cxRef) || !Number.isFinite(baseY)) return;
-    if (applyRefGeometry(el, pl.reference, cxRef, baseY,
+    if (applyRefGeometry(el, /** @type {string} */ (pl.reference), cxRef, baseY,
         pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE)) {
         pl._refBox = null;
     }
@@ -129,7 +143,11 @@ export function rerenderRef(app, compId) {
     if (activeTextInlineEdit(app)?.options?.componentId === compId) activeTextInlineEdit(app).updateCaret?.();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} componentId
+ * @param {Point} worldPos
+ */
 export function beginRefTextDrag(app, componentId, worldPos) {
     getPropertyEditor(app, 'component')?.commit();
     const placement = app.placements.get(componentId);
@@ -144,7 +162,10 @@ export function beginRefTextDrag(app, componentId, worldPos) {
     return true;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function updateRefTextDrag(app, worldPos) {
     const drag = getRefDrag(app);
     if (!drag) return;
@@ -164,9 +185,13 @@ export function updateRefTextDrag(app, worldPos) {
     app.drawRefOverlay(drag.compId, true);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {MouseEvent} e
+ */
 export function handleRefDrag(app, e) {
     if (!getRefDrag(app)) return;
+    if (!app.viewport) return;
     app.viewport.shiftHeld = e.shiftKey;
     updateRefTextDrag(app, app.screenToWorld(e));
 }
@@ -178,7 +203,7 @@ export function endRefDrag(app, commit = true) {
     const { compId, startDx, startDy } = drag;
     setPcbInteraction(app, '_refDrag', null);
     const placement = app.placements.get(compId);
-    app.viewport.svg.style.cursor = 'default';
+    if (app.viewport) app.viewport.svg.style.cursor = 'default';
     if (!placement) { app.drawRefOverlay(null, false); return; }
     if ((placement.refDx || 0) === startDx && (placement.refDy || 0) === startDy) {
         app.drawRefOverlay(compId, false);
@@ -195,11 +220,19 @@ export function endRefDrag(app, commit = true) {
 }
 
 export class MoveRefTextCommand extends ModelMoveRefTextCommand {
-    /** @param {PcbEditor} app */
+    /**
+     * @param {PcbEditor} app
+     * @param {string} compId
+     * @param {number} fromDx
+     * @param {number} fromDy
+     * @param {number} toDx
+     * @param {number} toDy
+     */
     constructor(app, compId, fromDx, fromDy, toDx, toDy) {
         super(app.placementState, compId, fromDx, fromDy, toDx, toDy, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {Parameters<ModelMoveRefTextCommand['_apply']>[0]} s */
     _apply(s) {
         const saved = super._apply(s);
         const pl = this.app.placements?.get(this.compId);
@@ -213,11 +246,17 @@ export class MoveRefTextCommand extends ModelMoveRefTextCommand {
 }
 
 export class RotateRefTextCommand extends ModelRotateRefTextCommand {
-    /** @param {PcbEditor} app */
+    /**
+     * @param {PcbEditor} app
+     * @param {string} compId
+     * @param {number} fromDeg
+     * @param {number} toDeg
+     */
     constructor(app, compId, fromDeg, toDeg) {
         super(app.placementState, compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {number} deg */
     _apply(deg) {
         const saved = super._apply(deg);
         const pl = this.app.placements?.get(this.compId);
@@ -231,11 +270,17 @@ export class RotateRefTextCommand extends ModelRotateRefTextCommand {
 }
 
 export class SetRefStyleCommand extends ModelSetRefStyleCommand {
-    /** @param {PcbEditor} app */
+    /**
+     * @param {PcbEditor} app
+     * @param {string} compId
+     * @param {RefStyleState} before
+     * @param {RefStyleState} after
+     */
     constructor(app, compId, before, after) {
         super(app.placementState, compId, before, after, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {RefStyleState} state */
     _apply(state) {
         const saved = super._apply(state);
         const pl = this.app.placements?.get(this.compId);
@@ -252,34 +297,47 @@ export class SetRefStyleCommand extends ModelSetRefStyleCommand {
     }
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function hitTestReferenceText(app, worldPos) {
     return hitTestRefText(app.placements, worldPos, refBox);
 }
 
 registerPcbPlacementHitTest('reftext', hitTestReferenceText);
-registerPcbReferenceOverlayRefresh((app, componentId) => {
+registerPcbReferenceOverlayRefresh(/** @param {PcbEditor} app @param {string|null} componentId */ (app, componentId) => {
     if (componentId || hasRefOverlay(app)) app.drawRefOverlay?.(componentId, false);
 });
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function tryEditReferenceAt(app, worldPos) {
     if (hitTestText(app, worldPos)) return false;
     const compId = hitTestReferenceText(app, worldPos);
+    if (!compId) return false;
     const pl = app.placements.get(compId);
-    const component = app.project?.getComponentInfo(compId);
+    const project = app.project;
+    const component = project?.getComponentInfo(compId);
     const layer = pl?.side === 'bottom' ? 'bottom-silk' : 'top-silk';
-    if (!pl || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
+    if (!pl || !project || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
+    const placement = /** @type {NonNullable<typeof pl>} */ (pl);
     const original = component.reference;
     const text = {
+        id: compId,
         content: original,
-        size: pl.refSize || REF_DEFAULT_SIZE,
-        strokeWidth: pl.refStrokeWidth || REF_DEFAULT_STROKE,
+        x: 0,
+        y: 0,
+        size: placement.refSize || REF_DEFAULT_SIZE,
+        rotation: 0,
+        strokeWidth: placement.refStrokeWidth || REF_DEFAULT_STROKE,
         layer,
     };
-    const baseX = () => refBox(pl).cx - measureStrokeText(text.content, text.size) / 2;
+    const baseX = () => (refBox(placement)?.cx || 0) - measureStrokeText(text.content, text.size) / 2;
     const render = () => {
-        pl.reference = text.content;
+        placement.reference = text.content;
         app.rerenderRef(compId);
         app.drawRefOverlay(compId, false);
     };
@@ -295,7 +353,9 @@ export function tryEditReferenceAt(app, worldPos) {
         },
         transform: () => `${placementTransform(pl)} ${pl._refEl.getAttribute('transform') || ''}`
             + ` translate(${baseX()},${pl._refEl.getAttribute('data-ref-anchor-y')})`,
+        /** @param {Point} point */
         localX: point => {
+            if (!app.viewport) return 0;
             const svg = app.viewport.svg;
             const cursor = svg.createSVGPoint();
             cursor.x = point.x;
@@ -304,22 +364,25 @@ export function tryEditReferenceAt(app, worldPos) {
             return local.x - baseX();
         },
         render,
+        /** @param {string} value */
         validate: value => {
-            const issue = app.project.validateComponentReference(compId, value);
+            const issue = project.validateComponentReference(compId, value);
             if (issue) {
                 showAlert(issue.message, { title: issue.title });
                 return false;
             }
             return true;
         },
+        /** @param {string} value @param {boolean} commit */
         finish: (value, commit) => {
             const reference = value.trim();
             if (commit && reference !== original) {
-                const command = app.project.createReferenceRenameCommand(compId, reference);
+                const command = project.createReferenceRenameCommand(compId, reference);
+                /** @param {boolean} redo */
                 const apply = redo => {
                     if (redo) command.execute();
                     else command.undo();
-                    const current = app.project.getComponentInfo(compId);
+                    const current = project.getComponentInfo(compId);
                     const placement = app.placements.get(compId);
                     if (placement && current) {
                         placement.reference = current.reference;
@@ -327,7 +390,7 @@ export function tryEditReferenceAt(app, worldPos) {
                         app.drawRefOverlay(compId, false);
                         app.showRefProperties(compId);
                     }
-                    app.netlist = app.project.getNetlist();
+                    app.netlist = project.getNetlist();
                     app.updateRatsnest();
                     app.refreshComponent3D();
                 };
@@ -349,6 +412,7 @@ export function tryEditReferenceAt(app, worldPos) {
 /**
  * Select/deselect a component's reference text. Pass null to clear.
  * @param {PcbEditor} app
+ * @param {string|null} compId
  */
 export function selectRefText(app, compId) {
     const prev = getPcbSelection(app, 'reftext')[0] || null;
@@ -362,10 +426,13 @@ export function selectRefText(app, compId) {
     app.drawRefOverlay(next, false);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} componentId
+ */
 function outlineForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
-    const box = refBox(placement);
+    const box = placement ? refBox(placement) : null;
     if (!placement || !box) return [];
     const rotation = (placement.refRot || 0) * Math.PI / 180;
     const cos = Math.cos(rotation);
@@ -390,7 +457,10 @@ function outlineForRefText(app, componentId) {
     });
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} componentId
+ */
 function boundsForRefText(app, componentId) {
     const points = outlineForRefText(app, componentId);
     if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -402,7 +472,11 @@ function boundsForRefText(app, componentId) {
     };
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} componentId
+ * @param {string} id
+ */
 export function createRefTextSelectionAdapter(app, componentId, id) {
     return {
         id,
@@ -415,6 +489,7 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         },
         get locked() { return isRefTextLocked(app.placements?.get(componentId)); },
         getBounds() { return boundsForRefText(app, componentId); },
+        /** @param {Point} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(
                 outlineForRefText(app, componentId),
@@ -422,14 +497,18 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
                 scale,
             );
         },
+        /** @param {Point} point */
         hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);
-            const box = refBox(placement);
+            const box = placement ? refBox(placement) : null;
             return placement && box ? refCenterWorld(placement, box) : { x: 0, y: 0 };
         },
+        /** @param {Point} worldPos */
         beginMove(worldPos) { return beginRefTextDrag(app, componentId, worldPos); },
+        /** @param {Point} worldPos */
         updateMove(worldPos) { updateRefTextDrag(app, worldPos); },
+        /** @param {boolean} commit */
         endMove(commit) { endRefDrag(app, commit); },
         invalidate() {
             refreshRefHighlight(app, componentId);

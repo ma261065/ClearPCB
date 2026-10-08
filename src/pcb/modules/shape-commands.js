@@ -32,9 +32,12 @@ import {
 } from '../../core/pcb-shape-commands.js';
 import { refreshBoardView } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-shape-commands.js').BoardShapeState} BoardShapeState */
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {BoardShape} shape */
 function deselectRemovedShape(app, shape) {
+    /** @type {Array<{kind:string, object: BoardShape}>} */
     const selected = getPcbSelectionEntries(app);
     const remaining = selected.filter((entry) => entry.kind !== 'shape' || entry.object.id !== shape.id);
     if (remaining.length === selected.length) return;
@@ -43,7 +46,7 @@ function deselectRemovedShape(app, shape) {
 }
 
 export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {BoardShape} shape */
     constructor(app, shape) {
         super(app.pcbDocument, shape);
         this.app = app;
@@ -71,7 +74,7 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
 }
 
 export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {BoardShape} shape */
     constructor(app, shape) {
         super(app.pcbDocument, canonicalBoardShape(app, shape));
         this.app = app;
@@ -79,7 +82,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 
     execute() {
         if (this.shape.layer === 'board-outline') return;
-        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape').cancel();
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape')?.cancel();
         if (getBoardShapeRotationPreview(this.app)?.original === this.shape) {
             if (!finishSelectionInteraction(this.app, false)) finishBoardShapeRotationPreview(this.app);
         }
@@ -104,14 +107,15 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {BoardShape} shape @param {BoardShapeState} before @param {BoardShapeState} after */
     constructor(app, shape, before, after) {
         super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
     }
 
+    /** @param {BoardShapeState} geometry */
     _apply(geometry) {
-        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape').cancel();
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape')?.cancel();
         if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         const applied = super._apply(geometry);
         // Retain translated halos; only rebind clearance already invalidated by handle edits.
@@ -125,14 +129,15 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
 }
 
 export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {BoardShape} shape @param {BoardShapeState} before @param {BoardShapeState} after */
     constructor(app, shape, before, after) {
         super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
     }
 
+    /** @param {BoardShapeState} state */
     _apply(state) {
-        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape').cancel();
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape')?.cancel();
         if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');

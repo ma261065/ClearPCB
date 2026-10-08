@@ -58,9 +58,31 @@ import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPadHaloGroup } from './clearance-overlay.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/**
+ * @typedef {import('../../core/ProjectDocument.js').ProjectDocument} ProjectDocument
+ * @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement
+ * @typedef {import('../../core/pcb-track-commands.js').TrackState} TrackState
+ * @typedef {Partial<TrackState> & Record<string, any>} TrackPatch
+ * @typedef {import('../../core/pcb-via-commands.js').ViaState} ViaState
+ * @typedef {{edgeId?: string|null, nodeId?: string|null}} TrackPropertyScope
+ * @typedef {{original: Track, track: Track, before: TrackState, scope: TrackPropertyScope, tracks: Track[]}} TrackPropertyPreview
+ * @typedef {import('../../core/pcb-via-commands.js').ViaChange} ViaChange
+ * @typedef {{before: Map<Via, ViaState>, copies: Map<Via, Via>, originals: Map<Via, Via>, vias: Via[]}} ViaPropertyPreview
+ * @typedef {{tracks: Track[], copies: Track[], originals: Map<Track, Track>, copiesByOriginal: Map<Track, Track>, rendered: Set<Track>, before: Map<string, {x: number, y: number, rotation: number}>, changed: Set<string>}} PlacementPreview
+ * @typedef {Partial<import('../../core/PcbPlacementState.js').PlacementOverride> & Record<string, unknown>} PlacementPatch
+ * @typedef {{pose: import('../../core/PcbPlacementState.js').PlacementOverride, pads: Map<string|number, import('../../core/pcb-placement-geometry.js').BoardPad>, tracks: Set<Track>}} PlacementPoseResult
+ * @typedef {{net: string|number, from: {x: number, y: number}, to: {x: number, y: number}}} FailedConnection
+ * @typedef {{failed?: boolean, net: string, x1: number, y1: number, x2: number, y2: number}} RoutedRatline
+ * @typedef {import('../../core/pcb-track-commands.js').RouteState} RouteState
+ * @typedef {import('../../core/pcb-outline-commands.js').BoardOutlineCommandState} BoardOutlineCommandState
+ * @typedef {{execute: () => void, undo: () => void, app?: PcbEditor}} CommandLike
+ */
 
+/** @type {WeakMap<PcbEditor, PlacementPreview>} */
 const placementPreviews = new WeakMap();
+/** @type {WeakMap<PcbEditor, ViaPropertyPreview>} */
 const viaPropertyPreviews = new WeakMap();
+/** @type {WeakMap<PcbEditor, TrackPropertyPreview>} */
 const trackPropertyPreviews = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -68,30 +90,40 @@ export function getTrackPropertyPreview(app) {
     return trackPropertyPreviews.get(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 export function canonicalTrack(app, track) {
     const trackDrag = draggedTrack(app);
-    if (trackDrag?.preview === track) return trackDrag.original || track;
+    if (trackDrag && trackDrag.preview === track) return trackDrag.original || track;
     const preview = trackPropertyPreviews.get(app);
     if (preview?.track === track) return preview.original;
     return draggedVia(app)?.tracks?.originals.get(track)
         || placementPreviews.get(app)?.originals.get(track) || track;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 export function displayedTrack(app, track) {
     track = canonicalTrack(app, track);
     const placement = placementPreviews.get(app)?.copiesByOriginal.get(track);
     if (placement) return placement;
     const trackDrag = draggedTrack(app);
-    if (trackDrag?.original === track) return trackDrag.preview;
+    if (trackDrag && trackDrag.original === track) return trackDrag.preview;
     const terminal = draggedVia(app)?.tracks?.copies.get(track);
     if (terminal) return terminal;
     const preview = trackPropertyPreviews.get(app);
     return preview?.original === track ? preview.track : track;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {TrackPropertyScope} scope
+ */
 function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
     if (!app.pcbDocument.tracks.includes(track)
         || (edgeId != null && !track.edges.has(edgeId))
@@ -103,6 +135,8 @@ function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
 /**
  * Keep one exact graph copy for the active numeric track property field.
  * @param {PcbEditor} app
+ * @param {Track} original
+ * @param {TrackPropertyScope} scope
  */
 export function beginTrackPropertyPreview(app, original, scope) {
     if (trackPropertyPreviews.has(app) || placementPreviews.has(app)
@@ -123,6 +157,7 @@ export function beginTrackPropertyPreview(app, original, scope) {
 /**
  * Drop display ownership before the existing graph command applies authored state.
  * @param {PcbEditor} app
+ * @param {(before: TrackState, after: TrackState) => void} [commit]
  */
 export function finishTrackPropertyPreview(app, commit) {
     const preview = trackPropertyPreviews.get(app);
@@ -149,24 +184,31 @@ export function getViaPropertyPreview(app) {
     return viaPropertyPreviews.get(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Via} via
+ */
 export function canonicalVia(app, via) {
     const viaDrag = draggedVia(app);
-    if (viaDrag?.preview === via) return viaDrag.original;
+    if (viaDrag && viaDrag.preview === via) return viaDrag.original;
     return viaPropertyPreviews.get(app)?.originals.get(via) || via;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Via} via
+ */
 export function displayedVia(app, via) {
     via = canonicalVia(app, via);
     const viaDrag = draggedVia(app);
-    if (viaDrag?.original === via) return viaDrag.preview;
+    if (viaDrag && viaDrag.original === via) return viaDrag.preview;
     return viaPropertyPreviews.get(app)?.copies.get(via) || via;
 }
 
 /**
  * Numeric via fields reuse one fixed-selection projection from first change.
  * @param {PcbEditor} app
+ * @param {Via[]} vias
  */
 export function beginViaPropertyPreview(app, vias) {
     if (viaPropertyPreviews.has(app) || draggedVia(app)) {
@@ -188,6 +230,7 @@ export function beginViaPropertyPreview(app, vias) {
 /**
  * Model commands receive canonical targets only, after all preview SVG is removed.
  * @param {PcbEditor} app
+ * @param {(changes: ViaChange[]) => void} [commit]
  */
 export function finishViaPropertyPreview(app, commit) {
     const preview = viaPropertyPreviews.get(app);
@@ -196,10 +239,15 @@ export function finishViaPropertyPreview(app, commit) {
     const changes = [];
     for (const [via, copy] of preview.copies) {
         removeViaElements(copy);
-        const before = {}, after = {};
-        for (const key of ['diameter', 'drill']) {
-            if (preview.before.get(via)[key] === copy[key]) continue;
-            before[key] = preview.before.get(via)[key];
+        /** @type {Partial<ViaState>} */
+        const before = {};
+        /** @type {Partial<ViaState>} */
+        const after = {};
+        const snapshot = preview.before.get(via);
+        if (!snapshot) continue;
+        for (const key of /** @type {const} */ (['diameter', 'drill'])) {
+            if (snapshot[key] === copy[key]) continue;
+            before[key] = snapshot[key];
             after[key] = copy[key];
         }
         if (Object.keys(after).length) changes.push({ via, before, after });
@@ -253,8 +301,9 @@ export function previewPlacementPoses(app, poses, deferredTrackIds) {
     let preview = placementPreviews.get(app);
     if (!preview) {
         const before = new Map(ids.map(id => {
-            const pl = app.placements.get(id);
-            return [id, { x: pl.x, y: pl.y, rotation: pl.rotation }];
+            const pl = app.placements?.get(id);
+            if (!pl) throw new Error(`PCB placement is no longer available: ${id}`);
+            return [id, { x: pl.x, y: pl.y, rotation: pl.rotation || 0 }];
         }));
         const originals = new Map();
         const tracks = (app.pcbDocument?.tracks || app.tracks || []).map(track => {
@@ -269,13 +318,17 @@ export function previewPlacementPoses(app, poses, deferredTrackIds) {
             before, changed: new Set() };
         placementPreviews.set(app, preview);
     }
+    if (!preview) return;
     if (preview.before.size !== ids.length || ids.some(id => !preview.before.has(id))) {
         throw new Error('Finish the current placement preview before starting another.');
     }
     const touched = new Set();
     for (const id of ids) {
-        const pl = app.placements.get(id), before = preview.before.get(id);
-        Object.assign(pl, poses.get(id));
+        const pl = app.placements?.get(id);
+        const before = preview.before.get(id);
+        const pose = poses.get(id);
+        if (!pl || !before || !pose) throw new Error(`PCB placement is no longer available: ${id}`);
+        Object.assign(pl, pose);
         if (pl.x !== before.x || pl.y !== before.y || pl.rotation !== before.rotation) preview.changed.add(id);
         else preview.changed.delete(id);
         updatePlacementPadPositions(pl);
@@ -283,7 +336,7 @@ export function previewPlacementPoses(app, poses, deferredTrackIds) {
         for (const track of repositionPadConnectedNodesData(preview.copies, id, pl.pads)) touched.add(track);
     }
     for (const track of touched) {
-        if (!preview.rendered.has(track)) removeTrackElements(preview.originals.get(track));
+        if (!preview.rendered.has(track)) removeTrackElements(/** @type {Track} */ (preview.originals.get(track)));
         if (!deferredTrackIds?.has(track.id)) renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
         preview.rendered.add(track);
     }
@@ -314,12 +367,14 @@ export function finishPlacementPreview(app, commit) {
                 if (preview.changed.has(id)) renderPlacementPose(app, id);
             }
         }
-        const currentTracks = preview ? new Set(app.pcbDocument?.tracks || app.tracks || []) : null;
-        for (const track of preview?.rendered || []) {
-            removeTrackElements(track);
-            const original = preview.originals.get(track);
-            if (currentTracks.has(original) && (!committed || !hasTrackElements(original))) {
-                renderTrack(original, id => app.getLayerGroup(id), _opts(app, original));
+        if (preview) {
+            const currentTracks = new Set(app.pcbDocument?.tracks || app.tracks || []);
+            for (const track of preview.rendered) {
+                removeTrackElements(track);
+                const original = preview.originals.get(track);
+                if (original && currentTracks.has(original) && (!committed || !hasTrackElements(original))) {
+                    renderTrack(original, id => app.getLayerGroup(id), _opts(app, original));
+                }
             }
         }
         if (preview && commit && !committed) {
@@ -339,7 +394,10 @@ export function restorePlacementPosePreview(app) {
     refreshEditedTrackClearance(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 function deselectRemovedTrack(app, track) {
     if (!getPcbSelection(app, 'track').includes(track)) return;
     clearTrackSelection(app);
@@ -354,7 +412,10 @@ function refreshEditedTrackClearance(app) {
     if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Track} track
+ */
 function _opts(app, track) {
     return {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter,
@@ -366,6 +427,7 @@ function _opts(app, track) {
 /**
  * Net labels are hidden while a track is selected or being dragged.
  * @param {PcbEditor} app
+ * @param {Track} track
  */
 function _shouldHideNetLabel(app, track) {
     return !!track && (track === getPcbSelection(app, 'track')[0] || track === draggedTrack(app)?.preview);
@@ -383,7 +445,7 @@ function _shouldHideNetLabel(app, track) {
  *
  * @param {PcbEditor} app - PCBApp
  * @param {string} compId - The component whose pads moved
- * @returns {Set<object>|null} the set of tracks that were repositioned
+ * @returns {Set<Track>|null} the set of tracks that were repositioned
  */
 export function repositionPadConnectedNodes(app, compId) {
     const pl = app.placements?.get(compId);
@@ -395,7 +457,10 @@ export function repositionPadConnectedNodes(app, compId) {
     return touched;
 }
 
-/** The SVG transform for a placement's current pose (position + rotation + mirror). */
+/**
+ * The SVG transform for a placement's current pose (position + rotation + mirror).
+ * @param {Placement} pl
+ */
 export function placementTransform(pl) {
     let t = `translate(${pl.x}, ${pl.y})`;
     if (pl.rotation) t += ` rotate(${pl.rotation})`;
@@ -427,6 +492,7 @@ export function applyPlacementPose(app, compId) {
 /**
  * Update existing SVG transforms without changing pads, track bonds or clearance.
  * @param {PcbEditor} app
+ * @param {string} compId
  */
 export function renderPlacementPose(app, compId) {
     const pl = app.placements?.get(compId);
@@ -476,7 +542,7 @@ export function renderPlacementPose(app, compId) {
  *  also add associated standalone Vias (e.g. at layer-change nodes)
  *  in the same atomic undo step. */
 export class AddTrackCommand extends ModelAddTrackCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track} track @param {Via[]} [vias] */
     constructor(app, track, vias = []) {
         super(app.pcbDocument, track, vias);
         this.app = app;
@@ -505,16 +571,18 @@ export class AddTrackCommand extends ModelAddTrackCommand {
 }
 
 export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track[]} tracks @param {Via[]} vias @param {FailedConnection[]} [failedConnections] */
     constructor(app, tracks, vias, failedConnections = []) {
         super(app.pcbDocument, tracks, vias);
         this.app = app;
         this.description = 'Replace routed copper';
-        this.beforeFailed = storedDrcRatlines(app).filter(line => line.failed).map(line => ({ ...line }));
+        const currentFailed = /** @type {RoutedRatline[]} */ (storedDrcRatlines(app));
+        this.beforeFailed = currentFailed.filter(line => line.failed).map(line => ({ ...line }));
         this.afterFailed = failedConnections.map(fc => ({
             net: String(fc.net), x1: fc.from.x, y1: fc.from.y, x2: fc.to.x, y2: fc.to.y, failed: true,
         }));
     }
+    /** @param {RouteState} state */
     _apply(state) {
         clearTrackSelection(this.app);
         for (const track of this.document.tracks) removeTrackElements(track);
@@ -536,6 +604,7 @@ export function renderRoutedCopper(app, failedRatlines = []) {
         app.getLayerGroup(id)?.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-route-anim')
             .forEach(el => el.remove());
     }
+    /** @param {string} id */
     const getGroup = (id) => app.getLayerGroup(id);
     for (const t of app.pcbDocument.tracks) renderTrack(t, getGroup, {
         viaDiameter: params.viaDiameter,
@@ -582,14 +651,14 @@ export function renderRoutedCopper(app, failedRatlines = []) {
 
 /** Remove an existing Track from app.tracks and its SVG. */
 export class RemoveTrackCommand extends ModelRemoveTrackCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track} track */
     constructor(app, track) {
         super(app.pcbDocument, canonicalTrack(app, track));
         this.app = app;
     }
     execute() {
         cancelTrackDragOf(this.app, this.track);
-        if (getPropertyEditor(this.app, 'track')?.track === this.track) getPropertyEditor(this.app, 'track').dispose();
+        if (getPropertyEditor(this.app, 'track')?.track === this.track) getPropertyEditor(this.app, 'track')?.dispose();
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
         super.execute();
@@ -609,11 +678,12 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
  * snapshots are plain {key: value} objects.
  */
 export class ModifyTrackCommand extends ModelModifyTrackCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track} track @param {TrackPatch} before @param {TrackPatch} after */
     constructor(app, track, before, after) {
         super(canonicalTrack(app, track), before, after);
         this.app = app;
     }
+    /** @param {TrackPatch} state */
     _apply(state) {
         cancelTrackDragOf(this.app, this.track);
         super._apply(state);
@@ -625,11 +695,12 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
 
 /** Move a single Track node from (fromX, fromY) to (toX, toY). */
 export class MoveVertexCommand extends ModelMoveVertexCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track} track @param {string} nodeId @param {number} fromX @param {number} fromY @param {number} toX @param {number} toY */
     constructor(app, track, nodeId, fromX, fromY, toX, toY) {
         super(canonicalTrack(app, track), nodeId, fromX, fromY, toX, toY);
         this.app = app;
     }
+    /** @param {{x: number, y: number}} pt */
     _set(pt) {
         cancelTrackDragOf(this.app, this.track);
         super._set(pt);
@@ -647,11 +718,12 @@ export class MoveVertexCommand extends ModelMoveVertexCommand {
  * and `after` are `track.captureState()` snapshots.
  */
 export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Track} track @param {TrackState} before @param {TrackState} after */
     constructor(app, track, before, after) {
         super(canonicalTrack(app, track), before, after);
         this.app = app;
     }
+    /** @param {TrackState} state */
     _apply(state) {
         cancelTrackDragOf(this.app, this.track);
         super._apply(state);
@@ -663,7 +735,7 @@ export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
 }
 
 export class AddViaCommand extends ModelAddViaCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Via} via */
     constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         super.execute();
@@ -680,7 +752,7 @@ export class AddViaCommand extends ModelAddViaCommand {
 }
 
 export class RemoveViaCommand extends ModelRemoveViaCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Via} via */
     constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         removeViaElements(this.via);
@@ -697,11 +769,12 @@ export class RemoveViaCommand extends ModelRemoveViaCommand {
 }
 
 export class ModifyViaCommand extends ModelModifyViaCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Via} via @param {Partial<ViaState>} before @param {Partial<ViaState>} after */
     constructor(app, via, before, after) {
         super(via, before, after);
         this.app = app;
     }
+    /** @param {Partial<ViaState>} state */
     _apply(state) {
         super._apply(state);
         renderVia(this.via, (id) => this.app.getLayerGroup(id));
@@ -713,11 +786,12 @@ export class ModifyViaCommand extends ModelModifyViaCommand {
 
 /** Apply the same property edit to several vias with one derived refresh. */
 export class ModifyViasCommand extends ModelModifyViasCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {ViaChange[]} changes */
     constructor(app, changes) {
         super(changes);
         this.app = app;
     }
+    /** @param {'before'|'after'} stateKey */
     _apply(stateKey) {
         super._apply(stateKey);
         for (const change of this.changes) {
@@ -731,11 +805,12 @@ export class ModifyViasCommand extends ModelModifyViasCommand {
 
 /** Move a standalone Via from (fromX, fromY) to (toX, toY). */
 export class MoveViaCommand extends ModelMoveViaCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {Via} via @param {number} fromX @param {number} fromY @param {number} toX @param {number} toY */
     constructor(app, via, fromX, fromY, toX, toY) {
         super(via, fromX, fromY, toX, toY);
         this.app = app;
     }
+    /** @param {{x: number, y: number}} pt */
     _set(pt) {
         super._set(pt);
         renderVia(this.via, (id) => this.app.getLayerGroup(id));
@@ -744,11 +819,19 @@ export class MoveViaCommand extends ModelMoveViaCommand {
     }
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {string} compId
+ * @param {PlacementPoseResult} result
+ */
 function presentPlacementPose(app, compId, result) {
     const pl = app.placements?.get(compId);
     if (pl) {
-        for (const key of ['x', 'y', 'rotation', 'mirror', 'side']) pl[key] = result.pose[key];
+        pl.x = result.pose.x;
+        pl.y = result.pose.y;
+        pl.rotation = result.pose.rotation;
+        pl.mirror = result.pose.mirror;
+        pl.side = result.pose.side;
         for (const [id, pad] of result.pads) pl.pads.set(id, pad);
         renderPlacementPose(app, compId);
     }
@@ -764,11 +847,12 @@ function presentPlacementPose(app, compId, result) {
 }
 
 export class MovePlacementCommand extends ModelMovePlacementCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {number} fromX @param {number} fromY @param {number} toX @param {number} toY */
     constructor(app, compId, fromX, fromY, toX, toY) {
-        super(app.project, compId, fromX, fromY, toX, toY, app.placements?.get(compId));
+        super(/** @type {ProjectDocument} */ (app.project), compId, fromX, fromY, toX, toY, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {{x: number, y: number}} pt */
     _apply(pt) {
         const result = super._apply(pt);
         presentPlacementPose(this.app, this.compId, result);
@@ -782,11 +866,12 @@ export class MovePlacementCommand extends ModelMovePlacementCommand {
  * pose override, reconciles the ratsnest and refreshes any open 3D view.
  */
 export class RotatePlacementCommand extends ModelRotatePlacementCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {number} fromDeg @param {number} toDeg */
     constructor(app, compId, fromDeg, toDeg) {
-        super(app.project, compId, fromDeg, toDeg, app.placements?.get(compId));
+        super(/** @type {ProjectDocument} */ (app.project), compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {number} deg */
     _apply(deg) {
         const result = super._apply(deg);
         presentPlacementPose(this.app, this.compId, result);
@@ -796,11 +881,12 @@ export class RotatePlacementCommand extends ModelRotatePlacementCommand {
 
 /** Toggle whether a PCB placement can be transformed or have its reference edited. */
 export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {boolean} locked */
     constructor(app, compId, locked) {
         super(app.placementState, compId, locked, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {boolean} locked */
     _apply(locked) {
         const saved = super._apply(locked);
         const pl = this.app.placements?.get(this.compId);
@@ -825,11 +911,12 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
  * V = horizontal axis), regardless of current orientation.
  */
 export class FlipPlacementCommand extends ModelFlipPlacementCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {'H'|'V'|string} axis */
     constructor(app, compId, axis) {
-        super(app.project, compId, axis, app.placements?.get(compId));
+        super(/** @type {ProjectDocument} */ (app.project), compId, axis, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {PlacementPatch} state */
     _apply(state) {
         const result = super._apply(state);
         presentPlacementPose(this.app, this.compId, result);
@@ -857,11 +944,12 @@ export function applyPlacementRefVisible(app, compId, visible) {
 
 /** Toggle a placement's reference-designator visibility through history. */
 export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {boolean} visible */
     constructor(app, compId, visible) {
         super(app.placementState, compId, visible, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {boolean} v */
     _apply(v) {
         const saved = super._apply(v);
         applyPlacementRefVisible(this.app, this.compId, saved.refVisible);
@@ -871,6 +959,7 @@ export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCo
     }
 }
 
+/** @type {Record<string, string>} */
 const FP_LAYER_FLIP = {
     'top-copper': 'bottom-copper', 'bottom-copper': 'top-copper',
     'top-pad-numbers': 'bottom-pad-numbers', 'bottom-pad-numbers': 'top-pad-numbers',
@@ -921,9 +1010,12 @@ export function applyPlacementSide(app, compId, side) {
 /**
  * Reparent and recolor footprint artwork without changing pads or track bonds.
  * @param {PcbEditor} app
+ * @param {string} compId
+ * @param {'top'|'bottom'|string} side
  */
 export function renderPlacementSide(app, compId, side) {
-    const pl = app.placements.get(compId);
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
     const flip = side === 'bottom';
     for (const el of (pl.elements || [])) {
         const base = el.getAttribute('data-fp-layer');
@@ -950,11 +1042,12 @@ export function renderPlacementSide(app, compId, side) {
  * persists the override, reconciles the ratsnest and refreshes any 3D view.
  */
 export class SetPlacementSideCommand extends ModelSetPlacementSideCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} compId @param {'top'|'bottom'|string} side */
     constructor(app, compId, side) {
-        super(app.project, compId, side, app.placements?.get(compId));
+        super(/** @type {ProjectDocument} */ (app.project), compId, side, app.placements?.get(compId));
         this.app = app;
     }
+    /** @param {'top'|'bottom'|string} side @param {boolean} [restore] */
     _apply(side, restore = false) {
         const result = super._apply(side, restore);
         const pl = this.app.placements?.get(this.compId);
@@ -968,11 +1061,12 @@ export class SetPlacementSideCommand extends ModelSetPlacementSideCommand {
 }
 
 export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {BoardOutlineCommandState} before @param {BoardOutlineCommandState} after */
     constructor(app, before, after) {
         super(app.pcbDocument, before, after);
         this.app = app;
     }
+    /** @param {BoardOutlineCommandState} s */
     _apply(s) {
         super._apply(s);
         drawBoardOutline(this.app);
@@ -987,6 +1081,7 @@ export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
  * (e.g. dragging a via that also moves connected track endpoints).
  */
 export class CompoundCommand {
+    /** @param {CommandLike[]} commands */
     constructor(commands) {
         this.commands = Array.isArray(commands) ? commands.slice() : [];
         this.app = this.commands.find((command) => command.app)?.app;

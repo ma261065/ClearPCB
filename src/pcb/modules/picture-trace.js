@@ -1,6 +1,16 @@
 import ImageTracer from '../../../assets/vendor/imagetracer.js';
 import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{width:number,height:number,mask:ArrayLike<number>}} PictureRaster */
+/** @typedef {{type:'L',x1:number,y1:number,x2:number,y2:number}|{type:'Q',x1:number,y1:number,x2:number,y2:number,x3:number,y3:number}} TraceSegment */
+/** @typedef {{segments: TraceSegment[]}} TracePath */
+/** @typedef {{layers: TracePath[][]}} TraceData */
+
+/**
+ * @param {PictureRaster} raster
+ * @param {{simplify?: number, despeckle?: number, preserveCorners?: boolean}} [options]
+ */
 export function tracePicture(raster, { simplify = 1, despeckle = 0, preserveCorners = true } = {}) {
     if (!Number.isFinite(simplify) || simplify < 0 || simplify > 5
         || !Number.isFinite(despeckle) || despeckle < 0 || despeckle > 128) {
@@ -16,16 +26,19 @@ export function tracePicture(raster, { simplify = 1, despeckle = 0, preserveCorn
         const shade = mask[index] ? 255 : 0;
         data.set([shade, shade, shade, 255], index * 4);
     }
-    const traced = ImageTracer.imagedataToTracedata({ width, height, data }, {
+    const traced = /** @type {TraceData} */ (ImageTracer.imagedataToTracedata({ width, height, data }, {
         pal: [{ r: 0, g: 0, b: 0, a: 255 }, { r: 255, g: 255, b: 255, a: 255 }],
         colorsampling: 0, colorquantcycles: 1, layering: 0,
         ltres: simplify, qtres: simplify, pathomit: despeckle,
         rightangleenhance: preserveCorners, blurradius: 0,
-    });
+    }));
     let vertices = 0;
+    /** @type {Point[][]} */
     const contours = [];
     for (const path of traced.layers[1] || []) {
+        /** @type {Point[]} */
         const contour = [];
+        /** @param {number} x @param {number} y */
         const append = (x, y) => {
             const point = { x: Math.max(0, Math.min(width, x)), y: Math.max(0, Math.min(height, y)) };
             const previous = contour.at(-1);
@@ -53,7 +66,8 @@ export function tracePicture(raster, { simplify = 1, despeckle = 0, preserveCorn
                 throw new Error('Unsupported traced image segment.');
             }
         }
-        if (contour.length > 1 && contour[0].x === contour.at(-1).x && contour[0].y === contour.at(-1).y) contour.pop();
+        const last = contour.at(-1);
+        if (contour.length > 1 && last && contour[0].x === last.x && contour[0].y === last.y) contour.pop();
         if (contour.length >= 3) contours.push(contour);
     }
     const artwork = { width, height, contours };

@@ -9,9 +9,16 @@ import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, co
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** A board plus the document it came from, which keys the terminal-contact cache. @typedef {PcbBoard & {pcbDocument?: PcbEditor['pcbDocument']}} CopperBoard */
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./copper-connectivity.js').CopperCluster} CopperCluster */
+/** @typedef {Record<string, any>} CopperContact */
+/** @typedef {{track?: any, tracks?: Set<any>, via?: any, padKey?: string, edgeId?: string, nodeId?: string}} CopperSeed */
+/** @typedef {{tracks:Set<any>, trackNodes:Map<any,Set<string>>, vias:Set<any>, shapes:Set<any>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}} BondedCopper */
 
 const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
+/** @param {Point} point */
 const ratlinePointKey = ({ x, y }) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
+/** @param {CopperContact} contact @param {Point} point */
 export function shapeCopperContains(contact, point) {
     const { geometry, bounds } = contact;
     if (point.x < bounds.minX || point.x > bounds.maxX || point.y < bounds.minY || point.y > bounds.maxY) return false;
@@ -23,7 +30,7 @@ export function shapeCopperContains(contact, point) {
     }
     if (geometry.areaOutline && pointInPolygon(point, geometry.areaOutline)) return true;
     if (geometry.strokeSegments.length) {
-        return geometry.strokeSegments.some(({ start, end, lineWidth }) =>
+        return /** @type {Array<{start: Point, end: Point, lineWidth: number}>} */ (geometry.strokeSegments).some(({ start, end, lineWidth }) =>
             distanceToSegment(point, start, end) <= lineWidth / 2);
     }
     const points = geometry.centerline;
@@ -46,14 +53,16 @@ export function shapeCopperContains(contact, point) {
  * @param {{track?:any, tracks?:Set<object>, via?:object, padKey?:string, edgeId?:string, nodeId?:string}} seed
  * @param {{includeShapes?:boolean, newTracks?:Set<object>|null}} [options]
  *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
- * @returns {{tracks:Set<object>, trackNodes:Map<object,Set<string>>, vias:Set<object>, shapes:Set<object>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}}
+ * @returns {BondedCopper}
  */
 export function collectBondedCopper(app, seed, { includeShapes = false, newTracks = null } = {}) {
     const clusters = buildBondedClusters(app, includeShapes);
 
     // Union-find with layer-aware coincidence (mirrors reconcileRatsnest).
     const parent = clusters.map((_, i) => i);
+    /** @param {number} i */
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    /** @param {number} a @param {number} b */
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
     unionCoincidentClusters(clusters, union);
     if (!includeShapes) _unionViaTrackOverlaps(clusters, union, false);
@@ -78,6 +87,12 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
     return bondedCopperFromClusters(clusters.filter((_, index) => roots.has(find(index))));
 }
 
+/**
+ * @param {CopperContact[]} contacts
+ * @param {Set<number>} roots
+ * @param {Set<any>|null} [newTracks]
+ * @param {(first: any, second: any) => boolean} [touches]
+ */
 export function expandCopperContactRoots(contacts, roots, newTracks = null, touches = copperContactsTouch) {
     const neighbours = new Map();
     for (const [first, second] of spatialPairs(contacts, contact => contact.resolved.bounds, 1e-7)) {
@@ -105,7 +120,7 @@ export function expandCopperContactRoots(contacts, roots, newTracks = null, touc
     }
 }
 
-/** @param {CopperBoard} app */
+/** @param {CopperBoard} app @param {boolean} includeShapes @returns {CopperCluster[]} */
 export function buildBondedClusters(app, includeShapes) {
     const clusters = buildCopperClusters(app);
     if (!clusters.length) terminalContactPasses.delete(app);
@@ -126,8 +141,12 @@ export function buildBondedClusters(app, includeShapes) {
     return clusters;
 }
 
-/** Layer-compatible copper under a node, never copper crossed by its edges. */
+/**
+ * Layer-compatible copper under a node, never copper crossed by its edges.
+ * @param {CopperContact[]} nodes @param {CopperContact[]} contacts
+ */
 export function* nodeTargetPairs(nodes, contacts) {
+    /** @param {CopperContact} item */
     const bounds = item => item.resolved?.bounds
         || { minX: item.x, maxX: item.x, minY: item.y, maxY: item.y };
     for (const [node, contact] of spatialCrossPairs(nodes, contacts, bounds, 1e-7)) {
@@ -149,10 +168,14 @@ export function collectNodeConnections(app, placedNodes) {
     const clusters = buildBondedClusters(app, true);
     const contacts = _clusterCopperContacts(app, clusters);
     const parent = clusters.map((_, i) => i);
+    /** @param {number} i */
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    /** @param {number} a @param {number} b */
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
     unionCoincidentClusters(clusters, union);
+    /** @type {CopperContact[]} */
     const nodes = [];
+    /** @type {number[]} */
     const seeds = [];
     clusters.forEach((cluster, index) => {
         if (!cluster.track) return;
@@ -189,6 +212,7 @@ export function collectNodeConnections(app, placedNodes) {
     return bondedCopperFromClusters(clusters.filter((_, index) => roots.has(find(index))));
 }
 
+/** @param {CopperCluster[]} clusters @returns {BondedCopper} */
 function bondedCopperFromClusters(clusters) {
     const tracks = new Set();
     const trackNodes = new Map();
@@ -215,6 +239,7 @@ function bondedCopperFromClusters(clusters) {
     }
     return { tracks, trackNodes, vias, shapes, padNets, padKeys, padNetByKey };
 }
+/** @param {Point} p @param {Point} a @param {Point} b */
 function _projectPointOnSegment(p, a, b) {
     const abx = b.x - a.x, aby = b.y - a.y;
     const len2 = abx * abx + aby * aby;
@@ -245,10 +270,15 @@ export function clearTerminalContactPasses(app) {
     terminalContactPasses.delete(app);
 }
 
-/** Shared physical geometry for ratlines and bonded-Net traversal. */
-/** @param {CopperBoard} app */
+/** Shared physical geometry for ratlines and bonded-Net traversal.
+ * @param {CopperBoard} app
+ * @param {CopperCluster[]} clusters
+ * @returns {CopperContact[]}
+ */
 export function _clusterCopperContacts(app, clusters) {
+    /** @type {CopperContact[]} */
     const contacts = [];
+    /** @type {Map<any, any[]>} */
     const segments = new Map();
     const model = app.pcbDocument;
     const previous = terminalContactPasses.get(app);
@@ -265,7 +295,8 @@ export function _clusterCopperContacts(app, clusters) {
             geometries = [terminal.shape];
         } else {
             if (!segments.has(cluster.track)) segments.set(cluster.track, resolveTrackSegments(cluster.track));
-            geometries = segments.get(cluster.track).filter(segment => cluster.edgeIds.has(segment.edgeId))
+            geometries = /** @type {any[]} */ (segments.get(cluster.track))
+                .filter(/** @param {any} segment */ segment => cluster.edgeIds.has(segment.edgeId))
                 .map(copperSegmentShape);
         }
         for (const geometry of geometries) contacts.push({
@@ -280,10 +311,15 @@ export function _clusterCopperContacts(app, clusters) {
     return contacts;
 }
 
-/** Spatially join vias to physically-overlapping stroked Track segments. */
+/** Spatially join vias to physically-overlapping stroked Track segments.
+ * @param {CopperCluster[]} clusters
+ * @param {(a: number, b: number) => void} union
+ * @param {boolean} requireSameNet
+ */
 function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
     const cellSize = 2;
     const cells = new Map();
+    /** @param {number} x @param {number} y */
     const cellKey = (x, y) => `${x},${y}`;
 
     for (let clusterIndex = 0; clusterIndex < clusters.length; clusterIndex++) {
@@ -336,10 +372,10 @@ function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
         }
     }
 }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} seedTrack @param {CopperSeed|null} [terminalSeed] */
 export function bondedExclusion(app, seedTrack, terminalSeed = null) {
     if (!seedTrack && !terminalSeed) return null;
-    const { tracks, trackNodes, vias, padKeys } = collectBondedCopper(app, seedTrack ? { track: seedTrack } : terminalSeed);
+    const { tracks, trackNodes, vias, padKeys } = collectBondedCopper(app, seedTrack ? { track: seedTrack } : /** @type {CopperSeed} */ (terminalSeed));
     const ratlinePointKeys = new Set();
     for (const track of tracks) {
         for (const id of trackNodes.get(track) || []) {
@@ -354,5 +390,3 @@ export function bondedExclusion(app, seedTrack, terminalSeed = null) {
     }
     return { excludeTracks: tracks, excludeVias: vias, excludePadKeys: padKeys, ratlinePointKeys };
 }
-
-

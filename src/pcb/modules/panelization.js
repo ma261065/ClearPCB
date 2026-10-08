@@ -2,14 +2,23 @@ import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { boardBoundary, getBoardOutline, validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { panelSettings } from '../../core/pcb-panelization.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {'x'|'y'} Axis */
+/** @typedef {Point[]} Contour */
+/** @typedef {{x:number,y:number,diameter:number,maskDiameter?: undefined}} Drill */
+/** @typedef {{x:number,y:number,diameter:number,maskDiameter?:number}} RailFeature */
+/** @typedef {ReturnType<typeof buildPanelLayout>} PanelLayout */
 export { PANEL_DEFAULTS, panelSettings } from '../../core/pcb-panelization.js';
 
 const PRECISION = 100000;
+/** @param {number} x @param {number} y @param {number} width @param {number} height @returns {Contour} */
 const rectangle = (x, y, width, height) => [
     { x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height },
 ];
+/** @param {Contour} points @param {number} dx @param {number} dy @returns {Contour} */
 const translate = (points, dx, dy) => points.map(point => ({ x: point.x + dx, y: point.y + dy }));
 
+/** @param {Contour[]} contours @returns {Contour[]} */
 function mergeSubstrate(contours) {
     const clipper = new ClipperLib.Clipper();
     for (const contour of contours) {
@@ -21,10 +30,16 @@ function mergeSubstrate(contours) {
     clipper.Execute(ClipperLib.ClipType.ctUnion, tree,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
     if (tree.Childs().length !== 1) throw new Error('Panel contains disconnected boards or rails. Adjust spacing or tabs.');
-    return ClipperLib.Clipper.PolyTreeToPaths(tree)
-        .map(path => path.map(point => ({ x: point.X / PRECISION, y: point.Y / PRECISION })));
+    return /** @type {Array<Array<{X:number,Y:number}>>} */ (ClipperLib.Clipper.PolyTreeToPaths(tree))
+        .map((path) => path.map((point) => ({ x: point.X / PRECISION, y: point.Y / PRECISION })));
 }
 
+/**
+ * @param {Contour} points
+ * @param {Axis} axis
+ * @param {number} offset
+ * @param {boolean} high
+ */
 function boundaryCrossing(points, axis, offset, high) {
     const along = axis === 'x' ? 'y' : 'x';
     const crossings = [];
@@ -48,10 +63,11 @@ export function buildPanelLayout(app, input = app.panelization) {
     const settings = panelSettings(input);
     if (!validBoardOutline(getBoardOutline(app))) throw new Error('Panelization requires a valid closed board outline.');
     const bounds = boardBoundary(app);
+    const boundsPoints = /** @type {Contour} */ (bounds.points);
     const { rows, columns, separation } = settings;
     if (separation === 'vcut') {
-        const area = Math.abs(bounds.points.reduce((sum, point, index) => {
-            const next = bounds.points[(index + 1) % bounds.points.length];
+        const area = Math.abs(boundsPoints.reduce((sum, point, index) => {
+            const next = boundsPoints[(index + 1) % boundsPoints.length];
             return sum + point.x * next.y - next.x * point.y;
         }, 0)) / 2;
         if (Math.abs(area - bounds.w * bounds.h) > 1e-5) {
@@ -88,7 +104,13 @@ export function buildPanelLayout(app, input = app.panelization) {
     if (settings.railBottom) rails.push(rectangle(panelBounds.x, bounds.y + height + gapY, panelBounds.w, settings.railBottom));
     if (settings.railLeft) rails.push(rectangle(panelBounds.x, panelBounds.y, settings.railLeft, panelBounds.h));
     if (settings.railRight) rails.push(rectangle(bounds.x + width + gapX, panelBounds.y, settings.railRight, panelBounds.h));
-    const cuts = [], drills = [], tabs = [];
+    /** @type {Contour[]} */
+    const cuts = [];
+    /** @type {Drill[]} */
+    const drills = [];
+    /** @type {Contour[]} */
+    const tabs = [];
+    /** @type {Contour[]} */
     let contours;
     if (separation === 'vcut') {
         const cutX = new Set(), cutY = new Set();
@@ -104,6 +126,13 @@ export function buildPanelLayout(app, input = app.panelization) {
         for (const y of cutY) cuts.push([{ x: panelBounds.x, y }, { x: panelBounds.x + panelBounds.w, y }]);
         contours = [rectangle(panelBounds.x, panelBounds.y, panelBounds.w, panelBounds.h)];
     } else {
+        /**
+         * @param {Contour} first
+         * @param {Contour} second
+         * @param {Axis} axis
+         * @param {number} start
+         * @param {number} length
+         */
         const addTabs = (first, second, axis, start, length) => {
             const tabsPerEdge = axis === 'x' ? settings.verticalTabsPerEdge : settings.horizontalTabsPerEdge;
             const spacing = length / tabsPerEdge;
@@ -153,7 +182,11 @@ export function buildPanelLayout(app, input = app.panelization) {
         }
         contours = mergeSubstrate([...instances.map(instance => instance.points), ...rails, ...tabs]);
     }
-    const positioningHoles = [], fiducials = [];
+    /** @type {Drill[]} */
+    const positioningHoles = [];
+    /** @type {RailFeature[]} */
+    const fiducials = [];
+    /** @param {boolean} horizontal @param {number} thickness @param {number} across */
     const addRailFeatures = (horizontal, thickness, across) => {
         const holes = horizontal ? settings.horizontalPositioningHoles : settings.verticalPositioningHoles;
         const marks = horizontal ? settings.horizontalFiducials : settings.verticalFiducials;
@@ -161,6 +194,7 @@ export function buildPanelLayout(app, input = app.panelization) {
         const start = horizontal ? bounds.x : bounds.y;
         const length = horizontal ? width : height;
         if (thickness < 5) throw new Error('Rails with positioning holes or fiducials must be at least 5 mm wide.');
+        /** @param {number} inset @param {(Drill|RailFeature)[]} target @param {{diameter:number,maskDiameter?:number}} dimensions */
         const addPair = (inset, target, dimensions) => {
             if (length - inset * 2 < 4) throw new Error('Rail is too short for the selected positioning holes and fiducials.');
             for (const along of [start + inset, start + length - inset]) {
@@ -180,8 +214,9 @@ export function buildPanelLayout(app, input = app.panelization) {
     addRailFeatures(true, settings.railBottom, bounds.y + height + gapY + settings.railBottom / 2);
     addRailFeatures(false, settings.railLeft, panelBounds.x + settings.railLeft / 2);
     addRailFeatures(false, settings.railRight, bounds.x + width + gapX + settings.railRight / 2);
-    const railFeatures = [...positioningHoles, ...fiducials].map(feature => ({
-        ...feature, radius: ('maskDiameter' in feature ? feature.maskDiameter : feature.diameter) / 2,
+    /** @type {Array<(Drill|RailFeature) & {radius:number}>} */
+    const railFeatures = [...positioningHoles, ...fiducials].map((feature) => ({
+        ...feature, radius: (feature.maskDiameter ?? feature.diameter) / 2,
     }));
     for (let index = 0; index < railFeatures.length; index++) {
         const feature = railFeatures[index];

@@ -2,6 +2,8 @@ import { collectDrcInputs } from './drc.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./drc-state.js').Ratline} Ratline */
+/** @typedef {import('./drc.js').DrcRules} DrcRules */
 
 const featureFields = ['kind', 'pin', 'componentId', 'padId', 'number', 'drill', 'slot', 'net', 'layer',
     'width', 'height', 'hw', 'hh', 'shape', 'rotation', 'reference', 'outline', 'uid', 'label', 'keyId',
@@ -10,11 +12,13 @@ const featureFields = ['kind', 'pin', 'componentId', 'padId', 'number', 'drill',
 const shapeFields = ['id', 'type', 'kind', 'layer', 'copperMode', 'x', 'y', 'radius', 'start', 'end',
     'bulge', 'points', 'outline', 'lineWidth', 'cornerRadius', 'nodeCornerRadii', 'segmentWidths',
     'segmentBulges', 'filled', 'artwork'];
+/** @param {Record<string, any>} object @param {string[]} fields */
 const pick = (object, fields) => Object.fromEntries(fields.filter(key => key in object).map(key => [key, object[key]]));
 
 /**
  * Full-precision physical DTOs, detached once, with no model/SVG references or file serialization.
  * @param {PcbEditor} app
+ * @param {DrcRules} [rules]
  */
 export function captureDrcInputs(app, rules = {}) {
     const model = app.pcbDocument;
@@ -36,7 +40,8 @@ export function captureDrcInputs(app, rules = {}) {
             return data;
         }),
     ])));
-    inputs.boardShapes = inputs.boardShapes.filter(shape => ['top-copper', 'bottom-copper'].includes(shape.layer)
+    const boardShapes = /** @type {Array<Record<string, any>>} */ (inputs.boardShapes);
+    inputs.boardShapes = boardShapes.filter(shape => ['top-copper', 'bottom-copper'].includes(shape.layer)
         && ['remove-copper', 'remove-copper-mask'].includes(normalizeShapeCopperMode(shape.copperMode)))
         .map(shape => pick(shape, shapeFields));
     inputs.rules = { clearance: rules.clearance, minAnnularRing: rules.minAnnularRing,

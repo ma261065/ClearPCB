@@ -13,11 +13,18 @@ import { handleRefDrag, endRefDrag } from './ref-text-selection.js';
 import { clearCursorCrosshair, updateCursorCrosshair, updateVertexDragCrosshair } from './cursor-state.js';
 import { updatePcbPaste } from './pcb-paste.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{move?: (app: PcbEditor, event: MouseEvent) => (boolean|void), release?: (app: PcbEditor, worldPos: Point|null) => (string|void), wrapped?: boolean, cancel?: (app: PcbEditor) => void}} InteractionHandler */
 
 /** A release handler's outcome: the release is fully handled, so stop. */
 const RELEASE_CONSUMED = 'consumed';
 /** A release handler's outcome: the selection interaction finished, so skip the drags it wraps. */
 const WRAPPER_FINISHED = 'wrapper-finished';
+
+/** @param {PcbEditor} app */
+const resetViewportCursor = (app) => {
+    if (app.viewport) app.viewport.svg.style.cursor = 'default';
+};
 
 /**
  * Handlers for the interactions in pcb-interactions.js, keyed by editor field.
@@ -29,7 +36,7 @@ const WRAPPER_FINISHED = 'wrapper-finished';
  *
  * Paste, board-outline resize and inline text are cancelled by their own explicit
  * steps in edit-lifecycle.js; rotation handles are finished with their previews.
- * @type {Record<string, {move?: (app: any, event: MouseEvent) => (boolean|void), release?: (app: any, worldPos: {x: number, y: number}|null) => (string|void), wrapped?: boolean, cancel?: (app: any) => void}>}
+ * @type {Record<string, InteractionHandler>}
  */
 const HANDLERS = {
     _boardOutlineResize: {
@@ -37,9 +44,10 @@ const HANDLERS = {
         move: (app, e) => { updateBoardOutlineResize(app, app.screenToWorld(e)); },
         /** @param {PcbEditor} app */
         release: (app, worldPos) => {
+            // board-outline-resize.js defaults this parameter to null, so checkJs infers null-only there.
             if (worldPos) updateBoardOutlineResize(app, worldPos);
             endBoardOutlineResize(app);
-            app.viewport.svg.style.cursor = 'default';
+            resetViewportCursor(app);
             return RELEASE_CONSUMED;
         },
     },
@@ -51,14 +59,15 @@ const HANDLERS = {
         /** @param {PcbEditor} app */
         move: (app, e) => {
             if (!updateSelectionInteraction(app, app.screenToWorld(e))) return false;
-            app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+            if (app.viewport) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
         },
         // Finishing may also leave a midpoint anchor floating (still active) for the next click.
         /** @param {PcbEditor} app */
         release: (app, worldPos) => {
-            if (!finishSelectionInteraction(app, true, worldPos)) return;
+            // selection-interaction.js defaults this parameter to null, so checkJs infers null-only there.
+            if (!finishSelectionInteraction(app, true, /** @type {null} */ (/** @type {unknown} */ (worldPos)))) return;
             clearCursorCrosshair(app);
-            app.viewport.svg.style.cursor = 'default';
+            resetViewportCursor(app);
             return WRAPPER_FINISHED;
         },
         /** @param {PcbEditor} app */
@@ -78,7 +87,7 @@ const HANDLERS = {
         /** @param {PcbEditor} app */
         release: app => {
             endGroupDrag(app);
-            app.viewport.svg.style.cursor = 'default';
+            resetViewportCursor(app);
         },
         /** @param {PcbEditor} app */
         cancel: app => { if (getGroupDrag(app)?.posePreview) cancelGroupDrag(app); },
@@ -105,7 +114,7 @@ const HANDLERS = {
             endBoardShapeDrag(app, true);
             clearCursorCrosshair(app);
             refreshBoxSelectionHighlights(app);
-            app.viewport.svg.style.cursor = 'default';
+            resetViewportCursor(app);
         },
         wrapped: true,
         /** @param {PcbEditor} app */
@@ -137,8 +146,8 @@ const HANDLERS = {
             const drag = getVertexDrag(app);
             const segmentClick = drag?.mode === 'segment' && !drag.userDragged && segmentEdgeId;
             finishVertexDrag(app);
-            app.viewport.hideCrosshair();
-            app.viewport.svg.style.cursor = 'default';
+            app.viewport?.hideCrosshair();
+            resetViewportCursor(app);
             const track = getSelectedTrack(app);
             if (track) {
                 clearTrackSelection(app);
@@ -160,7 +169,7 @@ const HANDLERS = {
         /** @param {PcbEditor} app */
         release: app => {
             finishViaDrag(app);
-            app.viewport.svg.style.cursor = 'default';
+            resetViewportCursor(app);
             // Reselect to refresh the halo on the moved via.
             const via = getSelectedVia(app);
             if (via) {
@@ -201,6 +210,7 @@ for (const key of Object.keys(HANDLERS)) {
     if (!registered.has(key)) throw new Error(`PCB interaction handler ${key} is not in PCB_INTERACTIONS.`);
 }
 
+/** @param {'move'|'release'|'cancel'} kind */
 const routeKeys = kind => Object.freeze(PCB_INTERACTIONS.filter(entry => HANDLERS[entry.key]?.[kind]).map(entry => entry.key));
 
 /** Field order consumed by each routing phase, derived from PCB_INTERACTIONS. */
@@ -215,24 +225,24 @@ export const PCB_INTERACTION_ROUTES = Object.freeze({
  * test-pcb-interaction-registry proves its order and coverage match
  * PCB_INTERACTION_ROUTES.move. That check is not run here: closures from this literal
  * share V8 type feedback, so probing with stub objects would slow the real dispatcher.
- * @param {Record<string, {move?: (app: any, event: any) => (boolean|void)}>} h
- * @returns {(app: any, event: any) => boolean} Whether an interaction consumed the move.
+ * @param {Record<string, InteractionHandler>} h
+ * @returns {(app: PcbEditor, event: MouseEvent) => boolean} Whether an interaction consumed the move.
  */
 export function createPointerMoveDispatch(h) {
     return (app, e) => {
-        if (getPcbInteraction(app, '_boardOutlineResize') && h._boardOutlineResize.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_pasteDrop') && h._pasteDrop.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_pcbSelectionInteraction') && h._pcbSelectionInteraction.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_drag') && h._drag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_groupDrag') && h._groupDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_textDrag') && h._textDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_shapeDrag') && h._shapeDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_refDrag') && h._refDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_vertexDrag') && h._vertexDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_viaDrag') && h._viaDrag.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_trackDraw') && h._trackDraw.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_fillDraw') && h._fillDraw.move(app, e) !== false) return true;
-        if (getPcbInteraction(app, '_shapeDraw') && h._shapeDraw.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_boardOutlineResize') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._boardOutlineResize.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_pasteDrop') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._pasteDrop.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_pcbSelectionInteraction') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._pcbSelectionInteraction.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_drag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._drag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_groupDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._groupDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_textDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._textDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_shapeDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._shapeDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_refDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._refDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_vertexDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._vertexDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_viaDrag') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._viaDrag.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_trackDraw') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._trackDraw.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_fillDraw') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._fillDraw.move)(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_shapeDraw') && /** @type {(app: PcbEditor, event: MouseEvent) => (boolean|void)} */ (h._shapeDraw.move)(app, e) !== false) return true;
         return false;
     };
 }
@@ -243,12 +253,13 @@ export const dispatchPcbPointerMove = createPointerMoveDispatch(HANDLERS);
 /**
  * Build the cancel and primary-release routines over a handler table, in PCB_INTERACTIONS
  * order. Tests pass recording handlers to check order and arguments.
- * @param {Record<string, {release?: Function, cancel?: Function, wrapped?: boolean}>} h
- * @param {(app: any) => void} finishMarquee Runs after the gestures on a release.
+ * @param {Record<string, InteractionHandler>} h
+ * @param {(app: PcbEditor) => void} finishMarquee Runs after the gestures on a release.
  */
 export function createPointerGestureFinishers(h, finishMarquee = app => {
     if (finishBoxSelect(app)) showPcbSelectionProperties(app);
 }) {
+    /** @param {'release'|'cancel'} kind */
     const keysWith = kind => PCB_INTERACTIONS.filter(entry => h[entry.key]?.[kind]).map(entry => entry.key);
     const cancelKeys = keysWith('cancel');
     const releaseKeys = keysWith('release');
@@ -259,7 +270,7 @@ export function createPointerGestureFinishers(h, finishMarquee = app => {
          */
         cancel(app) {
             for (const key of cancelKeys) {
-                if (getPcbInteraction(app, key)) h[key].cancel(app);
+                if (getPcbInteraction(app, key)) /** @type {(app: PcbEditor) => void} */ (h[key].cancel)(app);
             }
         },
         /**
@@ -269,6 +280,7 @@ export function createPointerGestureFinishers(h, finishMarquee = app => {
          * drags are skipped after it. Other drags are mutually exclusive, and a marquee never
          * runs alongside one, so their relative order does not matter.
          * @param {PcbEditor} app
+         * @param {Point|null} worldPos
          */
         release(app, worldPos) {
             let wrapperFinished = false;
@@ -276,7 +288,7 @@ export function createPointerGestureFinishers(h, finishMarquee = app => {
                 if (!getPcbInteraction(app, key)) continue;
                 const handler = h[key];
                 if (wrapperFinished && handler.wrapped) continue;
-                const outcome = handler.release(app, worldPos);
+                const outcome = /** @type {(app: PcbEditor, worldPos: Point|null) => (string|void)} */ (handler.release)(app, worldPos);
                 if (outcome === RELEASE_CONSUMED) return;
                 if (outcome === WRAPPER_FINISHED) wrapperFinished = true;
             }

@@ -13,31 +13,37 @@
  *     position) and merge them into a single multi-layer Track with
  *     an implicit-via node rather than separate Tracks + standalone
  *     Vias.)
- *
- * @param {object} routeResult - Autorouter result
- * @param {Array<object>} routeResult.tracks - [{net, layer, points, vias?}, ...]
- * @param {object} [opts]
- * @param {number} [opts.trackWidth=0.2]
- * @param {number} [opts.viaDiameter=0.6]
- * @param {number} [opts.viaDrill=0.3]
- * @returns {{tracks: Array, vias: Array}}
  */
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{componentId: string, pinNumber: string|number}} PadRef */
+/** @typedef {{net?: string, layer?: string, points?: Point[], vias?: Array<Point & {net?: string}>}} AutorouterTrack */
+/** @typedef {{tracks?: AutorouterTrack[], vias?: Array<Point & {net?: string}>}} AutorouterRouteResult */
+/** @typedef {{trackWidth?: number, viaDiameter?: number, viaDrill?: number, placements?: Map<string, {pads?: Map<string|number, Point>}>}} AutorouterAdapterOptions */
+
+/**
+ * @param {AutorouterRouteResult|null|undefined} routeResult
+ * @param {AutorouterAdapterOptions} [opts]
+ * @returns {{tracks: Track[], vias: Via[]}}
+ */
 export function tracksFromAutorouterResult(routeResult, opts = {}) {
+    /** @type {Track[]} */
     const tracks = [];
+    /** @type {Via[]} */
     const vias = [];
 
-    const trackWidth = Number.isFinite(opts.trackWidth) && opts.trackWidth > 0
-        ? opts.trackWidth : 0.2;
-    const viaDiameter = Number.isFinite(opts.viaDiameter) && opts.viaDiameter > 0
-        ? opts.viaDiameter : 0.6;
-    const viaDrill = Number.isFinite(opts.viaDrill) && opts.viaDrill > 0
-        ? opts.viaDrill : 0.3;
+    const optTrackWidth = opts.trackWidth;
+    const optViaDiameter = opts.viaDiameter;
+    const optViaDrill = opts.viaDrill;
+    const trackWidth = typeof optTrackWidth === 'number' && Number.isFinite(optTrackWidth) && optTrackWidth > 0 ? optTrackWidth : 0.2;
+    const viaDiameter = typeof optViaDiameter === 'number' && Number.isFinite(optViaDiameter) && optViaDiameter > 0 ? optViaDiameter : 0.6;
+    const viaDrill = typeof optViaDrill === 'number' && Number.isFinite(optViaDrill) && optViaDrill > 0 ? optViaDrill : 0.3;
 
     // Build a position→pad lookup so we can re-attach endpoints to
     // component pads. Keyed by rounded (x,y) to absorb fp arithmetic.
+    /** @type {Map<string, PadRef>} */
     const padByPos = new Map();
     if (opts.placements instanceof Map) {
         for (const [componentId, pl] of opts.placements) {
@@ -59,6 +65,7 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
     // Dedupe vias by position (rounded to 4dp) so the per-track .vias arrays
     // and top-level .vias array don't produce duplicates.
     const viaSeen = new Set();
+    /** @param {number} x @param {number} y */
     const key = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
     for (const track of sourceTracks) {
@@ -110,6 +117,7 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
     return { tracks, vias };
 }
 
+/** @param {number} x @param {number} y */
 function _posKey(x, y) {
     // 0.01 mm grid — generous enough to absorb router rounding without
     // colliding distinct pads.
@@ -120,14 +128,19 @@ function _posKey(x, y) {
  * Build a single Track from a polyline. Nodes are issued sequentially
  * n0..n(N-1); edges e0..e(N-2). All edges land on the same layer.
  *
+ * @param {{net: string, width: number, layer: string, points: Point[], padByPos: Map<string, PadRef>}} options
  * @returns {Track|null}
  */
 function _buildSingleLayerTrack({ net, width, layer, points, padByPos }) {
     if (!Array.isArray(points) || points.length < 2) return null;
 
+    /** @type {Record<string, Point>} */
     const graphNodes = {};
+    /** @type {Record<string, {from: string, to: string}>} */
     const graphEdges = {};
+    /** @type {Record<string, string>} */
     const edgeLayers = {};
+    /** @type {Record<string, PadRef>} */
     const padConnections = {};
     for (let i = 0; i < points.length; i++) {
         graphNodes[`n${i}`] = { x: points[i].x, y: points[i].y };

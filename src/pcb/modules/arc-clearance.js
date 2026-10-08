@@ -1,16 +1,26 @@
 import { closestPointOnSegment } from '../../core/geometry.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {Record<string, any>} ArcShape */
+/** @typedef {Record<string, any>} CircleBand */
+/** @typedef {{dist:number,x:number,y:number}} ClearancePoint */
+
 const TURN = 2 * Math.PI;
+/** @param {number} angle */
 const normalize = (angle) => ((angle % TURN) + TURN) % TURN;
+/** @param {ArcShape} arc @param {number} angle @returns {Point} */
 export const arcPoint = (arc, angle) => ({ x: arc.x + arc.radius * Math.cos(angle), y: arc.y + arc.radius * Math.sin(angle) });
+/** @param {ArcShape} arc @returns {[Point, Point]} */
 const endpoints = (arc) => [arcPoint(arc, arc.startAngle), arcPoint(arc, arc.endAngle)];
 
+/** @param {ArcShape} arc @param {number} angle */
 function onSweep(arc, angle) {
     const sweep = arc.endAngle - arc.startAngle;
     if (Math.abs(sweep) >= TURN - 1e-12) return true;
     return normalize(Math.sign(sweep || 1) * (angle - arc.startAngle)) <= Math.abs(sweep) + 1e-12;
 }
 
+/** @param {ArcShape} arc @param {Point} point @returns {Point} */
 function pointOnArc(arc, point) {
     const angle = Math.atan2(point.y - arc.y, point.x - arc.x);
     if (onSweep(arc, angle)) return arcPoint(arc, angle);
@@ -18,7 +28,14 @@ function pointOnArc(arc, point) {
     return Math.hypot(point.x - start.x, point.y - start.y) <= Math.hypot(point.x - end.x, point.y - end.y) ? start : end;
 }
 
-/** Gap midpoint, or a shared copper point when the round strokes overlap. */
+/**
+ * Gap midpoint, or a shared copper point when the round strokes overlap.
+ * @param {Point} first
+ * @param {Point} second
+ * @param {number} firstWidth
+ * @param {number} secondWidth
+ * @returns {ClearancePoint}
+ */
 export function strokedPointDistance(first, second, firstWidth, secondWidth) {
     const dx = second.x - first.x, dy = second.y - first.y;
     const distance = Math.hypot(dx, dy);
@@ -29,8 +46,10 @@ export function strokedPointDistance(first, second, firstWidth, secondWidth) {
         x: (first.x + second.x) / 2 + dx * offset, y: (first.y + second.y) / 2 + dy * offset };
 }
 
+/** @param {ArcShape} arc @param {Point} start @param {Point} end @param {number} [halfWidth] @returns {ClearancePoint} */
 export function arcSegmentDistance(arc, start, end, halfWidth = 0) {
     let best = { dist: Infinity, x: 0, y: 0 };
+    /** @param {Point} first @param {Point} second */
     const consider = (first, second) => {
         const result = strokedPointDistance(first, second, arc.hw || 0, halfWidth);
         if (result.dist < best.dist) best = result;
@@ -60,8 +79,10 @@ export function arcSegmentDistance(arc, start, end, halfWidth = 0) {
     return best;
 }
 
+/** @param {ArcShape} first @param {ArcShape} second @returns {ClearancePoint} */
 export function arcArcDistance(first, second) {
     let best = { dist: Infinity, x: 0, y: 0 };
+    /** @param {Point} firstPoint @param {Point} secondPoint */
     const consider = (firstPoint, secondPoint) => {
         const result = strokedPointDistance(firstPoint, secondPoint, first.hw || 0, second.hw || 0);
         if (result.dist < best.dist) best = result;
@@ -94,14 +115,17 @@ export function arcArcDistance(first, second) {
     return best;
 }
 
+/** @param {ArcShape} arc @param {Point} point */
 export function containsArcInterior(arc, point) {
     if (!arc.filled || Math.hypot(point.x - arc.x, point.y - arc.y) > arc.radius) return false;
     const [start, end] = endpoints(arc);
     const middle = arcPoint(arc, (arc.startAngle + arc.endAngle) / 2);
+    /** @param {Point} target */
     const side = (target) => (end.x - start.x) * (target.y - start.y) - (end.y - start.y) * (target.x - start.x);
     return side(point) * side(middle) >= 0;
 }
 
+/** @param {ArcShape} arc @param {CircleBand} circle @returns {ClearancePoint} */
 export function arcCircleDistance(arc, circle) {
     const point = arcPoint(arc, arc.startAngle);
     const radial = Math.hypot(point.x - circle.x, point.y - circle.y);

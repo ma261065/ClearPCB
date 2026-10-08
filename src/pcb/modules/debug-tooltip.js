@@ -1,4 +1,5 @@
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{element: HTMLDivElement|null, enabled: boolean, visible: boolean, pinned: boolean}} DebugTooltipState */
 /*
  * The footprint debug tooltip: when "Show footprint shape data" (Help tab) is on, hovering
  * near a component's pads shows its raw footprint shape strings. A stationary right-click
@@ -6,6 +7,7 @@
  * visibility are owned here, per editor.
  */
 
+/** @type {WeakMap<PcbEditor, DebugTooltipState>} */
 const tooltipStates = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -23,6 +25,7 @@ export function debugTooltipState(app) {
     return tooltipState(app);
 }
 
+/** @param {DebugTooltipState} state */
 function hide(state) {
     if (state.element) state.element.style.display = 'none';
     state.visible = false;
@@ -85,7 +88,8 @@ export function updateDebugTooltip(app, e) {
     const state = tooltipStates.get(app);
     if (!state?.enabled) return;
     if (state.pinned) return;  // Don't move while pinned
-    const tooltip = state.element;
+    if (!app.viewport) return;
+    const tooltip = /** @type {HTMLDivElement} */ (state.element);
 
     const rect = app.viewport.svg.getBoundingClientRect();
     const worldPos = app.viewport.screenToWorld({

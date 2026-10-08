@@ -1,7 +1,11 @@
 import { prepareSnapshotFills } from './fabrication-snapshot.js';
 import { exportGerbers, buildZip } from './gerber.js';
 
+/** @typedef {Parameters<typeof prepareSnapshotFills>[0] & Parameters<typeof exportGerbers>[0] & {tracks: Array<{edges: Map<string, {width: number, layer: string}>, getEdgeWidth?: (id: string) => number, getEdgeLayer?: (id: string) => string}>}} GerberWorkerSnapshot */
+
+/** @param {MessageEvent<GerberWorkerSnapshot>} event */
 globalThis.onmessage = async ({ data: snapshot }) => {
+    /** @param {string} label @param {number|null} [value] */
     const progress = (label, value = null) => globalThis.postMessage({ type: 'progress', label, value });
     try {
         for (const track of snapshot.tracks) {

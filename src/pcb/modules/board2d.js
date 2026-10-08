@@ -30,6 +30,15 @@ import { drawPictureCached } from '../../shared/pcb/picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';
 import { getComputedFill } from './computed-fill-cache.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x:number,y:number,w:number,h:number,r?:number,points?:Point[]}} BoardBounds */
+/** @typedef {{h:number,s:number,v:number,o:number}} LayerStyle */
+/** @typedef {'board'|'soldermask'|'tracks'|'vias'|'silkscreen'|'pads'} LayerStyleKey */
+/** @typedef {Record<LayerStyleKey, LayerStyle>} LayerStyleMap */
+/** @typedef {import('./board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {{placements?: Map<string, any>, pads?: any[], boardShapes?: any[], fills?: any[], tracks?: any[], vias?: any[], texts?: any[], boardX?: number, boardY?: number, boardWidth?: number, boardHeight?: number, boardRadius?: number, [key:string]: any}} Board2DData */
+
+/** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */
 function traceBoardShape(context, geometry) {
     context.beginPath();
     if (geometry.circle) {
@@ -45,6 +54,7 @@ function traceBoardShape(context, geometry) {
     return true;
 }
 
+/** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */
 function drawBoardShape(context, geometry) {
     if (geometry.image) {
         drawPictureCached(context, geometry.image);
@@ -89,6 +99,7 @@ const COL = {
 };
 
 const SOLDERMASK_BASE_RGB = { r: 34, g: 214, b: 62 };
+/** @type {LayerStyleMap} */
 const LAYER_STYLE = {
     board: _makeLayerStyleHSV(32, 52, 42, 255),
     soldermask: _makeLayerStyleHSV(138, 81, 45, 192),
@@ -100,30 +111,35 @@ const LAYER_STYLE = {
 // Toggle solder-mask rendering on board faces.
 const SHOW_SOLDERMASK = true;
 
+/** @param {unknown} v @param {number} fallback */
 function _clampByte(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(255, Math.round(n)));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampAlpha(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampUnit(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampHue(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(360, Math.round(n)));
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsl(r, g, b) {
     let rn = r / 255;
     let gn = g / 255;
@@ -149,6 +165,7 @@ function _rgbToHsl(r, g, b) {
     return { h: (h / 6) * 360, s, l };
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsv(r, g, b) {
     const rn = r / 255;
     const gn = g / 255;
@@ -167,6 +184,7 @@ function _rgbToHsv(r, g, b) {
     return { h: h * 360, s, v };
 }
 
+/** @param {number} h @param {number} s @param {number} v */
 function _hsvToRgb(h, s, v) {
     const hh = (((h % 360) + 360) % 360) / 60;
     const c = v * s;
@@ -186,6 +204,7 @@ function _hsvToRgb(h, s, v) {
     ];
 }
 
+/** @param {number} r @param {number} g @param {number} b @param {number} o */
 function _makeLayerStyle(r, g, b, o) {
     const hsv = _rgbToHsv(r, g, b);
     return { h: hsv.h, s: hsv.s, v: hsv.v, o };
@@ -193,10 +212,12 @@ function _makeLayerStyle(r, g, b, o) {
 
 // HSV in the panel-slider units (H 0-359, S/V 0-100) plus alpha as a byte
 // (0-255). Stored normalised: h degrees, s/v/o in 0-1.
+/** @param {number} h @param {number} s @param {number} v @param {number} oByte */
 function _makeLayerStyleHSV(h, s, v, oByte) {
     return { h, s: s / 100, v: v / 100, o: oByte / 255 };
 }
 
+/** @param {number} h @param {number} s @param {number} l */
 function _hslToRgb(h, s, l) {
     let hNorm = ((h % 360) + 360) % 360;
     hNorm /= 360;
@@ -204,6 +225,7 @@ function _hslToRgb(h, s, l) {
         const v = Math.round(l * 255);
         return [v, v, v];
     }
+    /** @param {number} p @param {number} q @param {number} t */
     const hue2rgb = (p, q, t) => {
         let tt = t;
         if (tt < 0) tt += 1;
@@ -236,6 +258,7 @@ function _applyLayerColors() {
     COL.pad = `rgb(${pr},${pg},${pb})`;
 }
 
+/** @param {number} greenness */
 function _setSolderMaskGreenness(greenness) {
     const [curR, curG, curB] = _hsvToRgb(
         LAYER_STYLE.soldermask.h,
@@ -297,8 +320,9 @@ export function getBoard2DLayerStyles() {
     };
 }
 
+/** @param {Partial<LayerStyleMap>} [patch] */
 export function setBoard2DLayerStyles(patch = {}) {
-    for (const key of ['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads']) {
+    for (const key of /** @type {Array<keyof LayerStyleMap>} */ (['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads'])) {
         const next = patch[key];
         if (!next) continue;
         const cur = LAYER_STYLE[key];
@@ -321,6 +345,7 @@ export class Board2D {
         /** @type {'top'|'bottom'} */
         this.side = 'top';
         /** Board + geometry inputs (same shape as exportGerbers). */
+        /** @type {Board2DData|null} */
         this.data = null;
         // View transform (CSS px). screenX = tx + mirror*scale*worldX;
         // screenY = ty + scale*worldY.
@@ -350,7 +375,7 @@ export class Board2D {
         } catch { this._ro = null; }
     }
 
-    /** @param {object} data Same fields passed to exportGerbers. */
+    /** @param {Board2DData} data Same fields passed to exportGerbers. */
     setData(data) {
         this.data = data;
         this.render();
@@ -400,7 +425,7 @@ export class Board2D {
     get mirror() { return this.side === 'bottom' ? -1 : 1; }
 
     _boardRect() {
-        const d = this.data || {};
+        const d = /** @type {Partial<Board2DData>} */ (this.data || {});
         if (getBoardOutline(d)) return boardBoundary(d);
         const h = d.boardHeight || 80;
         // exportGerbers' boardX/boardY are the Y-up bottom-left corner; the rest
@@ -415,6 +440,7 @@ export class Board2D {
         };
     }
 
+    /** @param {number} cssW @param {number} cssH */
     _fitNow(cssW, cssH) {
         const b = this._boardRect();
         const margin = 20;
@@ -433,6 +459,7 @@ export class Board2D {
      * Lower bound on `scale` (px/mm) for zoom-out: half the scale at which the
      * board just fits the viewport, so it can never shrink to a few pixels.
      */
+    /** @param {number} cssW @param {number} cssH */
     _minScale(cssW, cssH) {
         const b = this._boardRect();
         const margin = 20;
@@ -572,6 +599,7 @@ export class Board2D {
     }
 
     /** Rounded board substrate with a bare-FR4 edge stroke. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawBoard(ctx) {
         const b = this._boardRect();
         this._boardPath(ctx, b);
@@ -587,9 +615,10 @@ export class Board2D {
         ctx.restore();
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {BoardBounds} bounds */
     _boardPath(ctx, bounds) {
         if (!bounds.points) {
-            this._roundRectPath(ctx, bounds.x, bounds.y, bounds.w, bounds.h, bounds.r);
+            this._roundRectPath(ctx, bounds.x, bounds.y, bounds.w, bounds.h, bounds.r || 0);
             return;
         }
         ctx.beginPath();
@@ -598,6 +627,7 @@ export class Board2D {
         ctx.closePath();
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {number} x @param {number} y @param {number} w @param {number} h @param {number} r */
     _roundRectPath(ctx, x, y, w, h, r) {
         const rad = Math.max(0, Math.min(r || 0, w / 2, h / 2));
         ctx.beginPath();
@@ -618,13 +648,15 @@ export class Board2D {
      * naturally shows only where it exists; elsewhere raw board is visible.
      * Supports mask-layer circles (always filled openings) and copper-layer
      * circles using remove-solder-mask / remove-copper-mask modes. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawMaskOpenings(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         ctx.fillStyle = COL.rawBoard;
         ctx.strokeStyle = COL.rawBoard;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        for (const flash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
+        for (const rawFlash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
+            const flash = /** @type {{x:number,y:number,w:number,h:number,shape:string,rad:number}} */ (rawFlash);
             this._fillPad(ctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
         const copperLayer = `${this.side}-copper`;
@@ -654,6 +686,7 @@ export class Board2D {
 
     /** Solder-mask topcoat for the active side. Painted over copper, then
      * openings are punched out so exposed regions reveal copper/raw board. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawSolderMask(ctx) {
         const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
         layerCanvas.width = ctx.canvas.width;
@@ -683,13 +716,15 @@ export class Board2D {
     }
 
     /** Copper for the active side: tracks, pad flashes and via barrels. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawCopper(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         const top = this.side === 'top';
         const padSide = top ? 'top' : 'bottom';
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
         const copperCol = COL.copper;
 
+        /** @param {any} shape @param {BoardShapeGeometry} [geometry] */
         const drawCopperShape = (shape, geometry = resolveBoardShapeGeometry(shape)) => {
             drawBoardShape(cctx, geometry);
         };
@@ -700,7 +735,7 @@ export class Board2D {
         const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
         layerCanvas.width = ctx.canvas.width;
         layerCanvas.height = ctx.canvas.height;
-        const cctx = layerCanvas.getContext('2d');
+        const cctx = /** @type {CanvasRenderingContext2D} */ (layerCanvas.getContext('2d'));
         if (!cctx) return;
         cctx.setTransform(ctx.getTransform());
         cctx.globalAlpha = LAYER_STYLE.tracks.o;
@@ -777,7 +812,8 @@ export class Board2D {
         cctx.save();
         cctx.globalAlpha = LAYER_STYLE.pads.o;
         cctx.fillStyle = COL.pad;
-        for (const flash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
+        for (const rawFlash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
+            const flash = /** @type {{x:number,y:number,w:number,h:number,shape:string,rad:number}} */ (rawFlash);
             this._fillPad(cctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
         for (const pad of (d.pads || [])) {
@@ -828,6 +864,7 @@ export class Board2D {
         // mask opening (_drawMaskOpenings) and copper subtraction above.
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {number} cx @param {number} cy @param {number} w @param {number} h @param {string} shape */
     _padPath(ctx, cx, cy, w, h, shape) {
         ctx.beginPath();
         if (shape === 'circle') {
@@ -844,6 +881,7 @@ export class Board2D {
 
     /** Flash a pad, rotating its shape by the placement angle (so a 90°/270°
      *  part swaps width/height and oblique parts tilt) before filling. */
+    /** @param {CanvasRenderingContext2D} ctx @param {number} cx @param {number} cy @param {number} w @param {number} h @param {string} shape @param {number} rad */
     _fillPad(ctx, cx, cy, w, h, shape, rad) {
         if (rad) {
             ctx.save();
@@ -860,8 +898,9 @@ export class Board2D {
 
     /** Drilled holes (THT pad drills, via drills) punched through to the
      *  background so the bore reads as an open hole, not a dark disc. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawHoles(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
         ctx.fillStyle = '#000';
@@ -906,7 +945,7 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(s);
             if (geometry.filled) {
                 for (const outline of boardShapeFilledRemovalOutlines(s)) {
-                    if (!traceBoardShape(ctx, { path: outline, pathClosed: true })) continue;
+                    if (!traceBoardShape(ctx, /** @type {BoardShapeGeometry} */ ({ path: outline, pathClosed: true }))) continue;
                     ctx.fill();
                 }
             } else {
@@ -922,8 +961,9 @@ export class Board2D {
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawSilk(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         const top = this.side === 'top';
         const wantLayer = top ? 'top-silk' : 'bottom-silk';
         ctx.save();
@@ -942,7 +982,8 @@ export class Board2D {
             ctx.stroke();
         };
 
-        for (const sk of resolveSilk(d.placements || new Map(), this.side)) {
+        for (const rawSk of resolveSilk(d.placements || new Map(), this.side)) {
+            const sk = /** @type {any} */ (rawSk);
             if (sk.kind === 'line') {
                 stroke([[{ x: sk.x1, y: sk.y1 }, { x: sk.x2, y: sk.y2 }]], sk.width);
             } else if (sk.kind === 'circle') {

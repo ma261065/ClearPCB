@@ -66,13 +66,13 @@ function setFlag(app, key, value) {
 /** Copper pours are awaiting a successful recompute. */
 /** @param {object} app */
 export const isFillRefreshPending = app => states.get(app)?.fillPending ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} pending */
 export const setFillRefreshPending = (app, pending) => setFlag(app, 'fillPending', !!pending);
 
 /** A pour recompute is queued for the next animation frame. */
 /** @param {object} app */
 export const isFillRefreshScheduled = app => states.get(app)?.fillScheduled ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} scheduled */
 export const setFillRefreshScheduled = (app, scheduled) => setFlag(app, 'fillScheduled', !!scheduled);
 
 /** The last pour recompute failure, retained until a refresh succeeds. */
@@ -93,7 +93,7 @@ export function setFillRefreshError(app, error) {
 /** Picture copper edits are batching their clearance/pour refresh. */
 /** @param {object} app */
 export const isPictureCopperRefreshPending = app => states.get(app)?.pictureCopperPending ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} pending */
 export const setPictureCopperRefreshPending = (app, pending) => setFlag(app, 'pictureCopperPending', !!pending);
 
 const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false,
@@ -127,7 +127,7 @@ export function onRefreshSuspended(kind, listener) {
 /** Drag previews defer derived overlays (pours, clearance halos, DRC) until they finish. */
 /** @param {object} app */
 export const areDragOverlaysDeferred = app => states.get(app)?.overlaysDeferred ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} deferred */
 export function setDragOverlaysDeferred(app, deferred) {
     const state = stateFor(app);
     if (deferred && !state.overlaysDeferred) for (const listener of suspensionListeners.overlays) listener(app);
@@ -137,7 +137,7 @@ export function setDragOverlaysDeferred(app, deferred) {
 /** Floating paste suspends pour recomputation. */
 /** @param {object} app */
 export const isFillRefreshSuspended = app => states.get(app)?.fillSuspended ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} suspended */
 export function setFillRefreshSuspended(app, suspended) {
     const state = stateFor(app);
     if (suspended && !state.fillSuspended) for (const listener of suspensionListeners.fill) listener(app);
@@ -147,14 +147,14 @@ export function setFillRefreshSuspended(app, suspended) {
 /** Gestures suspend refreshing the external 2D/3D board views. */
 /** @param {object} app */
 export const isBoardViewRefreshSuspended = app => states.get(app)?.boardViewSuspended ?? false;
-/** @param {object} app */
+/** @param {object} app @param {boolean} suspended */
 export const setBoardViewRefreshSuspended = (app, suspended) => { stateFor(app).boardViewSuspended = !!suspended; };
 
 /** @param {object} app */
 export const getBoardViewPanel = app => stateFor(app).boardViewPanel;
-/** @param {object} app */
+/** @param {object} app @param {any} panel */
 export const setBoardViewPanel = (app, panel) => { stateFor(app).boardViewPanel = panel; };
-/** @param {object} app */
+/** @param {object} app @param {any} panel */
 export function clearBoardViewPanel(app, panel) {
     const state = stateFor(app);
     if (state.boardViewPanel === panel) state.boardViewPanel = null;

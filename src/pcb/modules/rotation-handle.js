@@ -1,5 +1,7 @@
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
 
 const cursorArrow = 'M 25 12 A 10 10 0 1 0 26 19 M 25 5 V 12 H 18';
 const cursorSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="${cursorArrow}" stroke="white" stroke-width="5"/><path d="${cursorArrow}" stroke="black" stroke-width="2.5"/></g></svg>`;
@@ -20,6 +22,10 @@ export function endRotationHandleDrag(app) {
     setPcbInteraction(app, '_rotationHandleDrag', null);
 }
 
+/**
+ * @param {Bounds} bounds
+ * @param {number} scale
+ */
 export function rotationHandleAnchor(bounds, scale) {
     const offset = 28 / Math.max(0.01, scale || 1);
     return {
@@ -28,6 +34,13 @@ export function rotationHandleAnchor(bounds, scale) {
     };
 }
 
+/**
+ * @param {Point} center
+ * @param {Point} start
+ * @param {Point} current
+ * @param {number} initialRotation
+ * @param {boolean} [clockwise]
+ */
 export function pointerRotation(center, start, current, initialRotation, clockwise = false) {
     if (Math.hypot(current.x - center.x, current.y - center.y) < 1e-9) return initialRotation;
     const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
@@ -36,6 +49,11 @@ export function pointerRotation(center, start, current, initialRotation, clockwi
     return ((Math.round(initialRotation + (clockwise ? delta : -delta)) % 360) + 360) % 360;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {Point} center
+ * @param {number} degrees
+ */
 export function rotatedImagePoints(points, center, degrees) {
     const radians = -degrees * Math.PI / 180;
     const cosine = Math.cos(radians);

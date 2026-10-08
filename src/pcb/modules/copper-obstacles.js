@@ -3,7 +3,9 @@ import { boardShapeBounds, resolveBoardShapeGeometry } from '../../shared/pcb/bo
 import { resolveTrackSegments } from '../../shapes/track-geometry.js';
 import { lockedRoutedCopper } from './object-locks.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
 
+/** @type {Record<string, 'top'|'bottom'>} */
 const ROUTER_LAYERS = { 'top-copper': 'top', 'bottom-copper': 'bottom' };
 
 /**
@@ -49,7 +51,7 @@ export function buildCopperObstacles(app) {
         const points = geometry.centerline;
         const closed = geometry.centerlineClosed || !!geometry.circle;
         const segments = geometry.strokeSegments.length ? geometry.strokeSegments
-            : points.slice(0, closed ? points.length : -1).map((start, index) => ({
+            : points.slice(0, closed ? points.length : -1).map(/** @param {Point} start @param {number} index */ (start, index) => ({
                 start, end: points[(index + 1) % points.length], lineWidth: geometry.lineWidth,
             }));
         for (const segment of segments) {

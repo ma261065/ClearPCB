@@ -3,8 +3,25 @@ import { isLayerVisible } from './layers.js';
 import { isRefTextLocked } from './ref-text-selection.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 
+/**
+ * @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement
+ * @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel
+ * @typedef {import('../../shared/ui/property-fields.js').PropertyActionGroup} PropertyActionGroup
+ * @typedef {ReturnType<import('./text-properties.js').bindStrokeTextProps>} StrokeTextBinding
+ * @typedef {Parameters<import('./text-properties.js').bindStrokeTextProps>[2]} StrokeTextSpec
+ * @typedef {{kind: 'component'|'reftext', id: string, placement: Placement, describe: (() => PropertyPanel)|null}} ComponentPanelState
+ * @typedef {import('../../core/pcb-placement-commands.js').RefStylePatch} RefStylePatch
+ */
+
+/** @param {number} value */
 const wrapDegrees = value => ((value % 360) + 360) % 360;
+/** @param {number} value */
 const roundDegrees = value => ((Math.round(value) % 360) + 360) % 360;
+/**
+ * @param {number|undefined} min
+ * @param {(value: number) => number} [normalize]
+ * @returns {(text: string) => number|null}
+ */
 const numberParse = (min, normalize = value => value) => text => {
     const value = Number.parseFloat(text);
     if (!Number.isFinite(value)) return null;
@@ -13,28 +30,30 @@ const numberParse = (min, normalize = value => value) => text => {
 
 /**
  * @typedef {object} ComponentPropertiesCapabilities
- * @property {(id: string) => object|undefined} getPlacement
+ * @property {(id: string) => Placement|undefined} getPlacement
  * @property {() => boolean} isActive
  * @property {(kind: string, id: string) => boolean} isSelected
- * @property {(panel: import('../../shared/ui/property-fields.js').PropertyPanel, owner?: object|null) => boolean} openPanel
- * @property {(panel: import('../../shared/ui/property-fields.js').PropertyPanel) => void} refreshPanel
+ * @property {(panel: PropertyPanel, owner?: object|null) => boolean} openPanel
+ * @property {(panel: PropertyPanel) => void} refreshPanel
  * @property {(layer: string) => string} layerLabel
- * @property {(model: object, spec: object) => object} bindStrokeText Existing field-binding helper.
+ * @property {(model: Placement, spec: StrokeTextSpec) => StrokeTextBinding} bindStrokeText Existing field-binding helper.
  * @property {(id: string, before: number, after: number) => void} rotate
  * @property {(id: string, locked: boolean) => void} setLocked Finish selection interaction, then execute the lock command.
  * @property {(id: string, visible: boolean) => void} setReferenceVisible
- * @property {(id: string, side: string) => void} setSide
- * @property {(id: string, axis: string) => void} flip
+ * @property {(id: string, side: 'top'|'bottom') => void} setSide
+ * @property {(id: string, axis: 'H'|'V') => void} flip
  * @property {(id: string) => void} open3D
  * @property {(id: string) => void} renderReference
  * @property {(id: string, tether: boolean) => void} drawReferenceOverlay
- * @property {(id: string, before: object, after: object) => void} setReferenceStyle
+ * @property {(id: string, before: RefStylePatch, after: RefStylePatch) => void} setReferenceStyle
  */
 export class ComponentProperties {
     /** @param {ComponentPropertiesCapabilities} capabilities */
     constructor(capabilities) {
         this.capabilities = capabilities;
+        /** @type {StrokeTextBinding|null} */
         this.referenceBinding = null;
+        /** @type {ComponentPanelState|null} */
         this.panel = null;
     }
 
@@ -44,6 +63,7 @@ export class ComponentProperties {
 
     cancel() { this.referenceBinding?.cancel(); }
 
+    /** @param {string} layer */
     affectsLayer(layer) { return !!this.referenceBinding?.affectsLayer(layer); }
 
     dispose() {
@@ -53,31 +73,37 @@ export class ComponentProperties {
         binding?.dispose();
     }
 
+    /** @param {ComponentPanelState} panel */
     _isCurrent(panel) {
         return this.panel === panel && this.capabilities.isActive()
             && this.capabilities.getPlacement(panel.id) === panel.placement;
     }
 
+    /** @param {string} compId */
     syncRotationInput(compId) {
         if (!this.capabilities.isSelected('component', compId)) return;
         if (this.panel?.kind !== 'component' || this.panel.id !== compId) return;
         const placement = this.capabilities.getPlacement(compId);
-        if (placement && placement === this.panel.placement) this._refresh(this.panel.describe());
+        if (placement && placement === this.panel.placement && this.panel.describe) this._refresh(this.panel.describe());
     }
 
+    /** @param {PropertyPanel} panel */
     _refresh(panel) {
         if (this.panel) this.capabilities.refreshPanel(panel);
     }
 
+    /** @param {string} compId */
     showComponent(compId) {
         this.dispose();
         const placement = this.capabilities.getPlacement(compId);
         if (!placement) return false;
-        const retained = this.panel = { kind: 'component', id: compId, placement, describe: null };
+        const retained = /** @type {ComponentPanelState} */ ({ kind: 'component', id: compId, placement, describe: null });
+        this.panel = retained;
         const current = () => !!placement && this._isCurrent(retained);
         const editable = () => current() && !placement.locked;
         const refresh = () => { if (this._isCurrent(retained)) this._refresh(describe()); };
         const curRot = () => wrapDegrees(this.capabilities.getPlacement(compId)?.rotation || 0);
+        /** @param {number} degrees */
         const rotateTo = degrees => {
             const live = this.capabilities.getPlacement(compId);
             if (!editable() || !live) return;
@@ -86,12 +112,13 @@ export class ComponentProperties {
             this.capabilities.rotate(compId, live.rotation || 0, normalized);
             refresh();
         };
+        /** @returns {PropertyPanel} */
         const describe = () => {
             const live = this.capabilities.getPlacement(compId) || placement;
             const locked = !!live.locked;
             const side = live.side === 'bottom' ? 'bottom' : 'top';
             const name = live.name || live.reference || compId;
-            /** @type {import('../../shared/ui/property-fields.js').PropertyActionGroup[]} */
+            /** @type {PropertyActionGroup[]} */
             const actions = [{
                 title: 'Transform',
                 actions: [
@@ -118,7 +145,7 @@ export class ComponentProperties {
                 { id: 'pcbPropShow3D', label: '\uD83E\uDDCA Show 3D', title: 'Show 3D model',
                     run: () => { if (current()) this.capabilities.open3D(compId); } },
             ] });
-            /** @type {import('../../shared/ui/property-fields.js').PropertyPanel} */
+            /** @type {PropertyPanel} */
             const panel = {
                 title: 'Component',
                 fields: [
@@ -155,13 +182,17 @@ export class ComponentProperties {
         return this.capabilities.openPanel(describe(), this);
     }
 
+    /** @param {string} compId */
     showReference(compId) {
         this.dispose();
         const placement = this.capabilities.getPlacement(compId);
         if (!placement) return false;
-        const retained = this.panel = { kind: 'reftext', id: compId, placement, describe: null };
+        const retained = /** @type {ComponentPanelState} */ ({ kind: 'reftext', id: compId, placement, describe: null });
+        this.panel = retained;
         const silkLayer = () => placement.side === 'bottom' ? 'bottom-silk' : 'top-silk';
+        /** @type {Array<keyof RefStylePatch>} */
         const styleFields = ['refSize', 'refStrokeWidth', 'refRot'];
+        /** @param {RefStylePatch} snapshot */
         const restoreStyle = snapshot => {
             for (const key of styleFields) {
                 if (Object.hasOwn(snapshot, key)) placement[key] = snapshot[key];
@@ -188,7 +219,7 @@ export class ComponentProperties {
                 if (this.capabilities.isSelected('reftext', compId)) this.capabilities.drawReferenceOverlay(compId, true);
             },
             cancel: snapshot => {
-                restoreStyle(snapshot);
+                restoreStyle(/** @type {RefStylePatch} */ (snapshot));
                 if (this.capabilities.getPlacement(compId) !== placement) return;
                 this.capabilities.renderReference(compId);
                 if (this.capabilities.isSelected('reftext', compId)) this.capabilities.drawReferenceOverlay(compId, false);
@@ -204,10 +235,11 @@ export class ComponentProperties {
                 this.capabilities.setReferenceStyle(compId, before, after);
             },
         });
-        binding.affectsLayer = layer => silkLayer() === layer;
+        binding.affectsLayer = /** @param {string} layer */ (layer => silkLayer() === layer);
+        /** @returns {PropertyPanel} */
         const describe = () => {
             const disabled = isRefTextLocked(placement);
-            /** @type {import('../../shared/ui/property-fields.js').PropertyPanel} */
+            /** @type {PropertyPanel} */
             const panel = {
                 title: 'Reference',
                 fields: [

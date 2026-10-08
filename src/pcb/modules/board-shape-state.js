@@ -7,7 +7,11 @@
  * Node focus is `{ shapeId, index }`; segment focus is `{ shapeId, segment }`.
  */
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{shapeId: string, index: number}} BoardShapeNodeFocus */
+/** @typedef {{shapeId: string, segment: any}} BoardShapeSegmentFocus */
+/** @typedef {{lineWidth: number, filled?: boolean, plated?: boolean, copperMode?: string, net?: string, cornerRadius?: number}} ShapeDefaults */
 
+/** @type {WeakMap<PcbEditor, {node: BoardShapeNodeFocus|null, segment: BoardShapeSegmentFocus|null, hovered: object|null, netHovered: Set<string>, defaults: ShapeDefaults}>} */
 const states = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -23,23 +27,23 @@ function state(app) {
 
 /** @param {PcbEditor} app */
 export function getBoardShapeNodeFocus(app) { return state(app).node; }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {BoardShapeNodeFocus|null|undefined} focus */
 export function setBoardShapeNodeFocus(app, focus) { state(app).node = focus || null; }
 /** @param {PcbEditor} app */
 export function getBoardShapeSegmentFocus(app) { return state(app).segment; }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {BoardShapeSegmentFocus|null|undefined} focus */
 export function setBoardShapeSegmentFocus(app, focus) { state(app).segment = focus || null; }
 
 /** @param {PcbEditor} app */
 export function getHoveredBoardShape(app) { return state(app).hovered; }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {object|null|undefined} shape */
 export function setHoveredBoardShape(app, shape) { state(app).hovered = shape || null; }
 /**
  * IDs of shapes highlighted because they share the hovered net.
  * @param {PcbEditor} app
  */
 export function getNetHoveredShapeIds(app) { return state(app).netHovered; }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Set<string>|null|undefined} ids */
 export function setNetHoveredShapeIds(app, ids) { state(app).netHovered = ids || new Set(); }
 
 /**
@@ -47,5 +51,5 @@ export function setNetHoveredShapeIds(app, ids) { state(app).netHovered = ids ||
  * @param {PcbEditor} app
  */
 export function getShapeDefaults(app) { return state(app).defaults; }
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {ShapeDefaults} defaults */
 export function setShapeDefaults(app, defaults) { state(app).defaults = defaults; }

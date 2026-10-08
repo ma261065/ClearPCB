@@ -20,17 +20,19 @@ import { clearDrcResults, resetDrc } from './drc-state.js';
 import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
 import { clearFillGroups } from './fill-refresh.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {ReturnType<typeof PcbDocument.prepare>} PreparedPcb */
 
 /** @param {PcbEditor} app */
 export function serializePcb(app) {
     return app.pcbDocument.serialize(serializeGridSettings(app.viewport));
 }
 
+/** @param {any} data */
 export function preparePcb(data) {
     return PcbDocument.prepare(data);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} data @param {PreparedPcb} [prepared] */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
     app.cancelAutoRoute?.();
     if (prepared.data) data = prepared.data;
@@ -103,17 +105,17 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
 
     for (const track of app.tracks) {
-        if (render) renderTrack(track, (id) => app.getLayerGroup(id), {
+        if (render) renderTrack(track, /** @param {string} id */ (id) => app.getLayerGroup(id), {
             viaDiameter: app.getRoutingParams?.()?.viaDiameter,
             viaDrill: app.getRoutingParams?.()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
         });
     }
     for (const via of app.vias) {
-        if (render) renderVia(via, (id) => app.getLayerGroup(id));
+        if (render) renderVia(via, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
     for (const pad of app.pads) {
-        if (render) renderPad(pad, (id) => app.getLayerGroup(id));
+        if (render) renderPad(pad, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
     for (const shape of prepared.boardShapes) {
         if (!render || shape.type === 'fill' || shape.layer === 'board-outline') continue;

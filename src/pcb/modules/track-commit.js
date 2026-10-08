@@ -6,12 +6,18 @@ import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { captureBoardShapeState } from './board-shapes.js';
 import { Track } from '../../shapes/track.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
+/** @typedef {import('../../core/netlist.js').NetShape} NetShape */
+/** @typedef {import('./track-connections.js').BondedCopper} BondedCopper */
 
 const VIA_NODE_EPS = 1e-4;
 const NODE_MERGE_EPS = 1e-3;
 /**
  * True if any standalone Via sits on `(x, y)`.
  * @param {PcbEditor} app
+ * @param {number} x
+ * @param {number} y
  */
 function _viaAtPoint(app, x, y) {
     for (const via of (app.vias || [])) {
@@ -77,10 +83,15 @@ export function collapseCollinearTrackNodes(app, track) {
 /**
  * A locked track is never a join target: joining would rewrite or delete it.
  * @param {PcbEditor} app
+ * @param {Track} track
  */
 const lockedJoinTarget = (app, track) => !!canonicalTrack(app, track)?.locked;
 
 /** Set of copper layers of the edges incident to `nodeId` on `track`. */
+/**
+ * @param {Track} track
+ * @param {string} nodeId
+ */
 function _incidentLayers(track, nodeId) {
     const layers = new Set();
     for (const [eid, e] of track.edges) {
@@ -98,7 +109,12 @@ function _incidentLayers(track, nodeId) {
  * committed) are skipped.
  *
  * @param {PcbEditor} app
- * @returns {{track:object, nodeId:string}|null}
+ * @param {number} x
+ * @param {number} y
+ * @param {string} net
+ * @param {string} layer
+ * @param {Iterable<Track>} exclude
+ * @returns {{track:Track, nodeId:string}|null}
  */
 function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     const excludeSet = exclude instanceof Set ? exclude : new Set(exclude || []);
@@ -117,6 +133,10 @@ function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     return null;
 }
 
+/**
+ * @param {BondedCopper} bonded
+ * @param {Iterable<NetShape>} [shapes]
+ */
 function _bondedNets(bonded, shapes = bonded.shapes) {
     return new Set([...bonded.tracks, ...bonded.vias, ...shapes].map(object => object.net || '')
         .concat([...bonded.padNets]).filter(Boolean));
@@ -131,14 +151,23 @@ export function showBondedNetConflict(app, nets) {
     app.alert(`Cannot connect different nets: ${[...nets].map(net => `"${net}"`).join(', ')}.`, { title: 'Net Conflict' });
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BondedCopper} bonded
+ * @param {string} net
+ * @param {Iterable<NetShape>} [shapes]
+ * @param {boolean} [includeTracks]
+ * @returns {HistoryCommand[]}
+ */
 function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
+    /** @type {HistoryCommand[]} */
     const commands = [];
     if (!net) return commands;
     if (includeTracks) {
         for (const track of bonded.tracks) {
             if (track.net) continue;
             const nodes = bonded.trackNodes.get(track);
+            if (!nodes) continue;
             if (nodes.size === track.nodes.size) {
                 commands.push(new ModifyTrackCommand(app, track, { net: track.net }, { net }));
             } else {
@@ -148,7 +177,7 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
                 commands.push(new ModifyTrackGraphCommand(app, track, before, after));
                 for (const component of track.connectedComponents()) {
                     if (![...component].some(node => nodes.has(node))) {
-                        commands.push(new AddTrackCommand(app, track.extractSubgraph(component)));
+                        commands.push(new AddTrackCommand(app, /** @type {Track} */ (track.extractSubgraph(component))));
                     }
                 }
             }
@@ -165,11 +194,13 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
     for (const shape of shapes) {
         if (shape.net) continue;
         if (shape.type === 'fill') {
-            const before = shape.captureState();
-            commands.push(new ModifyFillCommand(app, shape, before, { ...before, net }));
+            const fill = /** @type {import('../../shapes/copper-fill.js').CopperFill} */ (shape);
+            const before = fill.captureState();
+            commands.push(new ModifyFillCommand(app, fill, before, { ...before, net }));
         } else {
-            const before = captureBoardShapeState(shape);
-            commands.push(new ModifyBoardShapeCommand(app, shape, before, { ...before, net }));
+            const boardShape = /** @type {import('./board-shapes.js').BoardShape} */ (shape);
+            const before = captureBoardShapeState(boardShape);
+            commands.push(new ModifyBoardShapeCommand(app, boardShape, before, { ...before, net }));
         }
     }
     return commands;
@@ -180,9 +211,9 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
  * copper layers mid-route produces several single-layer Tracks joined
  * by vias; grouping them and connected-copper Net adoption keeps undo/redo atomic.
  * @param {PcbEditor} app
- * @param {object[]} tracks
- * @param {object[]} [vias]
- * @param {object[]} [destinationShapes]
+ * @param {Track|Track[]} tracks
+ * @param {Via[]} [vias]
+ * @param {NetShape[]} [destinationShapes]
  */
 export function commitDrawnTracks(app, tracks, vias = [], destinationShapes = []) {
     const list = Array.isArray(tracks) ? tracks : [tracks];
@@ -206,10 +237,10 @@ export function commitDrawnTracks(app, tracks, vias = [], destinationShapes = []
  * distinct single-layer nodes bonded by a via (the via/transition model).
  *
  * @param {PcbEditor} app
- * @param {object|object[]} newTracks freshly built (uncommitted) tracks
- * @param {object[]} [newVias] standalone vias produced alongside the draw
- * @param {object[]} [destinationShapes] Explicit destination copper contacts.
- * @returns {object|null|false} A command, null when empty, or false on a Net conflict.
+ * @param {Track|Track[]} newTracks freshly built (uncommitted) tracks
+ * @param {Via[]} [newVias] standalone vias produced alongside the draw
+ * @param {NetShape[]} [destinationShapes] Explicit destination copper contacts.
+ * @returns {HistoryCommand|null|false} A command, null when empty, or false on a Net conflict.
  */
 export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinationShapes = []) {
     const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
@@ -226,15 +257,19 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
     }
     const net = [...nets][0] || '';
 
+    /** @type {Map<Track, any>} */
     const beforeStates = new Map();      // existing track -> pre-merge snapshot
     const removedExisting = new Set();   // existing tracks emptied by absorb
+    /** @type {Track[]} */
     const independentAdds = [];          // drawn tracks with no existing join
+    /** @param {Track} t */
     const ensureBefore = (t) => { if (!beforeStates.has(t)) beforeStates.set(t, t.captureState()); };
     if (net) {
         for (const track of bonded.tracks) {
             if (track.net || drawnSet.has(track)) continue;
             ensureBefore(track);
             const nodes = bonded.trackNodes.get(track);
+            if (!nodes) continue;
             if (nodes.size < track.nodes.size) {
                 for (const component of track.connectedComponents()) {
                     if (![...component].some(node => nodes.has(node))) independentAdds.push(track.extractSubgraph(component));
@@ -249,6 +284,7 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
 
     for (const nt of drawn) {
         // Endpoints (degree-1 nodes) of the drawn track, with their layer.
+        /** @type {Array<{nodeId: string, target: {track: Track, nodeId: string}}>} */
         const conns = [];
         for (const [nid] of nt.nodes) {
             const inc = nt.incidentEdges(nid);
@@ -285,6 +321,7 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
         collapseCollinearTrackNodes(app, primary);
     }
 
+    /** @type {HistoryCommand[]} */
     const cmds = [];
     for (const [existing, before] of beforeStates) {
         const after = existing.captureState();

@@ -1,6 +1,14 @@
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./copper-fill-geom.js').ClipperPoint} ClipperPoint */
+/** @typedef {{outer: Point[], holes: Point[][]}} Region */
+
+/**
+ * @param {Point[][]} contours
+ * @returns {Region[]}
+ */
 export function contourRegions(contours) {
     const scale = 1e6;
     const clipper = new ClipperLib.Clipper();
@@ -10,12 +18,19 @@ export function contourRegions(contours) {
     const tree = new ClipperLib.PolyTree();
     clipper.Execute(ClipperLib.ClipType.ctUnion, tree,
         ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
+    /** @param {ClipperPoint[]} ring */
     const convert = ring => ring.map(point => ({ x: point.X / scale, y: point.Y / scale }));
-    return ClipperLib.JS.PolyTreeToExPolygons(tree).map(region => ({
+    return ClipperLib.JS.PolyTreeToExPolygons(tree).map((
+        /** @type {{outer: ClipperPoint[], holes: ClipperPoint[][]}} */ region
+    ) => ({
         outer: convert(region.outer), holes: region.holes.map(convert),
     }));
 }
 
+/**
+ * @param {Point[][]} contours
+ * @returns {Point[][]}
+ */
 export function regionFillContours(contours) {
     return contourRegions(contours).flatMap(region => {
         if (!region.holes.length) return [region.outer];

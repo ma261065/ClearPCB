@@ -4,9 +4,19 @@ import { resolvePathPoint, resolvePathTranslation } from '../../shapes/path-snap
 import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../shared/ui/context-menu.js').MenuItem} MenuItem */
+/** @typedef {import('../../shapes/path-snap.js').PathDragConstraint} PathDragConstraint */
+/** @typedef {{id: string, x: number, y: number, [key: string]: any}} PathAnchor */
+/** @typedef {{kind: string, beginAnchorDrag: (id: string, point: Point, options?: any) => boolean, getAnchors: () => PathAnchor[], clearEdit?: () => void}} PathAdapter */
 export { pathMoveInteraction } from '../../shapes/path-interaction.js';
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {PathAdapter} adapter
+ * @param {string} anchorId
+ * @param {() => void} prepare
+ */
 export function beginPathSplit(app, adapter, anchorId, prepare) {
     const original = adapter.beginAnchorDrag;
     adapter.beginAnchorDrag = (id, point, options) => {
@@ -16,7 +26,7 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
             if (adapter.kind === 'shape') {
                 setBoardShapeNodeFocus(app, null);
                 setBoardShapeSegmentFocus(app, null);
-            } else if (adapter.kind === 'track') adapter.clearEdit();
+            } else if (adapter.kind === 'track') /** @type {() => void} */ (adapter.clearEdit)();
         }
         return started;
     };
@@ -24,7 +34,13 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
     return !!anchor && beginPcbAnchorInteraction(app, adapter, anchor, anchor, true);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ * @param {Point[]} [neighbours]
+ * @param {boolean} [pads]
+ * @param {Array<[Point, Point]>} [continuations]
+ */
 export function snapPathPoint(app, point, neighbours = [], pads = false, continuations = []) {
     if (app.viewport?.shiftHeld) return { x: point.x, y: point.y };
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
@@ -38,6 +54,11 @@ export function snapPathPoint(app, point, neighbours = [], pads = false, continu
 /**
  * Track paths pass `pads` to lock moved nodes onto pads; board shapes and fills do not.
  * @param {PcbEditor} app
+ * @param {Point[]} points
+ * @param {Point} delta
+ * @param {Point[]} [neighbours]
+ * @param {PathDragConstraint[]} [constraints]
+ * @param {boolean} [pads]
  */
 export function snapPathTranslation(app, points, delta, neighbours = [], constraints = [], pads = false) {
     if (app.viewport?.shiftHeld) return delta;
@@ -64,10 +85,18 @@ export function pathContextActions({ node, segment, curved, standalone = false, 
     ].filter(Boolean);
 }
 
+/** @param {string} id */
 export function dismissPathContextMenu(id) {
     dismissContextMenu(id);
 }
 
+/**
+ * @param {string} id
+ * @param {MenuItem[]} items
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {() => void} [refresh]
+ */
 export function showPathContextMenu(id, items, clientX, clientY, refresh = () => {}) {
     return showContextMenu(id, items, clientX, clientY, { onChosen: refresh });
 }

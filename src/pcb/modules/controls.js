@@ -40,7 +40,11 @@ export function bindPcbControls(app) {
     syncGridSettings(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {HTMLElement|null|undefined} undoBtn
+ * @param {HTMLElement|null|undefined} redoBtn
+ */
 export function bindPcbHistoryButtons(app, undoBtn, redoBtn) {
     undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
     redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));

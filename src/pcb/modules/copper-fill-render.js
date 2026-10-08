@@ -14,13 +14,19 @@
 import { pcbLayerSelectionColor } from './layers.js';
 import { getComputedFill } from './computed-fill-cache.js';
 
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{outer?: Point[], holes?: Point[][]}} ComputedFillPolygon */
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /** Map a copper layer id to its fill layer-group id. */
+/** @param {string} layer */
 export function fillGroupId(layer) {
     return layer === 'bottom-copper' ? 'bottom-fill' : 'top-fill';
 }
 
+/** @param {SVGGElement|null} group @param {string|null} clipId */
 export function setCopperFillClip(group, clipId) {
     if (!group) return;
     group.removeAttribute('clip-path');
@@ -33,14 +39,15 @@ export function setCopperFillClip(group, clipId) {
 }
 
 /** Fill copper colour for a layer. */
+/** @param {string} layer */
 function layerColor(layer) {
     return layer === 'bottom-copper' ? '#3498db' : '#e74c3c';
 }
 
 /**
  * Render (or re-render) a copper fill.
- * @param {import('../../shapes/copper-fill.js').CopperFill} fill
- * @param {(id:string)=>SVGGElement} getLayerGroup
+ * @param {CopperFill} fill
+ * @param {(id:string)=>SVGGElement|null} getLayerGroup
  * @param {object} [opts]
  * @param {boolean} [opts.selected]
  * @param {boolean} [opts.visible] - global fill visibility
@@ -62,7 +69,7 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
     // ── Poured copper polygons (outer + holes, even-odd) ──
     const d = opts.outlineOnly ? '' : computedPathD(getComputedFill(fill));
     if (d) {
-        let copper = group.querySelector('.pcb-fill-copper-layer');
+        let copper = /** @type {SVGGElement|null} */ (group.querySelector('.pcb-fill-copper-layer'));
         if (!copper) {
             copper = document.createElementNS(NS, 'g');
             copper.setAttribute('class', 'pcb-fill-copper-layer');
@@ -101,19 +108,22 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
 }
 
 /** Remove all SVG elements for a fill from its fill group. */
+/** @param {CopperFill} fill @param {(id:string)=>SVGGElement|null} getLayerGroup */
 export function removeCopperFillElements(fill, getLayerGroup) {
     // The fill may have changed layer; clear from both fill groups.
     for (const gid of ['top-fill', 'bottom-fill']) {
         const group = getLayerGroup(gid);
         if (!group) continue;
         for (const el of [...group.querySelectorAll(`[data-fill-id="${cssEscape(fill.id)}"]`)]) {
+            const parent = /** @type {Element|null} */ (el.parentNode);
             if (el.parentNode === group
-                || el.parentNode?.getAttribute('class') === 'pcb-fill-copper-layer') el.remove();
+                || parent?.getAttribute('class') === 'pcb-fill-copper-layer') el.remove();
         }
     }
 }
 
 /** Build an SVG path `d` from computed ExPolygons (outer + holes). */
+/** @param {ComputedFillPolygon[]|null|undefined} computed */
 function computedPathD(computed) {
     if (!Array.isArray(computed) || computed.length === 0) return '';
     const parts = [];
@@ -126,16 +136,19 @@ function computedPathD(computed) {
     return parts.join(' ');
 }
 
+/** @param {Point[]} ring */
 function ringToSubpath(ring) {
     let s = `M ${fmt(ring[0].x)} ${fmt(ring[0].y)}`;
     for (let i = 1; i < ring.length; i++) s += ` L ${fmt(ring[i].x)} ${fmt(ring[i].y)}`;
     return s + ' Z';
 }
 
+/** @param {number} v */
 function fmt(v) {
     return Math.round(v * 1000) / 1000;
 }
 
+/** @param {string} s */
 function cssEscape(s) {
     return String(s).replace(/["\\]/g, '\\$&');
 }

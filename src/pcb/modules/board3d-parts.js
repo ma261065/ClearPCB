@@ -8,12 +8,18 @@ import { BOARD_THICKNESS, FALLBACK_HEIGHT, COLOR_FALLBACK, COLOR_PAD, Y_TOP, Y_B
 import { roundedRectOutline, extrudePrism, triangulateWithHoles, cylinderWallMesh, capsuleRing, polygonWallMesh } from './board3d-board.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 
+/** @typedef {import('./board3d-mesh-ops.js').MeshVertex} MeshVertex */
+/** @typedef {import('./board3d-mesh-ops.js').MeshFace} MeshFace */
+/** @typedef {import('./board3d-mesh-ops.js').Mesh & {cull?: boolean}} Mesh */
+/** @typedef {import('../../shapes/pad-geometry.js').PadFlash & {rad:number,layer?:string,isThru?:boolean,drill?:number,slot?:{x1:number,y1:number,x2:number,y2:number}}} Board3dPadFlash */
+/** @typedef {{top?: boolean, bottom?: boolean, outerWall?: boolean}} ThroughHoleFaces */
+
 /**
  * Transform a parsed OBJ model ({@link parseObjModel}) into a placed mesh.
  * Preserves per-face material colour.
  * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>, source?: string}} parsed
  * @param {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl
- * @returns {{verts: Array, faces: Array, cull?: boolean}|null}
+ * @returns {Mesh|null}
  */
 export function objModelToMesh(parsed, pl) {
     if (!parsed?.vertices?.length || !parsed.faces?.length) return null;
@@ -102,7 +108,7 @@ export function objModelToMesh(parsed, pl) {
 /**
  * Build a fallback box mesh for a placement from its footprint bounds.
  * @param {{x:number,y:number,rotation?:number,side?:string,bounds?:{x:number,y:number,width:number,height:number}}} pl
- * @returns {{verts: Array, faces: Array}}
+ * @returns {Mesh}
  */
 export function fallbackBoxMesh(pl) {
     const b = pl.bounds || { x: -1, y: -1, width: 2, height: 2 };
@@ -134,12 +140,13 @@ export function fallbackBoxMesh(pl) {
  * round/oval, quad for rect) on their own face; through-hole pads are gold
  * annular rings on BOTH faces with an open bore (the board is bored to match),
  * so the drilled hole reads as a real opening.
- * @param {{x:number,y:number,rotation?:number,padOffsets?:Array}} pl
- * @returns {{verts: Array, faces: Array}}
+ * @param {{x:number,y:number,rotation?:number,padOffsets?:Array<any>}} pl
+ * @returns {Mesh}
  */
 export function padMesh(pl) {
     const mesh = emptyMesh();
-    for (const flash of resolvePadFlashes(new Map([[0, pl]]))) {
+    for (const rawFlash of resolvePadFlashes(new Map([[0, pl]]))) {
+        const flash = /** @type {Board3dPadFlash} */ (rawFlash);
         const ct = Math.cos(flash.rad);
         const st = Math.sin(flash.rad);
         const halfW = flash.w / 2;
@@ -148,7 +155,7 @@ export function padMesh(pl) {
             // Plated through-hole: shape-correct copper ring on each face +
             // barrel lining the bore (inner radius inset so it occludes the
             // board's FR4 edge).
-            const ri = Math.max(0.05, flash.drill / 2 - 0.02);
+            const ri = Math.max(0.05, /** @type {number} */ (flash.drill) / 2 - 0.02);
             // Stadium slot drill (holeLength > drill): bore between the two
             // cap-centres rather than a single round hole, so the slot reads
             // as a slot instead of being lidded over by round pad copper. The
@@ -175,7 +182,11 @@ export function padMesh(pl) {
     return mesh;
 }
 
-/** Surface-mount pad copper: a flat flash on one board face at height `y`. */
+/** Surface-mount pad copper: a flat flash on one board face at height `y`.
+ * @param {Board3dPadFlash} flash
+ * @param {number} y
+ * @returns {Mesh}
+ */
 export function flatPadMesh(flash, y) {
     const ct = Math.cos(flash.rad);
     const st = Math.sin(flash.rad);
@@ -199,9 +210,15 @@ export function flatPadMesh(flash, y) {
     };
 }
 
-/** Flat (optionally rotated) elliptical disc on a y-plane (round/oval pad). */
+/** Flat (optionally rotated) elliptical disc on a y-plane (round/oval pad).
+ * @param {number} cx @param {number} cz @param {number} rx @param {number} rz
+ * @param {number} ct @param {number} st @param {number} y @param {number[]} color @param {number} [seg]
+ * @returns {Mesh}
+ */
 function ellipseDiscMesh(cx, cz, rx, rz, ct, st, y, color, seg = 20) {
+    /** @type {MeshVertex[]} */
     const verts = [{ x: cx, y, z: cz }];
+    /** @type {MeshFace[]} */
     const faces = [];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
@@ -215,12 +232,18 @@ function ellipseDiscMesh(cx, cz, rx, rz, ct, st, y, color, seg = 20) {
     return { verts, faces };
 }
 
-/** Flat (optionally rotated) stadium/obround disc on a y-plane (oval pad). */
+/** Flat (optionally rotated) stadium/obround disc on a y-plane (oval pad).
+ * @param {number} cx @param {number} cz @param {number} halfW @param {number} halfH
+ * @param {number} ct @param {number} st @param {number} y @param {number[]} color
+ * @returns {Mesh}
+ */
 function stadiumDiscMesh(cx, cz, halfW, halfH, ct, st, y, color) {
     // Stadium = rounded rect with r = min(halfW, halfH), centred on origin.
     const local = roundedRectOutline(-halfW, -halfH, halfW * 2, halfH * 2, Math.min(halfW, halfH));
     const n = local.length;
+    /** @type {MeshVertex[]} */
     const verts = [{ x: cx, y, z: cz }];
+    /** @type {MeshFace[]} */
     const faces = [];
     for (const p of local) {
         verts.push({ x: cx + p.x * ct - p.z * st, y, z: cz + p.x * st + p.z * ct });
@@ -245,12 +268,15 @@ function stadiumDiscMesh(cx, cz, halfW, halfH, ct, st, y, color) {
  * @param {number[]} color
  * @param {{x1:number,z1:number,x2:number,z2:number}|null} [slot] stadium-slot
  *        cap-centres (world x, z); when set the bore is a slot, not a circle
- * @returns {{verts: Array, faces: Array}}
+ * @param {ThroughHoleFaces} [faces]
+ * @returns {Mesh}
  */
 export function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBottom, yTop, color, slot = null,
     faces = { top: true, bottom: true, outerWall: true }) {
+    /** @param {number} lx @param {number} lz @returns {{x:number,y:number}} */
     const toWorld = (lx, lz) => ({ x: cx + lx * ct - lz * st, y: cz + lx * st + lz * ct });
     // Outer outline in the board plane (x, y(=world z)).
+    /** @type {Array<{x:number,y:number}>} */
     const outline = [];
     if (shape === 'oval') {
         // Stadium / obround — matches the 2D footprint render.
@@ -297,6 +323,7 @@ export function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBot
         }
     }
     // Outer side wall around the pad outline.
+    /** @type {Mesh} */
     const wall = { verts: [], faces: [] };
     const n = outline.length;
     for (const p of outline) wall.verts.push({ x: p.x, y: yTop, z: p.y });
@@ -314,13 +341,18 @@ export function throughHolePadMesh(cx, cz, shape, halfW, halfH, ct, st, ri, yBot
 
 
 
-/** Flat filled disc on the y-plane (used for round track end-caps / pads). */
+/** Flat filled disc on the y-plane (used for round track end-caps / pads).
+ * @param {number} cx @param {number} cz @param {number} r @param {number} y @param {number[]} color @param {number} [seg]
+ * @returns {Mesh}
+ */
 export function discMesh(cx, cz, r, y, color, seg = 14) {
+    /** @type {MeshVertex[]} */
     const verts = [{ x: cx, y, z: cz }];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
         verts.push({ x: cx + r * Math.cos(a), y, z: cz + r * Math.sin(a) });
     }
+    /** @type {MeshFace[]} */
     const faces = [];
     for (let i = 0; i < seg; i++) {
         const j = (i + 1) % seg;
@@ -329,7 +361,11 @@ export function discMesh(cx, cz, r, y, color, seg = 14) {
     return { verts, faces };
 }
 
-/** Flat rectangle of the given width from A→B on the y-plane (a track body). */
+/** Flat rectangle of the given width from A→B on the y-plane (a track body).
+ * @param {number} ax @param {number} az @param {number} bx @param {number} bz
+ * @param {number} width @param {number} y @param {number[]} color
+ * @returns {Mesh}
+ */
 export function ribbonMesh(ax, az, bx, bz, width, y, color) {
     const dx = bx - ax, dz = bz - az;
     const len = Math.hypot(dx, dz) || 1;
@@ -344,11 +380,17 @@ export function ribbonMesh(ax, az, bx, bz, width, y, color) {
     return { verts, faces: [{ idx: [0, 1, 2, 3], color }] };
 }
 
-/** Flat annular ring band (silk circle outline) on the y-plane. */
+/** Flat annular ring band (silk circle outline) on the y-plane.
+ * @param {number} cx @param {number} cz @param {number} r @param {number} strokeWidth
+ * @param {number} y @param {number[]} color @param {number} [seg]
+ * @returns {Mesh}
+ */
 export function flatRingMesh(cx, cz, r, strokeWidth, y, color, seg = 28) {
     const ro = r + strokeWidth / 2;
     const ri = Math.max(0, r - strokeWidth / 2);
+    /** @type {MeshVertex[]} */
     const verts = [];
+    /** @type {MeshFace[]} */
     const faces = [];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
@@ -363,9 +405,15 @@ export function flatRingMesh(cx, cz, r, strokeWidth, y, color, seg = 28) {
     return { verts, faces };
 }
 
-/** Hollow vertical tube (plated via/hole barrel) with annular end caps. */
+/** Hollow vertical tube (plated via/hole barrel) with annular end caps.
+ * @param {number} cx @param {number} cz @param {number} rInner @param {number} rOuter
+ * @param {number} yBottom @param {number} yTop @param {number[]} color @param {number} [seg]
+ * @returns {Mesh}
+ */
 export function tubeMesh(cx, cz, rInner, rOuter, yBottom, yTop, color, seg = 18) {
+    /** @type {MeshVertex[]} */
     const verts = [];
+    /** @type {MeshFace[]} */
     const faces = [];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
@@ -375,6 +423,7 @@ export function tubeMesh(cx, cz, rInner, rOuter, yBottom, yTop, color, seg = 18)
         verts.push({ x: cx + rInner * c, y: yTop, z: cz + rInner * s });    // +2 IT
         verts.push({ x: cx + rInner * c, y: yBottom, z: cz + rInner * s }); // +3 IB
     }
+    /** @param {number} i @param {number} k */
     const V = (i, k) => (i % seg) * 4 + k;
     for (let i = 0; i < seg; i++) {
         const j = (i + 1) % seg;
@@ -386,12 +435,19 @@ export function tubeMesh(cx, cz, rInner, rOuter, yBottom, yTop, color, seg = 18)
     return { verts, faces };
 }
 
-/** Solid vertical cylinder (an un-plated/mounting hole plug). */
+/** Solid vertical cylinder (an un-plated/mounting hole plug).
+ * @param {number} cx @param {number} cz @param {number} r @param {number} yBottom
+ * @param {number} yTop @param {number[]} color @param {number} [seg]
+ * @returns {Mesh}
+ */
 function cylinderMesh(cx, cz, r, yBottom, yTop, color, seg = 18) {
+    /** @type {MeshVertex[]} */
     const verts = [];
+    /** @type {MeshFace[]} */
     const faces = [];
     const topC = verts.push({ x: cx, y: yTop, z: cz }) - 1;
     const botC = verts.push({ x: cx, y: yBottom, z: cz }) - 1;
+    /** @type {Array<[number, number]>} */
     const ring = [];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;

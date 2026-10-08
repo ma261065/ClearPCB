@@ -1,7 +1,9 @@
 import { computeFillBatch } from './fill-worker-geometry.js';
 import { prepareCopperRegionContact } from './track-contact-geometry.js';
 
-globalThis.onmessage = async ({ data }) => {
+/** @param {MessageEvent<{id: any, inputs: any}>} event */
+globalThis.onmessage = async (event) => {
+    const { data } = event;
     try {
         const results = await computeFillBatch(data.inputs);
         const contacts = results.map(regions => regions.map(prepareCopperRegionContact));

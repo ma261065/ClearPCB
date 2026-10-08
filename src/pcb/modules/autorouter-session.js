@@ -1,21 +1,28 @@
 import { AutorouterPresentation } from './autorouter-presentation.js';
 
 /**
+ * @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams
+ * @typedef {{connections: Array<any>, trackWidth?: number, clearance?: number, viaDiameter?: number, [key: string]: any}} AutorouterRouteInput
+ * @typedef {{totalConnectionCount?: number, failedConnectionCount?: number, tracks: Array<any>, failed: Array<any>, vias?: Array<any>, [key: string]: any}} AutorouterResult
+ * @typedef {{cancelled: boolean, abort?: () => void}} AutorouterCancelToken
+ * @typedef {AutorouterBoardState & {cancelToken: AutorouterCancelToken}} AutorouterSessionState
+ * @typedef {{requestStop: () => void}} AutorouterWorkerTransport
+ *
  * @typedef {object} AutorouterBoardState
  * @property {boolean} active
  * @property {boolean} editing
  * @property {object} model Identity of the authored document (never mutated here).
- * @property {Map} placements
- * @property {Array} netlist
- * @property {Array} undo
- * @property {Array} redo
- * @property {object} rules Canonical routing dimensions.
+ * @property {Map<string, any>} placements
+ * @property {Array<any>} netlist
+ * @property {Array<any>} undo
+ * @property {Array<any>} redo
+ * @property {Partial<RoutingParams> & Record<string, number|undefined>} rules Canonical routing dimensions.
  *
  * @typedef {object} AutorouterCapabilities
  * @property {() => AutorouterBoardState} readBoard
- * @property {() => object} takeRouteInput Consume a test input or build a fresh board input.
+ * @property {() => AutorouterRouteInput} takeRouteInput Consume a test input or build a fresh board input.
  * @property {() => string} getRouterMode
- * @property {(result: object) => void} adoptResult Publish one undoable route replacement.
+ * @property {(result: AutorouterResult) => void} adoptResult Publish one undoable route replacement.
  * @property {() => void} reconcileRatsnest Restore the authored board's connectivity.
  * @property {(message: string) => void} setStatus
  * @property {import('./autorouter-presentation.js').AutorouterPresentationCapabilities} presentation
@@ -35,18 +42,23 @@ export class AutorouterSession {
         this.runtime = {
             createWorker: () => new Worker(new URL('./autorouter-worker.js', import.meta.url), { type: 'module' }),
             now: () => performance.now(),
+            /** @param {TimerHandler} callback @param {number} delay */
             setInterval: (callback, delay) => setInterval(callback, delay),
+            /** @param {ReturnType<typeof setInterval>} id */
             clearInterval: id => clearInterval(id),
             ...runtime,
         };
         this.presentation = new AutorouterPresentation(capabilities.presentation, () => this.stop(), runtime);
+        /** @type {AutorouterSessionState|null} */
         this._session = null;
+        /** @type {AutorouterWorkerTransport|null} */
         this._worker = null;
         this._disposed = false;
     }
 
     get active() { return this._session !== null; }
 
+    /** @param {AutorouterSessionState} session */
     _isCurrent(session) {
         if (this._disposed || this._session !== session) return false;
         const board = this.capabilities.readBoard();
@@ -72,11 +84,11 @@ export class AutorouterSession {
             return;
         }
         this.cancel();
-        const session = {
+        const session = /** @type {AutorouterSessionState} */ ({
             model: board.model, placements: board.placements, netlist: board.netlist,
             undo: [...board.undo], redo: [...board.redo], rules: { ...board.rules },
             cancelToken: { cancelled: false },
-        };
+        });
         this._session = session;
         const current = () => this._isCurrent(session);
         let adopting = false;
@@ -111,10 +123,11 @@ export class AutorouterSession {
             const failed = result.failedConnectionCount || 0;
             this.capabilities.setStatus(`Routed ${total - failed} of ${total} connections (${failed} unrouted), ${result.tracks.length} segments, ${result.vias?.length || 0} vias in ${elapsed}`);
         } catch (error) {
+            const routeError = /** @type {Error} */ (error);
             if (this._session !== session && !adopting) return;
             this.cancel();
-            (this.capabilities.reportError || (error => console.error('Autorouter error:', error)))(error);
-            this.capabilities.setStatus(`Route error: ${error.message}`);
+            (this.capabilities.reportError || (error => console.error('Autorouter error:', error)))(routeError);
+            this.capabilities.setStatus(`Route error: ${routeError.message}`);
         } finally {
             if (this._session === session) this.cancel();
         }
@@ -130,6 +143,7 @@ export class AutorouterSession {
     }
 
     /** Invalidation discards every pending result and restores authored presentation. */
+    /** @param {string|null} [message] */
     cancel(message = null) {
         const session = this._session;
         if (!session) return;
@@ -148,10 +162,12 @@ export class AutorouterSession {
         this.presentation.dispose();
     }
 
+    /** @param {AutorouterRouteInput} routeInput @param {AutorouterSessionState} session @param {string} routerMode */
     _runInWorker(routeInput, session, routerMode) {
         return new Promise((resolve, reject) => {
             const worker = this.runtime.createWorker();
             const token = session.cancelToken;
+            /** @type {ReturnType<typeof setInterval>|null} */
             let poll = null, settled = false;
             const cleanup = () => {
                 if (poll !== null) this.runtime.clearInterval(poll);
@@ -163,6 +179,7 @@ export class AutorouterSession {
                 if (this._worker === transport) this._worker = null;
                 delete token.abort;
             };
+            /** @param {AutorouterResult|null} result @param {Error|null} [error] */
             const settle = (result, error = null) => {
                 if (settled) return;
                 settled = true;
@@ -176,10 +193,13 @@ export class AutorouterSession {
                 else settle(null);
                 return false;
             };
+            /** @param {Error|ErrorEvent} event */
             const onError = event => {
-                if (current()) settle(null, event?.error || new Error(event?.message || 'Autorouter worker failed'));
+                const workerError = /** @type {ErrorEvent} */ (event);
+                if (current()) settle(null, workerError.error || new Error(event.message || 'Autorouter worker failed'));
             };
             const onMessageError = () => onError(new Error('Invalid autorouter worker response'));
+            /** @param {MessageEvent<any>} event */
             const onMessage = event => {
                 try {
                     if (!current()) return;
@@ -187,13 +207,13 @@ export class AutorouterSession {
                     if (message.type === 'done') settle(message.result);
                     else if (message.type === 'error') settle(null, new Error(message.error || 'Autorouter worker error'));
                     else this.presentation.handleMessage(message);
-                } catch (error) { onError(error); }
+                } catch (error) { onError(/** @type {Error} */ (error)); }
             };
             const transport = {
                 requestStop: () => {
                     try {
                         if (current()) worker.postMessage({ type: 'cancel' });
-                    } catch (error) { onError(error); }
+                    } catch (error) { onError(/** @type {Error} */ (error)); }
                 },
             };
             this._worker = transport;
@@ -206,7 +226,7 @@ export class AutorouterSession {
                 if (!settled) poll = this.runtime.setInterval(() => {
                     if (current() && token.cancelled) transport.requestStop();
                 }, 50);
-            } catch (error) { onError(error); }
+            } catch (error) { onError(/** @type {Error} */ (error)); }
         });
     }
 }

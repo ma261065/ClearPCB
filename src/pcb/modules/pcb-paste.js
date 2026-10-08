@@ -35,10 +35,14 @@ import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-o
 import { areShapeCopperCutsDeferred, setShapeCopperCutsDeferred } from './picture-refresh.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
+/** @typedef {{tracks:any[], vias:any[], pads:any[], shapes:any[], texts:any[], fills:any[], [kind:string]: any[]}} PcbPastePayload */
+/** @typedef {{x:number,y:number}} Point */
 
+/** @type {Array<keyof PcbPastePayload>} */
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} clipboard @returns {PcbPastePayload} */
 export function preparePcbPaste(app, clipboard) {
     let shapeId = app.pcbDocument.shapeIdCounter;
     const used = new Set(app.pcbDocument.boardShapes.map(shape => shape.id));
@@ -48,28 +52,30 @@ export function preparePcbPaste(app, clipboard) {
     };
     // Copper paths copied as board shapes (older clipboards) paste as Tracks.
     const copperPaths = (clipboard.shapes || []).filter(isCopperPathShape);
-    const payload = {
-        tracks: [...(clipboard.tracks || []).map(data => {
+    const payload = /** @type {PcbPastePayload} */ ({
+        tracks: [...(clipboard.tracks || []).map(/** @param {any} data */ data => {
             const json = structuredClone(data);
             delete json.id; delete json.i;
             const track = createShape(json);
             if (!(track instanceof Track)) throw new Error('PCB clipboard contains an invalid track.');
             return track;
-        }), ...copperPaths.map(shape => trackFromBoardShape(structuredClone(shape)))],
-        vias: (clipboard.vias || []).map(data => Via.fromJSON({ ...data, id: undefined })),
-        pads: (clipboard.pads || []).map(data => Pad.fromJSON({ ...data, id: undefined })),
-        shapes: (clipboard.shapes || []).filter(shape => !copperPaths.includes(shape)).map(({ artwork, ...shape }) => ({
+        }), ...copperPaths.map(/** @param {any} shape */ shape => trackFromBoardShape(structuredClone(shape)))],
+        vias: (clipboard.vias || []).map(/** @param {any} data */ data => Via.fromJSON({ ...data, id: undefined })),
+        pads: (clipboard.pads || []).map(/** @param {any} data */ data => Pad.fromJSON({ ...data, id: undefined })),
+        shapes: (clipboard.shapes || []).filter(/** @param {any} shape */ shape => !copperPaths.includes(shape)).map(/** @param {any} item */ ({ artwork, ...shape }) => ({
             ...structuredClone(shape), ...(artwork ? { artwork } : {}), id: nextShapeId(),
         })),
-        texts: (clipboard.texts || []).map(data => createPcbText({ ...data, id: undefined })),
-        fills: (clipboard.fills || []).map(data => new CopperFill({ ...structuredClone(data), id: undefined })),
-    };
+        texts: (clipboard.texts || []).map(/** @param {any} data */ data => createPcbText({ ...data, id: undefined })),
+        fills: (clipboard.fills || []).map(/** @param {any} data */ data => new CopperFill({ ...structuredClone(data), id: undefined })),
+    });
     // Pasted copies are new objects, so they start unlocked.
     for (const kind of kinds) for (const item of payload[kind]) item.locked = false;
     return payload;
 }
 
+/** @param {PcbPastePayload} payload */
 function editable(payload) {
+    /** @param {string} layer */
     const layerEditable = layer => !isLayerLocked(layer) && isLayerVisible(layer);
     return payload.tracks.every(trackIsSelectable)
         && payload.vias.every(via => !via.locked && via.visible !== false && !isViaLocked() && isViaVisible())
@@ -88,7 +94,7 @@ export function isPcbPasteActive(app) {
     return !!getPcbPaste(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @returns {any} */
 export function getPcbPaste(app) {
     return getPcbInteraction(app, '_pasteDrop');
 }
@@ -104,6 +110,7 @@ export function isPcbPasteEditable(app) {
     return !state || editable(state.payload);
 }
 
+/** @param {PcbDocument} document @param {PcbPastePayload} payload */
 function assertFresh(document, payload) {
     for (const [current, added] of [[document.tracks, payload.tracks], [document.vias, payload.vias],
         [document.pads, payload.pads], [document.boardShapes, [...payload.shapes, ...payload.fills]],
@@ -117,8 +124,10 @@ function assertFresh(document, payload) {
     if (payload.shapes.some(shape => shape.layer === 'board-outline')) throw new Error('The board outline cannot be pasted.');
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PcbPastePayload} payload */
 function removeArtwork(app, payload) {
+    /** @param {string} id */
+    const layer = id => app.getLayerGroup(id);
     payload.tracks.forEach(removeTrackElements);
     payload.vias.forEach(removeViaElements);
     payload.pads.forEach(removePadElements);
@@ -138,14 +147,15 @@ function removeArtwork(app, payload) {
         }
     }
     for (const fill of payload.fills) {
-        removeCopperFillElements(fill, id => app.getLayerGroup(id));
+        removeCopperFillElements(fill, layer);
         const current = app.pcbDocument.boardShapes.find(item => item.id === fill.id && item !== fill);
-        if (current?.type === 'fill') renderCopperFill(current, id => app.getLayerGroup(id));
+        if (current?.type === 'fill') renderCopperFill(current, layer);
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PcbPastePayload} payload @param {boolean} preview */
 function renderPayload(app, payload, preview) {
+    /** @param {string} id */
     const layer = id => app.getLayerGroup(id);
     for (const track of payload.tracks) renderTrack(track, layer, {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter, viaDrill: app.getRoutingParams?.()?.viaDrill,
@@ -167,7 +177,7 @@ function refreshAuthoredPaste(app) {
 }
 
 class PastePcbCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PcbPastePayload} payload */
     constructor(app, payload) {
         this.description = 'Paste PCB objects';
         this.app = app;
@@ -187,7 +197,9 @@ class PastePcbCommand {
     execute() {
         if (this.app.pcbDocument !== this.document) throw new Error('The paste document is no longer available.');
         assertFresh(this.document, this.payload);
-        const applied = [], counter = this.document.shapeIdCounter;
+        /** @type {Array<any>} */
+        const applied = [];
+        const counter = this.document.shapeIdCounter;
         try {
             batchDerivedUpdates(this.app, () => {
                 for (const command of this.commands) { applied.push(command); command.execute(); }
@@ -220,12 +232,12 @@ class PastePcbCommand {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PcbPastePayload} source @param {{select?: boolean}} [options] */
 export function beginPcbPaste(app, source, { select = false } = {}) {
     if (!isEditorActive(app)) throw new Error('Cannot start a paste while the PCB editor is inactive.');
     cancelPcbPosePreviews(app);
     cancelPcbPaste(app);
-    const payload = Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]]));
+    const payload = /** @type {PcbPastePayload} */ (Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]])));
     if (!kinds.some(kind => payload[kind].length)) throw new Error('PCB paste requires at least one entity.');
     assertFresh(app.pcbDocument, payload);
     if (!editable(payload)) { app.setStatus?.('Cannot paste onto a hidden or locked layer.'); return false; }
@@ -240,9 +252,10 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
         throw new Error('PCB paste geometry requires finite positions.');
     }
     const model = app.pcbDocument;
+    /** @type {any} */
     const state = {
         model, payload, select,
-        selection: getPcbSelectionEntries(app).map(entry => ({ kind: entry.kind, object: entry.object })),
+        selection: getPcbSelectionEntries(app).map(/** @param {{kind:string, object:any}} entry */ entry => ({ kind: entry.kind, object: entry.object })),
         anchorWorld: { x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
             y: points.reduce((sum, p) => sum + p.y, 0) / points.length },
         tracks: payload.tracks.map(track => ({ track, nodes: new Map([...track.nodes].map(([id, p]) => [id, { x: p.x, y: p.y }])) })),
@@ -272,7 +285,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     return !!getPcbPaste(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} world */
 export function updatePcbPaste(app, world) {
     const state = getPcbPaste(app);
     if (!state) return;
@@ -297,7 +310,7 @@ export function updatePcbPaste(app, world) {
         for (const { shape, before } of state.shapes) applyShapeGeometry(shape, translateShapeGeometry(before, dx, dy));
         for (const { fill, before } of state.fills) {
             if (fill.kind === 'circle') { fill.x = before.x + dx; fill.y = before.y + dy; }
-            fill.outline.forEach((point, index) => { point.x = before.outline[index].x + dx; point.y = before.outline[index].y + dy; });
+            fill.outline.forEach((/** @type {Point} */ point, /** @type {number} */ index) => { point.x = before.outline[index].x + dx; point.y = before.outline[index].y + dy; });
         }
         renderPayload(app, state.payload, true);
         if (state.select) renderPcbSelectionAnchors(app);
@@ -307,7 +320,7 @@ export function updatePcbPaste(app, world) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} state */
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
     setPcbInteraction(app, '_pasteDrop', null);

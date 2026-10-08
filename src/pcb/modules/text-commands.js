@@ -14,8 +14,14 @@ import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { removeTextElement, renderText } from './pcb-text-render.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {import('../../core/pcb-text-commands.js').PcbTextPatch} PcbTextPatch */
+/** @typedef {Partial<PcbText>} PcbTextPose */
+/** @typedef {{copies: Map<string, PcbText>, texts: Map<string, PcbText>, contentId?: string, propertyId?: string}} TextPosePreview */
 
+/** @type {WeakMap<PcbEditor, TextPosePreview>} */
 const textPosePreviews = new WeakMap();
+/** @type {(keyof PcbText)[]} */
 const TEXT_STYLE_FIELDS = ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y'];
 
 /** @param {PcbEditor} app */
@@ -26,6 +32,8 @@ export function getTextPosePreviewTexts(app) {
 /**
  * Preview one text's pose without changing authored text or unrelated entries.
  * @param {PcbEditor} app
+ * @param {string} id
+ * @param {PcbTextPose} pose
  */
 export function previewTextPose(app, id, pose) {
     previewTextPoses(app, new Map([[id, pose]]));
@@ -34,6 +42,7 @@ export function previewTextPose(app, id, pose) {
 /**
  * Reuse one projection for a fixed set of moving texts.
  * @param {PcbEditor} app
+ * @param {Map<string, PcbTextPose>} poses
  */
 export function previewTextPoses(app, poses) {
     if (!poses.size) return;
@@ -54,49 +63,54 @@ export function previewTextPoses(app, poses) {
     if (preview.copies.size !== poses.size || [...poses.keys()].some(id => !preview.copies.has(id))) {
         throw new Error('Finish the current text preview before starting another.');
     }
-    for (const [id, pose] of poses) Object.assign(preview.copies.get(id), pose);
+    for (const [id, pose] of poses) Object.assign(/** @type {PcbText} */ (preview.copies.get(id)), pose);
 }
 
 /**
  * Inline typing shares the stable text projection but owns only its content.
  * @param {PcbEditor} app
+ * @param {string} id
+ * @returns {PcbText}
  */
 export function beginTextContentPreview(app, id) {
     const text = app.pcbDocument.texts.get(id);
     if (!text) throw new Error(`PCB text is no longer available: ${id}`);
     previewTextPose(app, id, { content: text.content });
-    const preview = textPosePreviews.get(app);
+    const preview = /** @type {TextPosePreview} */ (textPosePreviews.get(app));
     preview.contentId = id;
-    return preview.copies.get(id);
+    return /** @type {PcbText} */ (preview.copies.get(id));
 }
 
 /**
  * Keep separately edited style/pose fields current without overwriting typed content.
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function syncTextContentPreview(app, id) {
     const preview = textPosePreviews.get(app);
     if (!preview || (preview.contentId !== id && preview.propertyId !== id)) return;
     const text = app.pcbDocument.texts.get(id);
     if (!text) throw new Error(`PCB text is no longer available: ${id}`);
-    const copy = preview.copies.get(id);
+    const copy = /** @type {PcbText} */ (preview.copies.get(id));
+    /** @type {PcbTextPatch} */
     const pending = {};
     if (preview.contentId === id) pending.content = copy.content;
     if (preview.propertyId === id) for (const key of TEXT_STYLE_FIELDS) pending[key] = copy[key];
     Object.assign(copy, text, pending);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} id @returns {PcbText} */
 export function beginTextPropertyPreview(app, id) {
     previewTextPose(app, id, {});
-    const preview = textPosePreviews.get(app);
+    const preview = /** @type {TextPosePreview} */ (textPosePreviews.get(app));
     preview.propertyId = id;
-    return preview.copies.get(id);
+    return /** @type {PcbText} */ (preview.copies.get(id));
 }
 
 /**
  * Finish style editing without ending an independent inline-content preview.
  * @param {PcbEditor} app
+ * @param {(() => void)|undefined} [commit]
  */
 export function finishTextPropertyPreview(app, commit) {
     const preview = textPosePreviews.get(app);
@@ -116,11 +130,11 @@ export function finishTextPropertyPreview(app, commit) {
             textPosePreviews.delete(app);
             removeTextElement(app, id);
         } else {
-            const copy = preview.copies.get(id);
+            const copy = /** @type {PcbText} */ (preview.copies.get(id));
             const changed = TEXT_STYLE_FIELDS.some(key => copy[key] !== text[key]);
             syncTextContentPreview(app, id);
             if (!committed) {
-                schedulePictureCopperRefresh(app, getTextPosePreviewTexts(app)?.get(id) || text);
+                schedulePictureCopperRefresh(app, /** @type {any} */ (getTextPosePreviewTexts(app)?.get(id) || text));
                 if (commit || changed) app.refreshText(id);
             }
         }
@@ -133,18 +147,19 @@ export function finishTextPropertyPreview(app, commit) {
  * text outlives the gesture: its content projection is kept and re-synced, so the
  * typed text stays on screen until the inline edit itself finishes.
  * @param {PcbEditor} app
+ * @param {(() => void)|undefined} [commit]
  */
 export function finishTextPosePreview(app, commit) {
     const preview = textPosePreviews.get(app);
     const contentId = preview?.contentId;
-    if (contentId != null && preview.copies.size === 1 && preview.copies.has(contentId)) {
+    if (preview && contentId != null && preview.copies.size === 1 && preview.copies.has(contentId)) {
         finishPoseKeepingContent(app, contentId, commit);
         return;
     }
     finishTextContentPreview(app, commit);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} id @param {(() => void)|undefined} [commit] */
 function finishPoseKeepingContent(app, id, commit) {
     try {
         if (commit) commit();
@@ -163,6 +178,7 @@ function finishPoseKeepingContent(app, id, commit) {
 /**
  * End every text preview, inline content included, before executing its model command.
  * @param {PcbEditor} app
+ * @param {(() => void)|undefined} [commit]
  */
 export function finishTextContentPreview(app, commit) {
     const preview = textPosePreviews.get(app);
@@ -178,7 +194,7 @@ export function finishTextContentPreview(app, commit) {
             for (const [id, copy] of preview.copies) {
                 const text = app.pcbDocument.texts.get(id);
                 if (!text) removeTextElement(app, id);
-                else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== copy[key])) {
+                else if (commit || /** @type {(keyof PcbText)[]} */ (['x', 'y', 'rotation']).some(key => text[key] !== copy[key])) {
                     app.refreshText(id);
                 }
             }
@@ -189,6 +205,7 @@ export function finishTextContentPreview(app, commit) {
 /** @param {PcbEditor} app */
 function refreshTextLayerProperties(app) {
     if (deferDerivedUpdate(app, 'text-layer-properties', () => refreshTextLayerProperties(app))) return;
+    /** @type {Array<{kind:string, object:any}>} */
     const selected = getPcbSelectionEntries(app);
     if (!selected.some(entry => entry.kind === 'text')) return;
     if (selected.length === 1) app.showTextProperties?.(selected[0].object);
@@ -197,7 +214,7 @@ function refreshTextLayerProperties(app) {
 
 /** Add a text to app.texts and render it. */
 export class AddTextCommand extends ModelAddTextCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PcbText} text */
     constructor(app, text) {
         super(app.pcbDocument, text);
         this.app = app;
@@ -219,7 +236,7 @@ export class AddTextCommand extends ModelAddTextCommand {
 
 /** Remove a text. */
 export class RemoveTextCommand extends ModelRemoveTextCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} textId */
     constructor(app, textId) {
         super(app.pcbDocument, textId);
         this.app = app;
@@ -243,11 +260,12 @@ export class RemoveTextCommand extends ModelRemoveTextCommand {
 
 /** Move a text from (x0,y0) to (x1,y1). */
 export class MoveTextCommand extends ModelMoveTextCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} textId @param {number} x0 @param {number} y0 @param {number} x1 @param {number} y1 */
     constructor(app, textId, x0, y0, x1, y1) {
         super(app.pcbDocument, textId, x0, y0, x1, y1);
         this.app = app;
     }
+    /** @param {number} x @param {number} y */
     _set(x, y) {
         super._set(x, y);
         syncTextContentPreview(this.app, this.id);
@@ -262,11 +280,12 @@ export class MoveTextCommand extends ModelMoveTextCommand {
  * pre-edit values are captured at construction time.
  */
 export class EditTextCommand extends ModelEditTextCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {string} textId @param {PcbTextPatch} after */
     constructor(app, textId, after) {
         super(app.pcbDocument, textId, after);
         this.app = app;
     }
+    /** @param {PcbTextPatch} patch */
     _apply(patch) {
         super._apply(patch);
         syncTextContentPreview(this.app, this.id);

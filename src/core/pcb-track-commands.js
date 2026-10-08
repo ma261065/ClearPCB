@@ -2,7 +2,7 @@ import { editTargets } from './edit-guard.js';
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('../shapes/track.js').Track} Track */
 /** @typedef {import('../shapes/via.js').Via} Via */
-/** @typedef {Record<string, any>} TrackState */
+/** @typedef {Partial<ReturnType<Track['captureState']>> & Record<string, any>} TrackState */
 /** @typedef {{tracks: Track[], vias: Via[]}} RouteState */
 
 export class AddTrackCommand {

@@ -1,24 +1,16 @@
 import { copperLayer, resolveCopperPads } from './copper-model.js';
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../core/pcb-placement-geometry.js').BoardPad} BoardPad */
+/** @typedef {{x:number,y:number}} Point */
 
-/**
- * One electrically-connected piece of copper: a Track's connected component, a
- * Via, a Pad, or (added by track-draw) an additive copper shape or pour region.
- * @typedef {object} CopperCluster
- * @property {'track'|'via'|'pad'|'shape'} [kind]
- * @property {string} net
- * @property {Array<{x:number,y:number}>} points
- * @property {string} [layer]
- * @property {any} [track] @property {Set<string>} [nodeIds] @property {Set<string>} [edgeIds]
- * @property {Array<{a:{x:number,y:number}, b:{x:number,y:number}, radius:number}>} [segments]
- * @property {any} [via] @property {number} [viaRadius]
- * @property {any} [pad] @property {string} [padNet] @property {string} [padKey]
- * @property {any} [shape] @property {any} [geometry] @property {any} [copperShape] @property {any} [source]
- */
+/** @typedef {Record<string, any>} CopperCluster */
 
 /**
  * @returns {CopperCluster[]}
  * @param {PcbBoard} app
+ * @param {Set<string>|null} [nets]
  */
 export function buildCopperClusters(app, nets = null) {
     /** @type {CopperCluster[]} */
@@ -26,19 +18,30 @@ export function buildCopperClusters(app, nets = null) {
     for (const track of app.tracks || []) {
         const net = track.net || '';
         if (nets && !nets.has(net)) continue;
+        /** @type {Map<string, Array<{node:string, edgeId:string}>>} */
         const adjacency = new Map([...track.nodes.keys()].map((id) => [id, []]));
         for (const [edgeId, edge] of track.edges) {
             adjacency.get(edge.from)?.push({ node: edge.to, edgeId });
             adjacency.get(edge.to)?.push({ node: edge.from, edgeId });
         }
+        /** @type {Set<string>} */
         const seen = new Set();
         for (const start of track.nodes.keys()) {
             if (seen.has(start)) continue;
-            const points = [], segments = [], layers = new Set(), edges = new Set();
+            /** @type {Point[]} */
+            const points = [];
+            /** @type {Array<{a:Point, b:Point, radius:number}>} */
+            const segments = [];
+            /** @type {Set<string>} */
+            const layers = new Set();
+            /** @type {Set<string>} */
+            const edges = new Set();
+            /** @type {Set<string>} */
             const nodeIds = new Set();
+            /** @type {string[]} */
             const stack = [start];
             while (stack.length) {
-                const nodeId = stack.pop();
+                const nodeId = /** @type {string} */ (stack.pop());
                 if (seen.has(nodeId)) continue;
                 seen.add(nodeId);
                 nodeIds.add(nodeId);
@@ -76,6 +79,7 @@ export function buildCopperClusters(app, nets = null) {
     return clusters;
 }
 
+/** @param {CopperCluster[]} clusters @param {(a: number, b: number) => void} union @param {boolean} [sameNet] */
 export function unionCoincidentClusters(clusters, union, sameNet = false) {
     const buckets = new Map();
     for (let index = 0; index < clusters.length; index++) {

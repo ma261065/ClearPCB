@@ -1,4 +1,11 @@
 /** Opaque drill masking above normal copper, below selected-track overlays. */
+/**
+ * @param {{id: string, x: number, y: number, drill: number}} terminal
+ * @param {SVGGElement|null|undefined} group
+ * @param {string} className
+ * @param {string} kind
+ * @returns {SVGCircleElement|null}
+ */
 export function renderDrillBore(terminal, group, className, kind) {
     if (!group || !(terminal.drill > 0)) return null;
     const drill = document.createElementNS('http://www.w3.org/2000/svg', 'circle');

@@ -22,19 +22,32 @@ import { stringToPolylines, measureText } from '../../shared/pcb/stroke-font.js'
 import { PCB_LAYERS } from './layers.js';
 export { TEXT_LAYERS, createPcbText, serializePcbText } from '../../core/pcb-text.js';
 
+/** @typedef {Omit<import('../../core/pcb-text.js').PcbText, 'border'> & {border?: boolean}} PcbText */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {{kind:'segment',x1:number,y1:number,x2:number,y2:number,width:number,layer:string}} TextObstacle */
+
 const NS = 'http://www.w3.org/2000/svg';
 
-/** True if the given text layer id is a bottom-side layer. */
+/** True if the given text layer id is a bottom-side layer.
+ * @param {string} layer
+ */
 export function isBottomLayer(layer) {
     return typeof layer === 'string' && layer.startsWith('bottom-');
 }
 
-/** Map a text layer id to a stroke colour (matches the layers panel). */
+/** Map a text layer id to a stroke colour (matches the layers panel).
+ * @param {string} layer
+ */
 export function textColorForLayer(layer) {
     const def = PCB_LAYERS.find(l => l.id === layer);
     return def?.color || '#cccccc';
 }
 
+/**
+ * @param {PcbText} text
+ * @param {string} [content]
+ */
 export function pcbTextEditBox(text, content = text.content) {
     const width = measureText(content, text.size);
     const padX = text.size * 0.4;
@@ -48,6 +61,10 @@ export function pcbTextEditBox(text, content = text.content) {
     };
 }
 
+/**
+ * @param {PcbText} text
+ * @returns {Point[]}
+ */
 function pcbTextBorderPolyline(text) {
     const box = pcbTextEditBox(text);
     const right = box.x + box.width;
@@ -61,6 +78,10 @@ function pcbTextBorderPolyline(text) {
     ];
 }
 
+/**
+ * @param {PcbText} text
+ * @returns {Point[][]}
+ */
 function pcbTextLocalPolylines(text) {
     const polylines = stringToPolylines(text.content, 0, 0, text.size, false);
     if (!text.border) return polylines;
@@ -68,6 +89,11 @@ function pcbTextLocalPolylines(text) {
     return polylines;
 }
 
+/**
+ * @param {PcbText} text
+ * @param {boolean} [includeStroke]
+ * @returns {Bounds}
+ */
 function pcbTextLocalBounds(text, includeStroke = true) {
     const polylines = pcbTextLocalPolylines(text);
     let minX = Infinity;
@@ -110,7 +136,7 @@ function pcbTextLocalBounds(text, includeStroke = true) {
  *    positive degrees rotate visually-CCW in SVG-Y-down space).
  * Caller appends to the layer group.
  *
- * @param {object} text
+ * @param {PcbText} text
  * @param {string} [strokeOverride] optional colour override (e.g. selection)
  * @returns {SVGGElement}
  */
@@ -143,7 +169,11 @@ export function renderPcbText(text, strokeOverride) {
     return g;
 }
 
-/** Rotated text bounds as a world-space polygon in SVG-Y-down coordinates. */
+/** Rotated text bounds as a world-space polygon in SVG-Y-down coordinates.
+ * @param {PcbText} text
+ * @param {boolean} [includeStroke]
+ * @returns {Point[]}
+ */
 export function pcbTextOutline(text, includeStroke = true) {
     const mirror = isBottomLayer(text.layer) ? -1 : 1;
     const localBounds = pcbTextLocalBounds(text, includeStroke);
@@ -166,6 +196,8 @@ export function pcbTextOutline(text, includeStroke = true) {
 /**
  * Axis-aligned bounding box of `text` in world (SVG-Y-down) coords,
  * accounting for rotation. Returns `{minX, minY, maxX, maxY}` in mm.
+ * @param {PcbText} text
+ * @returns {Bounds}
  */
 export function pcbTextBounds(text) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -184,6 +216,10 @@ export function pcbTextBounds(text) {
  *
  * The hit box follows the rendered stroke extents, with a small amount
  * of padding so thin glyph strokes remain easy to click.
+ * @param {PcbText} text
+ * @param {number} x
+ * @param {number} y
+ * @returns {boolean}
  */
 export function pcbTextHitTest(text, x, y) {
     const mirror = isBottomLayer(text.layer) ? -1 : 1;
@@ -200,7 +236,10 @@ export function pcbTextHitTest(text, x, y) {
         && ly >= bounds.minY - tolerance && ly <= bounds.maxY + tolerance;
 }
 
-/** World-space stroke polylines shared by 2D, 3D, Gerber, and hit consumers. */
+/** World-space stroke polylines shared by 2D, 3D, Gerber, and hit consumers.
+ * @param {PcbText} text
+ * @returns {Point[][]}
+ */
 export function pcbTextPolylines(text) {
     const localPolylines = pcbTextLocalPolylines(text);
     const radians = (-(text.rotation || 0) * Math.PI) / 180;
@@ -216,7 +255,12 @@ export function pcbTextPolylines(text) {
     }));
 }
 
+/**
+ * @param {PcbText} text
+ * @returns {Array<[Point, Point]>}
+ */
 export function pcbTextSegments(text) {
+    /** @type {Array<[Point, Point]>} */
     const segments = [];
     for (const polyline of pcbTextPolylines(text)) {
         for (let index = 1; index < polyline.length; index++) {
@@ -239,8 +283,8 @@ export function pcbTextSegments(text) {
  * Intended for copper-layer text only; silk text is not copper and should
  * not be passed here.
  *
- * @param {object} text
- * @returns {Array<{kind:'segment',x1:number,y1:number,x2:number,y2:number,width:number,layer:string}>}
+ * @param {PcbText} text
+ * @returns {TextObstacle[]}
  */
 export function pcbTextObstacles(text) {
     const routerLayer = isBottomLayer(text.layer) ? 'bottom' : 'top';
@@ -248,10 +292,12 @@ export function pcbTextObstacles(text) {
     const mirror = isBottomLayer(text.layer) ? -1 : 1;
     const rad = -text.rotation * Math.PI / 180; // negate to match render
     const cos = Math.cos(rad), sin = Math.sin(rad);
+    /** @param {number} lx @param {number} ly */
     const toWorld = (lx, ly) => ({
         x: text.x + (mirror * lx) * cos - ly * sin,
         y: text.y + (mirror * lx) * sin + ly * cos,
     });
+    /** @type {TextObstacle[]} */
     const segments = [];
     for (const poly of stringToPolylines(text.content, 0, 0, text.size, false)) {
         if (poly.length < 2) continue;

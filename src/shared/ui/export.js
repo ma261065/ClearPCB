@@ -317,8 +317,8 @@ export function forceMonochromeSvg(svgRoot) {
 /**
  * Copies computed CSS properties (fill, stroke, font, etc.) from the live SVG
  * to a cloned SVG so styles survive serialization.
- * @param {SVGSVGElement} originalSvg - The live SVG in the DOM.
- * @param {SVGSVGElement} clonedSvg - The deep-cloned SVG to receive styles.
+ * @param {SVGElement} originalSvg - The live SVG in the DOM.
+ * @param {SVGElement} clonedSvg - The deep-cloned SVG to receive styles.
  */
 export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
     const props = [

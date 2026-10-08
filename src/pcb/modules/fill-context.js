@@ -6,7 +6,7 @@ import { boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.j
 /**
  * What a pour computation reads: the board's collections, its routing rules and its
  * outline. The editor is one; a worker snapshot (captureFillInputs) is another.
- * @typedef {PcbBoard & {getRoutingParams?: () => Partial<RoutingParams>, board?: object, pcbDocument?: object}} FillBoard
+ * @typedef {PcbBoard & {getRoutingParams?: () => Partial<RoutingParams>, board?: {width?: number, height?: number, radius?: number}, pcbDocument?: object}} FillBoard
  */
 
 /**
@@ -17,11 +17,11 @@ export function buildFillContext(app) {
     const params = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     const dimensions = boardDimensions(app);
     return {
-        tracks: app.tracks, vias: app.vias,
-        texts: [...app.texts.values()], fills: [...app.copperFills],
-        pads: resolveCopperPads(app), boardShapes: app.boardShapes,
-        holes: resolvePlacementDrills(app.placements).filter((hole) => !hole.plated),
-        params: { clearance: Number.isFinite(params.clearance) ? params.clearance : 0.1 },
+        tracks: app.tracks || [], vias: app.vias || [],
+        texts: [...(app.texts || new Map()).values()], fills: [...(app.copperFills || [])],
+        pads: resolveCopperPads(app), boardShapes: app.boardShapes || [],
+        holes: resolvePlacementDrills(app.placements || new Map()).filter((hole) => !hole.plated),
+        params: { clearance: Number.isFinite(params.clearance) ? /** @type {number} */ (params.clearance) : 0.1 },
         board: dimensions.width > 0 && dimensions.height > 0
             ? boardBoundary(app) : null,
     };

@@ -1,6 +1,8 @@
 import { buildCopperObstacles } from './copper-obstacles.js';
 import { boardShapeBounds, normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-placement-geometry.js').PadOffset} PadOffset */
+/** @typedef {{x: number, y: number, width: number, height: number, layer?: 'top'|'bottom'|'both', shape?: 'rect'|'ellipse', alternates?: RoutePad[]}} RoutePad */
 
 /**
  * Convert the board's placements, netlist and copper shapes into the autorouter's
@@ -14,7 +16,9 @@ export function buildRouteInput(app) {
     // Build connections with pad positions and sizes.
     // Pad layers are already in the router's 'top'|'bottom'|'both' form
     // (set by footprint.js); no translation needed.
+    /** @type {Array<{net: string, pads: RoutePad[]}>} */
     const connections = [];
+    /** @type {Map<string, RoutePad[]>} */
     const shapeTerminalsByNet = new Map();
     for (const shape of app.boardShapes || []) {
         if (shape?.type === 'fill') continue;
@@ -45,16 +49,18 @@ export function buildRouteInput(app) {
             // them. Without this we'd only see the arbitrary last-inserted
             // pad from the placement Map, often a hemmed-in centre pad
             // that's hard or impossible to reach.
-            const matches = (pl.padOffsets || []).filter(o => o.number === pin.pinNumber);
+            const matches = /** @type {PadOffset[]} */ (pl.padOffsets || []).filter(o => o.number === pin.pinNumber);
             if (matches.length === 0) continue;
+            /** @param {PadOffset} off @returns {RoutePad} */
             const padFor = (off) => ({
                 x: pl.x + off.dx,
                 y: pl.y + off.dy,
                 width: off.width || 1.0,
                 height: off.height || 1.0,
-                layer: off.layer || 'top',
-                shape: off.shape || 'rect',
+                layer: /** @type {'top'|'bottom'|'both'} */ (off.layer || 'top'),
+                shape: /** @type {'rect'|'ellipse'} */ (off.shape || 'rect'),
             });
+            /** @type {RoutePad} */
             const primary = padFor(matches[0]);
             if (matches.length > 1) {
                 primary.alternates = matches.slice(1).map(padFor);
@@ -69,6 +75,7 @@ export function buildRouteInput(app) {
 
     // Collect ALL pads from every component as obstacles
     // (not just the ones in the netlist — unconnected pads must block too)
+    /** @type {RoutePad[]} */
     const allObstaclePads = [];
     for (const [, pl] of app.placements) {
         for (const off of (pl.padOffsets || [])) {
@@ -77,8 +84,8 @@ export function buildRouteInput(app) {
                 y: pl.y + off.dy,
                 width: off.width || 1.0,
                 height: off.height || 1.0,
-                layer: off.layer || 'top',
-                shape: off.shape || 'rect',
+                layer: /** @type {'top'|'bottom'|'both'} */ (off.layer || 'top'),
+                shape: /** @type {'rect'|'ellipse'} */ (off.shape || 'rect'),
             });
         }
     }

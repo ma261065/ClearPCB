@@ -6,12 +6,16 @@ import { fillRefreshError, isFillRefreshPending, onEditSettled, refreshStatus } 
 import { isEditorActive } from './pcb-editor-api.js';
 import { collectDrcRatlines, drcShouldRun, isDrcDisposed, peekDrcPresentation, storedDrcRatlines } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{revision: number, frame: object|null, waiting: boolean, owed: boolean, worker: ReturnType<typeof createDrcWorker>|null, failed: boolean}} DrcRefreshState */
+/** @typedef {import('./drc.js').DrcResult} DrcResult */
+/** @typedef {ReturnType<typeof ownership>} OwnershipSnapshot */
 
+/** @type {WeakMap<PcbEditor, DrcRefreshState>} */
 const states = new WeakMap();
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @returns {DrcRefreshState} */
 const stateFor = app => {
     if (!states.has(app)) states.set(app, { revision: 0, frame: null, waiting: false, owed: false, worker: null, failed: false });
-    return states.get(app);
+    return /** @type {DrcRefreshState} */ (states.get(app));
 };
 /** @param {PcbEditor} app */
 const visible = app => isEditorActive(app) && !isDrcDisposed(app) && drcShouldRun(app);
@@ -25,13 +29,14 @@ const deferred = app => {
 /** @param {PcbEditor} app */
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
     ratlines: collectDrcRatlines(app) });
+/** @param {DrcRefreshState} state */
 const stopWaiting = state => { state.waiting = false; };
 /** @param {PcbEditor} app */
 function pending(app) {
     const presentation = peekDrcPresentation(app);
     if (presentation && !presentation.pending) {
         presentation.pending = true;
-        presentation.updateStatus(null, true);
+        presentation.updateStatus(/** @type {import('./drc-presentation.js').DrcResult} */ (/** @type {unknown} */ (null)), true);
     }
 }
 const resumeQueued = new WeakSet();
@@ -53,6 +58,7 @@ onEditSettled(queueResume);
  * Hold an owed check until nothing defers it: whatever ends last (an edit, or the pour
  * recompute it waits for) notes the edit settled (refresh-state.js). Nothing polls.
  * @param {PcbEditor} app
+ * @param {DrcRefreshState} state
  */
 function waitUntilSettled(app, state) {
     state.owed = true;
@@ -72,7 +78,10 @@ export function resumeDrcRefresh(app) {
     stopWaiting(state);
     scheduleDrcRefresh(app);
 }
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {unknown} error
+ */
 function report(app, error) {
     console.error('[DRC] check failed', error);
     app.setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -80,7 +89,7 @@ function report(app, error) {
     if (!presentation) return;
     presentation.error = error;
     presentation.pending = true;
-    presentation.updateStatus(null, true);
+    presentation.updateStatus(/** @type {import('./drc-presentation.js').DrcResult} */ (/** @type {unknown} */ (null)), true);
 }
 /** @param {PcbEditor} app */
 export function invalidateDrcRefresh(app) {
@@ -98,7 +107,11 @@ export function disposeDrcRefresh(app) {
     stopWaiting(state);
     states.delete(app);
 }
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {DrcRefreshState} state
+ * @param {DrcResult} result
+ */
 function accept(app, state, result) {
     state.owed = false;
     stopWaiting(state);
@@ -136,7 +149,10 @@ function ownership(app) {
     return { model, lists: lists.map(list => [...list]), fills: fills.map(getComputedFill),
         ratlines: storedDrcRatlines(app), fillPending: isFillRefreshPending(app), fillError: fillRefreshError(app) };
 }
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {OwnershipSnapshot} saved
+ */
 function unchanged(app, saved) {
     const current = ownership(app);
     return current.model === saved.model && current.ratlines === saved.ratlines

@@ -8,34 +8,37 @@
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
+/** @typedef {{onLayerVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onLayerLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onCopperFillVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onCopperFillLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onOverlayVisibilityChanged?: (app: PcbEditor, overlayId: string, visible: boolean) => void}} LayerChangeHandlers */
 const lockedBubbleTimers = new WeakMap();
+/** @type {LayerChangeHandlers} */
 let layerChangeHandlers = {};
 
+/** @param {LayerChangeHandlers} handlers */
 export function registerLayerChangeHandlers(handlers) {
     layerChangeHandlers = handlers;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} visible */
 export function notifyLayerVisibilityChanged(app, layerId, visible) {
     layerChangeHandlers.onLayerVisibilityChanged?.(app, layerId, visible);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} locked */
 export function notifyLayerLockChanged(app, layerId, locked) {
     layerChangeHandlers.onLayerLockChanged?.(app, layerId, locked);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} visible */
 export function notifyCopperFillVisibilityChanged(app, layerId, visible) {
     layerChangeHandlers.onCopperFillVisibilityChanged?.(app, layerId, visible);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} locked */
 export function notifyCopperFillLockChanged(app, layerId, locked) {
     layerChangeHandlers.onCopperFillLockChanged?.(app, layerId, locked);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} overlayId @param {boolean} visible */
 export function notifyOverlayVisibilityChanged(app, overlayId, visible) {
     layerChangeHandlers.onOverlayVisibilityChanged?.(app, overlayId, visible);
 }
@@ -75,7 +78,9 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
 export const PCB_SELECTION_HIGHLIGHT_OPACITY = 0.5;
 export const PCB_HOVER_HIGHLIGHT_OPACITY = 0.25;
 
-/** Blend a PCB display color toward white by the requested highlight opacity. */
+/** Blend a PCB display color toward white by the requested highlight opacity.
+ * @param {string} color @param {number} opacity
+ */
 export function pcbHighlightColor(color, opacity) {
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;
@@ -85,13 +90,17 @@ export function pcbHighlightColor(color, opacity) {
     }).join('')}`;
 }
 
-/** Return a selected color equivalent to the shared white halo. */
+/** Return a selected color equivalent to the shared white halo.
+ * @param {string} layerId
+ */
 export function pcbLayerSelectionColor(layerId) {
     const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
     return pcbHighlightColor(color, PCB_SELECTION_HIGHLIGHT_OPACITY);
 }
 
-/** Return a hover color equivalent to the shared white halo. */
+/** Return a hover color equivalent to the shared white halo.
+ * @param {string} layerId
+ */
 export function pcbLayerHoverColor(layerId) {
     const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
     return pcbHighlightColor(color, PCB_HOVER_HIGHLIGHT_OPACITY);
@@ -152,6 +161,8 @@ export function isCopperFillLocked(copperLayerId) {
 /**
  * Set a PCB layer lock through its panel control so all UI state stays in sync.
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} locked
  */
 export function setPcbLayerLocked(app, layerId, locked) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
@@ -170,6 +181,7 @@ export function setPcbLayerLocked(app, layerId, locked) {
 /**
  * Unlock a PCB layer through its panel control so all UI state stays in sync.
  * @param {PcbEditor} app
+ * @param {string} layerId
  */
 export function unlockPcbLayer(app, layerId) {
     setPcbLayerLocked(app, layerId, false);
@@ -178,6 +190,8 @@ export function unlockPcbLayer(app, layerId) {
 /**
  * Set a copper-fill lock through its panel control.
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} locked
  */
 export function setPcbCopperFillLocked(app, layerId, locked) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
@@ -196,6 +210,7 @@ export function setPcbCopperFillLocked(app, layerId, locked) {
 /**
  * Unlock a copper-fill layer through its panel control.
  * @param {PcbEditor} app
+ * @param {string} layerId
  */
 export function unlockPcbCopperFill(app, layerId) {
     setPcbCopperFillLocked(app, layerId, false);
@@ -204,6 +219,8 @@ export function unlockPcbCopperFill(app, layerId) {
 /**
  * Show or hide a PCB layer through its panel control so all UI state stays in sync.
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} visible
  */
 export function setPcbLayerVisible(app, layerId, visible) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
@@ -222,6 +239,8 @@ export function setPcbLayerVisible(app, layerId, visible) {
 /**
  * Show or hide one side's pours through the Copper Fill row's eye.
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} visible
  */
 export function setPcbCopperFillVisible(app, layerId, visible) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
@@ -255,6 +274,8 @@ const LOCK_OPTION_SUFFIX = ' \u{1F512}\uFE0E';
 /**
  * A layer as a Properties select option (shared/ui/property-fields.js): a locked layer
  * is disabled and marked, and refreshPcbLayerOptions keeps it current.
+ * @param {string} layerId
+ * @param {string} label
  * @returns {import('../../shared/ui/property-fields.js').PropertyOption}
  */
 export function pcbLayerOption(layerId, label) {
@@ -263,6 +284,7 @@ export function pcbLayerOption(layerId, label) {
         dataset: { pcbLayerLabel: label } };
 }
 
+/** @param {string} layerId */
 export function refreshPcbLayerOptions(layerId) {
     const locked = isLayerLocked(layerId);
     for (const option of document.querySelectorAll(`option[value="${layerId}"][data-pcb-layer-label]`)) {
@@ -321,6 +343,7 @@ let _savePrefsScheduled = false;
 
 function _writeLayerPrefs() {
     try {
+        /** @type {{layers: Record<string, {visible: boolean, locked: boolean}>, fills: Record<string, {visible: boolean, locked: boolean}>, overlays: Record<string, {visible: boolean}>}} */
         const data = {
             layers: {},
             fills: {},
@@ -792,23 +815,30 @@ export function placementBlock(targets) {
     return null;
 }
 
-/** The layer panel's name for a blocked row: "Via", "Top Silk", "Top Copper Fill". */
+/** The layer panel's name for a blocked row: "Via", "Top Silk", "Top Copper Fill".
+ * @param {PlacementBlock} block
+ */
 export function placementBlockName(block) {
     if (!block.fill) return pcbLayerName(block.id);
     return `${PCB_COPPER_FILLS.find(fill => fill.id === block.id)?.name || pcbLayerName(block.id)} Copper Fill`;
 }
 
-/** "“Via” is locked" / "“Top Silk” is hidden". */
+/** "“Via” is locked" / "“Top Silk” is hidden".
+ * @param {PlacementBlock} block
+ */
 export function placementBlockMessage(block) {
     return `“${placementBlockName(block)}” is ${block.reason}`;
 }
 
-/** The button label that lifts a block: Unlock or Show. */
+/** The button label that lifts a block: Unlock or Show.
+ * @param {PlacementBlock} block
+ */
 export const placementBlockAction = block => (block.reason === 'locked' ? 'Unlock' : 'Show');
 
 /**
  * Lift a block through the layer panel's own control, so every view of the layer follows.
  * @param {PcbEditor} app
+ * @param {PlacementBlock} block
  */
 export function clearPlacementBlock(app, block) {
     if (block.reason === 'locked') {

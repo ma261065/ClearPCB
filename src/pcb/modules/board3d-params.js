@@ -5,6 +5,9 @@
  */
 import { getBoard2DLayerStyles, setBoard2DLayerStyles } from './board2d.js';
 
+/** @typedef {import('./board2d.js').LayerStyle} LayerStyle */
+/** @typedef {import('./board2d.js').LayerStyleKey} LayerStyleKey */
+
 /** Finished board thickness in millimetres (standard 1.6 mm). */
 export const BOARD_THICKNESS = 1.6;
 export const FILLED_CIRCLE_SEGMENTS = 48;
@@ -31,30 +34,35 @@ export const COLOR_SILK = [228, 228, 228];        // white silkscreen
 // Toggle solder-mask rendering on board faces.
 export const SHOW_SOLDERMASK = true;
 
+/** @param {number} v @param {number} fallback */
 function _clampByte(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(255, Math.round(n)));
 }
 
+/** @param {number} v @param {number} fallback */
 function _clampAlpha(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {number} v @param {number} fallback */
 function _clampUnit(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {number} v @param {number} fallback */
 function _clampHue(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(360, Math.round(n)));
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsv(r, g, b) {
     const rn = r / 255;
     const gn = g / 255;
@@ -72,6 +80,7 @@ function _rgbToHsv(r, g, b) {
     return { h: h * 360, s, v: max };
 }
 
+/** @param {number} h @param {number} s @param {number} v */
 export function hsvToRgb(h, s, v) {
     const hh = (((h % 360) + 360) % 360) / 60;
     const c = v * s;
@@ -91,6 +100,7 @@ export function hsvToRgb(h, s, v) {
     ];
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsl(r, g, b) {
     let rn = r / 255;
     let gn = g / 255;
@@ -116,6 +126,7 @@ function _rgbToHsl(r, g, b) {
     return { h: (h / 6) * 360, s, l };
 }
 
+/** @param {number} h @param {number} s @param {number} l */
 function _hslToRgb(h, s, l) {
     let hNorm = ((h % 360) + 360) % 360;
     hNorm /= 360;
@@ -123,6 +134,7 @@ function _hslToRgb(h, s, l) {
         const v = Math.round(l * 255);
         return [v, v, v];
     }
+    /** @param {number} p @param {number} q @param {number} t */
     const hue2rgb = (p, q, t) => {
         let tt = t;
         if (tt < 0) tt += 1;
@@ -154,6 +166,8 @@ export const LAYER_STYLE = {
     silkscreen: { ..._layerStyleInit.silkscreen },
     pads: { ..._layerStyleInit.pads },
 };
+/** @type {LayerStyleKey[]} */
+const LAYER_STYLE_KEYS = ['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads'];
 
 function getSolderMaskAppearance() {
     const [, g] = hsvToRgb(LAYER_STYLE.soldermask.h, LAYER_STYLE.soldermask.s, LAYER_STYLE.soldermask.v);
@@ -165,6 +179,7 @@ function getSolderMaskAppearance() {
 
 /** @param {{greenness?: number, opacity?: number}} [appearance] */
 function setSolderMaskAppearance({ greenness, opacity } = {}) {
+    /** @type {Partial<LayerStyle>} */
     const patch = {};
     if (greenness !== undefined) {
         const [curR, curG, curB] = hsvToRgb(
@@ -224,8 +239,9 @@ export function getLayerStylesAppearance() {
     };
 }
 
+/** @param {Partial<Record<LayerStyleKey, Partial<LayerStyle>|undefined>>} [patch] */
 export function setLayerStylesAppearance(patch = {}) {
-    for (const key of ['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads']) {
+    for (const key of LAYER_STYLE_KEYS) {
         const next = patch[key];
         if (!next) continue;
         const cur = LAYER_STYLE[key];

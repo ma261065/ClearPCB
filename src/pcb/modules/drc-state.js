@@ -7,8 +7,13 @@ import { getPcbSelection } from './selection-registry.js';
 import { isBoardOutlineSelected } from './board-outline-resize.js';
 import { hasTrackEdit } from './track-select.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
+/** @typedef {{net: string, x1: number, y1: number, x2: number, y2: number, failed?: boolean}} Ratline */
+/** @typedef {{presentation: DrcPresentation|null, ratlines: Ratline[], model: PcbDocument, disposed: boolean}} DrcState */
 
+/** @type {ReadonlyArray<Ratline>} */
 const emptyRatlines = Object.freeze([]);
+/** @type {WeakMap<PcbEditor, DrcState>} */
 const states = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -114,19 +119,19 @@ export function resetDrc(app) {
     scheduleDrc(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Ratline[]} lines */
 export function setDrcRatlines(app, lines) {
     const state = stateFor(app);
     state.ratlines = lines;
     state.model = modelFor(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @returns {ReadonlyArray<Ratline>} */
 export function storedDrcRatlines(app) {
     return states.get(app)?.ratlines || emptyRatlines;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @returns {Ratline[]} */
 export function collectDrcRatlines(app) {
     const state = states.get(app);
     if (!state || state.model !== modelFor(app)) return [];

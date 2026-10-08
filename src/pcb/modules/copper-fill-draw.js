@@ -26,6 +26,7 @@ import { setPcbSelection } from './selection-registry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { showFillProperties } from './copper-fill-edit.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
 
 const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-fill-preview';
@@ -77,7 +78,7 @@ function toolCornerRadius(app) {
     return fillToolDefaults(app).cornerRadius;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} world */
 function snap(app, world) {
     return app.snapToGrid ? app.snapToGrid(world) : { x: world.x, y: world.y };
 }
@@ -93,6 +94,7 @@ export function getFillDraw(app) {
 /**
  * Begin a new fill region at `world`.
  * @param {PcbEditor} app
+ * @param {Point} world
  */
 export function startFillDraw(app, world) {
     const p = snap(app, world);
@@ -107,6 +109,7 @@ export function startFillDraw(app, world) {
 /**
  * Add a waypoint; closing automatically when near the first vertex.
  * @param {PcbEditor} app
+ * @param {Point} world
  */
 export function addFillWaypoint(app, world) {
     const fd = getFillDraw(app);
@@ -131,6 +134,7 @@ export function addFillWaypoint(app, world) {
 /**
  * Update the rubber-band preview as the cursor moves.
  * @param {PcbEditor} app
+ * @param {Point} world
  */
 export function updateFillDraw(app, world) {
     const fd = getFillDraw(app);
@@ -168,6 +172,7 @@ export function finishFillDraw(app) {
  * Commit the cursor position as the final corner, then finish: a stationary right-click,
  * as for a polygon (finishShapeDrawAtPoint) and a track.
  * @param {PcbEditor} app
+ * @param {Point|null|undefined} world
  */
 export function finishFillDrawAtPoint(app, world) {
     if (!getFillDraw(app) || !world) return;
@@ -252,6 +257,7 @@ function renderPreview(app) {
 /**
  * Keys while a pour outline is being drawn: Enter finishes, Escape cancels.
  * @param {PcbEditor} app
+ * @param {KeyboardEvent} e
  * @returns {boolean|null} null when no pour is being drawn, else whether the key was consumed.
  */
 export function handleFillDrawKey(app, e) {

@@ -2,9 +2,12 @@
 import { buildSurfaceBuffers } from './board3d-surface-build.js?v=7';
 import { decodeSurfaceInputs } from './board3d-surface-transfer.js';
 
+/**
+ * @param {MessageEvent<{id: unknown, surfaces: unknown}>} event
+ */
 globalThis.onmessage = ({ data }) => {
     try {
-        const surfaces = buildSurfaceBuffers(decodeSurfaceInputs(data.surfaces));
+        const surfaces = buildSurfaceBuffers(decodeSurfaceInputs(/** @type {Record<string, import('./board3d-surface-transfer.js').TransferSurfaceInput>} */ (data.surfaces)));
         const transfer = Object.values(surfaces).flatMap((surface) =>
             Object.values(surface).map((attribute) => attribute.buffer));
         globalThis.postMessage({ id: data.id, surfaces }, { transfer });

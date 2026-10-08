@@ -9,6 +9,9 @@ import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{id: string}} SnapshotText */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill & {_computed: unknown}} SnapshotFill */
+/** @typedef {{texts: SnapshotText[], fills: SnapshotFill[], params: object, boardWidth: number, boardHeight: number, boardRadius: number}} FabricationSnapshot */
 
 /** @param {PcbEditor} app */
 export function hasFabricationContent(app) {
@@ -34,7 +37,8 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
     const placements = new Map([...app.placements].map(([id, placement]) => [id, captureResolvedPlacement(placement)]));
     const geometry = model ? model.captureGeometry() : capturePcbGeometry(app);
     const tracks = geometry.tracks.map(track => ({ ...track,
-        getEdgeWidth: id => track.edges.get(id).width, getEdgeLayer: id => track.edges.get(id).layer }));
+        getEdgeWidth: /** @param {string} id */ id => track.edges.get(id).width,
+        getEdgeLayer: /** @param {string} id */ id => track.edges.get(id).layer }));
     const fills = geometry.fills.map(fill => ({ ...fill, _computed: null }));
     const snapshot = {
         params, netlist: structuredClone(app.netlist || []),
@@ -47,6 +51,10 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
     return snapshot;
 }
 
+/**
+ * @param {FabricationSnapshot} snapshot
+ * @param {(done: number, total: number) => void} [onProgress]
+ */
 export async function prepareSnapshotFills(snapshot, onProgress = (done, total) => {}) {
     const { fills, params } = snapshot;
     if (!fills.length) return;

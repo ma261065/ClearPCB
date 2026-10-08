@@ -1,5 +1,15 @@
 import { MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
+/** @typedef {{width: number, height: number, data: Uint8Array|Uint8ClampedArray}} HalftoneImage */
+/** @typedef {{widthMm?: number, dotSizeMm?: number, invert?: boolean}} HalftoneOptions */
+/** @typedef {{x: number, y: number, radius: number}} HalftoneCircle */
+/** @typedef {{width: number, height: number, circles: HalftoneCircle[]}} HalftoneArtwork */
+
+/**
+ * @param {HalftoneImage} image
+ * @param {HalftoneOptions} [options]
+ * @returns {HalftoneArtwork}
+ */
 export function halftonePicture(image, { widthMm = 30, dotSizeMm = 0.8, invert = false } = {}) {
     const { width, height, data } = image;
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1

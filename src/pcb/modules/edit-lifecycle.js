@@ -68,12 +68,12 @@ export function cancelPcbPosePreviews(app) {
     for (const kind of PANEL_EDITOR_KINDS) getPropertyEditor(app, kind)?.cancel();
     getPropertyEditor(app, 'boardDimension')?.dispose();
     endBoardOutlineResize(app, false);
-    finishBoardDimensionPreview(app);
+    finishBoardDimensionPreview(app, false);
 
     // The selection state machine owns every adapter kind and gesture mode;
     // direct pointer paths may exist without a selection-state wrapper.
     cancelPcbPointerGestures(app);
     finishBoardShapeRotationPreview(app);
-    finishPadRotationPreview(app);
+    finishPadRotationPreview(app, false);
     if (peekDrcPresentation(app)?.pending) scheduleDrc(app);
 }

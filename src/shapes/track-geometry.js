@@ -3,7 +3,7 @@ import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from 
 import { pointsFormAxisAlignedRect } from './path-operations.js';
 
 /** @typedef {{x:number,y:number}} Point */
-/** @typedef {{from:string,to:string,bulge?:number,[key:string]:any}} GraphEdge */
+/** @typedef {import('./polyline-graph.js').GraphEdge} GraphEdge */
 /** @typedef {import('./track.js').Track} Track */
 /** @typedef {{edgeId:string,start:Point,end:Point,layer:string,width:number}} TrackSegment */
 

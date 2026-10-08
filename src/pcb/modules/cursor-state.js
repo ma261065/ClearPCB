@@ -1,7 +1,9 @@
 import { resolveTrackSnap } from './track-draw.js';
 import { getVertexDrag } from './track-drag.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x:number,y:number}} Point */
 
+/** @type {WeakMap<PcbEditor, {lastPointerWorld?: Point|null, lastCrosshairWorld?: Point|null}>} */
 const cursorState = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -14,7 +16,10 @@ function stateFor(app) {
     return state;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point|null} worldPos
+ */
 export function setLastPointerWorld(app, worldPos) {
     stateFor(app).lastPointerWorld = worldPos;
 }
@@ -34,6 +39,7 @@ export function getLastCrosshairWorld(app) {
  * Delegates the actual H+V lines to the shared Viewport crosshair so
  * schematic and PCB behave identically (and clear of the rulers).
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateCursorCrosshair(app, worldPos) {
     if (!app.viewport) return;

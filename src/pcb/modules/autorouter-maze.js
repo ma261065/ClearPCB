@@ -13,6 +13,21 @@ import {
 
 /** @typedef {import('./autorouter-common.js').RouteInput} RouteInput */
 /** @typedef {import('./autorouter-common.js').RouteResult} RouteResult */
+/** @typedef {{x: number, y: number, width: number, height: number, layer?: string, shape?: string, alternates?: RouterPad[]}} RouterPad */
+/** @typedef {{net: string, pads: RouterPad[], edges?: Array<[number, number]>}} RouterConnection */
+/** @typedef {import('./autorouter-common.js').RoutePoint} RoutePoint */
+/** @typedef {{path: RoutePoint[], vias: Array<{x: number, y: number}>}} AstarRouteResult */
+/** @typedef {{net: string, points: RoutePoint[], layer: string, vias: Array<{x: number, y: number}>, connId?: string}} RoutedTrack */
+/** @typedef {{tracks: RoutedTrack[], failedCount: number, firstFailedIndex: number}} NetRouteResult */
+/** @typedef {{stepScale: number, weight: number, maxIter: number, stagnationIters: number, maxDetourFactor: number, enabled: boolean, effortTag: string, viaCostScale: number, bendCostScale: number, padDiagCostScale: number, dirPenaltyScale: number, congestionPenaltyScale: number, viaCongestionScale: number}} RouteAttemptProfile */
+/** @typedef {{id: string, attempt1: RouteAttemptProfile, attempt2: RouteAttemptProfile, attempt3: RouteAttemptProfile}} RoutePhaseProfile */
+/** @typedef {Partial<RouteAttemptProfile>} RouteAttemptOverride */
+/** @typedef {{id?: string, attempt1?: RouteAttemptOverride, attempt2?: RouteAttemptOverride, attempt3?: RouteAttemptOverride}} RoutePhaseOverride */
+/** @typedef {{initial?: RoutePhaseOverride, ripup?: Record<number|string, RoutePhaseOverride>, [key: string]: RoutePhaseOverride|Record<number|string, RoutePhaseOverride>|undefined}} RouteProfileOverrides */
+/** @typedef {{successResult?: AstarRouteResult, lastFailVersion?: number|null}} RouteAttemptCacheEntry */
+/** @typedef {{kind: string, net?: string|null, connId?: string|null, obstacleId?: string|null}} NoPathBlocker */
+/** @typedef {{onProgress?: (completed: number, total: number, netName: string, meta?: object) => void, onNetRouted?: (tracks: RoutedTrack[]) => void, onNetFailed?: (connection: RouterConnection) => void, onConnRipped?: (connectionId: string) => void, onTrying?: (fromPad: RouterPad, toPad: RouterPad) => void, onNetPendingChanged?: (netName: string, pendingConnections: number) => void, cancelToken?: {cancelled: boolean}, maxPasses?: number, profileOverrides?: RouteProfileOverrides|null}} RouteAllOptions */
+/** @typedef {SpatialHash & {isSegmentBlocked: (x1: number, y1: number, x2: number, y2: number, clearance: number, skipIds?: Set<string>|null, layer?: string|null, skipNet?: string|null) => boolean, isBlocked: (x: number, y: number, radius: number, skipIds?: Set<string>|null, layer?: string|null, skipNet?: string|null) => boolean}} RoutingObstacles */
 
 // ── Main Router ───────────────────────────────────────────────────
 
@@ -28,16 +43,7 @@ import {
  * 6. Repeat for up to MAX_PASSES
  *
  * @param {RouteInput} input
- * @param {object} [options]
- * @param {function(number, number, string, object=): void} [options.onProgress] - (completed, total, netName, meta)
- * @param {function(Array): void} [options.onNetRouted] - called with track segments after each net is routed
- * @param {function(object): void} [options.onNetFailed] - called with the connection object when a net fails
- * @param {function(object): void} [options.onConnRipped] - called with a connection when rip-up removes it
- * @param {function(object, object): void} [options.onTrying] - called with (fromPad, toPad) before each routing attempt
- * @param {function(string, number): void} [options.onNetPendingChanged] - called with (netName, pendingConnections)
- * @param {{cancelled: boolean}} [options.cancelToken] - set .cancelled = true to abort
- * @param {number} [options.maxPasses=4] - max rip-up passes for routing
- * @param {object|null} [options.profileOverrides=null] - optional per-phase attempt tuning overrides
+ * @param {RouteAllOptions} [options]
  * @returns {Promise<RouteResult>}
  */
 export async function routeAll(input, options = {}) {
@@ -80,6 +86,7 @@ export async function routeAll(input, options = {}) {
         // without incurring the 4ms / 1s throttle that setTimeout(0) is subject to.
         if (typeof MessageChannel === 'function') {
             const channel = new MessageChannel();
+            /** @type {Array<(value?: unknown) => void>} */
             const waiters = [];
             channel.port1.onmessage = () => {
                 const r = waiters.shift();
@@ -100,6 +107,7 @@ export async function routeAll(input, options = {}) {
     // Routing parameters are required — there is no sensible global default
     // for clearance/trackWidth/viaDiameter/gridStep. Callers must supply them
     // (UI provides values from #pcbClearance / #pcbTrackWidth / etc.).
+    /** @param {string} name @param {number} value */
     const requirePositive = (name, value) => {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
             throw new Error(`routeAll: input.${name} must be a positive number, got ${value}`);
@@ -126,6 +134,7 @@ export async function routeAll(input, options = {}) {
     const cellSize = Math.max(gridStep * 4, 2.0);
 
     // Build pad list
+    /** @type {Array<RouterPad & {id: string}>} */
     const allPads = [];
     let padId = 0;
     if (input.allObstaclePads) {
@@ -141,12 +150,14 @@ export async function routeAll(input, options = {}) {
     }
 
     // Build net → pad ID mapping
+    /** @param {string|undefined} a @param {string|undefined} b */
     const layersCompatible = (a, b) => {
         const la = a || 'both';
         const lb = b || 'both';
         return la === 'both' || lb === 'both' || la === lb;
     };
 
+    /** @param {RouterPad} cpad @param {Set<string>} usedIds */
     const findMatchingPad = (cpad, usedIds) => {
         let best = null;
         let bestScore = Infinity;
@@ -166,6 +177,7 @@ export async function routeAll(input, options = {}) {
         return best;
     };
 
+    /** @type {Map<string, string[]>} */
     const netPadIds = new Map();
     // Per-net ordered list of pad-id groups, parallel to conn.pads.
     // Each entry is an Array<string> holding the primary pad id PLUS any
@@ -198,6 +210,7 @@ export async function routeAll(input, options = {}) {
      * Build a skipIds Set containing the source and destination pad IDs (and
      * any of their multi-pad alternates) for a single sub-route.
      */
+    /** @param {string} netName @param {number} fromIdx @param {number} toIdx @returns {Set<string>} */
     const skipIdsForPair = (netName, fromIdx, toIdx) => {
         const list = netPadIdList.get(netName);
         const ids = new Set();
@@ -221,8 +234,9 @@ export async function routeAll(input, options = {}) {
     // (edges[k] = [fromIdx, toIdx]), so the input pad order and the
     // parallel netPadIdList stay in lock-step without any permutation
     // bookkeeping.
+    /** @type {Map<string, RouterConnection>} */
     const connMap = new Map();
-    for (const conn of input.connections) {
+    for (const conn of /** @type {RouterConnection[]} */ (input.connections)) {
         if (conn.pads.length < 2) continue;
         conn.edges = buildMstEdges(conn.pads);
         connMap.set(conn.net, conn);
@@ -250,6 +264,7 @@ export async function routeAll(input, options = {}) {
         return total;
     };
 
+    /** @param {string} netName @param {number} pending */
     const setNetPendingConnections = (netName, pending) => {
         const safe = Math.max(0, pending | 0);
         if (!netPendingConnections.has(netName)) return;
@@ -258,6 +273,7 @@ export async function routeAll(input, options = {}) {
         onNetPendingChanged?.(netName, safe);
     };
 
+    /** @param {number} done @param {number} total @param {string} netName @param {object} [meta] */
     const emitProgress = (done, total, netName, meta = {}) => {
         onProgress?.(done, total, netName, {
             pendingConnections: pendingConnectionsTotal(),
@@ -267,15 +283,19 @@ export async function routeAll(input, options = {}) {
     };
 
     /** Optional route cache reused across rip-up passes. */
+    /** @type {Map<string, RouteAttemptCacheEntry>} */
     const routeAttemptCache = new Map();
     let obstacleVersion = 0;
     /** Map connection ID -> owning net name (scoped to this routeAll run). */
+    /** @type {Map<string, string>} */
     const connIdToNet = new Map();
 
+    /** @param {string} netName @param {number} connectionIndex */
     function makeConnectionId(netName, connectionIndex) {
         return `${netName}:${connectionIndex}`;
     }
 
+    /** @param {string} connId */
     function parseConnectionId(connId) {
         if (typeof connId !== 'string') return null;
         const cut = connId.lastIndexOf(':');
@@ -286,15 +306,18 @@ export async function routeAll(input, options = {}) {
         return { netName, index };
     }
 
+    /** @param {string} connId @param {string} netName */
     function registerConnectionId(connId, netName) {
         if (!connId) return;
         if (!netName) return;
         connIdToNet.set(connId, netName);
     }
 
+    /** @param {string} netName @returns {string[]} */
     function getConnectionIdsForNet(netName) {
         const netConn = connMap.get(netName);
         if (!netConn || !Array.isArray(netConn.pads) || netConn.pads.length < 2) return [];
+        /** @type {string[]} */
         const ids = [];
         for (let i = 0; i < netConn.pads.length - 1; i++) {
             const cid = makeConnectionId(netName, i);
@@ -307,6 +330,7 @@ export async function routeAll(input, options = {}) {
     /**
      * Build a fresh obstacle hash and insert all pads.
      */
+    /** @returns {RoutingObstacles} */
     function buildObstacles() {
         const obs = new SpatialHash(cellSize);
         for (const pad of allPads) {
@@ -317,9 +341,10 @@ export async function routeAll(input, options = {}) {
         // build are not silently considered "still valid" against the
         // new obstacle set.
         obstacleVersion++;
-        return obs;
+        return /** @type {RoutingObstacles} */ (obs);
     }
 
+    /** @param {AstarRouteResult} result @returns {AstarRouteResult} */
     function cloneAstarResult(result) {
         return {
             path: result.path.map(p => ({ x: p.x, y: p.y, layer: p.layer })),
@@ -327,6 +352,7 @@ export async function routeAll(input, options = {}) {
         };
     }
 
+    /** @param {RoutePoint[]} path @param {Set<string>} skipIds @param {string|null} [skipNet] */
     function isCachedPathStillClear(path, skipIds, skipNet = null) {
         // At a layer transition we only need to verify the via copper
         // itself is clear — the arriving/leaving track segments are
@@ -349,6 +375,7 @@ export async function routeAll(input, options = {}) {
         return true;
     }
 
+    /** @param {RoutePoint[]} pathPoints @param {string} layer @param {Set<string>} skipIds @param {string|null} [skipNet] */
     function arePathSegmentsClear(pathPoints, layer, skipIds, skipNet = null) {
         if (!Array.isArray(pathPoints) || pathPoints.length < 2) return false;
         for (let i = 1; i < pathPoints.length; i++) {
@@ -360,6 +387,7 @@ export async function routeAll(input, options = {}) {
         return true;
     }
 
+    /** @param {RouterPad} from @param {RouterPad} to @param {string} startLayer @param {string} endLayer @param {number} step @param {number} weight @param {string} [effortTag] @param {string} [costSig] @param {string} [skipSig] */
     function makeAttemptKey(from, to, startLayer, endLayer, step, weight, effortTag = '', costSig = '', skipSig = '') {
         return [
             from.x.toFixed(3), from.y.toFixed(3), from.layer || 'both',
@@ -373,6 +401,7 @@ export async function routeAll(input, options = {}) {
         ].join('|');
     }
 
+    /** @type {RoutePhaseProfile} */
     const DEFAULT_PHASE_PROFILE = {
         id: 'initial',
         attempt1: { stepScale: 1.0, weight: 1.4, maxIter: 100000, stagnationIters: 25000, maxDetourFactor: 2.0, enabled: true, effortTag: 'i-a1', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
@@ -380,6 +409,7 @@ export async function routeAll(input, options = {}) {
         attempt3: { stepScale: 0.25, weight: 1.0, maxIter: 600000, stagnationIters: 120000, maxDetourFactor: 5.0, enabled: true, effortTag: 'i-a3', viaCostScale: 1.0, bendCostScale: 1.0, padDiagCostScale: 1.0, dirPenaltyScale: 1.0, congestionPenaltyScale: 1.0, viaCongestionScale: 1.0 },
     };
 
+    /** @type {Record<number, RoutePhaseProfile>} */
     const RIPUP_PHASE_PROFILES = {
         1: {
             id: 'ripup-1',
@@ -407,25 +437,29 @@ export async function routeAll(input, options = {}) {
         },
     };
 
+    /** @param {RouteAttemptProfile} base @param {RouteAttemptOverride|null} [override] @returns {RouteAttemptProfile} */
     const mergeAttempt = (base, override = null) => {
         if (!override) return { ...base };
+        /** @param {number|undefined} value @param {number} fallback */
+        const finite = (value, fallback) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
         return {
-            stepScale: Number.isFinite(override.stepScale) ? override.stepScale : base.stepScale,
-            weight: Number.isFinite(override.weight) ? override.weight : base.weight,
-            maxIter: Number.isFinite(override.maxIter) ? override.maxIter : base.maxIter,
-            stagnationIters: Number.isFinite(override.stagnationIters) ? override.stagnationIters : base.stagnationIters,
-            maxDetourFactor: Number.isFinite(override.maxDetourFactor) ? override.maxDetourFactor : base.maxDetourFactor,
-            viaCostScale: Number.isFinite(override.viaCostScale) ? override.viaCostScale : base.viaCostScale,
-            bendCostScale: Number.isFinite(override.bendCostScale) ? override.bendCostScale : base.bendCostScale,
-            padDiagCostScale: Number.isFinite(override.padDiagCostScale) ? override.padDiagCostScale : base.padDiagCostScale,
-            dirPenaltyScale: Number.isFinite(override.dirPenaltyScale) ? override.dirPenaltyScale : base.dirPenaltyScale,
-            congestionPenaltyScale: Number.isFinite(override.congestionPenaltyScale) ? override.congestionPenaltyScale : base.congestionPenaltyScale,
-            viaCongestionScale: Number.isFinite(override.viaCongestionScale) ? override.viaCongestionScale : base.viaCongestionScale,
+            stepScale: finite(override.stepScale, base.stepScale),
+            weight: finite(override.weight, base.weight),
+            maxIter: finite(override.maxIter, base.maxIter),
+            stagnationIters: finite(override.stagnationIters, base.stagnationIters),
+            maxDetourFactor: finite(override.maxDetourFactor, base.maxDetourFactor),
+            viaCostScale: finite(override.viaCostScale, base.viaCostScale),
+            bendCostScale: finite(override.bendCostScale, base.bendCostScale),
+            padDiagCostScale: finite(override.padDiagCostScale, base.padDiagCostScale),
+            dirPenaltyScale: finite(override.dirPenaltyScale, base.dirPenaltyScale),
+            congestionPenaltyScale: finite(override.congestionPenaltyScale, base.congestionPenaltyScale),
+            viaCongestionScale: finite(override.viaCongestionScale, base.viaCongestionScale),
             enabled: typeof override.enabled === 'boolean' ? override.enabled : base.enabled,
             effortTag: override.effortTag || base.effortTag,
         };
     };
 
+    /** @param {RoutePhaseProfile} base @param {RoutePhaseOverride|null} [override] @returns {RoutePhaseProfile} */
     const mergeProfile = (base, override = null) => {
         if (!override) {
             return {
@@ -444,12 +478,14 @@ export async function routeAll(input, options = {}) {
     };
 
     const tunedInitialProfile = mergeProfile(DEFAULT_PHASE_PROFILE, profileOverrides?.initial || null);
+    /** @param {number} pass @returns {RoutePhaseProfile} */
     const getRipupProfile = (pass) => {
         const base = RIPUP_PHASE_PROFILES[pass] || RIPUP_PHASE_PROFILES[4];
         const override = profileOverrides?.ripup?.[pass] || profileOverrides?.[`ripup${pass}`] || null;
         return mergeProfile(base, override);
     };
 
+    /** @param {string} key @param {Set<string>} skipIds @param {string|null} [skipNet] @returns {AstarRouteResult|null|undefined} */
     function getCachedAttemptResult(key, skipIds, skipNet = null) {
         const entry = routeAttemptCache.get(key);
         if (!entry) return undefined;
@@ -460,7 +496,9 @@ export async function routeAll(input, options = {}) {
         return undefined;
     }
 
+    /** @param {string} key @param {AstarRouteResult|null} result */
     function setCachedAttemptResult(key, result) {
+        /** @type {RouteAttemptCacheEntry} */
         const entry = routeAttemptCache.get(key) || {};
         if (result) {
             entry.successResult = cloneAstarResult(result);
@@ -475,7 +513,16 @@ export async function routeAll(input, options = {}) {
      * Route a single net. Returns {tracks, failedCount}.
      * Bails on first failed connection (ghost tracks remain as reservations).
      */
+    /**
+     * @param {RouterConnection} conn
+     * @param {RoutingObstacles} obstacles
+     * @param {Set<string>} skipIds
+     * @param {RoutePhaseProfile} [phaseProfile]
+     * @param {number} [connIndexBase]
+     * @returns {Promise<NetRouteResult>}
+     */
     async function routeNet(conn, obstacles, skipIds, phaseProfile = DEFAULT_PHASE_PROFILE, connIndexBase = 0) {
+        /** @type {RoutedTrack[]} */
         const tracks = [];
         const totalConns = Math.max(0, conn.pads.length - 1);
         const a1 = phaseProfile.attempt1 || DEFAULT_PHASE_PROFILE.attempt1;
@@ -677,9 +724,9 @@ export async function routeAll(input, options = {}) {
             }
 
             if (result) {
-                const rawSimplified = simplifyPath(result.path, obstacles, skipIds, totalClear, conn.net);
+                const rawSimplified = (/** @type {(path: RoutePoint[], obstacles: RoutingObstacles, skipIds: Set<string>, clearance: number, skipNet: string|null) => RoutePoint[]} */ (/** @type {unknown} */ (simplifyPath)))(result.path, obstacles, skipIds, totalClear, conn.net);
                 const fixed = fixAngles(rawSimplified);
-                const simplified = fixAngles(optimizePath(fixed, obstacles, skipIds, totalClear, conn.net));
+                const simplified = fixAngles((/** @type {(path: RoutePoint[], obstacles: RoutingObstacles, skipIds: Set<string>, clearance: number, skipNet: string|null) => RoutePoint[]} */ (/** @type {unknown} */ (optimizePath)))(fixed, obstacles, skipIds, totalClear, conn.net));
                 // Detect vias directly from the simplified path — wherever
                 // the layer changes between consecutive points, place a via
                 const detectedVias = [];
@@ -693,9 +740,11 @@ export async function routeAll(input, options = {}) {
                 // EVERY run before inserting anything. If any run would create
                 // a foreign-clearance violation, treat the entire connection
                 // as failed (atomic: no partial track insertion).
+                /** @type {Array<{cleanPts: RoutePoint[], layer: string}>} */
                 const runs = [];
                 {
                     let runStart = 0;
+                    /** @param {number} runEnd */
                     const collectRun = (runEnd) => {
                         const segPts = simplified.slice(runStart, runEnd + 1);
                         const layer = simplified[runStart].layer || 'top';
@@ -777,6 +826,7 @@ export async function routeAll(input, options = {}) {
 
     const baseObstacles = buildObstacles();
 
+    /** @param {RouterConnection} conn */
     function netDifficultyScore(conn) {
         const manhattan = netManhattan(conn);
         const pads = conn.pads || [];
@@ -801,11 +851,12 @@ export async function routeAll(input, options = {}) {
     const sorted = scoredNets.map(item => item.conn);
 
     let obstacles = buildObstacles();
-    /** @type {Map<string, Array>} net → tracks */
+    /** @type {Map<string, RoutedTrack[]>} net → tracks */
     const routedTracks = new Map();
     /** @type {Array<string>} failed connection IDs (e.g. "Net0005:0") */
     const failedConnIds = [];
     /** Negotiated congestion state — accessed by routeNet closure */
+    /** @type {CongestionGrid|null} */
     let activeCongestionGrid = null;
     let activeHistoryWeight = 0;
     let ripupProbeMissCount = 0;
@@ -822,6 +873,7 @@ export async function routeAll(input, options = {}) {
     /** @type {Map<string, Map<string, {count: number, kind: string, net: string|null, connId: string|null, obstacleId: string|null}>>} */
     const connectionOnlyNoPathBlockerByConnId = new Map();
 
+    /** @param {string} failedConnId @param {NoPathBlocker|null|undefined} blocker */
     const recordNoPathBlocker = (failedConnId, blocker) => {
         const b = blocker || { kind: 'unknown', net: null, connId: null, obstacleId: null };
         const sig = `${b.kind}|${b.net || ''}|${b.connId || ''}|${b.obstacleId || ''}`;
@@ -844,6 +896,7 @@ export async function routeAll(input, options = {}) {
         }
     };
 
+    /** @param {Set<string>} targetSet @param {Iterable<string>} connIds */
     const addBlockingConnIds = (targetSet, connIds) => {
         let added = 0;
         for (const cid of connIds) {
@@ -855,13 +908,14 @@ export async function routeAll(input, options = {}) {
         return added;
     };
 
+    /** @param {RoutedTrack[]} netTracks @returns {RoutedTrack[]} */
     const cloneNetTracks = (netTracks) => netTracks.map(t => ({
         ...t,
         points: (t.points || []).map(p => ({ x: p.x, y: p.y, layer: p.layer })),
         vias: (t.vias || []).map(v => ({ x: v.x, y: v.y })),
     }));
 
-    /** @type {Map<string, Array>} best net → tracks snapshot */
+    /** @type {Map<string, RoutedTrack[]>} best net → tracks snapshot */
     let bestRoutedTracks = new Map();
     let bestRoutedConnCount = 0;
 
@@ -886,6 +940,7 @@ export async function routeAll(input, options = {}) {
     // ── Pass 1: Initial routing (per-connection, hardest first) ──
     // Flatten all nets into individual sub-connections (one per MST edge)
     // and score each one.
+    /** @type {Array<{conn: RouterConnection, connIdx: number, fromIdx: number, toIdx: number, from: RouterPad, to: RouterPad, score: number}>} */
     const allConnections = [];
     /** @type {Map<string, {net: string, from: {x:number,y:number}, to: {x:number,y:number}}>} */
     const connIdToPads = new Map();
@@ -988,9 +1043,12 @@ export async function routeAll(input, options = {}) {
             pendingConnections: pendingConnectionsTotal(),
         });
         await yieldToUI();
+        /** @type {string[]} */
         const stillFailed = [];
         // Parallel Set tracks membership in O(1); preserves insertion order via the array.
+        /** @type {Set<string>} */
         const stillFailedSet = new Set();
+        /** @param {string} cid */
         const addStillFailed = (cid) => {
             if (!stillFailedSet.has(cid)) {
                 stillFailedSet.add(cid);
@@ -1189,10 +1247,14 @@ export async function routeAll(input, options = {}) {
 
     // ── Collect results ──────────────────────────────────────────
 
+    /** @type {RouteResult['tracks']} */
     const allTracks = [];
+    /** @type {NonNullable<RouteResult['vias']>} */
     const allVias = [];
     // Pick the state with more routed connections: best snapshot or live state
+    /** @param {Map<string, RoutedTrack[]>} trackMap */
     const countConnIds = (trackMap) => {
+        /** @type {Set<string>} */
         const ids = new Set();
         for (const [, tracks] of trackMap) {
             for (const t of tracks) { if (t.connId) ids.add(t.connId); }
@@ -1227,6 +1289,7 @@ export async function routeAll(input, options = {}) {
     for (const [, netTracks] of finalRouted) {
         for (const t of netTracks) { if (t.connId) routedConnIds.add(t.connId); }
     }
+    /** @type {NonNullable<RouteResult['failedConnections']>} */
     const failedConnections = [];
     for (const [cid, pads] of connIdToPads) {
         if (!routedConnIds.has(cid)) {
@@ -1308,8 +1371,11 @@ export async function routeAll(input, options = {}) {
  * [[0,1], [1,2], …, [n-2, n-1]]. Used as a fallback when conn.edges is
  * absent (e.g. miniConn produced for routeNet) and to give 2-pad nets a
  * canonical single-edge representation.
+ * @param {number} n
+ * @returns {Array<[number, number]>}
  */
 function defaultChainEdges(n) {
+    /** @type {Array<[number, number]>} */
     const out = [];
     for (let i = 0; i < n - 1; i++) out.push([i, i + 1]);
     return out;
@@ -1329,6 +1395,8 @@ function defaultChainEdges(n) {
  * Edges are emitted in Prim's discovery order, starting from pad 0. For
  * 2-pad nets this returns [[0, 1]] — identical to the legacy chain
  * behaviour, so single-pair nets are byte-for-byte unchanged.
+ * @param {RouterPad[]} pads
+ * @returns {Array<[number, number]>}
  */
 function buildMstEdges(pads) {
     const n = pads.length;
@@ -1345,6 +1413,7 @@ function buildMstEdges(pads) {
         bestSrc[v] = 0;
         bestDist[v] = (v === 0) ? 0 : Math.hypot(pads[v].x - pads[0].x, pads[v].y - pads[0].y);
     }
+    /** @type {Array<[number, number]>} */
     const edges = [];
     for (let added = 1; added < n; added++) {
         // Pick the non-tree node with the smallest bestDist.
@@ -1370,6 +1439,8 @@ function buildMstEdges(pads) {
 /**
  * Manhattan distance for the shortest edge in a net. Uses conn.edges
  * when present (MST), else falls back to the implicit chain ordering.
+ * @param {RouterConnection} conn
+ * @returns {number}
  */
 function netManhattan(conn) {
     if (conn.pads.length < 2) return Infinity;
@@ -1385,6 +1456,9 @@ function netManhattan(conn) {
 
 /**
  * Maze (A* + rip-up) autorouter entrypoint.
+ * @param {RouteInput} input
+ * @param {RouteAllOptions} [options]
+ * @returns {Promise<RouteResult>}
  */
 export async function routeWithMazeRouter(input, options = {}) {
     return routeAll(input, options);

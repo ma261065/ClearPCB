@@ -5,7 +5,12 @@ export const VIEWER_BACKGROUND = Object.freeze({
     edge: '#01040c',
 });
 
-/** Paint the viewer backdrop into a Canvas2D drawing buffer. */
+/**
+ * Paint the viewer backdrop into a Canvas2D drawing buffer.
+ * @param {CanvasRenderingContext2D} context
+ * @param {number} width
+ * @param {number} height
+ */
 export function paintViewerBackground(context, width, height) {
     const centerX = width / 2;
     const centerY = height / 2;
@@ -18,12 +23,16 @@ export function paintViewerBackground(context, width, height) {
     context.fillRect(0, 0, width, height);
 }
 
-/** Build a texture suitable for a Three.js scene background. */
+/**
+ * Build a texture suitable for a Three.js scene background.
+ * @param {{CanvasTexture: new (canvas: HTMLCanvasElement) => {colorSpace: unknown, dispose?: () => void}, SRGBColorSpace: unknown}} THREE
+ * @param {Document} [documentRef]
+ */
 export function createViewerBackgroundTexture(THREE, documentRef = document) {
     const canvas = documentRef.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
-    const context = canvas.getContext('2d');
+    const context = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
     paintViewerBackground(context, canvas.width, canvas.height);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;

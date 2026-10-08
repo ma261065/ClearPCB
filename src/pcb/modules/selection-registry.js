@@ -11,12 +11,26 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFoc
 // group-drag preview from the import-free store rather than importing box-select.
 import { getPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {any} SelectionShape */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{kind?: string, object?: any}} PcbSelectionValue */
+/** @typedef {{id?: string|number, key?: string|number, x: number, y: number, sizePx?: number, symbol?: string, round?: boolean, hidden?: boolean, selected?: boolean, fill?: string, stroke?: string, strokeWidthPx?: number, cursor?: string}} SelectionAnchor */
+/** @typedef {{id?: string, kind: string, object?: any, visible?: boolean, locked?: boolean, beginMove?: (worldPos: Point, options?: object) => boolean|void, updateMove?: (worldPos: Point) => void, endMove?: (commit: boolean, options?: object) => void, getBounds?: () => any, getHitBounds?: () => any, hitTest?: (point: Point, tolerance: number) => boolean, getPosition?: () => Point, getAnchors?: () => SelectionAnchor[], getEditPath?: () => string|null|undefined, getLockPosition?: (point: Point, scale: number) => Point|null|undefined, invalidate?: () => void, render?: () => void, beginAnchorDrag?: (anchorId: string|number|undefined, worldPos: Point, options?: object) => boolean|void, updateAnchorDrag?: (worldPos: Point) => void, endAnchorDrag?: (commit: boolean, options?: object) => void, getSelectedSegment?: () => unknown, [key: string]: any}} SelectionAdapter */
+/** @typedef {SelectionAdapter} PcbSelectionEntry */
+/** @typedef {(app: PcbEditor, point: Point, all?: boolean) => any} PlacementHitReader */
+/** @typedef {(app: PcbEditor, original: any, id: string) => SelectionShape} AdapterFactory */
 
+/** @param {string|undefined} kind @param {any} object */
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
+/** @type {Map<string, AdapterFactory>} */
 const adapterFactories = new Map();
+/** @type {Map<string, PlacementHitReader>} */
 const placementHitReaders = new Map();
+/** @type {WeakMap<PcbEditor, {x: number, y: number, results: Map<string, any>}>} */
 const hitQueries = new WeakMap();
+/** @type {WeakMap<PcbEditor, SelectionManager>} */
 const selectionManagers = new WeakMap();
+/** @type {((app: PcbEditor, componentId: string|null) => void)|null} */
 let referenceOverlayRefresher = null;
 /** @type {Set<string|symbol>} */
 const groupGeometryMembers = new Set([
@@ -24,13 +38,19 @@ const groupGeometryMembers = new Set([
     'getLockPosition', 'invalidate', 'render',
 ]);
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ * @param {string} method
+ * @param {PlacementHitReader|undefined} readHit
+ * @param {boolean} [all]
+ */
 function placementSelectionHit(app, point, method, readHit, all = false) {
     const query = hitQueries.get(app);
     const read = () => {
         const hit = readHit
             ? readHit(app, point, all)
-            : app[method]?.(point, all);
+            : /** @type {PcbEditor & Record<string, (point: Point, all?: boolean) => any>} */ (app)[method]?.(point, all);
         return all ? new Set(hit || []) : hit ?? null;
     };
     const key = `${method}:${all}`;
@@ -39,25 +59,27 @@ function placementSelectionHit(app, point, method, readHit, all = false) {
     return query.results.get(key);
 }
 
+/** @param {string} kind @param {PlacementHitReader} readHit */
 export function registerPcbPlacementHitTest(kind, readHit) {
     placementHitReaders.set(kind, readHit);
 }
 
+/** @param {(app: PcbEditor, componentId: string|null) => void} refresh */
 export function registerPcbReferenceOverlayRefresh(refresh) {
     referenceOverlayRefresher = refresh;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} point */
 export function getComponentSelectionHits(app, point) {
     return placementSelectionHit(app, point, 'component', placementHitReaders.get('component'), true);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} point */
 export function getRefTextSelectionHit(app, point) {
     return placementSelectionHit(app, point, '_hitTestRefText', placementHitReaders.get('reftext'));
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} point */
 function querySelectionHits(app, point) {
     const previous = hitQueries.get(app);
     hitQueries.set(app, { x: point.x, y: point.y, results: new Map() });
@@ -71,6 +93,7 @@ function querySelectionHits(app, point) {
 }
 
 /** Register a factory implementing the SelectionManager shape contract. */
+/** @param {string} kind @param {AdapterFactory} factory */
 export function registerPcbSelectionAdapter(kind, factory) {
     adapterFactories.set(kind, factory);
     adapterCaches = new WeakMap();
@@ -79,9 +102,10 @@ export function registerPcbSelectionAdapter(kind, factory) {
 // Adapters read live model state lazily, so one per model object is reused across
 // syncs instead of rebuilding every adapter on each hover/hit query. Objects are
 // keyed weakly; component/reference IDs are pruned when their placement goes.
+/** @type {WeakMap<PcbEditor, Map<string, any>>} */
 let adapterCaches = new WeakMap();
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} kind @param {any} object */
 function adapter(app, kind, object) {
     let caches = adapterCaches.get(app);
     if (!caches) adapterCaches.set(app, caches = new Map());
@@ -95,8 +119,8 @@ function adapter(app, kind, object) {
 /** @param {PcbEditor} app */
 function pruneIdAdapters(app) {
     for (const kind of ['component', 'reftext']) {
-        const cache = adapterCaches.get(app)?.get(kind);
-        if (cache?.size > (app.placements?.size || 0)) {
+        const cache = /** @type {Map<string, SelectionShape>|undefined} */ (adapterCaches.get(app)?.get(kind));
+        if (cache && cache.size > (app.placements?.size || 0)) {
             for (const id of cache.keys()) if (!app.placements?.has(id)) cache.delete(id);
         }
     }
@@ -139,14 +163,17 @@ export function getPcbSelectionManager(app) {
     return manager(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} kind @param {any} object */
 function createAdapter(app, kind, object) {
     const factory = adapterFactories.get(kind);
     if (factory) {
         const original = getPcbInteraction(app, '_groupDrag')?.preview?.originals.get(object) || object;
         const base = factory(app, original, keyFor(kind, original));
         if (!['track', 'via', 'pad', 'shape', 'fill'].includes(kind)) return base;
-        let displayed, projected;
+        /** @type {any} */
+        let displayed;
+        /** @type {SelectionShape|null} */
+        let projected = null;
         // Geometry follows the group copy; gesture methods keep canonical command targets.
         return new Proxy(base, {
             get(target, member, receiver) {
@@ -156,7 +183,7 @@ function createAdapter(app, kind, object) {
                     displayed = copy;
                     projected = factory(app, copy, base.id);
                 }
-                const value = projected[member];
+                const value = /** @type {Record<PropertyKey, any>} */ (projected)[member];
                 return typeof value === 'function' ? value.bind(projected) : value;
             },
         });
@@ -174,6 +201,7 @@ function createAdapter(app, kind, object) {
 
 /** @param {PcbEditor} app */
 function entries(app) {
+    /** @type {SelectionShape[]} */
     const out = [];
     for (const [id] of app.placements || []) out.push(adapter(app, 'component', id));
     for (const track of app.tracks || []) out.push(adapter(app, 'track', track));
@@ -213,13 +241,13 @@ export function syncPcbSelection(app) {
     selection._selectionCache = null;
 }
 
-/** @param {PcbEditor} app */
-export function setPcbSelection(app, values) {
+/** @param {PcbEditor} app @param {PcbSelectionValue[]} [values] */
+export function setPcbSelection(app, values = []) {
     syncPcbSelection(app);
     manager(app).selectMultiple(values.map(({ kind, object }) => keyFor(kind, object)));
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} kind @param {any} object */
 export function togglePcbSelection(app, kind, object) {
     syncPcbSelection(app);
     manager(app).toggle(keyFor(kind, object));
@@ -245,6 +273,7 @@ export function resetPcbSelection(app) {
 /**
  * @param {PcbEditor} app
  * @param {string|null} [kind]
+ * @returns {any[]}
  */
 export function getPcbSelection(app, kind = null) {
     return manager(app).getSelection()
@@ -255,6 +284,7 @@ export function getPcbSelection(app, kind = null) {
 /**
  * Return selected adapters when the caller needs both kind and object.
  * @param {PcbEditor} app
+ * @returns {any[]}
  */
 export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
@@ -269,26 +299,29 @@ export function refreshPcbReferenceOverlay(app) {
 /** Hit test an adapter kind through the shared selection ordering rules. */
 /**
  * @param {PcbEditor} app
+ * @param {Point} point
  * @param {string|null} [kind]
  */
 export function hitTestPcbSelection(app, point, kind = null) {
     syncPcbSelection(app);
-    const hits = querySelectionHits(app, point);
+    const hits = /** @type {SelectionShape[]} */ (querySelectionHits(app, point));
     const hit = kind ? hits.find((item) => item.kind === kind) : hits[0];
     return hit?.object || null;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} point @param {Iterable<string>|null} [kinds] @param {{sync?: boolean}} [options] @returns {any[]} */
 export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
     if (sync) syncPcbSelection(app);
     const allowed = kinds ? new Set(kinds) : null;
-    const hits = querySelectionHits(app, point).filter((item) => !allowed || allowed.has(item.kind));
+    const hits = /** @type {SelectionShape[]} */ (querySelectionHits(app, point)).filter((item) => !allowed || allowed.has(String(item.kind)));
+    /** @type {Record<string, number>} */
     const priority = { pad: 0, via: 1, track: 2, text: 3, reftext: 4 };
-    const rank = item => item.kind === 'shape' && item.object.layer === 'hole' ? -1 : (priority[item.kind] ?? 4);
+    /** @param {SelectionShape} item */
+    const rank = item => item.kind === 'shape' && item.object.layer === 'hole' ? -1 : (priority[String(item.kind)] ?? 4);
     return hits.sort((first, second) => rank(first) - rank(second));
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} point @param {Iterable<string>|null} kinds */
 export function hitTestPcbSelectionEntry(app, point, kinds) {
     return getPcbSelectionHits(app, point, kinds)[0] || null;
 }
@@ -296,6 +329,8 @@ export function hitTestPcbSelectionEntry(app, point, kinds) {
 /**
  * Hit bounds for a selected path: its visual bounds plus its nodes, because the
  * unrounded edges of a selected path stay hittable outside large corner radii.
+ * @param {{minX: number, minY: number, maxX: number, maxY: number}|null} bounds
+ * @param {Point[]|null|undefined} points
  */
 export function boundsWithPathNodes(bounds, points) {
     if (!bounds || !points?.length) return bounds;
@@ -314,7 +349,7 @@ export function hasPcbSelection(app) {
     return manager(app).count > 0;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} kind @param {any} object */
 export function isPcbSelected(app, kind, object) {
     return !!object && manager(app).isSelected(keyFor(kind, object));
 }

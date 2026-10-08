@@ -14,6 +14,12 @@ import { padMesh } from './board3d-parts.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 import { buildCopperMesh, collectCopperSubtractHoles, collectMaskOpeningHoles, buildMaskFaceMesh, buildFillMesh, buildViaMesh, buildPlatedShapeHoleMesh, standalonePadMesh, standalonePadEdgeMesh, boardCutoutEdgeRings, collectBoardHoles, buildMaskOpeningMesh, buildSilkMesh, buildTextMesh } from './board3d-layers.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./board3d-mesh-ops.js').XzPoint} XzPoint */
+/** @typedef {{x: number, z: number, r: number, ring?: XzPoint[], plated?: boolean, boardShape?: boolean}} BoardHole */
+/** @typedef {import('./board3d-surface-transfer.js').SurfacePart & {holes?: BoardHole[]}} SurfacePart */
+/** @typedef {import('./board3d-surface-transfer.js').SurfaceInput & {parts: SurfacePart[], outline?: XzPoint[]}} SurfaceInput */
+/** @typedef {{position: Float32Array|number[], normal: Float32Array|number[], color: Float32Array|number[]}} SurfaceBuffer */
 
 /**
  * Board outline and drilled holes shared by every 3D surface: pad drills,
@@ -21,6 +27,7 @@ import { buildCopperMesh, collectCopperSubtractHoles, collectMaskOpeningHoles, b
  * inside the board are punched as holes (`boardHoles`); bores breaching the
  * edge notch the outline (`crossingRings`); bores wholly outside are ignored.
  * @param {PcbEditor} app
+ * @returns {{boundary: ReturnType<typeof boardBoundary>, outline: XzPoint[], drilledHoles: BoardHole[], boardHoles: BoardHole[], crossingRings: XzPoint[][]}}
  */
 export function boardSurfaceFrame(app) {
     const dimensions = boardDimensions(app);
@@ -28,13 +35,13 @@ export function boardSurfaceFrame(app) {
     const h = dimensions.height || 80;
     const r = dimensions.radius || 0;
     // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
-    const boundary = boardBoundary(app);
+    const boundary = /** @type {ReturnType<typeof boardBoundary> & {points?: Point[], x: number, y: number, w: number, h: number}} */ (boardBoundary(app));
     const outline = boundary.points
-        ? boundary.points.map(point => ({ x: point.x, z: point.y }))
+        ? (/** @type {Point[]} */ (boundary.points)).map(point => ({ x: point.x, z: point.y }))
         : roundedRectOutline(0, -h, w, h, r);
     // Bore drilled holes (pad drills + mounting holes) clean through the
     // slab so they read as real openings; only holes wholly inside the board.
-    let drilledHoles = collectBoardHoles(app.placements, app.pads).filter((ho) => ho.r > 0);
+    let drilledHoles = (/** @type {BoardHole[]} */ (collectBoardHoles(app.placements, app.pads))).filter((ho) => ho.r > 0);
     // Free-standing circles on HOLE layer are real board cutouts.
     // Free-standing board shapes (rect/polygon/arc/circle) on HOLE layer are real
     // board cutouts too — carry an explicit polygon ring plus a bounding
@@ -52,7 +59,7 @@ export function boardSurfaceFrame(app) {
             });
             continue;
         }
-        const outlinePts = geometry.path;
+        const outlinePts = /** @type {Point[]} */ (geometry.path);
         if (!outlinePts || outlinePts.length < 2) continue;
         if (!geometry.filled) {
             const segments = geometry.strokeSegments?.length
@@ -74,7 +81,7 @@ export function boardSurfaceFrame(app) {
             }
             continue;
         }
-        for (const outline of boardShapeFilledRemovalOutlines(s)) {
+        for (const outline of /** @type {Point[][]} */ (boardShapeFilledRemovalOutlines(s))) {
             if (outline.length < 3) continue;
             const ring = outline.map((point) => ({ x: point.x, z: point.y }));
             let cx = 0, cz = 0;
@@ -100,13 +107,15 @@ export function boardSurfaceFrame(app) {
     // ones that breach the board edge are subtracted from the outline with
     // a polygon boolean so the slab is genuinely notched. Bores wholly
     // outside the board are ignored.
+    /** @type {BoardHole[]} */
     const boardHoles = [];
+    /** @type {XzPoint[][]} */
     const crossingRings = [];
     for (const ho of drilledHoles) {
         const center = { x: ho.x, y: ho.z };
         const inside = boundary.points
-            ? pointInPolygon(center, boundary.points) && boundary.points.every((point, index) =>
-                distanceToSegment(center, point, boundary.points[(index + 1) % boundary.points.length]) > ho.r)
+            ? pointInPolygon(center, boundary.points) && (/** @type {Point[]} */ (boundary.points)).every((point, index) =>
+                distanceToSegment(center, point, (/** @type {Point[]} */ (boundary.points))[(index + 1) % (/** @type {Point[]} */ (boundary.points)).length]) > ho.r)
             : ho.x - ho.r > 0 && ho.x + ho.r < w && ho.z - ho.r > -h && ho.z + ho.r < 0;
         if (inside) { boardHoles.push(ho); continue; }
         const outside = ho.x + ho.r <= boundary.x || ho.x - ho.r >= boundary.x + boundary.w ||
@@ -130,14 +139,17 @@ export function boardSurfaceFrame(app) {
  * Per-layer worker inputs for the 3D board surfaces (meshes plus the holes to
  * punch through each), built from the editor model and a surface frame.
  * @param {PcbEditor} app
- * @param {{ outline: any[], drilledHoles: any[], boardHoles: any[], crossingRings: any[] }} frame
- * @param {(boardShapes: any[]) => any} silkArtworkMesh Per-viewer cache from createSilkArtworkMeshCache().
+ * @param {{ outline: XzPoint[], drilledHoles: BoardHole[], boardHoles: BoardHole[], crossingRings: XzPoint[][] }} frame
+ * @param {(boardShapes: object[]) => ReturnType<typeof emptyMesh>} silkArtworkMesh Per-viewer cache from createSilkArtworkMeshCache().
+ * @returns {Record<string, SurfaceInput>}
  */
 export function buildBoardSurfaceInputs(app, { outline, drilledHoles, boardHoles, crossingRings }, silkArtworkMesh) {
+    /** @type {Record<string, SurfaceInput>} */
     const surfaces = {
         board: { parts: [{ mesh: boardSlabWithCutouts(outline, boardHoles, crossingRings,
             0, BOARD_THICKNESS, COLOR_RAW_BOARD, COLOR_RAW_BOARD) }] },
     };
+    /** @param {string} key @param {SurfacePart[]} parts */
     const addSurface = (key, parts) => { surfaces[key] = { parts, outline }; };
     if (SHOW_SOLDERMASK) {
         // Solder-mask openings are raw-board cutouts drawn beneath copper, so
@@ -149,7 +161,7 @@ export function buildBoardSurfaceInputs(app, { outline, drilledHoles, boardHoles
     // Copper remove circles are also treated as geometric subtractions.
     // Copper pours sit on the same plane as tracks, so combine both into
     // the one copper surface before boring/clipping.
-    const circleShapes = (app.boardShapes || []).filter((shape) => shape?.kind === 'circle');
+    const circleShapes = (/** @type {Array<{kind?: string}>} */ (app.boardShapes || [])).filter((shape) => shape?.kind === 'circle');
     const copperSubtractHoles = collectCopperSubtractHoles(app.boardShapes || []);
     const copperPunchHoles = drilledHoles.concat(copperSubtractHoles);
     const platedMeshHoles = platedSurfaceRemovalHoles(drilledHoles, copperSubtractHoles);
@@ -177,11 +189,11 @@ export function buildBoardSurfaceInputs(app, { outline, drilledHoles, boardHoles
     if (SHOW_SOLDERMASK) {
         addSurface('maskCoatTop', [
             { mesh: buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false),
-                holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'top', app.placements, app.pads)) },
+                holes: drilledHoles.concat(/** @type {BoardHole[]} */ (collectMaskOpeningHoles(app.boardShapes || [], 'top', app.placements, app.pads))) },
         ]);
         addSurface('maskCoatBottom', [
             { mesh: buildMaskFaceMesh(outline, Y_BOT - COPPER_EPS, true),
-                holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'bottom', app.placements, app.pads)) },
+                holes: drilledHoles.concat(/** @type {BoardHole[]} */ (collectMaskOpeningHoles(app.boardShapes || [], 'bottom', app.placements, app.pads))) },
         ]);
     }
     // Document-layer circles expose raw board material above mask/copper.
@@ -225,10 +237,13 @@ export function publishBoardSurfaces(swap, keys, result, materials) {
     for (const key of keys) swap(key, result[key], materials[key]);
 }
 
-/** Upload one surface's finished worker buffers as a Three.js geometry. */
+/**
+ * Upload one surface's finished worker buffers as a Three.js geometry.
+ * @param {SurfaceBuffer} data
+ */
 export function surfaceBufferGeometry(data) {
     const geometry = new THREE.BufferGeometry();
-    for (const key of ['position', 'normal', 'color']) {
+    for (const key of /** @type {Array<keyof SurfaceBuffer>} */ (['position', 'normal', 'color'])) {
         geometry.setAttribute(key, new THREE.Float32BufferAttribute(data[key], 3));
     }
     return geometry;
@@ -294,8 +309,11 @@ export function createBoard3DSyncScheduler({ app, panel, viewSync, surfaceBuilde
         },
     };
 }
-
-
+/**
+ * @param {BoardHole[]} drilledHoles
+ * @param {BoardHole[]} copperSubtractHoles
+ * @returns {BoardHole[]}
+ */
 export function platedSurfaceRemovalHoles(drilledHoles, copperSubtractHoles) {
     return drilledHoles.filter(hole => hole.boardShape).concat(copperSubtractHoles);
 }

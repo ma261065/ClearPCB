@@ -6,6 +6,13 @@
 import earcut from '../../../assets/vendor/earcut.module.js';
 import { isClipperReady, getClipper } from './copper-fill-geom.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
+/** @typedef {import('../../shared/3d/model-rendering.js').ModelMesh} ModelMesh */
+/** @typedef {{x:number,y:number}} PointXY */
+/** @typedef {{x:number,z:number}} PointXZ */
+/** @typedef {{x:number,z:number,r:number}} CircleBore */
+/** @typedef {{x:number,z:number,r:number,plated?:boolean,boardShape?:boolean,ring?:PointXZ[]}} Bore */
+/** @typedef {{ring:PointXY[], circle:CircleBore|null}} TriangulatedBore */
+/** @typedef {{outer:PointXZ[], holes:PointXZ[][]}} ExPolygonXZ */
 
 /* ───────────────────────────── mesh builders ────────────────────────────── */
 
@@ -49,14 +56,16 @@ export function roundedRectOutline(x0, z0, w, h, r) {
  * @param {Array<{x:number,z:number}>} outline
  * @param {number} yBottom @param {number} yTop
  * @param {number[]} color @param {number[]} [edgeColor]
- * @returns {{verts: Array, faces: Array}}
+ * @returns {ModelMesh}
  */
 export function extrudePrism(outline, yBottom, yTop, color, edgeColor) {
+    /** @type {ModelMesh['verts']} */
     const verts = [];
     const n = outline.length;
     for (const p of outline) verts.push({ x: p.x, y: yTop, z: p.z });     // 0..n-1 top
     for (const p of outline) verts.push({ x: p.x, y: yBottom, z: p.z });  // n..2n-1 bottom
 
+    /** @type {ModelMesh['faces']} */
     const faces = [];
     // Top face (outline order)
     faces.push({ idx: outline.map((_, i) => i), color });
@@ -101,8 +110,17 @@ export function triangulateWithHoles(outerIn, holesIn) {
 }
 
 /** Vertical cylinder wall (no end caps) — lines a bored hole. */
+/**
+ * @param {number} cx @param {number} cz @param {number} r
+ * @param {number} yBottom @param {number} yTop
+ * @param {number[]} color
+ * @param {number} [seg]
+ * @returns {ModelMesh}
+ */
 export function cylinderWallMesh(cx, cz, r, yBottom, yTop, color, seg = 16) {
+    /** @type {ModelMesh['verts']} */
     const verts = [];
+    /** @type {ModelMesh['faces']} */
     const faces = [];
     for (let i = 0; i < seg; i++) {
         const ang = (i / seg) * Math.PI * 2;
@@ -162,7 +180,9 @@ function mergeOverlappingHoles(holes, margin = 0.1) {
 }
 
 /** Sample a circle into a CCW polygon ring in the (x, y=z) plane. */
+/** @param {number} cx @param {number} cz @param {number} r @param {number} seg @returns {PointXY[]} */
 export function circleRing(cx, cz, r, seg) {
+    /** @type {PointXY[]} */
     const ring = [];
     for (let i = 0; i < seg; i++) {
         const a = (i / seg) * Math.PI * 2;
@@ -172,6 +192,7 @@ export function circleRing(cx, cz, r, seg) {
 }
 
 /** Union solid bore rings so Earcut only receives disjoint interior holes. */
+/** @param {PointXY[][]} rings @returns {PointXY[][]|null} */
 export function unionBoreRings(rings) {
     if (!isClipperReady() || !rings.length) return null;
     const C = /** @type {any} */ (getClipper());
@@ -184,7 +205,8 @@ export function unionBoreRings(rings) {
     clip.AddPaths(paths, C.PolyType.ptSubject, true);
     const tree = new C.PolyTree();
     clip.Execute(C.ClipType.ctUnion, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
-    return C.JS.PolyTreeToExPolygons(tree)
+    const polygons = /** @type {Array<{outer:Array<{X:number,Y:number}>}>} */ (C.JS.PolyTreeToExPolygons(tree));
+    return polygons
         .map((polygon) => polygon.outer.map((point) => ({ x: point.X / scale, y: point.Y / scale })))
         .filter((ring) => ring.length >= 3);
 }
@@ -222,7 +244,8 @@ export function capsuleRing(x1, z1, x2, z2, r, capSeg = 10) {
 function clusterOverlappingHoles(holes, margin = 0.1) {
     const list = holes.map((h) => ({ x: h.x, z: h.z, r: h.r }));
     const parent = list.map((_, i) => i);
-    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    /** @param {number} i */
+    const find = (i) => { while (parent[i] !== i) { parent[i] = /** @type {number} */ (parent[parent[i]]); i = parent[i]; } return i; };
     for (let i = 0; i < list.length; i++) {
         for (let j = i + 1; j < list.length; j++) {
             const a = list[i], b = list[j];
@@ -230,16 +253,18 @@ function clusterOverlappingHoles(holes, margin = 0.1) {
             if (d < a.r + b.r + margin) parent[find(i)] = find(j);
         }
     }
+    /** @type {Map<number, CircleBore[]>} */
     const groups = new Map();
     for (let i = 0; i < list.length; i++) {
         const root = find(i);
         if (!groups.has(root)) groups.set(root, []);
-        groups.get(root).push(list[i]);
+        /** @type {CircleBore[]} */ (groups.get(root)).push(/** @type {CircleBore} */ (list[i]));
     }
     return [...groups.values()];
 }
 
 /** True if (px,pz) lies strictly inside any circle other than index `exclude`. */
+/** @param {number} px @param {number} pz @param {CircleBore[]} circles @param {number} exclude */
 function pointInsideOtherCircle(px, pz, circles, exclude) {
     for (let j = 0; j < circles.length; j++) {
         if (j === exclude) continue;
@@ -261,6 +286,7 @@ function pointInsideOtherCircle(px, pz, circles, exclude) {
  */
 function circleUnionRing(circles, seg) {
     const EPS = 1e-9;
+    /** @type {PointXY[][]} */
     const arcs = [];
     for (let i = 0; i < circles.length; i++) {
         const c = circles[i];
@@ -278,6 +304,7 @@ function circleUnionRing(circles, seg) {
             cuts.push(base + delta, base - delta);
         }
         if (!cuts.length) continue; // rim fully covered, or isolated within cluster
+        /** @param {number} t */
         const norm = (t) => { let x = t % (2 * Math.PI); if (x < 0) x += 2 * Math.PI; return x; };
         const sorted = cuts.map(norm).sort((p, q) => p - q);
         for (let k = 0; k < sorted.length; k++) {
@@ -289,6 +316,7 @@ function circleUnionRing(circles, seg) {
             if (pointInsideOtherCircle(mx, mz, circles, i)) continue; // interior arc
             const span = a1 - a0;
             const steps = Math.max(1, Math.ceil((span / (2 * Math.PI)) * seg));
+            /** @type {PointXY[]} */
             const pts = [];
             for (let s = 0; s <= steps; s++) {
                 const a = a0 + span * (s / steps);
@@ -302,7 +330,9 @@ function circleUnionRing(circles, seg) {
 }
 
 /** Chain boundary arcs end-to-end into one closed ring by nearest endpoints. */
+/** @param {PointXY[][]} arcs @returns {PointXY[]} */
 function stitchBoundaryArcs(arcs) {
+    /** @param {PointXY} a @param {PointXY} b */
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const used = new Array(arcs.length).fill(false);
     const ring = arcs[0].slice();
@@ -332,8 +362,11 @@ function stitchBoundaryArcs(arcs) {
 }
 
 /** Vertical wall lining a polygonal bore (no end caps). */
+/** @param {PointXY[]} ring @param {number} yBottom @param {number} yTop @param {number[]} color @returns {ModelMesh} */
 export function polygonWallMesh(ring, yBottom, yTop, color) {
+    /** @type {ModelMesh['verts']} */
     const verts = [];
+    /** @type {ModelMesh['faces']} */
     const faces = [];
     const n = ring.length;
     for (const p of ring) verts.push({ x: p.x, y: yTop, z: p.y });
@@ -346,8 +379,15 @@ export function polygonWallMesh(ring, yBottom, yTop, color) {
 }
 
 /** Append only the selected vertical segments of a polygonal bore wall. */
+/**
+ * @param {PointXY[]} ring
+ * @param {(a: PointXY, b: PointXY) => boolean} include
+ * @param {number} yBottom @param {number} yTop
+ * @param {number[]} color
+ * @returns {ModelMesh}
+ */
 export function polygonWallSegmentsMesh(ring, include, yBottom, yTop, color) {
-    const mesh = emptyMesh();
+    const mesh = /** @type {ModelMesh} */ (emptyMesh());
     for (let i = 0; i < ring.length; i++) {
         const a = ring[i], b = ring[(i + 1) % ring.length];
         if (!include(a, b)) continue;
@@ -361,6 +401,7 @@ export function polygonWallSegmentsMesh(ring, include, yBottom, yTop, color) {
     return mesh;
 }
 
+/** @param {PointXY} point @param {PointXY} a @param {PointXY} b */
 export function pointToSegmentDistance(point, a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -375,10 +416,10 @@ export function pointToSegmentDistance(point, a, b) {
  * and mounting holes read as actual openings. Falls back to a solid prism if
  * the holes can't be triangulated (e.g. overlapping or off-board).
  * @param {Array<{x:number,z:number}>} outline
- * @param {Array<{x:number,z:number,r:number,ring?:Array<{x:number,z:number}>}>} holeList world-space holes
+ * @param {Bore[]} holeList world-space holes
  * @param {number} yBottom @param {number} yTop
  * @param {number[]} color @param {number[]} edgeColor
- * @returns {{verts: Array, faces: Array}}
+ * @returns {ModelMesh}
  */
 function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     if (!holeList.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
@@ -391,9 +432,9 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     // circle; an overlapping cluster becomes the true union outline, so two
     // mounting holes that overlap read as a figure-8 opening — not one big
     // enclosing circle, and not an earcut-bridged sliver.
-    /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
+    /** @type {TriangulatedBore[]} */
     const bores = [];
-    const polygonRings = ringHoles.map((hole) => hole.ring.map((point) => ({ x: point.x, y: point.z })));
+    const polygonRings = ringHoles.map((hole) => /** @type {PointXZ[]} */ (hole.ring).map((point) => ({ x: point.x, y: point.z })));
     // A polygonal cutout can overlap a circle (or another polygon). Union all
     // rings before Earcut sees them, because intersecting hole rings produce
     // invalid triangulation and leave spurious board-face wedges.
@@ -427,7 +468,7 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     try { tri = triangulateWithHoles(outer2d, holes2d); } catch { tri = null; }
     if (!tri || !tri.tris.length) return extrudePrism(outline, yBottom, yTop, color, edgeColor);
 
-    const mesh = emptyMesh();
+    const mesh = /** @type {ModelMesh} */ (emptyMesh());
     const side = edgeColor || color;
     // Top + bottom faces from the holed triangulation.
     const top = { verts: tri.pts.map((p) => ({ x: p.x, y: yTop, z: p.y })),
@@ -438,6 +479,7 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
     appendMesh(mesh, bot);
     // Outer side wall.
     const n = outline.length;
+    /** @type {ModelMesh} */
     const wall = { verts: [], faces: [] };
     for (const p of outline) wall.verts.push({ x: p.x, y: yTop, z: p.z });
     for (const p of outline) wall.verts.push({ x: p.x, y: yBottom, z: p.z });
@@ -455,6 +497,7 @@ function boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor) {
 }
 
 /** Signed area of a closed ring in the (x, z) plane (CCW → positive). */
+/** @param {PointXZ[]} ring */
 function _signedAreaXZ(ring) {
     let a = 0;
     for (let i = 0; i < ring.length; i++) {
@@ -465,6 +508,7 @@ function _signedAreaXZ(ring) {
 }
 
 /** Ray-cast point-in-polygon test for a ring of {x, z} points. */
+/** @param {number} x @param {number} z @param {PointXZ[]} ring */
 function _pointInRingXZ(x, z, ring) {
     let inside = false;
     for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -476,8 +520,10 @@ function _pointInRingXZ(x, z, ring) {
 }
 
 /** Boundary samples for a circular or polygonal bore. */
+/** @param {Bore} bore @returns {PointXZ[]} */
 function _boreBoundaryPoints(bore) {
-    if (bore.ring?.length >= 3) return bore.ring;
+    const ring = bore.ring;
+    if (ring && ring.length >= 3) return ring;
     const points = [];
     for (let index = 0; index < 24; index++) {
         const angle = index * Math.PI * 2 / 24;
@@ -487,22 +533,26 @@ function _boreBoundaryPoints(bore) {
 }
 
 /** True when a larger bore completely contains another bore's boundary. */
+/** @param {Bore} outer @param {Bore} inner */
 function _boreContains(outer, inner) {
-    const outerArea = outer.ring?.length >= 3
-        ? Math.abs(_signedAreaXZ(outer.ring))
+    const outerRing = outer.ring;
+    const innerRing = inner.ring;
+    const outerArea = outerRing && outerRing.length >= 3
+        ? Math.abs(_signedAreaXZ(outerRing))
         : Math.PI * outer.r * outer.r;
-    const innerArea = inner.ring?.length >= 3
-        ? Math.abs(_signedAreaXZ(inner.ring))
+    const innerArea = innerRing && innerRing.length >= 3
+        ? Math.abs(_signedAreaXZ(innerRing))
         : Math.PI * inner.r * inner.r;
     if (outerArea <= innerArea + 1e-6) return false;
     const boundary = _boreBoundaryPoints(inner);
-    if (outer.ring?.length >= 3) {
-        return boundary.every((point) => _pointInRingXZ(point.x, point.z, outer.ring));
+    if (outerRing && outerRing.length >= 3) {
+        return boundary.every((point) => _pointInRingXZ(point.x, point.z, outerRing));
     }
     return boundary.every((point) => Math.hypot(point.x - outer.x, point.z - outer.z) <= outer.r + 1e-6);
 }
 
 /** A cutout entirely inside another cutout is already void and needs no bore. */
+/** @param {Bore[]} bores */
 export function discardNestedBores(bores) {
     return bores.filter((bore, index) => !bores.some(
         (other, otherIndex) => otherIndex !== index && _boreContains(other, bore),
@@ -515,12 +565,13 @@ export function discardNestedBores(bores) {
  * normalised so each outer matches the source outline and holes are opposite.
  * @param {Array<{x:number,z:number}>} outline
  * @param {Array<Array<{x:number,z:number}>>} rings cutout rings (x, z)
- * @returns {Array<{outer:Array<{x:number,z:number}>, holes:Array<Array<{x:number,z:number}>>}>}
+ * @returns {ExPolygonXZ[]}
  */
 function _subtractRingsFromOutline(outline, rings) {
     if (!isClipperReady()) return [{ outer: outline, holes: [] }];
     const C = /** @type {any} */ (getClipper());
     const SC = 10000;
+    /** @param {PointXZ[]} pts */
     const toPath = (pts) => pts.map((p) => ({ X: Math.round(p.x * SC), Y: Math.round(p.z * SC) }));
     const clip = new C.Clipper();
     clip.AddPaths([toPath(outline)], C.PolyType.ptSubject, true);
@@ -529,12 +580,13 @@ function _subtractRingsFromOutline(outline, rings) {
     clip.Execute(C.ClipType.ctDifference, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
     const exPolys = C.JS.PolyTreeToExPolygons(tree);
     const want = Math.sign(_signedAreaXZ(outline)) || 1;
+    /** @param {Array<{X:number,Y:number}>} ring @param {number} sign */
     const norm = (ring, sign) => {
         const r = ring.map((pt) => ({ x: pt.X / SC, z: pt.Y / SC }));
         if ((Math.sign(_signedAreaXZ(r)) || 1) !== sign) r.reverse();
         return r;
     };
-    return exPolys.map((ex) => ({
+    return /** @type {Array<{outer:Array<{X:number,Y:number}>,holes?:Array<Array<{X:number,Y:number}>>}>} */ (exPolys).map((ex) => ({
         outer: norm(ex.outer, want),
         holes: (ex.holes || []).map((h) => norm(h, -want)),
     }));
@@ -546,26 +598,30 @@ function _subtractRingsFromOutline(outline, rings) {
  * intersecting interior and boundary cutouts become one valid geometry.
  * Falls back to the plain {@link boardWithHoles} path when clipper is unavailable.
  * @param {Array<{x:number,z:number}>} outline board outer ring (x, z)
- * @param {Array} holeList wholly-inside bores ({x,z,r} or {x,z,r,ring})
+ * @param {Bore[]} holeList wholly-inside bores ({x,z,r} or {x,z,r,ring})
  * @param {Array<Array<{x:number,z:number}>>} crossingRings edge-crossing cutouts
+ * @param {number} yBottom @param {number} yTop
+ * @param {number[]} color @param {number[]} edgeColor
+ * @returns {ModelMesh}
  */
 export function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, yTop, color, edgeColor) {
     if (!crossingRings.length || !isClipperReady()) {
         return boardWithHoles(outline, holeList, yBottom, yTop, color, edgeColor);
     }
-    const mesh = emptyMesh();
+    const mesh = /** @type {ModelMesh} */ (emptyMesh());
     const seg = 48;
     const side = edgeColor || color;
-    const allCutoutRings = crossingRings.concat(holeList.flatMap((hole) => {
-        if (hole.ring?.length >= 3) return [hole.ring];
+    const allCutoutRings = [...crossingRings, ...holeList.flatMap((hole) => {
+        const ring = hole.ring;
+        if (ring && ring.length >= 3) return [ring];
         return hole.r > 0 ? [circleRing(hole.x, hole.z, hole.r, seg).map((point) => ({ x: point.x, z: point.y }))] : [];
-    }));
+    })];
     const exPolys = _subtractRingsFromOutline(outline, allCutoutRings);
     for (const ex of exPolys) {
         if (!ex.outer || ex.outer.length < 3) continue;
         // Clipper has already resolved every overlap and classified each
         // remaining interior void as an explicit hole ring.
-        /** @type {Array<{ring:Array<{x:number,y:number}>, circle:{x:number,z:number,r:number}|null}>} */
+        /** @type {TriangulatedBore[]} */
         const bores = [];
         for (const hr of ex.holes) {
             if (hr.length >= 3) bores.push({ ring: hr.map((p) => ({ x: p.x, y: p.z })), circle: null });
@@ -582,6 +638,7 @@ export function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, 
             faces: tri.tris.map((t) => ({ idx: [t[2], t[1], t[0]], color })) });
         // Outer side wall following the notched perimeter.
         const n = ex.outer.length;
+        /** @type {ModelMesh} */
         const wall = { verts: [], faces: [] };
         for (const p of ex.outer) wall.verts.push({ x: p.x, y: yTop, z: p.z });
         for (const p of ex.outer) wall.verts.push({ x: p.x, y: yBottom, z: p.z });

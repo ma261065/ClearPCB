@@ -2,7 +2,7 @@ import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection 
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
-/** @typedef {Record<string, any>} JsonRecord */
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
 
 /** @param {unknown} value @returns {value is JsonRecord} */
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);

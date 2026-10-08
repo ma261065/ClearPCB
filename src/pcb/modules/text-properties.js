@@ -16,8 +16,18 @@ import { AddTextCommand, EditTextCommand, beginTextPropertyPreview, finishTextPr
 import { startTextInlineEdit } from './text-inline-edit.js';
 import { isEditorActive } from './pcb-editor-api.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement */
+/** @typedef {import('../../core/pcb-placement-commands.js').RefStylePatch} RefStylePatch */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{size:number, rotation:number, layer:string, strokeWidth:number, border:boolean}} TextDefaults */
+/** @typedef {import('../../core/pcb-text-commands.js').PcbTextPatch} PcbTextPatch */
+/** @typedef {(PcbText | (Placement & RefStylePatch)) & Record<string, any>} StrokeTextModel */
+/** @typedef {{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:StrokeTextModel,v:any)=>void, value?:(m:StrokeTextModel)=>any, wrap?:boolean}} StrokeTextFieldSpec */
+/** @typedef {{fields: Array<StrokeTextFieldSpec>, editable?:()=>boolean, begin?:(m:StrokeTextModel)=>StrokeTextModel, cancel?:(snap:StrokeTextModel)=>void, preview:(m:StrokeTextModel)=>void, commit:(m:StrokeTextModel, snap:StrokeTextModel)=>void, refresh?:()=>void}} StrokeTextBindingSpec */
+/** @typedef {{model:StrokeTextModel, spec:StrokeTextBindingSpec, affectsLayer:(layerId:string)=>boolean, readonly active:boolean, fields:(disabled?:boolean, hold?:any)=>PropertyField[], commit:()=>void, cancel:()=>boolean, dispose:()=>void}} StrokeTextBinding */
 
 const SYMBOLS = [
     ['', 'Symbol\u2026'],
@@ -32,13 +42,17 @@ const SYMBOLS = [
     ['\u00F7', '\u00F7 Divide'],
 ].map(([value, label]) => ({ value, label }));
 
+/** @param {number} value */
 const wrapDegrees = value => ((Math.round(value) % 360) + 360) % 360;
-const positive = min => value => Math.max(min, value);
-const numberParse = (min, normalize = value => value) => text => {
+/** @param {number} min */
+const positive = min => /** @param {number} value */ value => Math.max(min, value);
+/** @param {number|undefined} min @param {(value:number)=>number} [normalize] */
+const numberParse = (min, normalize = value => value) => /** @param {string} text */ text => {
     const value = Number.parseFloat(text);
     if (!Number.isFinite(value)) return null;
     return normalize(min === undefined ? value : Math.max(min, value));
 };
+/** @type {WeakMap<PcbEditor, TextDefaults>} */
 const textToolDefaults = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -51,7 +65,7 @@ export function getTextToolDefaults(app) {
     return defaults;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {TextDefaults} defaults */
 export function setTextToolDefaults(app, defaults) {
     textToolDefaults.set(app, defaults);
 }
@@ -64,7 +78,14 @@ export function showTextToolProperties(app) {
     const defaults = getTextToolDefaults(app);
     const hold = pictureRefreshHold(app);
     const refresh = () => app.refreshPropertyPanel?.(describe());
-    /** @returns {PropertyField} */
+    /**
+     * @param {string} key
+     * @param {string} id
+     * @param {string} label
+     * @param {'size'|'strokeWidth'|'rotation'} property
+     * @param {Partial<PropertyField> & {value?:()=>any, after?:()=>void}} [extra]
+     * @returns {PropertyField}
+     */
     const number = (key, id, label, property, extra = {}) => {
         const { value, after, ...field } = extra;
         return {
@@ -106,17 +127,19 @@ export function showTextToolProperties(app) {
  * Editing pushes EditTextCommand on settled commit so undo collapses each edit run
  * into one entry.
  * @param {PcbEditor} app
- * @param {any} text
+ * @param {PcbText} text
  * @param {() => any} [textEdit] The editor's inline text edit, if any.
  * @param {(textId:string, symbol:string) => boolean} [insertInlineSymbol]
  */
 export function showTextProperties(app, text, textEdit = () => null, insertInlineSymbol = () => false) {
-    text = app.pcbDocument.texts.get(text.id);
-    if (!text) return;
+    const loadedText = app.pcbDocument.texts.get(text.id);
+    if (!loadedText) return;
+    text = loadedText;
     const lockEntries = [{ kind: 'text', object: text }];
     let disposed = false;
     const hold = pictureRefreshHold(app);
     const isEditingThis = () => textEdit()?.text?.id === text.id;
+    /** @param {PcbText} model @param {string} value */
     const layerApply = (model, value) => {
         const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
         const willBottom = typeof value === 'string' && value.startsWith('bottom-');
@@ -143,7 +166,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
                 min: 0.2, step: 0.1, parse: numberParse(0.1) },
             { key: 'rotation', id: 'pcbPropTextRot', type: 'number', label: 'Rotation (\u00B0)', field: 'rotation',
                 step: 1, numberFormat: 'rotation', parse: numberParse(undefined, wrapDegrees),
-                value: model => displayRotationDegrees(model.rotation), wrap: true },
+                value: model => displayRotationDegrees(Number(model.rotation) || 0), wrap: true },
             { key: 'lineWidth', id: 'pcbPropTextLW', type: 'number', label: 'Line Width (mm)', field: 'strokeWidth',
                 min: 0.05, step: 0.05, parse: numberParse(0.01) },
         ],
@@ -151,8 +174,9 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
         cancel: () => finishTextPropertyPreview(app),
         preview: target => app.refreshText(target.id),
         commit: (target, snapshot) => {
+            /** @type {PcbTextPatch} */
             const after = {};
-            for (const key of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+            for (const key of /** @type {(keyof PcbText)[]} */ (['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y'])) {
                 if (snapshot[key] !== target[key]) after[key] = target[key];
             }
             finishTextPropertyPreview(app, Object.keys(after).length
@@ -205,21 +229,28 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
  * PropertyField descriptions whose hooks preview into a temporary model and commit
  * one undo command when a number run settles.
  * @param {PcbEditor} app
- * @param {any} model object whose fields the inputs drive
- * @param {{fields: Array<{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void, refresh?:()=>void}} spec
+ * @param {StrokeTextModel} model object whose fields the inputs drive
+ * @param {StrokeTextBindingSpec} spec
+ * @returns {StrokeTextBinding}
  */
 export function bindStrokeTextProps(app, model, spec) {
+    /** @type {StrokeTextModel|null} */
     let snapshot = null;
     let target = model;
     let disposed = false;
+    /** @type {StrokeTextFieldSpec|null} */
     let activeField = null;
+    /** @type {StrokeTextFieldSpec|null} */
     let invalidField = null;
     const editable = () => !disposed && (!spec.editable || spec.editable());
+    /** @param {StrokeTextFieldSpec} field */
     const fieldValue = field => field.value ? field.value(target) : target[field.field];
+    /** @param {StrokeTextFieldSpec} field @param {any} value */
     const apply = (field, value) => {
         if (field.apply) field.apply(target, value);
-        else target[field.field] = value;
+        else /** @type {any} */ (target)[field.field] = value;
     };
+    /** @param {StrokeTextFieldSpec} field @param {string} text */
     const parse = (field, text) => {
         const value = field.parse ? field.parse(text) : Number.parseFloat(text);
         if (value === null || value === undefined) {
@@ -229,6 +260,7 @@ export function bindStrokeTextProps(app, model, spec) {
         if (invalidField === field) invalidField = null;
         return value;
     };
+    /** @param {StrokeTextFieldSpec} field @param {any} value */
     const previewField = (field, value) => {
         if (disposed) return;
         if (!editable()) { binding.cancel(); return; }
@@ -241,7 +273,7 @@ export function bindStrokeTextProps(app, model, spec) {
         }
         activeField = field;
         apply(field, value);
-        if (typeof target.content === 'string') schedulePictureCopperRefresh(app, target);
+        if (typeof target.content === 'string') schedulePictureCopperRefresh(app, /** @type {any} */ (target));
         spec.preview(target);
     };
     const onCommit = () => {
@@ -263,6 +295,7 @@ export function bindStrokeTextProps(app, model, spec) {
             spec.refresh?.();
         }
     };
+    /** @type {StrokeTextBinding} */
     const binding = {
         model,
         spec,
@@ -328,6 +361,7 @@ export function bindStrokeTextProps(app, model, spec) {
  * A primary press with the Text tool: place an empty text from the tool's defaults,
  * select it and type into it in place, as in the schematic editor.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pressTextTool(app, worldPos) {
     const snap = app.snapToGrid(worldPos);
@@ -339,5 +373,5 @@ export function pressTextTool(app, worldPos) {
     app.history.execute(new AddTextCommand(app, text));
     app.selectText(text);
     app.showTextProperties(text);
-    startTextInlineEdit(app, text, null, { isNewPlacement: true });
+    startTextInlineEdit(app, text, /** @type {any} */ (null), { isNewPlacement: true });
 }

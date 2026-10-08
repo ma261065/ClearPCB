@@ -5,6 +5,7 @@ import { isPcbPasteActive } from './pcb-paste.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { ensureSvgDefs } from './svg-defs.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{d?: string, count: number}} CopperCutGeometry */
 
 /*
  * Copper cuts: the per-side SVG clip-paths that remove copper under copper-removal
@@ -13,7 +14,10 @@ import { ensureSvgDefs } from './svg-defs.js';
  * removal-hatch.js.)
  */
 
+/** @type {WeakMap<PcbEditor, {applied: {top?: string|null, bottom?: string|null}, geometry: Partial<Record<'top'|'bottom', CopperCutGeometry>>, active: boolean, defs: SVGDefsElement|null}>} */
 const cutStates = new WeakMap();
+/** @type {Array<'top'|'bottom'>} */
+const COPPER_CUT_SIDES = ['top', 'bottom'];
 
 /**
  * Per-editor state. `applied` holds the clip path string last applied per side
@@ -59,6 +63,7 @@ export function hasCopperCuts(app) {
  * blows past the GPU's maximum texture size when zoomed in and gets
  * silently dropped, which made the copper "fill back in".
  * @param {PcbEditor} app
+ * @param {{geometryChanged?: boolean}} [options]
  */
 export function updateCopperCuts(app, { geometryChanged = true } = {}) {
     const defs = ensureSvgDefs(app);
@@ -87,6 +92,7 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
         x0 = -m; x1 = (width || 100) + m;
         y0 = -(height || 80) - m; y1 = m;
     }
+    /** @param {number} n */
     const r4 = (n) => Math.round(n * 10000) / 10000;
     // Rebuilding the clip-path <path> and re-setting the clip-path attribute
     // invalidates the copper layer's raster, forcing a full repaint of every
@@ -97,7 +103,7 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
     const geometryCache = state.geometry;
     const deferGeometry = areDragOverlaysDeferred(app) || getBoardShapeRotationPreview(app);
     let any = false;
-    for (const side of ['top', 'bottom']) {
+    for (const side of COPPER_CUT_SIDES) {
         const copperLayer = `${side}-copper`;
         const fillLayer = `${side}-fill`;
         const clipId = `pcb-copper-cut-${side}`;
@@ -113,7 +119,7 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
             if (applied[side] !== null) {
                 if (existing) existing.remove();
                 groups.get(copperLayer)?.removeAttribute('clip-path');
-                setCopperFillClip(groups.get(fillLayer), null);
+                setCopperFillClip(groups.get(fillLayer) || null, null);
                 applied[side] = null;
             }
             continue;
@@ -136,7 +142,7 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
         clip.appendChild(path);
         if (!existing) defs.appendChild(clip);
         groups.get(copperLayer)?.setAttribute('clip-path', `url(#${clipId})`);
-        setCopperFillClip(groups.get(fillLayer), clipId);
+        setCopperFillClip(groups.get(fillLayer) || null, clipId);
         applied[side] = d;
     }
     state.active = any;
@@ -150,10 +156,10 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
 export function clearCopperCuts(app) {
     const state = cutState(app);
     const groups = app.existingLayerGroups();
-    for (const side of ['top', 'bottom']) {
+    for (const side of COPPER_CUT_SIDES) {
         state.defs?.querySelector(`#pcb-copper-cut-${side}`)?.remove();
         groups.get(`${side}-copper`)?.removeAttribute('clip-path');
-        setCopperFillClip(groups.get(`${side}-fill`), null);
+        setCopperFillClip(groups.get(`${side}-fill`) || null, null);
     }
     // The DOM is now in the cleared (no-cut) state; keep the applied-path cache in
     // sync so the next updateCopperCuts re-applies cuts from scratch.

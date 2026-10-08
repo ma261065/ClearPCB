@@ -20,6 +20,9 @@ import { fillGroupId } from './copper-fill-render.js';
 import { pcbObjectLayers } from './object-locks.js';
 import { peekDrcPresentation } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{side?: string}} PlacementLike */
+/** @typedef {import('./selection-registry.js').PcbSelectionEntry} SelectionEntry */
+/** @typedef {{fill: {layer: string}}} FillDragEntry */
 
 /*
  * What the PCB editor does when the layer panel hides, shows, locks or unlocks a layer,
@@ -29,6 +32,7 @@ import { peekDrcPresentation } from './drc-state.js';
  * methods.
  */
 
+/** @param {PlacementLike} placement */
 const silkLayerOf = placement => (placement.side === 'bottom' ? 'bottom-silk' : 'top-silk');
 
 /**
@@ -36,6 +40,7 @@ const silkLayerOf = placement => (placement.side === 'bottom' ? 'bottom-silk' : 
  * a shape, vertex or rotation drag on that layer (through the selection interaction that
  * wraps it, if any), and a group drag of objects that are no longer editable.
  * @param {PcbEditor} app
+ * @param {string} layerId
  * @param {(entry: any) => boolean} affectsGroup Whether a group-drag entry became uneditable.
  */
 function cancelStrandedGestures(app, layerId, affectsGroup) {
@@ -55,6 +60,8 @@ function cancelStrandedGestures(app, layerId, affectsGroup) {
 /**
  * Show or hide a layer's render group (and the copper side's companion groups).
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} visible
  */
 export function onLayerVisibilityChanged(app, layerId, visible) {
     if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
@@ -122,6 +129,8 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
 /**
  * Lock or unlock a layer: cancel edits on it and refresh the lock-dependent UI.
  * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} locked
  */
 export function onLayerLockChanged(app, layerId, locked) {
     if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
@@ -160,21 +169,29 @@ export function onLayerLockChanged(app, layerId, locked) {
     const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     if (checkbox) checkbox.checked = locked;
     app.refreshSelectionHighlights?.();
-    if (getPcbSelectionEntries(app).some(entry => pcbObjectLayers(app, entry.kind, entry.object).includes(layerId))) {
+    if (getPcbSelectionEntries(app).some((/** @type {SelectionEntry} */ entry) => pcbObjectLayers(app, String(entry.kind), entry.object).includes(layerId))) {
         showPcbSelectionProperties(app);
     }
     setHoverHighlight(app, null);
 }
 
+/** @param {FillDragEntry} entry @param {string} copperLayerId */
+const fillDragEntryOnLayer = (entry, copperLayerId) => entry.fill.layer === copperLayerId;
 /**
  * Whether a group drag carries a pour on this copper side.
  * @param {PcbEditor} app
+ * @param {string} copperLayerId
  */
-const groupDragsPourOn = (app, copperLayerId) => getGroupDrag(app)?.fills.some(({ fill }) => fill.layer === copperLayerId);
+const groupDragsPourOn = (app, copperLayerId) => {
+    const fills = /** @type {FillDragEntry[]} */ (getGroupDrag(app)?.fills || []);
+    return fills.some(entry => fillDragEntryOnLayer(entry, copperLayerId));
+};
 
 /**
  * Show or hide the copper pour on one side; purely a view state.
  * @param {PcbEditor} app
+ * @param {string} copperLayerId
+ * @param {boolean} visible
  */
 export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
     if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
@@ -190,6 +207,8 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
  * Lock or unlock the copper pour on one side. A locked pour is dimmed and remains
  * selectable only for its unlock affordance.
  * @param {PcbEditor} app
+ * @param {string} copperLayerId
+ * @param {boolean} locked
  */
 export function onCopperFillLockChanged(app, copperLayerId, locked) {
     if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
@@ -197,7 +216,7 @@ export function onCopperFillLockChanged(app, copperLayerId, locked) {
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.opacity = locked ? '0.4' : '';
     app.refreshSelectionHighlights?.();
-    if (getPcbSelection(app, 'fill').some(fill => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
+    if (getPcbSelection(app, 'fill').some((/** @type {{layer:string}} */ fill) => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
     saveLayerPrefs();
     refreshPcbToolLayerState(app);
 }
@@ -205,6 +224,8 @@ export function onCopperFillLockChanged(app, copperLayerId, locked) {
 /**
  * Show or hide an overlay (clearance halos, ratlines).
  * @param {PcbEditor} app
+ * @param {string} overlayId
+ * @param {boolean} visible
  */
 export function onOverlayVisibilityChanged(app, overlayId, visible) {
     if (overlayId === 'clearance') {

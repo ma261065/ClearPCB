@@ -2,7 +2,7 @@ import { editTargets } from './edit-guard.js';
 import { serializePcbText } from './pcb-text.js';
 
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
-/** @typedef {{id: string, content: string, x: number, y: number, size: number, rotation: number, layer: string|undefined, strokeWidth: number, border: boolean, locked?: boolean, [key: string]: any}} PcbText */
+/** @typedef {import('./pcb-text.js').PcbText} PcbText */
 /** @typedef {Partial<Record<keyof PcbText, any>>} PcbTextPatch */
 
 /** @param {PcbDocument} document @param {string} id */

@@ -83,6 +83,9 @@ import { setSelectionInteraction } from './selection-interaction.js';
 import { netsForComponent } from './component-selection.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {ReturnType<typeof getGroupDrag>} GroupDrag */
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -123,7 +126,7 @@ export function getGroupPreview(app) {
     return getGroupDrag(app)?.preview;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g */
 function beginGroupPreview(app, g) {
     if (g.preview || ![g.tracks, g.vias, g.pads, g.shapes, g.fills].some(entries => entries.length)) return;
     const model = app.pcbDocument;
@@ -132,7 +135,7 @@ function beginGroupPreview(app, g) {
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     const copies = new Map();
     for (const entry of g.tracks) {
-        const existing = tracksById.get(entry.track.id);
+        const existing = /** @type {Track} */ (tracksById.get(entry.track.id));
         const copy = existing !== entry.track ? existing : new Track({ id: entry.track.id });
         if (copy !== existing) copy.applyState(entry.before);
         copies.set(entry.track, copy);
@@ -149,7 +152,8 @@ function beginGroupPreview(app, g) {
         copies.set(entry.shape, { ...structuredClone(shape), ...(artwork ? { artwork } : {}) });
     }
     for (const entry of g.fills) copies.set(entry.fill, new CopperFill(entry.before));
-    const replace = collection => collection.map(item => copies.get(item) || item);
+    /** @template T @param {T[]} collection @returns {T[]} */
+    const replace = collection => collection.map(item => /** @type {T} */ (copies.get(item) || item));
     g.preview = {
         copies, originals: new Map([...copies].map(([original, copy]) => [copy, original])),
         tracks: replace(tracks), vias: replace(model.vias || []), pads: replace(model.pads || []),
@@ -160,25 +164,25 @@ function beginGroupPreview(app, g) {
     for (const { pad } of g.pads) removePadElements(pad);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g */
 function groupIsEditable(app, g) {
     return isEditorActive(app)
-        && g.comps.every(entry => !app.placements.get(entry.id)?.locked)
-        && g.tracks.every(entry => !entry.track.locked && trackIsSelectable(entry.track))
-        && g.vias.every(entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
-        && g.pads.every(entry => !entry.pad.locked && entry.pad.visible !== false
+        && g.comps.every(/** @param {{id: string}} entry */ entry => !app.placements.get(entry.id)?.locked)
+        && g.tracks.every(/** @param {{track: Track}} entry */ entry => !entry.track.locked && trackIsSelectable(entry.track))
+        && g.vias.every(/** @param {{via: Via}} entry */ entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
+        && g.pads.every(/** @param {{pad: Pad}} entry */ entry => !entry.pad.locked && entry.pad.visible !== false
             && padLayers(entry.pad).every(layer => !isLayerLocked(layer)) && padLayers(entry.pad).some(isLayerVisible))
-        && [...g.shapes.map(entry => entry.shape), ...g.texts.map(entry => entry.text)]
+        && [...g.shapes.map(/** @param {{shape: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.shape), ...g.texts.map(/** @param {{text: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.text)]
             .every(item => !item.locked && item.visible !== false && !isLayerLocked(item.layer) && isLayerVisible(item.layer))
-        && g.fills.every(({ fill }) => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
+        && g.fills.every(/** @param {{fill: CopperFill}} entry */ ({ fill }) => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
             && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g */
 function assertGroupTargets(app, g) {
     const model = app.pcbDocument;
     for (const component of g.comps) {
-        if (!app.placements.has(component.id) || !app.project.getPcbFootprint(component.id)) {
+        if (!app.placements.has(component.id) || !app.project?.getPcbFootprint(component.id)) {
             throw new Error(`PCB footprint is no longer available: ${component.id}`);
         }
     }
@@ -218,8 +222,8 @@ export function hasBoxSelection(app) {
  * Arm a potential box-select. Called from mousedown on empty canvas; the
  * marquee only materialises once the pointer passes the drag threshold.
  * @param {PcbEditor} app
- * @param {{x:number,y:number}} screen - clientX/clientY at mousedown
- * @param {{x:number,y:number}} world  - world coords at mousedown
+ * @param {Point} screen - clientX/clientY at mousedown
+ * @param {Point} world  - world coords at mousedown
  */
 export function armBoxSelect(app, screen, world) {
     stateFor(app).arm = { screen, world };
@@ -255,7 +259,7 @@ export function isBoxSelecting(app) {
  * active (so the caller should treat the move as a box-select update).
  * @param {PcbEditor} app
  * @param {MouseEvent} e
- * @param {{x:number,y:number}} worldPos
+ * @param {Point} worldPos
  * @returns {boolean}
  */
 export function maybeStartBoxSelect(app, e, worldPos) {
@@ -282,6 +286,7 @@ export function maybeStartBoxSelect(app, e, worldPos) {
 /**
  * Coalesce expensive marquee containment work to one update per frame.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 function _scheduleMarqueeUpdate(app, worldPos) {
     const state = stateFor(app);
@@ -310,10 +315,11 @@ function _flushMarqueeUpdate(app) {
 /**
  * Update the marquee rect + recompute the enclosed set + redraw halos.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 function _updateMarquee(app, worldPos) {
     updateBoxSelectElement(app, worldPos);
-    const bounds = getBoxSelectBounds(app, worldPos);
+    const bounds = getBoxSelectBounds(/** @type {Parameters<typeof getBoxSelectBounds>[0]} */ (/** @type {unknown} */ (app)), worldPos);
     selectEnclosed(app, bounds);
     _applyHighlights(app);
 }
@@ -360,6 +366,7 @@ export function scheduleBoxSelectionHighlights(app) {
 /**
  * Toggle one board shape in the active PCB multi-selection.
  * @param {PcbEditor} app
+ * @param {object} shape
  */
 export function toggleBoxShapeSelection(app, shape) {
     if (!shape) return;
@@ -373,8 +380,10 @@ export function toggleBoxShapeSelection(app, shape) {
 /**
  * Replace the selection sets with everything fully inside `bounds`.
  * @param {PcbEditor} app
+ * @param {Bounds} bounds
  */
 export function selectEnclosed(app, bounds) {
+    /** @type {Array<{kind: string, object: unknown}>} */
     const selected = [];
     const { minX, minY, maxX, maxY } = bounds;
 
@@ -428,7 +437,7 @@ export function selectEnclosed(app, bounds) {
         if (shape?.type === 'fill') continue;
         if (isLayerLocked(shape.layer)) continue;
         const outline = shapeOutline(shape);
-        if (outline.length > 0 && outline.every((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)) {
+        if (outline.length > 0 && outline.every((/** @type {Point} */ p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)) {
             selected.push({ kind: 'shape', object: shape });
         }
     }
@@ -444,7 +453,7 @@ export function selectEnclosed(app, bounds) {
         if (isLayerLocked(fill.layer)
             || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         const outline = fill.getOutline?.() || fill.outline;
-        if (outline?.length && outline.every((point) => (
+        if (outline?.length && outline.every((/** @type {Point} */ point) => (
             point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
         ))) selected.push({ kind: 'fill', object: fill });
     }
@@ -495,6 +504,7 @@ function _clearHighlights(app) {
 /**
  * Add a translucent rect over a component's footprint bounds.
  * @param {PcbEditor} app
+ * @param {string} compId
  */
 function _drawCompHighlight(app, compId) {
     const pl = app.placements.get(compId);
@@ -519,12 +529,12 @@ function _drawCompHighlight(app, compId) {
  * @param {PcbEditor} app
  */
 export function clearBoxSelection(app) {
-    const selectedTextIds = getPcbSelection(app, 'text').map((text) => text.id);
+    const selectedTextIds = getPcbSelection(app, 'text').map((/** @type {{id: string}} */ text) => text.id);
     const selectedPads = getPcbSelection(app, 'pad');
     _clearHighlights(app);
     clearPcbSelection(app);
     for (const textId of selectedTextIds) app.refreshText?.(textId);
-    for (const pad of selectedPads) renderPad(pad, id => app.getLayerGroup(id));
+    for (const pad of selectedPads) renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id));
     app.syncClipboardButtons?.();
 }
 
@@ -536,13 +546,13 @@ export function clearBoxSelection(app) {
  */
 export function deselectHiddenPcbSelection(app) {
     const selected = getPcbSelectionEntries(app);
-    const hidden = selected.filter((entry) => entry.visible === false);
+    const hidden = selected.filter((/** @type {{visible?: boolean}} */ entry) => entry.visible === false);
     if (!hidden.length) return false;
     _clearHighlights(app);
-    setPcbSelection(app, selected.filter((entry) => entry.visible !== false));
+    setPcbSelection(app, selected.filter((/** @type {{visible?: boolean}} */ entry) => entry.visible !== false));
     for (const entry of hidden) {
         if (entry.kind === 'text') app.refreshText?.(entry.object.id);
-        else if (entry.kind === 'pad') renderPad(entry.object, id => app.getLayerGroup(id));
+        else if (entry.kind === 'pad') renderPad(entry.object, /** @param {string} id */ id => app.getLayerGroup(id));
     }
     app.syncClipboardButtons?.();
     return true;
@@ -555,6 +565,7 @@ export function deselectHiddenPcbSelection(app) {
  * i.e. clicking there should start a group drag rather than a fresh
  * single selection.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pointInBoxSelection(app, worldPos) {
     if (!hasBoxSelection(app)) return false;
@@ -566,7 +577,7 @@ export function pointInBoxSelection(app, worldPos) {
     // local coordinates, so a simple translated rectangle misses rotated or
     // mirrored footprints and breaks Ctrl+A group dragging from their body.
     const componentHits = getComponentSelectionHits(app, worldPos);
-    if (getPcbSelection(app, 'component').some(id => componentHits.has(id))) return true;
+    if (getPcbSelection(app, 'component').some((/** @type {string} */ id) => componentHits.has(id))) return true;
     // A selected via.
     for (const v of getPcbSelection(app, 'via')) {
         if (viaHitTest(v, worldPos, worldTol)) return true;
@@ -596,6 +607,7 @@ export function pointInBoxSelection(app, worldPos) {
     return false;
 }
 
+/** @param {Point} p @param {Point} a @param {Point} b */
 function _pointSegDist(p, a, b) {
     const vx = b.x - a.x, vy = b.y - a.y;
     const wx = p.x - a.x, wy = p.y - a.y;
@@ -609,6 +621,7 @@ function _pointSegDist(p, a, b) {
 /**
  * Snapshot start positions of every selected object for a group drag.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function beginGroupDrag(app, worldPos) {
     if (getGroupDrag(app)) cancelGroupDrag(app);
@@ -620,7 +633,8 @@ export function beginGroupDrag(app, worldPos) {
     }
     const vias = [];
     // Locked members (own or layer lock) stay where they are; the rest move.
-    const movable = kind => getPcbSelection(app, kind).filter(object => !isPcbObjectLocked(app, kind, object));
+    /** @param {string} kind */
+    const movable = kind => getPcbSelection(app, kind).filter((/** @type {object} */ object) => !isPcbObjectLocked(app, kind, object));
     for (const v of movable('via')) vias.push({ via: v, x: v.x, y: v.y });
     const pads = [];
     for (const pad of movable('pad')) pads.push({ pad, before: pad.captureState() });
@@ -669,6 +683,7 @@ export function beginGroupDrag(app, worldPos) {
 /**
  * Live-update positions of every selected object during a group drag.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function scheduleGroupDrag(app, worldPos) {
     const drag = getGroupDrag(app);
@@ -684,7 +699,7 @@ export function scheduleGroupDrag(app, worldPos) {
     });
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} worldPos @param {{snap?: boolean}} [options] */
 export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     try {
         updateGroupPreview(app, worldPos, snap);
@@ -694,7 +709,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} worldPos @param {boolean} snap */
 function updateGroupPreview(app, worldPos, snap) {
     const g = getGroupDrag(app);
     if (!g) return;
@@ -722,21 +737,22 @@ function updateGroupPreview(app, worldPos, snap) {
         });
     }
 
-    previewPlacementPoses(app, new Map(g.comps.map(c => [c.id, { x: c.x + dx, y: c.y + dy }])), g.directTrackIds);
-    previewTextPoses(app, new Map(g.texts.map(entry => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
+    previewPlacementPoses(app, new Map(g.comps.map((/** @type {{id: string, x: number, y: number}} */ c) => [c.id, { x: c.x + dx, y: c.y + dy }])), g.directTrackIds);
+    previewTextPoses(app, new Map(g.texts.map((/** @type {{text: {id: string}, x: number, y: number}} */ entry) => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
     beginGroupPreview(app, g);
-    const display = original => g.preview?.copies.get(original) || original;
+    /** @template T @param {T} original @returns {T} */
+    const display = original => /** @type {T} */ (g.preview?.copies.get(original) || original);
     for (const vEntry of g.vias) {
         const via = display(vEntry.via);
         via.x = vEntry.x + dx;
         via.y = vEntry.y + dy;
-        renderVia(via, (id) => app.getLayerGroup(id));
+        renderVia(via, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
     for (const entry of g.pads || []) {
         const pad = display(entry.pad);
         pad.x = entry.before.x + dx;
         pad.y = entry.before.y + dy;
-        renderPad(pad, id => app.getLayerGroup(id));
+        renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
         const track = display(tEntry.track);
@@ -758,7 +774,7 @@ function updateGroupPreview(app, worldPos, snap) {
             fill.x = entry.before.x + dx;
             fill.y = entry.before.y + dy;
         }
-        fill.outline.forEach((point, index) => {
+        fill.outline.forEach((/** @type {Point} */ point, /** @type {number} */ index) => {
             point.x = entry.before.outline[index].x + dx;
             point.y = entry.before.outline[index].y + dy;
         });
@@ -800,9 +816,10 @@ export function endGroupDrag(app) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g */
 function groupMoveCommands(app, g) {
-    const display = original => g.preview?.copies.get(original) || original;
+    /** @template T @param {T} original @returns {T} */
+    const display = original => /** @type {T} */ (g.preview?.copies.get(original) || original);
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -859,7 +876,7 @@ export function cancelGroupDrag(app) {
     finishGroupPreview(app, g, false);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g */
 function removeGroupPreviewArtwork(app, g) {
     for (const entry of g.tracks) {
         const copy = g.preview?.copies.get(entry.track);
@@ -873,7 +890,7 @@ function removeGroupPreviewArtwork(app, g) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {GroupDrag} g @param {boolean} committed */
 function finishGroupPreview(app, g, committed) {
     if (g.finished) return;
     g.finished = true;
@@ -883,14 +900,14 @@ function finishGroupPreview(app, g, committed) {
     g.pendingWorld = null;
     try {
         removeGroupPreviewArtwork(app, g);
-        finishPlacementPreview(app);
-        finishTextPosePreview(app);
+        finishPlacementPreview(app, undefined);
+        finishTextPosePreview(app, undefined);
         if (g.preview && !committed) {
             const model = app.pcbDocument;
             for (const [entries, key, collection, render] of [
-                [g.tracks, 'track', model.tracks, track => renderTrack(track, id => app.getLayerGroup(id), _trackOpts(app, track))],
-                [g.vias, 'via', model.vias, via => renderVia(via, id => app.getLayerGroup(id))],
-                [g.pads, 'pad', model.pads, pad => renderPad(pad, id => app.getLayerGroup(id))],
+                [g.tracks, 'track', model.tracks, (/** @type {Track} */ track) => renderTrack(track, /** @param {string} id */ id => app.getLayerGroup(id), _trackOpts(app, track))],
+                [g.vias, 'via', model.vias, (/** @type {Via} */ via) => renderVia(via, /** @param {string} id */ id => app.getLayerGroup(id))],
+                [g.pads, 'pad', model.pads, (/** @type {Pad} */ pad) => renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id))],
             ]) {
                 if (!entries.length) continue;
                 const present = new Set(collection);
@@ -902,8 +919,8 @@ function finishGroupPreview(app, g, committed) {
                 else removeBoardShapeElement(app, entry.shape.id);
             }
             for (const entry of g.fills) {
-                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, id => app.getLayerGroup(id), { selected: true });
-                else removeCopperFillElements(entry.fill, id => app.getLayerGroup(id));
+                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, /** @param {string} id */ id => app.getLayerGroup(id), { selected: true });
+                else removeCopperFillElements(entry.fill, /** @param {string} id */ id => app.getLayerGroup(id));
             }
         }
     } finally {
@@ -920,7 +937,7 @@ function finishGroupPreview(app, g, committed) {
     _applyHighlights(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Track} track */
 function _trackOpts(app, track) {
     const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     return { viaDiameter: p.viaDiameter, viaDrill: p.viaDrill };
@@ -941,8 +958,9 @@ export function deleteBoxSelection(app) {
     }
     if (!hasBoxSelection(app)) return false;
     // Locked objects (by their own lock or a layer's) stay put.
+    /** @param {string} kind @returns {any[]} */
     const removable = kind => getPcbSelectionEntries(app)
-        .filter(entry => entry.kind === kind && !entry.locked).map(entry => entry.object);
+        .filter((/** @type {{kind: string, locked?: boolean}} */ entry) => entry.kind === kind && !entry.locked).map((/** @type {{object: unknown}} */ entry) => entry.object);
     const cmds = [];
     for (const t of removable('track')) cmds.push(new RemoveTrackCommand(app, t));
     for (const v of removable('via')) cmds.push(new RemoveViaCommand(app, v));

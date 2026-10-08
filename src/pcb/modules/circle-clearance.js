@@ -1,5 +1,9 @@
 import { closestPointOnSegment } from '../../core/geometry.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {Record<string, any>} ClearanceCircle */
+
+/** @param {ClearanceCircle} first @param {ClearanceCircle} second */
 export function circleCircleDistance(first, second) {
     const dx = second.x - first.x, dy = second.y - first.y;
     const separation = Math.hypot(dx, dy);
@@ -34,8 +38,9 @@ export function circleCircleDistance(first, second) {
         y: first.y + firstRadius * (uy * direction + ux * perpendicular) };
 }
 
+/** @param {ClearanceCircle} circle @param {Point} start @param {Point} end @param {number} [halfWidth] */
 export function circleSegmentDistance(circle, start, end, halfWidth = 0) {
-    const closest = closestPointOnSegment(circle, start, end);
+    const closest = closestPointOnSegment(/** @type {Point} */ (circle), start, end);
     const startDistance = Math.hypot(start.x - circle.x, start.y - circle.y);
     const endDistance = Math.hypot(end.x - circle.x, end.y - circle.y);
     const farthest = startDistance >= endDistance ? start : end;

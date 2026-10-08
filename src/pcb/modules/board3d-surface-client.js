@@ -1,17 +1,26 @@
 import { surfaceInputsEqual } from './board3d-surface-equality.js';
 import { encodeSurfaceInputs } from './board3d-surface-transfer.js';
 
+/** @typedef {Record<string, any>} SurfaceMap */
+/** @typedef {{id:number, revision:number, surfaces:SurfaceMap, reused:SurfaceMap, inputs:Map<string, any>, resolve:(value:any)=>void, reject:(reason:any)=>void}} BuildRequest */
+
+/** @param {() => Worker} [createWorker] */
 export function createSurfaceBuilder(createWorker = () => new Worker(
     new URL('./board3d-surface-worker.js?v=9', import.meta.url), { type: 'module' },
 )) {
+    /** @type {Worker|null} */
     let worker = null;
     let revision = 0;
     let nextId = 0;
+    /** @type {BuildRequest|null} */
     let active = null;
+    /** @type {BuildRequest|null} */
     let pending = null;
     let disposed = false;
+    /** @type {Map<string, {input:any, buffers:any}>} */
     let cache = new Map();
 
+    /** @param {any} error */
     const fail = (error) => {
         worker?.terminate();
         worker = null;
@@ -60,7 +69,7 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
         try {
             ensureWorker();
             const encoded = encodeSurfaceInputs(active.surfaces);
-            worker.postMessage({ id: active.id, surfaces: encoded.surfaces }, encoded.transfer);
+            /** @type {Worker} */ (worker).postMessage({ id: active.id, surfaces: encoded.surfaces }, encoded.transfer);
         } catch (error) {
             fail(error);
         }
@@ -79,11 +88,14 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
             }
         },
         /** With takeOwnership, callers must never mutate the supplied geometry after this call. */
+        /** @param {SurfaceMap} surfaces @param {{takeOwnership?: boolean}} [options] */
         build(surfaces, { takeOwnership = false } = {}) {
             if (disposed) return Promise.resolve(null);
             revision++;
             pending?.resolve(null);
+            /** @type {SurfaceMap} */
             const changedSources = {};
+            /** @type {SurfaceMap} */
             const reused = {};
             const inputs = new Map();
             const equalityMemo = new WeakMap();

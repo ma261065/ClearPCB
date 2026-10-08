@@ -3,10 +3,10 @@ import * as THREE from '../../../assets/vendor/three.module.js';
 export const COLOR_COMPONENT = [40, 44, 52];
 
 /** @typedef {{x: number, y: number, z: number}} ModelVertex */
-/** @typedef {{idx?: number[], color?: number[]}} ModelFace */
+/** @typedef {{idx: number[], color?: number[]}} ModelFace */
 /**
  * A triangulated model: vertices, and faces indexing them with an sRGB colour (0-255).
- * @typedef {{verts: Array<ModelVertex|undefined>, faces: ModelFace[]}} ModelMesh
+ * @typedef {{verts: ModelVertex[], faces: ModelFace[]}} ModelMesh
  */
 
 /**

@@ -5,11 +5,16 @@ import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } f
 import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-drag.js';
 import { Via } from '../../shapes/via.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {{x: number, y: number}} Point */
 
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 
+/** @type {WeakMap<PcbEditor, string>} */
 const viaToolNets = new WeakMap();
+/** @type {WeakMap<PcbEditor, SVGGElement|null>} */
 const viaRingGroups = new WeakMap();
+/** @type {WeakMap<PcbEditor, Point>} */
 const viaPreviewWorlds = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -17,7 +22,7 @@ export function getViaToolNet(app) {
     return viaToolNets.get(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} net */
 export function setViaToolNet(app, net) {
     viaToolNets.set(app, net);
 }
@@ -26,6 +31,7 @@ export function setViaToolNet(app, net) {
  * Via tool preview: crosshair + outlined via (ring + drill) at the
  * snapped cursor position.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateViaPreview(app, worldPos) {
     if (!app.viewport) return;
@@ -35,8 +41,10 @@ export function updateViaPreview(app, worldPos) {
     const svg = app.viewport?.svg;
     if (!svg) return;
     const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-    const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-    const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+    const viaDiameter = p.viaDiameter;
+    const viaDrill = p.viaDrill;
+    const dia = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;
+    const drill = typeof viaDrill === 'number' && Number.isFinite(viaDrill) && viaDrill > 0 ? viaDrill : 0.3;
     const scale = app.viewport.scale || 1;
     const stroke = 1 / scale;
 
@@ -63,8 +71,8 @@ export function updateViaPreview(app, worldPos) {
         svg.appendChild(g);
         viaRingGroups.set(app, g);
     }
-    const ring = g.querySelector('[data-role="ring"]');
-    const hole = g.querySelector('[data-role="hole"]');
+    const ring = /** @type {SVGCircleElement} */ (g.querySelector('[data-role="ring"]'));
+    const hole = /** @type {SVGCircleElement} */ (g.querySelector('[data-role="hole"]'));
     ring.setAttribute('cx', String(snap.x));
     ring.setAttribute('cy', String(snap.y));
     ring.setAttribute('r', String(dia / 2));
@@ -105,11 +113,13 @@ export function showViaToolProperties(app) {
     const routing = () => /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     const currentDiameter = () => {
         const p = routing();
-        return Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        const diameter = p.viaDiameter;
+        return typeof diameter === 'number' && Number.isFinite(diameter) && diameter > 0 ? diameter : 0.6;
     };
     const currentDrill = () => {
         const p = routing();
-        return Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        const drill = p.viaDrill;
+        return typeof drill === 'number' && Number.isFinite(drill) && drill > 0 ? drill : 0.3;
     };
     const refresh = () => app.refreshPropertyPanel(describe());
     const updatePreview = () => {
@@ -117,6 +127,7 @@ export function showViaToolProperties(app) {
         const world = getViaPreviewWorld(app);
         if (world) updateViaPreview(app, world);
     };
+    /** @param {number} value */
     const setDiameter = value => {
         const next = Number.isFinite(value) && value > 0 ? Math.max(value, currentDrill()) : value;
         const hadError = !!diameterError;
@@ -127,6 +138,7 @@ export function showViaToolProperties(app) {
         updatePreview();
         if (hadError) refresh();
     };
+    /** @param {number} value */
     const setDrill = value => {
         const next = Number.isFinite(value) && value > currentDiameter() ? currentDiameter() : value;
         const hadError = !!drillError;
@@ -162,12 +174,15 @@ export function showViaToolProperties(app) {
  * joins that copper and takes its net; mid-segment it splits the track so the via sits on
  * a node of both halves; elsewhere it stands alone. A net chosen in the tool wins.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pressViaTool(app, worldPos) {
     const snap = resolveTrackSnap(app, worldPos, {});
     const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-    const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-    const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+    const viaDiameter = p.viaDiameter;
+    const viaDrill = p.viaDrill;
+    const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;
+    const drill = typeof viaDrill === 'number' && Number.isFinite(viaDrill) && viaDrill > 0 ? viaDrill : 0.3;
     const selectedNet = String(getViaToolNet(app) || '').trim();
 
     if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
@@ -180,7 +195,8 @@ export function pressViaTool(app, worldPos) {
         app.history.execute(new AddViaCommand(app, new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet })));
         return;
     }
-    const via = new Via({ x: split.px, y: split.py, diameter, drill, net: selectedNet || split.track.net || '' });
+    const splitTrack = /** @type {Track} */ (split.track);
+    const via = new Via({ x: split.px, y: split.py, diameter, drill, net: selectedNet || splitTrack.net || '' });
     const parts = splitTrackObjectAtPoint(split.track, split.edgeId, { x: split.px, y: split.py });
     if (!parts?.length) {
         app.history.execute(new AddViaCommand(app, via));

@@ -1,4 +1,4 @@
-import {
+﻿import {
     astarRoute,
     fixAngles,
     insertCopperObstacles,
@@ -12,6 +12,16 @@ import {
     SpatialHash
 } from './autorouter-common.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {import('./autorouter-common.js').RoutePoint} RoutePoint */
+/** @typedef {import('./autorouter-common.js').ViaPoint} ViaPoint */
+/** @typedef {{path:RoutePoint[], vias:ViaPoint[]}} PathResult */
+/** @typedef {{path:RoutePoint[], vias:ViaPoint[], net:string}} RouteData */
+/** @typedef {Map<string, RouteData|null>} RouteMap */
+/** @typedef {{net:string, connIdx:number, from:any, to:any, skipIds:Set<string>, startLayer:string, endLayer:string, [key:string]:any}} ConnItem */
+/** @typedef {import('./autorouter-common.js').PadLike & {id:string, net?:string, [key:string]:any}} PadLike */
+/** @typedef {Record<string, any>} RouterOptions */
+/** @typedef {{pads: Point[]}} RouterPadConnection */
 
 /**
  * Reorder `conn.pads` in place into a nearest-neighbour chain starting at
@@ -22,8 +32,8 @@ import {
  *
  * Used by the pathfinder router (NOT by the classic router, which uses
  * `buildMstEdges` for a planar MST topology). MST was tried in the
- * pathfinder and held the test-board.json clean count at 68/76 — the
- * same number as the legacy chain — but produced no measurable gain
+ * pathfinder and held the test-board.json clean count at 68/76 â€” the
+ * same number as the legacy chain â€” but produced no measurable gain
  * either way; the chain is kept because changing pathfinder topology
  * affects the negotiated-congestion convergence in ways outside the
  * scope of the user-facing visual-crossing fix.
@@ -31,6 +41,7 @@ import {
  * Callers must reorder any parallel arrays (e.g. `netPadIdList`) using
  * the returned permutation.
  */
+/** @param {RouterPadConnection} conn @returns {number[]|null} */
 function nncReorderPads(conn) {
     const pads = conn.pads;
     if (pads.length < 3) return null;
@@ -39,8 +50,8 @@ function nncReorderPads(conn) {
     // the start, then grow greedily by nearest neighbour. This is the
     // legacy heuristic that holds the test-board.json baseline at 68/76.
     //
-    // (Multi-start variants — try every pad as a start, pick the shortest
-    // total — were tried per Petrović et al. EPFL/AMD 2025 and produced
+    // (Multi-start variants â€” try every pad as a start, pick the shortest
+    // total â€” were tried per PetroviÄ‡ et al. EPFL/AMD 2025 and produced
     // 67/76 on test-board.json. Shorter chains fed the negotiated-
     // congestion loop into a slightly worse local optimum, so the
     // single-start chain is retained.)
@@ -72,12 +83,12 @@ function nncReorderPads(conn) {
 }
 
 
-// ─── Pathfinder (negotiated-congestion) router ──────────────────────────
+// â”€â”€â”€ Pathfinder (negotiated-congestion) router â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Greedy feasibility extraction for Pathfinder output.
  *
- * Given a Map of (connKey → route|null) where routes may overlap, sample
+ * Given a Map of (connKey â†’ route|null) where routes may overlap, sample
  * each emitted route into fine cells (~trackWidth + clearance in size) and
  * iteratively drop the connection contributing to the most cell conflicts
  * until no cell is shared by two connections.
@@ -89,19 +100,25 @@ function nncReorderPads(conn) {
  * two routes sharing a cell almost certainly violate clearance. This is a
  * Maximum Independent Set approximation (NP-hard); the greedy "drop most-
  * conflicting first" heuristic is standard.
+ * @param {RouteMap} finalRoutes
+ * @param {ConnItem[]} connList
+ * @param {number} gridStep
+ * @param {number} trackWidth
+ * @param {number} clearance
+ * @returns {Set<string>}
  */
 function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clearance) {
     // Conflict-detection cell. Two routes whose samples land in the same cell
     // are considered conflicting. Choose cellSize so the strictest clearance
-    // (via-track = viaRadius + halfTrack + clearance ≈ 0.4mm by default)
+    // (via-track = viaRadius + halfTrack + clearance â‰ˆ 0.4mm by default)
     // fits within (cellSize + some via-rasterization margin).
     const cellSize = Math.max(trackWidth + clearance, gridStep * 0.5);
     // Sample step << cellSize so diagonally-crossing segments are caught.
     // Two perpendicular segments crossing at a cell boundary would otherwise
     // alternate between adjacent cells and miss each other.
     const sampleStep = cellSize / 4;
-    // Rasterize via footprints over a 3×3 cell block: the via's clearance
-    // requirement (≈ 0.4mm) often spans more than one cell.
+    // Rasterize via footprints over a 3Ã—3 cell block: the via's clearance
+    // requirement (â‰ˆ 0.4mm) often spans more than one cell.
     const VIA_RASTER_OFFSETS = [
         [-1, -1], [0, -1], [1, -1],
         [-1,  0], [0,  0], [1,  0],
@@ -110,12 +127,14 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
 
     const KEY_OFFSET = 4194304;
     const KEY_Y_STRIDE = 33554432;
+    /** @param {number} x @param {number} y @param {string|number} layer */
     const _key = (x, y, layer) => {
         const cx = Math.floor(x / cellSize);
         const cy = Math.floor(y / cellSize);
         const lbit = (layer === 'bottom' || layer === 1) ? 1 : 0;
         return ((cx + KEY_OFFSET) * KEY_Y_STRIDE) + ((cy + KEY_OFFSET) * 2) + lbit;
     };
+    /** @param {number} cx @param {number} cy @param {string|number} layer */
     const _keyCell = (cx, cy, layer) => {
         const lbit = (layer === 'bottom' || layer === 1) ? 1 : 0;
         return ((cx + KEY_OFFSET) * KEY_Y_STRIDE) + ((cy + KEY_OFFSET) * 2) + lbit;
@@ -126,6 +145,7 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
     /** @type {Map<string, Set<number>>} connKey -> Set<cellKey> */
     const connCells = new Map();
 
+    /** @param {number} cellKey @param {string} connKey */
     const addToCell = (cellKey, connKey) => {
         let set = cellOccupants.get(cellKey);
         if (!set) { set = new Set(); cellOccupants.set(cellKey, set); }
@@ -151,7 +171,7 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
                 addToCell(_key(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t, p1.layer), connKey);
             }
         }
-        // Vias occupy a 3×3 cell footprint on BOTH layers to capture the
+        // Vias occupy a 3Ã—3 cell footprint on BOTH layers to capture the
         // larger via clearance requirement.
         for (const v of route.vias) {
             const cx = Math.floor(v.x / cellSize);
@@ -168,7 +188,7 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
 
     // Greedy loop: find the connection touching the most conflicted cells,
     // drop it, repeat. A "conflict" requires occupants from at least two
-    // DIFFERENT nets — two sub-routes of the same multi-pin net legitimately
+    // DIFFERENT nets â€” two sub-routes of the same multi-pin net legitimately
     // share cells at junction pads and must NOT be counted as conflicts.
     while (true) {
         const conflictCount = new Map();
@@ -191,7 +211,7 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
         if (!anyConflict) break;
 
         // Drop the conn with the highest conflict count. Tiebreak: longer
-        // routes (more cells) first — they're more likely to be in conflicts
+        // routes (more cells) first â€” they're more likely to be in conflicts
         // elsewhere too, and dropping them frees more space per drop.
         let worstConn = null, worstCount = 0, worstSize = 0;
         for (const [ck, c] of conflictCount) {
@@ -218,10 +238,14 @@ function extractFeasibleSubset(finalRoutes, connList, gridStep, trackWidth, clea
 /**
  * Run the cell-greedy feasibility extraction + hard-obstacle re-route on a
  * candidate snapshot of Pathfinder routes. Returns a new map with the final
- * routes (dropped → re-routed or null), plus stats.
+ * routes (dropped â†’ re-routed or null), plus stats.
  *
  * Does NOT mutate the input `snapshotRoutes`. Used by routeAllPathfinder's
  * multi-snapshot trial loop to score each candidate.
+ * @param {RouteMap} snapshotRoutes
+ * @param {ConnItem[]} connList
+ * @param {PadLike[]} allPads
+ * @param {RouterOptions} opts
  */
 async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
     const {
@@ -271,7 +295,7 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
 
         // Order dropped items shortest-first: easier-to-fit nets succeed first,
         // hardest left to squeeze through whatever channels remain. (Longest-
-        // first was tested and is uniformly worse — long routes consume too
+        // first was tested and is uniformly worse â€” long routes consume too
         // much channel space, locking out subsequent short ones.)
         const droppedItems = connList.filter(item => droppedConns.has(`${item.net}:${item.connIdx}`));
         droppedItems.sort((a, b) =>
@@ -292,10 +316,10 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
                     bounds: routeBounds,
                     viaRadius,
                     routingNet: item.net,
-                    // No cellCostFn here — pure hard-obstacle A*.
+                    // No cellCostFn here â€” pure hard-obstacle A*.
                 }
             );
-            if (result?.path?.length > 0) {
+            if (result && result.path.length > 0) {
                 finalRoutes.set(connKey, { path: result.path, vias: result.vias || [], net: item.net });
                 rerouteSuccess++;
                 // Animate the successful re-route.
@@ -339,8 +363,8 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
 /**
  * Geometric clearance verification for a set of routed connections.
  *
- * Cell-based feasibility extraction is approximate — two routes whose cell
- * footprints don't overlap can still violate clearance at grid edges (a 3μm
+ * Cell-based feasibility extraction is approximate â€” two routes whose cell
+ * footprints don't overlap can still violate clearance at grid edges (a 3Î¼m
  * sliver inside a dense pad row, a perpendicular crossing inside a single
  * cell). This pass catches those by running an exact distance check against
  * a SpatialHash of all routes' tracks + vias + pads.
@@ -349,8 +373,11 @@ async function extractAndReroute(snapshotRoutes, connList, allPads, opts) {
  * until no violations remain. Same-net tracks/vias are exempted (multi-pin
  * nets legitimately share copper). Same-net via-on-pad is allowed.
  *
- * @param {Map<string, {path,vias,net}|null>} finalRoutes — mutated in place;
+ * @param {RouteMap} finalRoutes â€” mutated in place;
  *   violators set to null.
+ * @param {ConnItem[]} connList
+ * @param {PadLike[]} allPads
+ * @param {RouterOptions} opts
  * @returns {{ violators: number, cleanRouted: number }}
  */
 function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
@@ -360,7 +387,7 @@ function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
     const EPS = 1e-4;
 
     // Build per-conn data + a SpatialHash of all route tracks and vias.
-    /** @type {Map<string, {item, route}>} */
+    /** @type {Map<string, {item:ConnItem, route:RouteData}>} */
     const connData = new Map();
     const routeHash = new SpatialHash(cellSize);
     for (const item of connList) {
@@ -385,6 +412,7 @@ function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
     //   - segments crossing another conn's track/via (different net)
     //   - segments crossing a foreign-net pad (not in own skipIds, not own-net)
     //   - vias crossing another conn's track/via or a foreign-net pad
+    /** @param {string} connKey */
     const countViolations = (connKey) => {
         const data = connData.get(connKey);
         if (!data) return 0;
@@ -406,7 +434,7 @@ function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
             const blockers = collectBlockers(routeHash, p1, p2, halfTrack + clearance, segSkip, p1.layer, item.net);
             count += blockers;
 
-            // Track vs static pads (other than own endpoints + same-net) — cell-localised.
+            // Track vs static pads (other than own endpoints + same-net) â€” cell-localised.
             count += padHashSegmentViolations(padHash, p1.x, p1.y, p2.x, p2.y, p1.layer,
                 halfTrack + clearance - EPS, item.skipIds, padNetMap, item.net);
         }
@@ -457,7 +485,7 @@ function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
  * incremental UI rendering (matches the schema used by the classic router's
  * `onNetRouted` payload: `{ net, points, layer, vias, connId }`).
  *
- * The path is split at every layer transition — each contiguous same-layer
+ * The path is split at every layer transition â€” each contiguous same-layer
  * run becomes one track. Layer-change points (via locations) are NOT
  * emitted as zero-length segments; they're handled by the via list.
  *
@@ -467,9 +495,10 @@ function geometricVerifyAndDrop(finalRoutes, connList, allPads, opts) {
  * @param {Array<{x:number,y:number}>} [vias] - vias to attach (rendered as
  *   separate hole-layer circles; attaching to the first track is sufficient
  *   because `_renderNetTracks` clears by connId before re-rendering).
- * @returns {Array<{net:string, points:Array<{x:number,y:number}>, layer:string, vias:Array, connId:string}>}
+ * @returns {Array<{net:string, points:Point[], layer:string|number, vias:ViaPoint[], connId:string}>}
  */
 function buildConnTracksFromPath(path, net, connId, vias) {
+    /** @type {Array<{net:string, points:Point[], layer:string|number, vias:ViaPoint[], connId:string}>} */
     const tracks = [];
     if (!path || path.length < 2) return tracks;
     let segStart = 0;
@@ -511,6 +540,7 @@ function buildConnTracksFromPath(path, net, connId, vias) {
  * Count direction changes ("bends") in a single-layer-aware path. Used to
  * decide whether a fresh re-route is geometrically cleaner than the
  * congestion-shaped original.
+ * @param {RoutePoint[]} path
  */
 function countPathBends(path) {
     let bends = 0;
@@ -524,6 +554,7 @@ function countPathBends(path) {
     return bends;
 }
 
+/** @param {RoutePoint[]} path */
 function pathLength(path) {
     let len = 0;
     for (let i = 1; i < path.length; i++) {
@@ -534,8 +565,9 @@ function pathLength(path) {
 
 /**
  * Count diagonal (non-orthogonal) segments in a path. A segment is diagonal
- * when both its x- and y-deltas are non-zero (a 45° or skew run). Lower is
+ * when both its x- and y-deltas are non-zero (a 45Â° or skew run). Lower is
  * visually cleaner / more "PCB-conventional".
+ * @param {RoutePoint[]} path
  */
 function countDiagSegments(path) {
     let diag = 0;
@@ -552,7 +584,7 @@ function countDiagSegments(path) {
  * congestion router shapes its KEPT routes under heavy present/history
  * cell costs, so even in regions that end up clear the paths weave
  * octilinearly (lots of diagonals + zig-zags). Once the infeasible subset
- * has been dropped, the emitted board is far less congested — so we can
+ * has been dropped, the emitted board is far less congested â€” so we can
  * re-route each kept net with PURE hard-obstacle A* (no congestion cost),
  * which produces the same clean, mostly-orthogonal geometry as the maze
  * router.
@@ -566,10 +598,10 @@ function countDiagSegments(path) {
  *  - If the re-route fails or is worse, the original (already-verified
  *    clean) route is restored unchanged. Net count can never drop.
  *
- * @param {Map<string, {path,vias,net}|null>} finalRoutes
- * @param {Array} connList
- * @param {Array} allPads
- * @param {object} opts
+ * @param {RouteMap} finalRoutes
+ * @param {ConnItem[]} connList
+ * @param {PadLike[]} allPads
+ * @param {RouterOptions} opts
  * @returns {Promise<{rerouted: number, considered: number}>}
  */
 async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
@@ -587,6 +619,7 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
         obs.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
     }
     insertCopperObstacles(obs, opts.copperObstacles);
+    /** @param {string} connKey @param {string} net @param {RouteData} route */
     const insertRoute = (connKey, net, route) => {
         for (let p = 0; p < route.path.length - 1; p++) {
             const p1 = route.path[p], p2 = route.path[p + 1];
@@ -634,7 +667,7 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
                 routingNet: item.net,
                 // No cellCostFn: pure hard-obstacle A* for clean geometry.
                 // Elevated direction/bend penalties bias the search toward
-                // long orthogonal runs (fewer 45° diagonals + corners) than
+                // long orthogonal runs (fewer 45Â° diagonals + corners) than
                 // the negotiated pass produced. These only re-shape an
                 // already-feasible route; they never relax clearance.
                 dirPenaltyScale: 2.5,
@@ -643,7 +676,7 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
         );
 
         let accept = null;
-        if (result?.path?.length > 0) {
+        if (result && result.path.length > 0) {
             // Score by orthogonality: bends + diagonal segments (each weighted
             // equally). A straighter, more-orthogonal route scores lower.
             const newScore = countPathBends(result.path) + countDiagSegments(result.path);
@@ -680,7 +713,7 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
  * congestion router emits grid-aligned A* paths which often staircase
  * (alternating D and H/V steps) through clear regions. Classical
  * line-of-sight simplification flattens these without changing the set of
- * cells visited materially — provided we also respect every OTHER finalised
+ * cells visited materially â€” provided we also respect every OTHER finalised
  * route's copper, not just pads.
  *
  * Operates per-route: temporarily remove the route from a combined
@@ -691,12 +724,12 @@ async function cleanRerouteFinalRoutes(finalRoutes, connList, allPads, opts) {
  *
  * Geometrically conservative: any candidate straight segment must clear
  * every pad in `padHash` AND every retained segment/via in `routeHash`
- * (same-net via skipNet) — so we can't introduce a new violation. If no
+ * (same-net via skipNet) â€” so we can't introduce a new violation. If no
  * straight segment fits, the original staircase is kept.
  *
- * @param {Map<string, {path,vias,net}|null>} finalRoutes
- * @param {Array} connList
- * @param {{trackWidth, clearance, viaDiameter, cellSize, padHash}} opts
+ * @param {RouteMap} finalRoutes
+ * @param {ConnItem[]} connList
+ * @param {{trackWidth:number, clearance:number, viaDiameter:number, cellSize:number, padHash:SpatialHash}} opts
  * @returns {{smoothed: number, segmentsRemoved: number}}
  */
 function smoothPathfinderRoutes(finalRoutes, connList, opts) {
@@ -728,10 +761,10 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
     // collision check). We delegate isOnPad to padHash and OR-combine the
     // segment check across pad + route hashes.
     const combinedObstacles = {
-        isOnPad: (x, y, c) => padHash.isOnPad(x, y, c),
-        isSegmentBlocked: (x1, y1, x2, y2, c, skipIds, layer, skipNet) =>
-            padHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, layer, skipNet)
-            || routeHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, layer, skipNet),
+        isOnPad: /** @param {number} x @param {number} y @param {number} c */ (x, y, c) => padHash.isOnPad(x, y, c),
+        isSegmentBlocked: /** @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2 @param {number} c @param {Set<string>} skipIds @param {string|number} layer @param {string} skipNet */ (x1, y1, x2, y2, c, skipIds, layer, skipNet) =>
+            padHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, /** @type {any} */ (layer), /** @type {any} */ (skipNet))
+            || routeHash.isSegmentBlocked(x1, y1, x2, y2, c, skipIds, /** @type {any} */ (layer), /** @type {any} */ (skipNet)),
     };
 
     let smoothed = 0;
@@ -745,22 +778,22 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
         // Temporarily remove this route from routeHash so the line-of-sight
         // check doesn't conflict with the very segments we're trying to
         // collapse. (Same-net is already exempt via skipNet, but vias are
-        // stored as pads which skipNet doesn't filter — pulling the route
+        // stored as pads which skipNet doesn't filter â€” pulling the route
         // is simpler than splitting the skip logic.)
         routeHash.removeConnection(connKey);
 
         const before = route.path.length;
         // Match the maze router's octilinear cleanup so the two routers
         // produce visually consistent geometry. simplifyPath collapses
-        // grid staircases into the farthest valid H/V/45° segment;
+        // grid staircases into the farthest valid H/V/45Â° segment;
         // optimizePath then rewrites any remaining staircases into clean
-        // 1–3 segment L-shapes (preferring orthogonal runs over diagonals);
+        // 1â€“3 segment L-shapes (preferring orthogonal runs over diagonals);
         // fixAngles merges collinear runs and normalises any stray angle.
         // Every optimizePath candidate is validated against the combined
         // pad+route obstacle view, so this cannot introduce a violation.
-        const s1 = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, item.net);
+        const s1 = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, /** @type {any} */ (item.net));
         const s2 = fixAngles(s1);
-        const cleaned = fixAngles(optimizePath(s2, combinedObstacles, item.skipIds, totalClear, item.net));
+        const cleaned = fixAngles(optimizePath(s2, combinedObstacles, item.skipIds, totalClear, /** @type {any} */ (item.net)));
 
         // Accept the cleaned path when it is no longer than the original.
         // optimizePath/simplifyPath never lengthen a route in practice, but
@@ -801,6 +834,13 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
  *
  * Returns the number of OTHER routes whose copper violates clearance against
  * the segment (each is counted once even if multiple of its segments conflict).
+ * @param {SpatialHash} routeHash
+ * @param {RoutePoint} p1
+ * @param {RoutePoint} p2
+ * @param {number} queryClear
+ * @param {Set<string>} skipIds
+ * @param {string|number} layer
+ * @param {string} ownNet
  */
 function collectBlockers(routeHash, p1, p2, queryClear, skipIds, layer, ownNet) {
     const ax1 = p1.x, ay1 = p1.y, ax2 = p2.x, ay2 = p2.y;
@@ -842,6 +882,14 @@ function collectBlockers(routeHash, p1, p2, queryClear, skipIds, layer, ownNet) 
  * Helper: count distinct OTHER-net blockers for a via.
  * Returns the number of other routes whose copper violates clearance against
  * this via.
+ * @param {SpatialHash} routeHash
+ * @param {number} vx
+ * @param {number} vy
+ * @param {number} viaRadius
+ * @param {number} halfTrack
+ * @param {number} clearance
+ * @param {Set<string>} skipIds
+ * @param {string} ownNet
  */
 function collectViaBlockers(routeHash, vx, vy, viaRadius, halfTrack, clearance, skipIds, ownNet) {
     const blockers = new Set();
@@ -862,7 +910,7 @@ function collectViaBlockers(routeHash, vx, vy, viaRadius, halfTrack, clearance, 
                 if (obj.net === ownNet) continue;
                 if (obj.isPad) {
                     // Other via: center distance < 2*viaRadius + clearance
-                    const d = Math.hypot(vx - obj.cx, vy - obj.cy);
+                    const d = Math.hypot(vx - /** @type {number} */ (obj.cx), vy - /** @type {number} */ (obj.cy));
                     if (d < 2 * viaRadius + clearance) blockers.add(obj.connId);
                 } else {
                     // Other track: dist from via center to track center-line < viaRadius + halfTrack + clearance
@@ -877,6 +925,7 @@ function collectViaBlockers(routeHash, vx, vy, viaRadius, halfTrack, clearance, 
 
 /**
  * Total per-layer path length of a route (ignores via segments).
+ * @param {RouteData} route
  */
 function pathLen(route) {
     let len = 0;
@@ -893,6 +942,11 @@ function pathLen(route) {
  * Same-net pads (per padNetMap) and pads in `skipPadIds` are exempt.
  *
  * @param {SpatialHash} padHash - hash containing pads with connId undefined.
+ * @param {number} ax1
+ * @param {number} ay1
+ * @param {number} ax2
+ * @param {number} ay2
+ * @param {string|number} layer
  * @param {number} queryClear - distance threshold (halfTrack + clearance, optionally minus EPS).
  * @param {Set<string>} skipPadIds - pad-instance IDs to skip (own endpoint pads).
  * @param {Map<string, Set<string>>} padNetMap - padId -> nets that use that pad.
@@ -931,6 +985,13 @@ function padHashSegmentViolations(padHash, ax1, ay1, ax2, ay2, layer, queryClear
 
 /**
  * Count static-pad violations against a via centre using a pads-only SpatialHash.
+ * @param {SpatialHash} padHash
+ * @param {number} vx
+ * @param {number} vy
+ * @param {number} queryClear
+ * @param {Set<string>} skipPadIds
+ * @param {Map<string, Set<string>>} padNetMap
+ * @param {string} ownNet
  */
 function padHashViaViolations(padHash, vx, vy, queryClear, skipPadIds, padNetMap, ownNet) {
     const cs = padHash.cellSize;
@@ -969,15 +1030,23 @@ function padHashViaViolations(padHash, vx, vy, queryClear, skipPadIds, padNetMap
  *
  * Cost: zero overhead when the coarse attempt succeeds (the common case).
  * Only failures pay the refinement cost.
+ * @param {number} sx @param {number} sy @param {number} ex @param {number} ey
+ * @param {any} obstacles
+ * @param {Set<string>} skipIds
+ * @param {number} gridStep @param {number} trackWidth @param {number} clearance
+ * @param {number} greedyWeight @param {boolean} allowVias
+ * @param {string} startLayer @param {string} endPadLayer
+ * @param {RouterOptions} opts
+ * @returns {Promise<PathResult|null>}
  */
 async function astarRouteWithRefinement(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight, allowVias, startLayer, endPadLayer, opts) {
-    let r = await astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight, allowVias, startLayer, endPadLayer, opts);
-    if (r?.path?.length > 0) return r;
+    let r = /** @type {PathResult|null} */ (await astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight, allowVias, startLayer, endPadLayer, opts));
+    if (r && r.path.length > 0) return r;
     if (opts?.cancelToken?.cancelled) return r;
-    // One refinement step. Don't refine indefinitely — at some point the
+    // One refinement step. Don't refine indefinitely â€” at some point the
     // failure is real congestion, not grid coarseness.
     if (gridStep > 0.125) {
-        r = await astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep * 0.5, trackWidth, clearance, greedyWeight, allowVias, startLayer, endPadLayer, opts);
+        r = /** @type {PathResult|null} */ (await astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep * 0.5, trackWidth, clearance, greedyWeight, allowVias, startLayer, endPadLayer, opts));
     }
     return r;
 }
@@ -992,12 +1061,20 @@ async function astarRouteWithRefinement(sx, sy, ex, ey, obstacles, skipIds, grid
  * Implementation: enumerate all (start, end) pad-pair candidates, sort by
  * Manhattan distance, and try `astarRouteWithRefinement` on each pair
  * until one succeeds. With Manhattan ordering, the most directly-reachable
- * pair is tried first — typically a corner pad of a thermal cluster rather
+ * pair is tried first â€” typically a corner pad of a thermal cluster rather
  * than a hemmed-in centre pad. Single-pad pins (no alternates) collapse to
  * exactly one call, identical to the previous behaviour.
  *
  * `skipIds` MUST already include every primary + alternate pad id of both
  * endpoints (callers build this via netPadIdList).
+ * @param {any} fromPad @param {any} toPad
+ * @param {any} obstacles
+ * @param {Set<string>} skipIds
+ * @param {number} gridStep @param {number} trackWidth @param {number} clearance
+ * @param {number} greedyWeight @param {boolean} allowVias
+ * @param {string} fromLayer @param {string} toLayer
+ * @param {RouterOptions} opts
+ * @returns {Promise<PathResult|null>}
  */
 async function astarRouteAnyEndpoint(fromPad, toPad, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight, allowVias, fromLayer, toLayer, opts) {
     const sList = (fromPad.alternates && fromPad.alternates.length > 0)
@@ -1020,6 +1097,7 @@ async function astarRouteAnyEndpoint(fromPad, toPad, obstacles, skipIds, gridSte
         }
     }
     pairs.sort((a, b) => a.d - b.d);
+    /** @type {PathResult|null} */
     let lastResult = null;
     for (const { s, e } of pairs) {
         if (opts?.cancelToken?.cancelled) return null;
@@ -1031,7 +1109,7 @@ async function astarRouteAnyEndpoint(fromPad, toPad, obstacles, skipIds, gridSte
             greedyWeight, allowVias, sLayer, eLayer,
             { ...opts, startPad: s, endPad: e }
         );
-        if (result?.path?.length > 0) return result;
+        if (result && result.path.length > 0) return result;
         lastResult = result;
     }
     return lastResult;
@@ -1045,11 +1123,16 @@ async function astarRouteAnyEndpoint(fromPad, toPad, obstacles, skipIds, gridSte
  * the winner didn't route cleanly. Each candidate route is geometrically
  * checked against the current extended set; only conflict-free imports are
  * added. Each trial's routes are GUARANTEED clean against ITS OWN trial set,
- * but not against a different one — most imports will conflict and be
+ * but not against a different one â€” most imports will conflict and be
  * rejected, but a few often slot into "holes" in the winner's set.
  *
- * Mutates `bestRoutes` Map in place (sets connKey → route for added items).
+ * Mutates `bestRoutes` Map in place (sets connKey â†’ route for added items).
  *
+ * @param {RouteMap} bestRoutes
+ * @param {RouteMap[]} allTrialRoutes
+ * @param {ConnItem[]} connList
+ * @param {PadLike[]} allPads
+ * @param {RouterOptions} opts
  * @returns {number} count of newly added connections
  */
 function unionExtend(bestRoutes, allTrialRoutes, connList, allPads, opts) {
@@ -1082,6 +1165,7 @@ function unionExtend(bestRoutes, allTrialRoutes, connList, allPads, opts) {
     }
 
     // Check if `route` for `item` is geometrically clean against current hash + pads.
+    /** @param {RouteData} route @param {ConnItem} item @param {string} connKey */
     const isClean = (route, item, connKey) => {
         const skipIds = new Set([connKey]);
         for (const id of item.skipIds) skipIds.add(id);
@@ -1153,7 +1237,7 @@ function unionExtend(bestRoutes, allTrialRoutes, connList, allPads, opts) {
  *   conflict-count ascending:
  *     - Identify the set S of existing routes in bestRoutes that conflict
  *       with Rm. Skip if |S| > MAX_SWAP_DROP, or if Rm conflicts with any
- *       static pad (pads are permanent — can't be swapped).
+ *       static pad (pads are permanent â€” can't be swapped).
  *     - Tentatively swap: drop S, add Rm, then A* re-route each displaced
  *       route in S against the new state.
  *     - Net gain = 1 + |recovered| - |S|.  Track best swap across all
@@ -1162,6 +1246,11 @@ function unionExtend(bestRoutes, allTrialRoutes, connList, allPads, opts) {
  *
  * Mutates `bestRoutes` in place. Returns number of nets added (net gain
  * summed across applied swaps).
+ * @param {RouteMap} bestRoutes
+ * @param {RouteMap[]} allTrialRoutes
+ * @param {ConnItem[]} connList
+ * @param {PadLike[]} allPads
+ * @param {RouterOptions} opts
  */
 async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
     const {
@@ -1188,6 +1277,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
     }
     insertCopperObstacles(hash, opts.copperObstacles);
 
+    /** @param {RouteData} route @param {ConnItem} item @param {string} connKey */
     const insertRoute = (route, item, connKey) => {
         for (let p = 0; p < route.path.length - 1; p++) {
             const p1 = route.path[p], p2 = route.path[p + 1];
@@ -1210,7 +1300,8 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
 
     // Find conflicts for a candidate route. Returns:
     //   { keys: Set<connKey> of conflicting bestRoutes, hasPadConflict: bool }
-    // A pad conflict means the candidate can't ever fit — skip it.
+    // A pad conflict means the candidate can't ever fit â€” skip it.
+    /** @param {RouteData} route @param {ConnItem} item @param {string} mKey */
     const findConflicts = (route, item, mKey) => {
         const skipIds = new Set([mKey]);
         for (const id of item.skipIds) skipIds.add(id);
@@ -1287,7 +1378,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
                             } else if (obj.connId && !skipIds.has(obj.connId)) {
                                 if (obj.net === item.net) continue;
                                 if (obj.isPad) {
-                                    const d = Math.hypot(via.x - obj.cx, via.y - obj.cy);
+                                    const d = Math.hypot(via.x - /** @type {number} */ (obj.cx), via.y - /** @type {number} */ (obj.cy));
                                     if (d < 2 * viaRadius + clearance) conflicts.add(obj.connId);
                                 } else {
                                     const d = pointToSegmentDist(via.x, via.y, obj.x1, obj.y1, obj.x2, obj.y2);
@@ -1302,6 +1393,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
         return { keys: conflicts, hasPadConflict };
     };
 
+    /** @param {ConnItem} item */
     const tryReroute = async (item) => {
         if (cancelToken?.cancelled) return null;
         return await astarRouteAnyEndpoint(
@@ -1329,7 +1421,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
         const missing = connList.filter(item => !bestRoutes.get(`${item.net}:${item.connIdx}`));
         if (missing.length === 0) break;
 
-        /** @type {null | {gain, mItem, mKey, cand, displaced, recovered}} */
+        /** @type {null | {gain:number, mItem:ConnItem, mKey:string, cand:RouteData, displaced:Map<string, RouteData>, recovered:Map<string, RouteData>}} */
         let bestSwap = null;
         outer: for (const mItem of missing) {
             if (cancelToken?.cancelled) break;
@@ -1337,6 +1429,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
 
             // Collect candidates from all trials (dedup by signature).
             const seen = new Set();
+            /** @type {RouteData[]} */
             const candidates = [];
             for (const trialMap of allTrialRoutes) {
                 const r = trialMap.get(mKey);
@@ -1371,7 +1464,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
                 // Tentatively swap: remove conflicts from hash, add cand.
                 const displaced = new Map();
                 for (const ck of conflicts) {
-                    displaced.set(ck, bestRoutes.get(ck));
+                    displaced.set(ck, /** @type {RouteData} */ (bestRoutes.get(ck)));
                     hash.removeConnection(ck);
                 }
                 insertRoute(cand, mItem, mKey);
@@ -1382,7 +1475,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
                     const origItem = itemByKey.get(ck);
                     if (!origItem) continue;
                     const result = await tryReroute(origItem);
-                    if (result?.path?.length > 0) {
+                    if (result && result.path.length > 0) {
                         const r = { path: result.path, vias: result.vias || [], net: origItem.net };
                         recovered.set(ck, r);
                         insertRoute(r, origItem, ck);
@@ -1441,7 +1534,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
  *   for each iteration:
  *       clear the per-iteration demand grid (history persists)
  *       for each connection (in order):
- *           route via A* using a cost function = history + p·overuse
+ *           route via A* using a cost function = history + pÂ·overuse
  *           record this route's demand in the grid
  *       if no cell is overused: CONVERGED, done
  *       accumulate history for overused cells
@@ -1456,8 +1549,8 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
  * the clearance check will report those as violations and they should be
  * treated as failed connections.
  *
- * @param {Object} input - same shape as routeAll's input
- * @param {Object} [options]
+ * @param {RouterOptions} input - same shape as routeAll's input
+ * @param {RouterOptions} [options]
  */
 export async function routeAllPathfinder(input, options = {}) {
     const {
@@ -1470,9 +1563,9 @@ export async function routeAllPathfinder(input, options = {}) {
         onConnRipped = null,
         onNetPendingChanged = null,
         // Tuning notes:
-        //  - initialPresentFactor small + presentFactorGrowth ≤ 1.5: avoids
+        //  - initialPresentFactor small + presentFactorGrowth â‰¤ 1.5: avoids
         //    over-perturbing the system early, gives nets time to settle.
-        //  - historyGrowth ≥ presentFactorGrowth: chronic congestion becomes
+        //  - historyGrowth â‰¥ presentFactorGrowth: chronic congestion becomes
         //    persistent enough that nets permanently route around hot spots
         //    rather than oscillating in/out each iteration.
         //  - maxIterations: 25 gives enough rounds for history to dominate.
@@ -1492,7 +1585,8 @@ export async function routeAllPathfinder(input, options = {}) {
     const PROGRESS_POST_BUDGET = 2;
     const progressTotal = maxIterations + PROGRESS_TRIAL_BUDGET + PROGRESS_POST_BUDGET;
 
-    // ── Validate inputs ──
+    // â”€â”€ Validate inputs â”€â”€
+    /** @param {string} name @param {any} value */
     const requirePositive = (name, value) => {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
             throw new Error(`routeAllPathfinder: input.${name} must be a positive number, got ${value}`);
@@ -1513,7 +1607,8 @@ export async function routeAllPathfinder(input, options = {}) {
         : null;
     const cellSize = Math.max(gridStep * 4, 2.0);
 
-    // ── Build pad list + per-net pad-id lists ──
+    // â”€â”€ Build pad list + per-net pad-id lists â”€â”€
+    /** @type {PadLike[]} */
     const allPads = [];
     let padId = 0;
     if (input.allObstaclePads) {
@@ -1528,11 +1623,13 @@ export async function routeAllPathfinder(input, options = {}) {
         }
     }
 
+    /** @param {string|undefined} a @param {string|undefined} b */
     const layersCompatible = (a, b) => {
         const la = a || 'both';
         const lb = b || 'both';
         return la === 'both' || lb === 'both' || la === lb;
     };
+    /** @param {PadLike} cpad @param {Set<string>} usedIds */
     const findMatchingPad = (cpad, usedIds) => {
         let best = null, bestScore = Infinity;
         for (const pad of allPads) {
@@ -1566,15 +1663,15 @@ export async function routeAllPathfinder(input, options = {}) {
         netPadIdList.set(conn.net, idList);
     }
 
-    // ── NNC reorder for multi-pin nets. Pathfinder uses nearest-neighbour-
-    //    chain topology (the classic router uses MST instead — see the
+    // â”€â”€ NNC reorder for multi-pin nets. Pathfinder uses nearest-neighbour-
+    //    chain topology (the classic router uses MST instead â€” see the
     //    `connMap` block above). Tried MST here and the test-board.json
     //    clean count was unchanged at 68/76, but changing pathfinder
     //    topology has knock-on effects on negotiated-congestion
     //    convergence; out of scope for the visual-crossing fix. The chain
     //    mutates conn.pads in place and reorders the parallel
     //    netPadIdList; the classic router uses a side-channel
-    //    `conn.edges` array instead. ──
+    //    `conn.edges` array instead. â”€â”€
     for (const conn of input.connections) {
         if (conn.pads.length < 3) continue;
         const perm = nncReorderPads(conn);
@@ -1584,8 +1681,8 @@ export async function routeAllPathfinder(input, options = {}) {
         }
     }
 
-    // ── Build flat list of pad-pair connections ──
-    /** @type {Array<{net,connIdx,from,to,skipIds,startLayer,endLayer}>} */
+    // â”€â”€ Build flat list of pad-pair connections â”€â”€
+    /** @type {ConnItem[]} */
     const connList = [];
     for (const conn of input.connections) {
         if (conn.pads.length < 2) continue;
@@ -1611,7 +1708,7 @@ export async function routeAllPathfinder(input, options = {}) {
     }
     const totalConns = connList.length;
 
-    // Initial pending-count emission per net — drives ratsnest visibility in
+    // Initial pending-count emission per net â€” drives ratsnest visibility in
     // the UI. Each net starts with (pads.length - 1) pending pad-pair routes;
     // pending decrements as each pair is successfully routed in iter 0.
     /** @type {Map<string, number>} */
@@ -1628,20 +1725,20 @@ export async function routeAllPathfinder(input, options = {}) {
         pendingConnections: totalConns,
     });
 
-    // ── Build pads-only obstacle hash (rebuilt fresh every iteration would be
+    // â”€â”€ Build pads-only obstacle hash (rebuilt fresh every iteration would be
     //    wasteful; pads never change, so build once and reuse). Reused as the
     //    shared `padHash` for cell-localised pad-conflict checks in
-    //    unionExtend / ripUpSwap / geometricVerifyAndDrop. ──
+    //    unionExtend / ripUpSwap / geometricVerifyAndDrop. â”€â”€
     const obstacles = new SpatialHash(cellSize);
     for (const pad of allPads) {
         obstacles.insertPad(pad.x, pad.y, pad.width, pad.height, pad.id, pad.layer || 'both', { shape: pad.shape });
     }
     insertCopperObstacles(obstacles, input.copperObstacles);
 
-    // ── Pad-net map: padId -> Set<net names that use this pad>. Built once
+    // â”€â”€ Pad-net map: padId -> Set<net names that use this pad>. Built once
     //    from netPadIdList (flattening each group of primary+alternates);
     //    replaces per-call position-keyed maps in the extract / verify /
-    //    union / swap helpers. ──
+    //    union / swap helpers. â”€â”€
     /** @type {Map<string, Set<string>>} */
     const padNetMap = new Map();
     for (const [net, idList] of netPadIdList) {
@@ -1656,9 +1753,9 @@ export async function routeAllPathfinder(input, options = {}) {
         }
     }
 
-    // ── Pathfinder iteration ──
+    // â”€â”€ Pathfinder iteration â”€â”€
     const pfGrid = new PathfinderGrid(gridStep);
-    /** @type {Map<string, {path, vias, net} | null>} connKey -> result (current iter) */
+    /** @type {RouteMap} connKey -> result (current iter) */
     const routes = new Map();
     let presentFactor = initialPresentFactor;
     let iter = 0;
@@ -1670,28 +1767,28 @@ export async function routeAllPathfinder(input, options = {}) {
     // the most-converged snapshot is often not the final one.
     let bestOverused = Infinity;
     let bestIter = -1;
-    /** @type {Map<string, {path, vias, net} | null> | null} */
+    /** @type {RouteMap | null} */
     let bestRoutes = null;
 
     // Top-K snapshots by overusedCells (lowest first). Multi-snapshot trial
-    // extraction picks the snapshot with the best post-extraction yield —
+    // extraction picks the snapshot with the best post-extraction yield â€”
     // which is NOT always the lowest-overuse one (a snapshot whose conflicts
     // are concentrated in one channel may force many drops, while a snapshot
     // with conflicts spread out can be pruned more cheaply).
     const SNAPSHOT_LIMIT = 5;
-    /** @type {Array<{iter:number, overused:number, routes: Map<string, {path,vias,net}|null>}>} */
+    /** @type {Array<{iter:number, overused:number, routes: RouteMap}>} */
     const topSnapshots = [];
 
-    // Always-include early iterations (weak negotiation pressure → routes are
-    // near-optimal and geographically spread out → conflicts spread across
-    // many small zones → extract drops fewer connections). Empirically the
+    // Always-include early iterations (weak negotiation pressure â†’ routes are
+    // near-optimal and geographically spread out â†’ conflicts spread across
+    // many small zones â†’ extract drops fewer connections). Empirically the
     // best yield on test-board.json comes from iter=4 (within the first 5);
     // 8 gives margin for other boards without adding many slow trials.
     const EARLY_ITER_KEEP = 8;
-    /** @type {Array<{iter:number, overused:number, routes: Map<string, {path,vias,net}|null>}>} */
+    /** @type {Array<{iter:number, overused:number, routes: RouteMap}>} */
     const earlySnapshots = [];
 
-    // ── Live animation state ──
+    // â”€â”€ Live animation state â”€â”€
     // Hash of the last path we emitted to the UI for each connection. Used to
     // skip re-emitting netRouted when the path is identical iter-over-iter
     // (avoids ~1900 redundant DOM updates on test-board.json), while still
@@ -1700,7 +1797,9 @@ export async function routeAllPathfinder(input, options = {}) {
     /** @type {Map<string, string>} connKey -> path hash (empty string = currently unrouted) */
     const lastEmittedPathHash = new Map();
 
-    /** Hash a path for cheap iter-over-iter change detection. */
+    /** Hash a path for cheap iter-over-iter change detection.
+     * @param {RoutePoint[]|null} path
+     */
     const hashPath = (path) => {
         if (!path || path.length === 0) return '';
         let h = '';
@@ -1715,8 +1814,8 @@ export async function routeAllPathfinder(input, options = {}) {
      * opts so trial drops + re-routes also animate.
      *
      * @param {string} connKey
-     * @param {Array<{x,y,layer}>|null} newPath - null/empty = unrouted
-     * @param {Array<{x,y}>|undefined} vias
+     * @param {RoutePoint[]|null} newPath - null/empty = unrouted
+     * @param {ViaPoint[]|undefined} vias
      * @param {string} net
      */
     const emitConnChange = (connKey, newPath, vias, net) => {
@@ -1726,7 +1825,7 @@ export async function routeAllPathfinder(input, options = {}) {
         const wasRouted = oldHash !== '';
         const isRouted = newHash !== '';
         if (isRouted) {
-            const tracks = buildConnTracksFromPath(newPath, net, connKey, vias || []);
+            const tracks = buildConnTracksFromPath(/** @type {RoutePoint[]} */ (newPath), net, connKey, vias || []);
             onNetRouted?.(tracks);
             if (!wasRouted) {
                 const prev = netPending.get(net) || 0;
@@ -1754,13 +1853,14 @@ export async function routeAllPathfinder(input, options = {}) {
         const orderedConnList = connList;
 
         pfGrid.clearDemand();
+        /** @param {number} x @param {number} y @param {string} layer */
         const cellCostFn = (x, y, layer) => pfGrid.cellCost(x, y, layer, presentFactor);
 
         let routedThisIter = 0;
         for (let connIdx = 0; connIdx < orderedConnList.length; connIdx++) {
             const item = orderedConnList[connIdx];
             if (cancelToken?.cancelled) break;
-            // Sub-iter progress every 8 connections — pathfinder iters can
+            // Sub-iter progress every 8 connections â€” pathfinder iters can
             // be many seconds long on dense boards, so per-iter ticks alone
             // leave the progress bar appearing stuck.
             if ((connIdx & 7) === 0) {
@@ -1794,9 +1894,9 @@ export async function routeAllPathfinder(input, options = {}) {
             );
 
             const connKey = `${item.net}:${item.connIdx}`;
-            const newPath = result?.path?.length > 0 ? result.path : null;
+            const newPath = result && result.path.length > 0 ? result.path : null;
 
-            if (newPath) {
+            if (result && newPath) {
                 routes.set(connKey, { path: newPath, vias: result.vias || [], net: item.net });
                 routedThisIter++;
                 // Record this net's demand so subsequent nets in this iter
@@ -1812,14 +1912,14 @@ export async function routeAllPathfinder(input, options = {}) {
                 routes.set(connKey, null);
             }
 
-            // ── Live animation: emit only on iter-over-iter changes ──
+            // â”€â”€ Live animation: emit only on iter-over-iter changes â”€â”€
             // Diff vs. lastEmittedPathHash so unchanged routes don't cause UI
             // churn. Transitions:
-            //   unrouted → routed : onNetRouted + onNetPendingChanged(--)
-            //   routed   → routed (different path) : onNetRouted (UI clears
+            //   unrouted â†’ routed : onNetRouted + onNetPendingChanged(--)
+            //   routed   â†’ routed (different path) : onNetRouted (UI clears
             //     old track by connId then renders new)
-            //   routed   → unrouted : onConnRipped + onNetPendingChanged(++)
-            //   unrouted → unrouted (still failing) : silent
+            //   routed   â†’ unrouted : onConnRipped + onNetPendingChanged(++)
+            //   unrouted â†’ unrouted (still failing) : silent
             const wasRoutedPre = (lastEmittedPathHash.get(connKey) || '') !== '';
             emitConnChange(connKey, newPath, result?.vias || [], item.net);
             if (iter === 0 && wasRoutedPre === false && !newPath) {
@@ -1851,7 +1951,7 @@ export async function routeAllPathfinder(input, options = {}) {
         }
 
         // Maintain top-K snapshots (lowest overusedCells). Snapshotting
-        // copies the routes map (cheap — entries reference shared {path, vias}
+        // copies the routes map (cheap â€” entries reference shared {path, vias}
         // objects) so it survives the next clearDemand pass.
         if (topSnapshots.length < SNAPSHOT_LIMIT || overusedCells < topSnapshots[topSnapshots.length - 1].overused) {
             topSnapshots.push({ iter, overused: overusedCells, routes: new Map(routes) });
@@ -1874,14 +1974,16 @@ export async function routeAllPathfinder(input, options = {}) {
         presentFactor *= presentFactorGrowth;
     }
 
-    // ── Multi-snapshot trial extraction ──
+    // â”€â”€ Multi-snapshot trial extraction â”€â”€
     // Lowest-overuse snapshot is NOT always the best for post-extraction
     // yield: a snapshot whose conflicts are concentrated in one channel may
     // force many drops, while a snapshot with conflicts spread out can be
     // pruned more cheaply. Try the top-K candidates and pick whichever
     // yields the most routed connections after extraction + re-route.
+    /** @type {Array<{iter:number, overused:number, routes:RouteMap}>} */
     const candidateSnapshots = [];
     const seenIters = new Set();
+    /** @param {number} snapIter @param {number} overused @param {RouteMap} snapRoutes */
     const addCandidate = (snapIter, overused, snapRoutes) => {
         if (seenIters.has(snapIter)) return;
         seenIters.add(snapIter);
@@ -1894,7 +1996,7 @@ export async function routeAllPathfinder(input, options = {}) {
         for (const snap of earlySnapshots) addCandidate(snap.iter, snap.overused, snap.routes);
         // Then top-K by overuse (lowest first).
         for (const snap of topSnapshots) addCandidate(snap.iter, snap.overused, snap.routes);
-        // Also include the LAST snapshot if not already present — sometimes
+        // Also include the LAST snapshot if not already present â€” sometimes
         // the post-history schedule lands on something useful at the end.
         if (iterationStats.length > 0) {
             const lastIter = iterationStats[iterationStats.length - 1].iter;
@@ -1904,13 +2006,16 @@ export async function routeAllPathfinder(input, options = {}) {
     }
 
     let bestCleanRouted = -1;
+    /** @type {RouteMap|null} */
     let bestFinalRoutes = null;
     let bestTrialInfo = null;
+    /** @type {RouteMap[]} */
     const allTrialRoutes = []; // for union-extend
     const trialBudget = Math.max(1, candidateSnapshots.length);
     let trialIdx = 0;
-    // Shared lookup so trial functions can resolve connKey → item.net for
+    // Shared lookup so trial functions can resolve connKey â†’ item.net for
     // emit-change calls without rebuilding it each call.
+    /** @type {Map<string, ConnItem>} */
     const connItemByKey = new Map();
     for (const item of connList) connItemByKey.set(`${item.net}:${item.connIdx}`, item);
     for (const snap of candidateSnapshots) {
@@ -1966,7 +2071,7 @@ export async function routeAllPathfinder(input, options = {}) {
             { trackWidth, clearance, viaDiameter, cellSize, padHash: obstacles, padNetMap, emitConnChange, itemByKey: connItemByKey });
         if (unionAdded > 0) {
             bestCleanRouted += unionAdded;
-            console.info(`[pathfinder] union-extend added ${unionAdded} nets across ${allTrialRoutes.length} trials → final cleanRouted=${bestCleanRouted}/${totalConns}`);
+            console.info(`[pathfinder] union-extend added ${unionAdded} nets across ${allTrialRoutes.length} trials â†’ final cleanRouted=${bestCleanRouted}/${totalConns}`);
         } else {
             console.info(`[pathfinder] union-extend added 0 nets`);
         }
@@ -1976,7 +2081,7 @@ export async function routeAllPathfinder(input, options = {}) {
     // missing net conflicts with some existing route. Here we tentatively
     // drop the conflicting routes, place the candidate, and try to A*
     // re-route the displaced ones against the new state. We accept a swap
-    // only when (1 + |recovered|) − |displaced| > 0.
+    // only when (1 + |recovered|) âˆ’ |displaced| > 0.
     let swapAdded = 0;
     if (bestFinalRoutes && allTrialRoutes.length > 0 && !cancelToken?.cancelled) {
         onProgress?.(
@@ -2027,7 +2132,7 @@ export async function routeAllPathfinder(input, options = {}) {
 
     // Cosmetic smoothing: collapse grid staircases via line-of-sight
     // simplification against the final pad+route obstacle set. Purely
-    // geometric — no routing decisions are revisited.
+    // geometric â€” no routing decisions are revisited.
     if (!cancelToken?.cancelled) {
         const smoothInfo = smoothPathfinderRoutes(finalRoutes, connList, {
             trackWidth, clearance, viaDiameter, cellSize, padHash: obstacles,
@@ -2035,7 +2140,7 @@ export async function routeAllPathfinder(input, options = {}) {
         console.info(`[pathfinder] smoothing: ${smoothInfo.smoothed} routes simplified, ${smoothInfo.segmentsRemoved} waypoints removed`);
     }
 
-    // ── Build result ──
+    // â”€â”€ Build result â”€â”€
     const allTracks = [];
     const allVias = [];
     let failedCount = 0;
@@ -2121,6 +2226,8 @@ export async function routeAllPathfinder(input, options = {}) {
 
 /**
  * Negotiated-congestion (Pathfinder) autorouter entrypoint.
+ * @param {RouterOptions} input
+ * @param {RouterOptions} [options]
  */
 export async function routeWithPathfinderRouter(input, options = {}) {
     return routeAllPathfinder(input, options);

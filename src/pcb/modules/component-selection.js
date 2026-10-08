@@ -12,13 +12,21 @@ import { showContextMenu } from '../../shared/ui/context-menu.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { hideNetTooltip } from './net-tooltip.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{x: number, y: number, width: number, height: number}} PlacementBounds */
+/** @typedef {{padId: string, width?: number, height?: number}} ComponentPadOffset */
+/** @typedef {{x: number, y: number}} PadPosition */
+/** @typedef {{x: number, y: number, rotation?: number, mirror?: boolean, side?: string, locked?: boolean, refVisible?: boolean, bounds?: PlacementBounds|null, elements?: Element[], pads?: Map<string, PadPosition>, padOffsets?: ComponentPadOffset[], lodEl?: SVGElement|null, _culled?: boolean, _lodFar?: boolean, _cullSig?: string, _cullBounds?: {minX:number,minY:number,maxX:number,maxY:number}}} ComponentPlacementLike */
 
+/** @type {WeakMap<PcbEditor, {raf: number, pending: MouseEvent|null}>} */
 const componentDragFrames = new WeakMap();
+/** @type {WeakMap<PcbEditor, string>} */
 const hoveredComponents = new WeakMap();
+/** @type {WeakMap<PcbEditor, HTMLDivElement>} */
 const componentPopups = new WeakMap();
 const PCB_LOD_PIXEL_THRESHOLD = 24;
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {any} placement */
 function showFootprintCrosshair(app, placement) {
     if (!placement || !app.viewport?.setCrosshair) return;
     app.viewport.setCrosshair({ x: placement.x, y: placement.y });
@@ -29,7 +37,7 @@ export function getComponentDrag(app) {
     return getPcbInteraction(app, '_drag');
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} compId @param {string} message */
 export function showComponentPopup(app, compId, message) {
     const pl = app.placements.get(compId);
     if (!pl || !app.viewport?.worldToScreen || !app.viewport?.svg) return;
@@ -64,7 +72,7 @@ export function showComponentPopup(app, compId, message) {
     }, 1400);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} componentId @param {Point} worldPos */
 export function beginComponentDrag(app, componentId, worldPos) {
     const placement = app.placements.get(componentId);
     if (!placement || placement.locked) return false;
@@ -182,7 +190,7 @@ export function netsForComponent(app, compId) {
 /**
  * Keep a placement's LOD placeholder rect aligned with the footprint's
  * current pose. Called when revealing it and whenever the footprint moves.
- * @param {object} pl
+ * @param {any} pl
  */
 function syncLodTransform(pl) {
     if (!pl.lodEl) return;
@@ -193,7 +201,7 @@ function syncLodTransform(pl) {
  * World-space AABB of a placement's footprint bounds (local courtyard/
  * outline rotated by the placement rotation and translated to position).
  * Cached and recomputed only when the placement's pose changes.
- * @param {object} pl
+ * @param {any} pl
  * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null}
  */
 function placementWorldBounds(pl) {
@@ -226,7 +234,7 @@ function placementWorldBounds(pl) {
     return pl._cullBounds;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {Point} worldPos */
 export function updateComponentDrag(app, worldPos) {
     const drag = getComponentDrag(app);
     if (!drag) return;
@@ -241,7 +249,7 @@ export function updateComponentDrag(app, worldPos) {
     refreshDragRatlines(app, drag.session);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 export function scheduleComponentDragUpdate(app, e) {
     let frame = componentDragFrames.get(app);
     if (!frame) {
@@ -259,14 +267,15 @@ export function scheduleComponentDragUpdate(app, e) {
     });
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 export function handleComponentDrag(app, e) {
     if (!getComponentDrag(app)) return;
+    if (!app.viewport) return;
     app.viewport.shiftHeld = e.shiftKey;
     updateComponentDrag(app, app.screenToWorld(e));
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {boolean} [commit] */
 export function endComponentDrag(app, commit = true) {
     const drag = getComponentDrag(app);
     if (!drag) return;
@@ -286,8 +295,10 @@ export function endComponentDrag(app, commit = true) {
         const overlay = app.getLayerGroup('clearance-overlay');
         if (overlay) overlay.style.willChange = '';
     }
-    app.viewport.svg.style.cursor = getPcbSelection(app, 'component').length ? 'grab' : 'default';
-    app.viewport.hideCrosshair?.();
+    if (app.viewport) {
+        app.viewport.svg.style.cursor = getPcbSelection(app, 'component').length ? 'grab' : 'default';
+        app.viewport.hideCrosshair?.();
+    }
     if (commit && placement && (placement.x !== startPos.x || placement.y !== startPos.y)) {
         finishPlacementPreview(app, () => {
             const command = new MovePlacementCommand(app, compId, startPos.x, startPos.y, placement.x, placement.y);
@@ -313,7 +324,9 @@ export function endComponentDrag(app, commit = true) {
  * @returns {string|string[]|null}
  */
 export function hitTestComponent(app, worldPos, all = false) {
+    /** @type {string|null} */
     let hit = null;
+    /** @type {string[]|null} */
     const hits = all ? [] : null;
     for (const [compId, pl] of app.placements) {
         const b = pl.bounds;
@@ -426,7 +439,7 @@ export function showComponent3DMenu(app, compId, clientX, clientY) {
 /**
  * Open the interactive 3D model pop-out for a placement (or compId).
  * @param {PcbEditor} app
- * @param {string|object} placementOrId
+ * @param {string|any} placementOrId
  */
 export function openComponent3DPopout(app, placementOrId) {
     const pl = typeof placementOrId === 'string'
@@ -441,6 +454,7 @@ export function openComponent3DPopout(app, placementOrId) {
         .catch(err => console.error('Failed to open 3D pop-out:', err));
 }
 
+/** @param {any} placement */
 function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
     if (!bounds) return [{ x: placement?.x || 0, y: placement?.y || 0 }];
@@ -452,9 +466,11 @@ function outlineForPlacement(placement) {
     ].map((point) => appLocalToWorld(placement, point));
 }
 
+/** @param {any} placement */
 function boundsForPlacement(placement) {
     if (!placement?.bounds) {
-        const pads = (placement?.padOffsets || []).flatMap(off => {
+        const padOffsets = /** @type {ComponentPadOffset[]} */ (placement?.padOffsets || []);
+        const pads = padOffsets.flatMap(off => {
             const pos = placement.pads?.get(off.padId);
             if (!pos) return [];
             const halfWidth = (off.width || 1.2) / 2 + 0.5;
@@ -463,10 +479,10 @@ function boundsForPlacement(placement) {
                 { x: pos.x + halfWidth, y: pos.y + halfHeight }];
         });
         if (pads.length) return {
-            minX: Math.min(...pads.map(point => point.x)),
-            minY: Math.min(...pads.map(point => point.y)),
-            maxX: Math.max(...pads.map(point => point.x)),
-            maxY: Math.max(...pads.map(point => point.y)),
+            minX: Math.min(...pads.map((point) => point.x)),
+            minY: Math.min(...pads.map((point) => point.y)),
+            maxX: Math.max(...pads.map((point) => point.x)),
+            maxY: Math.max(...pads.map((point) => point.y)),
         };
     }
     const points = outlineForPlacement(placement);
@@ -478,6 +494,7 @@ function boundsForPlacement(placement) {
     };
 }
 
+/** @param {any} placement @param {Point} point */
 function appLocalToWorld(placement, point) {
     const rad = (Number(placement.rotation) || 0) * Math.PI / 180;
     const mirror = (!!placement.mirror) !== (placement.side === 'bottom') ? -1 : 1;
@@ -488,8 +505,9 @@ function appLocalToWorld(placement, point) {
     };
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} componentId @param {string} id */
 export function createComponentSelectionAdapter(app, componentId, id) {
+    /** @type {{center: Point, start: Point, rotation: number, nets: Set<string>}|null} */
     let rotationDrag = null;
     return {
         id,
@@ -500,8 +518,9 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
         getAnchors() {
             const placement = app.placements?.get(componentId);
-            return placement ? [rotationHandleAnchor(boundsForPlacement(placement), app.viewport?.scale)] : [];
+            return placement ? [rotationHandleAnchor(boundsForPlacement(placement), app.viewport?.scale ?? 1)] : [];
         },
+        /** @param {Point} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(
                 outlineForPlacement(app.placements?.get(componentId)),
@@ -509,14 +528,19 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 scale,
             );
         },
+        /** @param {Point} point */
         hitTest(point) { return getComponentSelectionHits(app, point).has(componentId); },
         getPosition() {
             const placement = app.placements?.get(componentId);
             return { x: placement?.x || 0, y: placement?.y || 0 };
         },
+        /** @param {Point} worldPos */
         beginMove(worldPos) { return beginComponentDrag(app, componentId, worldPos); },
+        /** @param {Point} worldPos */
         updateMove(worldPos) { updateComponentDrag(app, worldPos); },
+        /** @param {boolean} commit */
         endMove(commit) { endComponentDrag(app, commit); },
+        /** @param {string} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             const placement = app.placements?.get(componentId);
             if (anchorId !== 'rotate' || !placement || placement.locked) return false;
@@ -529,6 +553,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             hideNetTooltip(app);
             return true;
         },
+        /** @param {Point} worldPos */
         updateAnchorDrag(worldPos) {
             const placement = app.placements?.get(componentId);
             if (!rotationDrag || !placement || placement.locked) return;
@@ -538,6 +563,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             previewPlacementPose(app, componentId, { rotation });
             app.updateRatsnest?.({ nets: rotationDrag.nets, skipFillRefresh: true });
         },
+        /** @param {boolean} commit */
         endAnchorDrag(commit) {
             if (!rotationDrag) return;
             const placement = app.placements?.get(componentId);

@@ -10,13 +10,20 @@ import { EditTextCommand, MoveTextCommand, previewTextPose, finishTextPosePrevie
 import { getPropertyEditor } from './property-editors.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{center: Point, start: Point, rotation: number}} RotationDrag */
 
 /** @param {PcbEditor} app */
 export function getTextDrag(app) {
     return getPcbInteraction(app, '_textDrag');
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {PcbText|null|undefined} text
+ * @param {Point} worldPos
+ */
 export function beginTextDrag(app, text, worldPos) {
     getPropertyEditor(app, 'text')?.commit();
     text = text && app.pcbDocument.texts.get(text.id);
@@ -32,7 +39,10 @@ export function beginTextDrag(app, text, worldPos) {
     return true;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function updateTextDrag(app, worldPos) {
     const drag = getTextDrag(app);
     if (!drag) return;
@@ -49,10 +59,15 @@ export function updateTextDrag(app, worldPos) {
     app.refreshText(text.id);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {MouseEvent} e
+ */
 export function handleTextDrag(app, e) {
     if (!getTextDrag(app)) return;
-    app.viewport.shiftHeld = e.shiftKey;
+    const viewport = app.viewport;
+    if (!viewport) return;
+    viewport.shiftHeld = e.shiftKey;
     updateTextDrag(app, app.screenToWorld(e));
 }
 
@@ -63,8 +78,11 @@ export function endTextDrag(app, commit = true) {
     const { textId, startPos } = drag;
     setPcbInteraction(app, '_textDrag', null);
     releaseDragSession(app, drag.session);
-    app.viewport?.hideCrosshair();
-    app.viewport.svg.style.cursor = 'default';
+    const viewport = app.viewport;
+    if (viewport) {
+        viewport.hideCrosshair();
+        viewport.svg.style.cursor = 'default';
+    }
     const text = app.texts.get(textId);
     finishTextPosePreview(app, text && commit && !boardShapeLocked(text) && isLayerVisible(text.layer)
         && (text.x !== startPos.x || text.y !== startPos.y)
@@ -72,8 +90,13 @@ export function endTextDrag(app, commit = true) {
         : undefined);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {PcbText} text
+ * @param {string} id
+ */
 export function createPcbTextSelectionAdapter(app, text, id) {
+    /** @type {RotationDrag|null} */
     let rotationDrag = null;
     const current = () => app.texts.get(text.id) || text;
     return {
@@ -83,6 +106,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         get visible() { return isLayerVisible(current().layer); },
         get locked() { return isPcbObjectLocked(app, 'text', current()); },
         getBounds() { return pcbTextBounds(current()); },
+        /** @param {Point|null|undefined} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             const text = current();
             return lockPositionOutsideOutline(
@@ -93,9 +117,11 @@ export function createPcbTextSelectionAdapter(app, text, id) {
                 Math.max(0, Number(text.strokeWidth) || 0) / 2,
             );
         },
+        /** @param {Point} point */
         hitTest(point) { return pcbTextHitTest(current(), point.x, point.y); },
         getPosition() { const text = current(); return { x: text.x, y: text.y }; },
-        getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale)]; },
+        getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale ?? 1)]; },
+        /** @param {string} anchorId @param {Point} worldPos */
         beginAnchorDrag(anchorId, worldPos) {
             getPropertyEditor(app, 'text')?.commit();
             const text = current();
@@ -105,6 +131,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             schedulePictureCopperRefresh(app, text);
             return true;
         },
+        /** @param {Point} worldPos */
         updateAnchorDrag(worldPos) {
             const text = current();
             if (!rotationDrag || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
@@ -116,6 +143,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
             if (input) input.value = String(Math.round(rotation) % 360);
         },
+        /** @param {boolean} commit */
         endAnchorDrag(commit) {
             if (!rotationDrag) return;
             const text = current();
@@ -134,8 +162,11 @@ export function createPcbTextSelectionAdapter(app, text, id) {
                 if (canonical) app.showTextProperties?.(canonical);
             }
         },
+        /** @param {Point} worldPos */
         beginMove(worldPos) { return beginTextDrag(app, current(), worldPos); },
+        /** @param {Point} worldPos */
         updateMove(worldPos) { updateTextDrag(app, worldPos); },
+        /** @param {boolean} commit */
         endMove(commit) { endTextDrag(app, commit); },
         invalidate() { app.refreshText(text.id); },
         render() { renderPcbText(current()); },

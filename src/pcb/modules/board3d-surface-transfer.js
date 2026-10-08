@@ -1,8 +1,25 @@
+/** @typedef {import('./board3d-mesh-ops.js').MeshVertex} MeshVertex */
+/** @typedef {import('./board3d-mesh-ops.js').MeshFace} MeshFace */
+/** @typedef {import('./board3d-mesh-ops.js').Mesh} Board3dMesh */
+/** @typedef {{packed: Float64Array}} EncodedMesh */
+/** @typedef {{mesh: Board3dMesh, [key: string]: unknown}} SurfacePart */
+/** @typedef {{parts: SurfacePart[], [key: string]: unknown}} SurfaceInput */
+/** @typedef {{mesh: Board3dMesh|EncodedMesh, [key: string]: unknown}} TransferSurfacePart */
+/** @typedef {{parts: TransferSurfacePart[], [key: string]: unknown}} TransferSurfaceInput */
+
+/**
+ * @param {Record<string, SurfaceInput>} surfaces
+ * @returns {{surfaces: Record<string, TransferSurfaceInput>, transfer: ArrayBuffer[]}}
+ */
 export function encodeSurfaceInputs(surfaces) {
+    /** @type {WeakMap<Board3dMesh, EncodedMesh>} */
     const meshes = new WeakMap();
+    /** @type {ArrayBuffer[]} */
     const transfer = [];
+    /** @param {Board3dMesh} mesh */
     const encodeMesh = (mesh) => {
-        if (meshes.has(mesh)) return meshes.get(mesh);
+        const cached = meshes.get(mesh);
+        if (cached) return cached;
         let length = 2 + mesh.verts.length * 3;
         for (const face of mesh.faces) length += 2 + face.idx.length + (face.color?.length || 0);
         const packed = new Float64Array(length);
@@ -26,18 +43,25 @@ export function encodeSurfaceInputs(surfaces) {
         return encoded;
     };
     return {
-        surfaces: Object.fromEntries(Object.entries(surfaces).map(([key, surface]) => [key, {
+        surfaces: /** @type {Record<string, TransferSurfaceInput>} */ (Object.fromEntries(Object.entries(surfaces).map(([key, surface]) => [key, {
             ...surface, parts: surface.parts.map(part => ({ ...part, mesh: encodeMesh(part.mesh) })),
-        }])),
+        }]))),
         transfer,
     };
 }
 
+/**
+ * @param {Record<string, TransferSurfaceInput>} surfaces
+ * @returns {Record<string, SurfaceInput>}
+ */
 export function decodeSurfaceInputs(surfaces) {
+    /** @type {WeakMap<EncodedMesh, Board3dMesh>} */
     const meshes = new WeakMap();
+    /** @param {Board3dMesh|EncodedMesh} encoded */
     const decodeMesh = (encoded) => {
-        if (!encoded.packed) return encoded;
-        if (meshes.has(encoded)) return meshes.get(encoded);
+        if (!('packed' in encoded)) return encoded;
+        const cached = meshes.get(encoded);
+        if (cached) return cached;
         const packed = encoded.packed;
         let offset = 0;
         const vertexCount = packed[offset++];
@@ -52,6 +76,7 @@ export function decodeSurfaceInputs(surfaces) {
             const colorCount = packed[offset++];
             const idx = Array.from(packed.subarray(offset, offset + indexCount));
             offset += indexCount;
+            /** @type {MeshFace} */
             const face = { idx };
             if (colorCount >= 0) {
                 face.color = Array.from(packed.subarray(offset, offset + colorCount));
@@ -63,7 +88,7 @@ export function decodeSurfaceInputs(surfaces) {
         meshes.set(encoded, mesh);
         return mesh;
     };
-    return Object.fromEntries(Object.entries(surfaces).map(([key, surface]) => [key, {
+    return /** @type {Record<string, SurfaceInput>} */ (Object.fromEntries(Object.entries(surfaces).map(([key, surface]) => [key, {
         ...surface, parts: surface.parts.map(part => ({ ...part, mesh: decodeMesh(part.mesh) })),
-    }]));
+    }])));
 }

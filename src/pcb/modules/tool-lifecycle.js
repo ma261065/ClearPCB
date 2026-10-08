@@ -67,11 +67,12 @@ function toolBadge(app) {
  * @param {{clientX: number, clientY: number}|null} [event]
  */
 export function syncToolBlockIndicator(app, event = null) {
-    const svg = app.viewport?.svg;
+    const viewport = app.viewport;
+    const svg = viewport?.svg;
     if (!svg) return;
     const block = event && !getPcbInteraction(app, '_pasteDrop') ? pcbToolBlock(app) : null;
     svg.classList?.toggle('pcb-placement-blocked', !!block);
-    app.viewport.crosshairContainer?.classList?.toggle('pcb-placement-blocked', !!block);
+    viewport.crosshairContainer?.classList?.toggle('pcb-placement-blocked', !!block);
     if (block) svg.style.cursor = 'not-allowed';
     else if (svg.style.cursor === 'not-allowed') updateCursorForTool(app);
     const badge = block ? toolBadge(app) : toolBadges.get(app);
@@ -80,10 +81,11 @@ export function syncToolBlockIndicator(app, event = null) {
         badge.style.display = 'none';
         return;
     }
+    const pointer = /** @type {{clientX: number, clientY: number}} */ (event);
     badge.textContent = `${block.reason === 'locked' ? '🔒' : '🚫'} ${placementBlockName(block)} ${block.reason}`;
     badge.style.display = 'block';
-    badge.style.left = `${event.clientX + 14}px`;
-    badge.style.top = `${event.clientY + 14}px`;
+    badge.style.left = `${pointer.clientX + 14}px`;
+    badge.style.top = `${pointer.clientY + 14}px`;
 }
 
 const ribbonBlockSignatures = new WeakMap();
@@ -114,21 +116,22 @@ export function refreshPcbToolLayerState(app) {
 
 /** @param {PcbEditor} app */
 export function updateCursorForTool(app) {
-    if (!app.viewport?.svg) return;
+    const svg = app.viewport?.svg;
+    if (!svg) return;
     if (getPcbInteraction(app, '_pasteDrop')) {
-        app.viewport.svg.style.cursor = 'crosshair';
+        svg.style.cursor = 'crosshair';
         clearViaRing(app);
         clearPadPreview(app);
         return;
     }
     const t = app.currentTool;
     if (PCB_PLACEMENT_TOOLS.has(t)) {
-        setToolCursor(app, t, app.viewport.svg);
+        setToolCursor(app, t, svg);
         if (t !== 'via') clearViaRing(app);
         if (t !== 'pad') clearPadPreview(app);
         return;
     }
-    app.viewport.svg.style.cursor =
+    svg.style.cursor =
         t === 'pan' ? 'grab' :
         'default';
     if (t !== 'via') clearViaRing(app);
@@ -153,7 +156,8 @@ export function selectPcbTool(app, tool) {
     const next = normalizePcbTool(tool);
     if (next !== 'track') cancelTrackDrawing(app);
     if (getFillDraw(app) && next !== 'fill') cancelFillDraw(app);
-    if (getShapeDraw(app) && getShapeDraw(app).kind !== next) cancelShapeDraw(app);
+    const shapeDraw = getShapeDraw(app);
+    if (shapeDraw && shapeDraw.kind !== next) cancelShapeDraw(app);
     app.currentTool = next;
     if (next !== 'select') {
         hoverComponent(app, null);

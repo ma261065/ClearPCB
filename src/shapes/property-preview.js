@@ -1,4 +1,4 @@
-/** @typedef {{active?: boolean, commit: (options?: any) => boolean, cancel: () => boolean}} PropertyPreview */
+/** @typedef {{active?: boolean, commit: (options?: any) => boolean, cancel: () => boolean, [key: string]: any}} PropertyPreview */
 /** @typedef {{committing: boolean, active: boolean, disposed: boolean, registerCompletion: (preview: PropertyPreview, complete: (options?: any) => boolean) => void, activate: (preview: PropertyPreview) => boolean, release: (preview: PropertyPreview) => void, commit: (options?: any) => boolean, cancel: () => boolean, prepare: () => boolean, dispose: () => void, [key: string]: any}} PropertyBinding */
 /** @typedef {{capture: () => any, restore: (state: any) => void, redraw: (phase: string) => void, commit: (before: any, after: any, options?: any) => void, binding?: PropertyBinding|null, isCurrent?: () => boolean, beforeCommit?: () => void}} PropertyPreviewOptions */
 

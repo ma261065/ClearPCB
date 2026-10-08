@@ -70,6 +70,8 @@ import {
     renderAxisGlowTop,
 } from './axis-glow.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{padTolerance?: number, trackTolerance?: number, excludeTrack?: Track|null, excludePad?: any, layer?: string, excludeNode?: (track: Track, nodeId: string) => boolean, lastPt?: Point|null, net?: string, checkNodeContacts?: boolean}} TrackSnapOptions */
 
 const NS = 'http://www.w3.org/2000/svg';
 const trackSnapMarkers = new WeakMap();
@@ -81,6 +83,7 @@ const PREVIEW_CLASS = 'pcb-track-preview';
 const netGuideSources = new WeakMap();
 const trackToolLayers = new WeakMap();
 const trackToolNets = new WeakMap();
+/** @param {Point} point */
 const ratlinePointKey = ({ x, y }) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
@@ -90,7 +93,7 @@ export function getTrackToolLayer(app) {
     return trackToolLayers.get(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} layer */
 export function setTrackToolLayer(app, layer) {
     trackToolLayers.set(app, layer);
 }
@@ -100,7 +103,7 @@ export function getTrackToolNet(app) {
     return trackToolNets.get(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} net */
 export function setTrackToolNet(app, net) {
     trackToolNets.set(app, net);
 }
@@ -144,6 +147,10 @@ const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
  * Find the nearest Pad centre. Component Pads require entering their outline;
  * standalone Pads retain their minimum snap radius of `tolerance`.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {number} [tolerance]
+ * @param {string} [layer]
+ * @param {any} [excludePad]
  * @returns {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}|null}
  */
 export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = 'top-copper', excludePad = null) {
@@ -154,6 +161,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
     for (const [compId, pl] of app.placements || []) {
         if (!pl?.pads) continue;
         const pose = placementPose(pl);
+        /** @param {string|number} padId @param {any} pad @param {any} geometry @param {boolean} rotated */
         const consider = (padId, pad, geometry, rotated) => {
             const dx = pad.x - worldPos.x;
             const dy = pad.y - worldPos.y;
@@ -210,7 +218,10 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
 /**
  * Find the nearest Track node (endpoint or junction) to `worldPos`.
  * @param {PcbEditor} app
- * @returns {{x:number, y:number, track:object, nodeId:string}|null}
+ * @param {Point} worldPos
+ * @param {number} [tolerance]
+ * @param {Track|null} [excludeTrack]
+ * @returns {{x:number, y:number, track:Track, nodeId:string}|null}
  */
 export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, excludeTrack = null) {
     if (!app?.tracks?.length) return null;
@@ -248,20 +259,8 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  * tolerance so the feel is constant across zoom levels.
  *
  * @param {PcbEditor} app
- * @param {{x:number,y:number}} worldPos
- * @param {object} [options]
- * @param {number} [options.padTolerance]
- * @param {number} [options.trackTolerance]
- * @param {object} [options.excludeTrack]
- * @param {object} [options.excludePad] - Standalone Pad being dragged.
- * @param {string} [options.layer] - Copper layer, or 'both' for a plated terminal.
- * @param {(track:object, nodeId:string)=>boolean} [options.excludeNode] -
- *   Predicate returning true for track nodes that should be ignored when
- *   snapping (e.g. the nodes that move in lock-step with a dragged via).
- * @param {{x:number,y:number}} [options.lastPt] - Previous waypoint
- *   (enables H/V/45° axis snapping).
- * @param {string} [options.net] - Net of the in-progress track (used
- *   to bias same-net snapping).
+ * @param {Point} worldPos
+ * @param {TrackSnapOptions} [options]
  * @returns {TrackSnap}
  */
 export function resolveTrackSnap(app, worldPos, options = {}) {
@@ -293,6 +292,8 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
 
 /**
  * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {Point|null} [lastPt]
  * @returns {TrackSnap}
  */
 export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
@@ -382,6 +383,11 @@ const SNAP_PX = GRID_SNAP_PX;
  * matches `preferredNet`. A same-net hit beats an other-net hit even
  * if the other-net node is geometrically closer (within tolerance).
  * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {number} tolerance
+ * @param {Track|null} excludeTrack
+ * @param {string} preferredNet
+ * @param {((track: Track, nodeId: string) => boolean)|null} excludeNode
  */
 function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet, excludeNode) {
     if (!app?.tracks?.length) return null;
@@ -412,6 +418,7 @@ function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, p
  * anchor. The dominant axis component is preserved; the minor component is
  * snapped to 0 (axis-aligned) or to ±|dominant| (45°).
  */
+/** @param {Point} lastPt @param {Point} target @param {'horizontal'|'vertical'|'diagonal'|string} axis */
 export function applyAxisConstraint(lastPt, target, axis) {
     const dx = target.x - lastPt.x;
     const dy = target.y - lastPt.y;
@@ -439,6 +446,7 @@ export function applyAxisConstraint(lastPt, target, axis) {
  * 45° is selected when |dx| and |dy| are within `diagBand` of each other
  * (relative to the larger). Otherwise the dominant axis wins.
  */
+/** @param {Point} lastPt @param {Point} worldPos @param {number} [diagBand] */
 function pickAxis(lastPt, worldPos, diagBand = 0.3) {
     const dx = Math.abs(worldPos.x - lastPt.x);
     const dy = Math.abs(worldPos.y - lastPt.y);
@@ -453,6 +461,8 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
 
 /**
  * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {TrackSnapOptions} [options]
  * @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}}
  */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
@@ -463,24 +473,29 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     // A pour of another net is re-poured with clearance around the new track,
     // so it is not copper the track connects to (matching collectNodeConnections).
     const drawNet = String(options.net || sourceNet || getTrackToolNet(app) || '').trim();
+    /** @param {any} shape */
     const foreignFill = (shape) => shape?.type === 'fill' && !!drawNet
         && !!String(shape.net || '').trim() && String(shape.net).trim() !== drawNet;
-    const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false
+    const boardShapes = /** @type {any[]} */ (app.boardShapes || []);
+    const shapes = boardShapes.filter((shape) => shape.layer === layer && shape.visible !== false
         && !foreignFill(shape));
     const geometry = new Map(shapes.filter((shape) => shape.type !== 'fill')
         .map((shape) => [shape, resolveTrackContactGeometry(shape)]));
+    /** @param {Point} point */
     const contactsAt = (point) => shapes.filter((shape) => shape.type === 'fill'
         ? (getComputedFill(shape) || []).some((polygon) => pointInPolygon(point, polygon.outer)
             && !(polygon.holes || []).some((hole) => pointInPolygon(point, hole)))
-        : shapeCopperContains(geometry.get(shape), point));
+        : shapeCopperContains(/** @type {import('./track-connections.js').CopperContact} */ (geometry.get(shape)), point));
     const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node';
     let target = { x: snap.x, y: snap.y };
+    /** @type {Via|null} */
     let via = null;
+    /** @type {any[]|null} */
     let contacts = null;
     if (!hardSnap) {
         const tolerance = TRACK_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
         let nearest = Infinity;
-        for (const candidate of app.vias || []) {
+        for (const candidate of /** @type {Via[]} */ (app.vias || [])) {
             if (candidate.visible === false) continue;
             const distance = Math.hypot(worldPos.x - candidate.x, worldPos.y - candidate.y);
             if (distance <= Math.max(tolerance, candidate.diameter / 2) && distance < nearest) {
@@ -497,8 +512,9 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
             }
         }
     }
-    contacts ??= contactsAt(target);
-    const vias = (app.vias || []).filter((candidate) => candidate.visible !== false
+    contacts = contacts ?? contactsAt(target);
+    const contactShapes = /** @type {any[]} */ (contacts);
+    const vias = /** @type {Via[]} */ (app.vias || []).filter((candidate) => candidate.visible !== false
         && Math.hypot(target.x - candidate.x, target.y - candidate.y) <= candidate.diameter / 2);
     const nodeNets = [];
     if (options.checkNodeContacts) {
@@ -508,18 +524,19 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
             nodeNets.push(clusters[contact.index].net);
         }
     }
-    const contactNets = [...new Set([sourceNet, ...nodeNets, ...contacts.map((shape) => shape.net), ...vias.map((item) => item.net)]
+    const contactNets = [...new Set([sourceNet, ...nodeNets, ...contactShapes.map((shape) => shape.net), ...vias.map((item) => item.net)]
         .map((net) => String(net || '').trim()).filter(Boolean))];
     return {
         ...snap,
         ...target,
         ...(via ? { snapType: 'via', via } : {}),
         contactNets,
-        copperShapes: contacts,
-        copperContact: contacts.length > 0 || vias.length > 0,
+        copperShapes: contactShapes,
+        copperContact: contactShapes.length > 0 || vias.length > 0,
     };
 }
 
+/** @param {string} net @param {string[]} contactNets */
 function trackContactConflict(net, contactNets) {
     const nets = [...new Set([net, ...contactNets].filter(Boolean))];
     if (nets.length < 2) return false;
@@ -546,11 +563,13 @@ export function showTrackDrawProperties(app) {
     let widthError = '';
     const currentWidth = () => {
         const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-        return ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
+        const trackWidth = p.trackWidth;
+        return ctx?.width || (typeof trackWidth === 'number' && Number.isFinite(trackWidth) && trackWidth > 0 ? trackWidth : 0.2);
     };
     const currentLayer = () => ctx?.currentLayer || (getTrackToolLayer(app) === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
     const currentNet = () => ctx?.net ?? String(getTrackToolNet(app) || '');
     const refresh = () => app.refreshPropertyPanel(describe());
+    /** @param {string} next */
     const setNet = next => {
         setTrackToolNet(app, next);
         if (ctx) {
@@ -560,6 +579,7 @@ export function showTrackDrawProperties(app) {
         }
         refresh();
     };
+    /** @param {string} value */
     const setLayer = value => {
         const next = value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
         if (isLayerLocked(next)) {
@@ -571,6 +591,7 @@ export function showTrackDrawProperties(app) {
         app.setPcbStatus();
         refresh();
     };
+    /** @param {number} value */
     const setWidth = value => {
         const hadError = !!widthError;
         const result = commitDesignValue(app, 'trackWidth', value, 'mm');
@@ -615,8 +636,8 @@ export function showTrackDrawProperties(app) {
  * the pad's net is inherited.
  *
  * @param {PcbEditor} app - PCBApp
- * @param {object} worldPos - Raw cursor world position
- * @returns {object} the draw context
+ * @param {Point} worldPos - Raw cursor world position
+ * @returns {TrackDrawContext|null} the draw context
  */
 export function startTrackDraw(app, worldPos) {
     const snap = resolveTrackDrawSnap(app, worldPos, { checkNodeContacts: true });
@@ -636,6 +657,9 @@ export function startTrackDraw(app, worldPos) {
     const width = _getTrackWidth(app);
     const routeOpts = _renderOptsFromApp(app);
 
+    const terminalSeed = snap.via ? { via: snap.via }
+        : startPad ? { padKey: startPad.standalonePad
+            ? `null|${startPad.standalonePad.id}` : `${startPad.componentId}|${startPad.pinNumber}` } : null;
     /** @type {TrackDrawContext} */
     const ctx = {
         points: [{ x: snap.x, y: snap.y }],
@@ -653,9 +677,11 @@ export function startTrackDraw(app, worldPos) {
         // Track, Pad or Via cluster), so the live net-guide line never points back at
         // it. Computed once here; the in-progress track isn't in app.tracks,
         // so the bonded set can't change mid-draw.
-        guideExclude: bondedExclusion(app, startTrack, snap.via ? { via: snap.via }
-            : startPad ? { padKey: startPad.standalonePad
-                ? `null|${startPad.standalonePad.id}` : `${startPad.componentId}|${startPad.pinNumber}` } : null),
+        guideExclude: bondedExclusion(
+            app,
+            /** @type {null} */ (/** @type {unknown} */ (startTrack)),
+            /** @type {null} */ (/** @type {unknown} */ (terminalSeed)),
+        ),
         guideSourceShapes: new Set(snap.copperShapes || []),
         guideSourceKeys: new Set(),
         // Via geometry snapshot — captured at draw-start so the preview
@@ -665,13 +691,13 @@ export function startTrackDraw(app, worldPos) {
     };
     ctx.guideSourceKeys = new Set(ctx.guideExclude?.ratlinePointKeys);
     ctx.guideSourceKeys.add(ratlinePointKey(ctx.points[0]));
-    for (const shape of ctx.guideSourceShapes) {
+    for (const shape of ctx.guideSourceShapes || []) {
         for (const point of shapeOutline(shape)) ctx.guideSourceKeys.add(ratlinePointKey(point));
     }
     setPcbInteraction(app, '_trackDraw', ctx);
     app.viewport?.setCrosshair({ x: snap.x, y: snap.y });
     _renderPreview(app, ctx, ctx.points[0]);
-    if (app.openPropertyPanel) showTrackDrawProperties(app);
+    if (/** @type {Partial<PcbEditor>} */ (app).openPropertyPanel) showTrackDrawProperties(app);
     return ctx;
 }
 
@@ -679,6 +705,7 @@ export function startTrackDraw(app, worldPos) {
  * Live preview update on mousemove. Computes the snapped+constrained
  * target and updates the preview polyline.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function updateTrackDraw(app, worldPos) {
     const ctx = getTrackDraw(app);
@@ -718,6 +745,7 @@ export function refreshTrackDrawPreview(app) {
  * If the new vertex lands on a pad (with matching net or no current net),
  * the draw is finished automatically.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function addTrackWaypoint(app, worldPos) {
     const ctx = getTrackDraw(app);
@@ -822,7 +850,7 @@ export function finishTrackDraw(app) {
 
     _teardownDraw(app);
     // Track tool is still selected — restore its draw settings.
-    if (app.openPropertyPanel) showTrackDrawProperties(app);
+    if (/** @type {Partial<PcbEditor>} */ (app).openPropertyPanel) showTrackDrawProperties(app);
     return true;
 }
 
@@ -832,7 +860,7 @@ export function finishTrackDraw(app) {
  */
 export function cancelTrackDraw(app) {
     _teardownDraw(app);
-    if (app.openPropertyPanel) showTrackDrawProperties(app);
+    if (/** @type {Partial<PcbEditor>} */ (app).openPropertyPanel) showTrackDrawProperties(app);
 }
 
 /**
@@ -865,6 +893,7 @@ export function popTrackWaypoint(app) {
 }
 
 /** True when a Track has rounded corners or arc edges. */
+/** @param {Track} track */
 function trackHasCurves(track) {
     if (Number(track.cornerRadius) >= 0.01
         || Object.values(track.nodeCornerRadii || {}).some(radius => Number(radius) >= 0.01)) return true;
@@ -878,6 +907,7 @@ function trackHasCurves(track) {
  * along every curve. A rounded corner's node lies off the copper, so curved
  * Tracks use their rendered centreline. Nodes still bond junctions.
  */
+/** @param {any} cluster @param {Map<Track, any>} pathsByTrack */
 function trackRatlineTargets(cluster, pathsByTrack) {
     const { track, edgeIds } = cluster;
     if (!edgeIds?.size || !trackHasCurves(track)) return cluster.points;
@@ -937,7 +967,7 @@ export function reconcileRatsnest(app, opts) {
 
     const ratLayer = app.getLayerGroup?.('ratlines');
     if (!ratLayer) return;
-    const ratlines = storedDrcRatlines(app).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
+    const ratlines = /** @type {any[]} */ (storedDrcRatlines(app)).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
     const publishRatlines = () => {
         setDrcRatlines(app, ratlines);
         refreshNetGuideLine(app);
@@ -948,13 +978,14 @@ export function reconcileRatsnest(app, opts) {
     for (const el of /** @type {SVGElement[]} */ ([...ratLayer.children])) {
         if (el.classList?.contains('ratsnest-failed')) continue;
         // Incremental mode: keep ratlines for nets we're not recomputing.
-        if (onlyNets && !onlyNets.has(el.dataset?.net)) continue;
+        const net = el.dataset?.net;
+        if (onlyNets && (!net || !onlyNets.has(net))) continue;
         el.remove();
     }
 
-    const clusters = buildCopperClusters(app, onlyNets).filter((cluster) => cluster.net);
+    const clusters = buildCopperClusters(app, /** @type {null} */ (/** @type {unknown} */ (onlyNets))).filter((cluster) => cluster.net);
     const preview = getTrackDraw(app)?.ratlinePreview;
-    if (preview) clusters.push(...buildCopperClusters(preview, onlyNets));
+    if (preview) clusters.push(...buildCopperClusters(preview, /** @type {null} */ (/** @type {unknown} */ (onlyNets))));
     const terminalCount = clusters.length;
 
     // ── Additive copper shapes are net-bearing islands on their own layer.
@@ -993,7 +1024,9 @@ export function reconcileRatsnest(app, opts) {
     //    such as a via or pad). Cross-layer coincidence WITHOUT a bond does
     //    not connect. ──
     const parent = clusters.map((_, i) => i);
+    /** @param {number} i */
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    /** @param {number} a @param {number} b */
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
 
     unionCoincidentClusters(clusters.slice(0, terminalCount), union, true);
@@ -1062,6 +1095,8 @@ export function reconcileRatsnest(app, opts) {
 /**
  * Closest pair of points between two point sets. Returns the segment
  * endpoints plus the squared distance.
+ * @param {Point[]} A
+ * @param {Point[]} B
  * @returns {{x1:number,y1:number,x2:number,y2:number,d2:number}}
  */
 function _closestPair(A, B) {
@@ -1087,6 +1122,7 @@ function _closestPair(A, B) {
 export function _clusterMST(nodes) {
     if (nodes.length > 128) return spatialClusterMST(nodes);
     const n = nodes.length;
+    /** @type {Array<{x1:number,y1:number,x2:number,y2:number}>} */
     const edges = [];
     if (n < 2) return edges;
     const inTree = new Uint8Array(n);
@@ -1094,6 +1130,7 @@ export function _clusterMST(nodes) {
     /** @type {Array<{x1:number,y1:number,x2:number,y2:number,d2:number} | undefined>} */
     const bestPairs = new Array(n);
     inTree[0] = 1;
+    /** @param {number} k */
     const relax = (k) => {
         for (let i = 0; i < n; i++) {
             if (inTree[i]) continue;
@@ -1134,6 +1171,7 @@ function _teardownDraw(app) {
     }
 }
 
+/** @param {TrackDrawContext} ctx @param {boolean} [keepCached] */
 function _clearPreviewElements(ctx, keepCached = false) {
     for (const el of ctx.previewElements || []) el.remove();
     ctx.previewElements = [];
@@ -1146,6 +1184,7 @@ function _clearPreviewElements(ctx, keepCached = false) {
 /**
  * Shared Track and generic-shape H/V/45 glow renderer.
  * @param {PcbEditor} app
+ * @param {any[]} segments
  */
 export function renderTrackAxisGlow(app, segments) {
     renderAxisGlow(app, segments);
@@ -1174,7 +1213,7 @@ export function clearTrackAxisGlow(app) {
  * `clearTrackSnapMarker`) to remove it.
  *
  * @param {PcbEditor} app
- * @param {{x:number,y:number}|null} pos - snap point in world mm
+ * @param {Point|null} pos - snap point in world mm
  */
 export function showTrackSnapMarker(app, pos) {
     clearTrackSnapMarker(app);
@@ -1216,6 +1255,7 @@ export function hasTrackSnapMarker(app) {
 }
 
 /** Closest point on segment a→b to p, clamped to the segment. */
+/** @param {Point} p @param {Point} a @param {Point} b */
 function _projectPointOnSegment(p, a, b) {
     const abx = b.x - a.x, aby = b.y - a.y;
     const len2 = abx * abx + aby * aby;
@@ -1254,9 +1294,11 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
     const excludeVias = opts.excludeVias || null;
     const excludePadKeys = opts.excludePadKeys || null;
     const excludePoints = opts.excludePoints || null;
+    /** @param {string} layer */
     const compatible = layer => !opts.layer || copperLayer(layer) === 'all'
         || copperLayer(layer) === opts.layer;
     const EPS2 = 1e-6; // (1e-3 mm)^2
+    /** @param {number} x @param {number} y */
     const skip = (x, y) => {
         if (!excludePoints) return false;
         for (const q of excludePoints) {
@@ -1267,6 +1309,7 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
     };
     let best = null;
     let bestD2 = Infinity;
+    /** @param {number} x @param {number} y */
     const consider = (x, y) => {
         if (skip(x, y)) return;
         const dx = x - from.x, dy = y - from.y;
@@ -1279,7 +1322,7 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
         if (pad.net !== net || !compatible(pad.layer)) continue;
         if (excludePadKeys?.has(`${pad.componentId}|${pad.padId}`)) continue;
         if (pad.componentId == null
-            && app.pads?.some(source => source.id === pad.padId && source.visible === false)) continue;
+            && /** @type {any[]} */ (app.pads || []).some((source) => source.id === pad.padId && source.visible === false)) continue;
         consider(pad.x, pad.y);
     }
 
@@ -1306,6 +1349,7 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
         }
     }
 
+    /** @param {Point[]} points @param {boolean} [closed] */
     const considerContour = (points, closed = true) => {
         for (let index = 0; index < points.length - (closed ? 0 : 1); index++) {
             const point = _projectPointOnSegment(from, points[index], points[(index + 1) % points.length]);
@@ -1377,6 +1421,10 @@ function refreshNetGuideLine(app) {
 /**
  * Promote exactly one real ratline; every other graph edge keeps its own visibility.
  * @param {PcbEditor} app
+ * @param {string} net
+ * @param {Point} from
+ * @param {Set<string>|null} sourceKeys
+ * @param {Point[]} [previewPoints]
  */
 export function updateNetGuideLine(app, net, from, sourceKeys, previewPoints = []) {
     clearNetGuideLine(app);
@@ -1388,7 +1436,7 @@ export function updateNetGuideLine(app, net, from, sourceKeys, previewPoints = [
     refreshNetGuideLine(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {TrackDrawContext} ctx @param {Point} livePt */
 function refreshDrawRatlines(app, ctx, livePt) {
     if (!ctx.net && !ctx.ratlinePreview) return;
     const points = ctx.points.concat([livePt]);
@@ -1399,8 +1447,12 @@ function refreshDrawRatlines(app, ctx, livePt) {
     ctx.ratlinePreview = _buildTracksFromContext({ ...ctx, points, endPad: null });
     ctx.ratlinePreviewNet = ctx.net;
     ctx.ratlinePreviewSignature = signature;
-    updateNetGuideLine(app, ctx.net, livePt, ctx.guideSourceKeys, points);
-    reconcileRatsnest(app, { nets: new Set([previousNet, ctx.net].filter(Boolean)), skipFillRefresh: true });
+    updateNetGuideLine(app, ctx.net, livePt, ctx.guideSourceKeys || null, points);
+    /** @type {Set<string>} */
+    const nets = new Set();
+    if (previousNet) nets.add(previousNet);
+    if (ctx.net) nets.add(ctx.net);
+    reconcileRatsnest(app, { nets, skipFillRefresh: true });
 }
 
 /**
@@ -1409,8 +1461,8 @@ function refreshDrawRatlines(app, ctx, livePt) {
  * falsy endpoint, or call `clearNetGuideLine`, to remove it.
  *
  * @param {PcbEditor} app
- * @param {{x:number,y:number}|null} from
- * @param {{x:number,y:number}|null} to
+ * @param {Point|null} from
+ * @param {Point|null} to
  */
 export function showNetGuideLine(app, from, to) {
     clearNetGuideLine(app);
@@ -1456,7 +1508,7 @@ export function getNetGuideLine(app) {
     return netGuideLines.get(app) || null;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {TrackDrawContext} ctx @param {Point} livePt */
 function _renderPreview(app, ctx, livePt) {
     _clearPreviewElements(ctx, true);
     const used = new Set();
@@ -1545,7 +1597,7 @@ function _renderPreview(app, ctx, livePt) {
             }
         }
     }
-    for (const [key, element] of ctx.previewCache) {
+    for (const [key, element] of /** @type {Map<string, SVGElement>} */ (ctx.previewCache)) {
         if (used.has(key)) continue;
         element.remove();
         ctx.previewCache.delete(key);
@@ -1553,16 +1605,19 @@ function _renderPreview(app, ctx, livePt) {
     refreshDrawRatlines(app, ctx, livePt);
 }
 
+/** @param {TrackDrawContext} ctx @param {string} key @param {string} tag @param {Set<string>} used @returns {any} */
 function _previewElement(ctx, key, tag, used) {
     used.add(key);
-    let element = ctx.previewCache.get(key);
+    const cache = /** @type {Map<string, SVGElement>} */ (ctx.previewCache);
+    let element = cache.get(key);
     if (!element) {
         element = document.createElementNS(NS, tag);
-        ctx.previewCache.set(key, element);
+        cache.set(key, element);
     }
     return element;
 }
 
+/** @param {TrackDrawContext} ctx @param {SVGGElement} viaLayer @param {Point} p @param {number} viaDia @param {number} viaDrill @param {number} index @param {Set<string>} used */
 function _appendPreviewVia(ctx, viaLayer, p, viaDia, viaDrill, index, used) {
     const ring = _previewElement(ctx, `via:${index}:ring`, 'path', used);
     ring.setAttribute('class', PREVIEW_CLASS);
@@ -1612,6 +1667,7 @@ export function _axisAlignment(a, b) {
 }
 
 /** Highlight glow colour per alignment kind (Okabe–Ito colourblind-safe). */
+/** @param {string} kind */
 function _alignColor(kind) {
     // H/V use yellow (solid line); 45° uses magenta (dashed line). Both are
     // separable from the collinear blue under common colour-vision
@@ -1634,7 +1690,7 @@ function _alignColor(kind) {
  * exactly one layer, and a layer change is always two coincident
  * single-layer nodes plus a via (matching the via tool's split path).
  *
- * @param {object} ctx - draw context
+ * @param {TrackDrawContext} ctx - draw context
  * @returns {{ tracks: Track[], vias: Via[] }}
  */
 function _buildTracksFromContext(ctx) {
@@ -1642,12 +1698,16 @@ function _buildTracksFromContext(ctx) {
     const width = ctx.width || 0.2;
     const pts = ctx.points;
     const segLayers = ctx.edgeLayers;
-    const diameter = Number.isFinite(ctx.viaDiameter) && ctx.viaDiameter > 0
-        ? ctx.viaDiameter : 0.6;
-    const drill = Number.isFinite(ctx.viaDrill) && ctx.viaDrill > 0
-        ? ctx.viaDrill : 0.3;
+    const viaDiameter = ctx.viaDiameter;
+    const viaDrill = ctx.viaDrill;
+    const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0
+        ? viaDiameter : 0.6;
+    const drill = typeof viaDrill === 'number' && Number.isFinite(viaDrill) && viaDrill > 0
+        ? viaDrill : 0.3;
 
+    /** @type {Track[]} */
     const tracks = [];
+    /** @type {Point[]} */
     const transitions = []; // {x, y} points where the layer changed
     let cur = null;         // current single-layer Track being built
     let curNodeId = '';     // last node id appended to `cur`
@@ -1668,7 +1728,7 @@ function _buildTracksFromContext(ctx) {
             if (i === 0 && ctx.startPad?.componentId) {
                 cur.padConnections.set(curNodeId, {
                     componentId: ctx.startPad.componentId,
-                    pinNumber: ctx.startPad.pinNumber,
+                    pinNumber: /** @type {string|number} */ (ctx.startPad.pinNumber),
                 });
             }
         }
@@ -1680,8 +1740,8 @@ function _buildTracksFromContext(ctx) {
     // End-pad metadata belongs to the last node of the last run.
     if (cur && ctx.endPad) {
         cur.padConnections.set(curNodeId, {
-            componentId: ctx.endPad.componentId,
-            pinNumber: ctx.endPad.pinNumber,
+            componentId: /** @type {string} */ (ctx.endPad.componentId),
+            pinNumber: /** @type {string|number} */ (ctx.endPad.pinNumber),
         });
     }
 
@@ -1691,7 +1751,7 @@ function _buildTracksFromContext(ctx) {
     return { tracks, vias };
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {string} componentId @param {string} pinNumber */
 export function _padNet(app, componentId, pinNumber) {
     if (!Array.isArray(app.netlist)) return '';
     for (const entry of app.netlist) {
@@ -1705,6 +1765,7 @@ export function _padNet(app, componentId, pinNumber) {
     return '';
 }
 
+/** @param {string} layerId */
 function _layerColor(layerId) {
     return layerId === 'bottom-copper' ? '#3498db' : '#e74c3c';
 }
@@ -1743,8 +1804,8 @@ function _renderOptsFromApp(app) {
  * @property {string} currentLayer
  * @property {number} width
  * @property {string} net
- * @property {object|null} startPad
- * @property {object|null} endPad
+ * @property {{componentId?: string, pinNumber?: string, standalonePad?: any, id?: string}|null} startPad
+ * @property {{componentId?: string, pinNumber?: string, standalonePad?: any, id?: string}|null} endPad
  * @property {string|null} axisLock
  * @property {SVGElement[]} previewElements
  * @property {Map<string, SVGElement>} [previewCache]
@@ -1755,12 +1816,18 @@ function _renderOptsFromApp(app) {
  * @property {any} [guideExclude] bonded copper the live net guide must not point back at
  * @property {Set<any>} [guideSourceShapes]
  * @property {Set<string>} [guideSourceKeys]
+ * @property {any} [ratlinePreview]
+ * @property {string} [ratlinePreviewSignature]
+ * @property {string} [ratlinePreviewNet]
+ * @property {Set<any>} [guideSourceShapes]
+ * @property {Set<string>} [guideSourceKeys]
  */
 
 /**
  * Keys while a track is being drawn: Escape cancels, Enter finishes, Space drops a
  * waypoint at the snap point and switches copper layer. Other keys are not consumed.
  * @param {PcbEditor} app
+ * @param {KeyboardEvent} e
  * @returns {boolean|null} null when no track is being drawn, else whether the key was consumed.
  */
 export function handleTrackDrawKey(app, e) {
@@ -1786,6 +1853,7 @@ export function handleTrackDrawKey(app, e) {
 /**
  * A primary press with the Track tool: start a track, or add its next waypoint.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pressTrackTool(app, worldPos) {
     if (getTrackDraw(app)) addTrackWaypoint(app, worldPos);
@@ -1797,6 +1865,7 @@ export function pressTrackTool(app, worldPos) {
  * point, and a marker shows the copper the first press would start from, using the same
  * hard targets as the route itself so that press cannot snap elsewhere.
  * @param {PcbEditor} app
+ * @param {MouseEvent} e
  */
 export function hoverTrackTool(app, e) {
     const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});

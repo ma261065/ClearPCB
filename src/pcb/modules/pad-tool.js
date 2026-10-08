@@ -6,6 +6,8 @@ import { Pad } from '../../shapes/pad.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { setPcbSelection } from './selection-registry.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../shapes/pad.js').PadOptions} PadOptions */
 
 const padToolDefaults = new WeakMap();
 const padPreviewGroups = new WeakMap();
@@ -24,12 +26,19 @@ export function getPadToolDefaults(app) {
     return defaults;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {PadOptions} defaults
+ */
 export function setPadToolDefaults(app, defaults) {
     padToolDefaults.set(app, defaults);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ * @returns {Point}
+ */
 export function snapPadPlacement(app, point) {
     return app.viewport?.getSnappedPosition?.(point) || { x: point.x, y: point.y };
 }
@@ -39,6 +48,7 @@ export function snapPadPlacement(app, point) {
  * Returns `{ type:'pad', componentId, pinNumber }` or null. Pad shape
  * is approximated by the bounding box from padOffsets.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function hitTestPad(app, worldPos) {
     const topVisible = isLayerVisible('top-copper');
@@ -77,7 +87,10 @@ export function hitTestPad(app, worldPos) {
     return null;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function updatePadPreview(app, worldPos) {
     if (!app.viewport) return;
     const snap = snapPadPlacement(app, worldPos);
@@ -135,6 +148,7 @@ export function showPadToolProperties(app) {
 /**
  * A primary press with the Pad tool: place a pad from the tool's defaults and select it.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pressPadTool(app, worldPos) {
     const snap = snapPadPlacement(app, worldPos);

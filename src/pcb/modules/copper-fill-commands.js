@@ -17,14 +17,17 @@ import { recomputeFillsNow } from './fill-refresh.js';
 import { setComputedFill } from './computed-fill-cache.js';
 import { refreshFillProperties } from './copper-fill-edit.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFillState} CopperFillState */
 
 /** State that does not shape a pour's copper; changing only these keeps its computed copper. */
 const NON_GEOMETRY = new Set(['net', 'locked', 'visible']);
 
 /** Whether a state change moves or reshapes the poured copper (outline, kind, layer, corners). */
+/** @param {Partial<CopperFillState>|null|undefined} before @param {Partial<CopperFillState>|null|undefined} after */
 function reshapesCopper(before, after) {
     const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
-    return [...keys].some(key => !NON_GEOMETRY.has(key) && JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]));
+    return [...keys].some(key => !NON_GEOMETRY.has(key) && JSON.stringify(/** @type {any} */ (before)?.[key]) !== JSON.stringify(/** @type {any} */ (after)?.[key]));
 }
 
 /** @param {PcbEditor} app */
@@ -35,7 +38,7 @@ function refresh(app) {
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand extends ModelAddFillCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {CopperFill} fill */
     constructor(app, fill) {
         super(app.pcbDocument, fill);
         this.app = app;
@@ -53,7 +56,7 @@ export class AddFillCommand extends ModelAddFillCommand {
 
 /** Remove an existing CopperFill. */
 export class RemoveFillCommand extends ModelRemoveFillCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {CopperFill} fill */
     constructor(app, fill) {
         super(app.pcbDocument, fill);
         this.app = app;
@@ -74,11 +77,12 @@ export class RemoveFillCommand extends ModelRemoveFillCommand {
  * `after` are captureState() snapshots.
  */
 export class ModifyFillCommand extends ModelModifyFillCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {CopperFill} fill @param {CopperFillState} before @param {CopperFillState} after */
     constructor(app, fill, before, after) {
         super(fill, before, after);
         this.app = app;
     }
+    /** @param {CopperFillState} state */
     _apply(state) {
         const reshaped = reshapesCopper(this.fill.captureState(), state);
         super._apply(state);

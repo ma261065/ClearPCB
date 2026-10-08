@@ -8,13 +8,18 @@ import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.j
 import { isLayerVisible } from './layers.js';
 import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{bx:number,by:number,bw:number,bh:number,cx:number,cy:number}} RefBox */
+/** @typedef {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,refDx?:number,refDy?:number,refRot?:number,refSize?:number,reference?:string,refVisible?:boolean,elements?: Element[],_refEl?: Element|null,_refBox?: RefBox|null}} RefPlacement */
+
 /** Hit-test margin around a reference box, in mm (matches the drawn selection box). */
 export const REF_BOX_PAD = 0.6;
 
 /**
  * Board point to the placement's authored-local frame: undo translate, rotate, mirror.
- * @param {{x:number,y:number}} worldPos
- * @param {object} pl placement
+ * @param {Point} worldPos
+ * @param {RefPlacement} pl placement
+ * @returns {Point}
  */
 export function worldToPlacementLocal(worldPos, pl) {
     let px = worldPos.x - pl.x;
@@ -35,9 +40,10 @@ export function worldToPlacementLocal(worldPos, pl) {
 /**
  * Authored-local footprint point to the board, the inverse of worldToPlacementLocal:
  * mirror, rotate, translate.
- * @param {object} pl placement
+ * @param {RefPlacement} pl placement
  * @param {number} lx
  * @param {number} ly
+ * @returns {Point}
  */
 export function placementLocalToWorld(pl, lx, ly) {
     let px = isPlacementMirrored(pl) ? -lx : lx;
@@ -57,7 +63,8 @@ export function placementLocalToWorld(pl, lx, ly) {
  * A placement's reference element and its footprint-local box `{bx,by,bw,bh,cx,cy}`
  * (the same frame as worldToPlacementLocal and the pad offsets), cached on the
  * placement. Null when the footprint has no reference group.
- * @param {object} pl placement
+ * @param {RefPlacement} pl placement
+ * @returns {RefBox|null}
  */
 export function refBox(pl) {
     if (!pl) return null;
@@ -68,19 +75,23 @@ export function refBox(pl) {
         if (el) break;
     }
     if (!el) return null;
-    const bx = parseFloat(el.getAttribute('data-ref-bx'));
-    const by = parseFloat(el.getAttribute('data-ref-by'));
-    const bw = parseFloat(el.getAttribute('data-ref-bw'));
-    const bh = parseFloat(el.getAttribute('data-ref-bh'));
-    const cx = parseFloat(el.getAttribute('data-mx-center'));
-    const cy = parseFloat(el.getAttribute('data-ref-cy'));
+    const bx = parseFloat(el.getAttribute('data-ref-bx') || '');
+    const by = parseFloat(el.getAttribute('data-ref-by') || '');
+    const bw = parseFloat(el.getAttribute('data-ref-bw') || '');
+    const bh = parseFloat(el.getAttribute('data-ref-bh') || '');
+    const cx = parseFloat(el.getAttribute('data-mx-center') || '');
+    const cy = parseFloat(el.getAttribute('data-ref-cy') || '');
     if (![bx, by, bw, bh, cx, cy].every(Number.isFinite)) return null;
     pl._refEl = el;
     pl._refBox = { bx, by, bw, bh, cx, cy };
     return pl._refBox;
 }
 
-/** Board centre of a reference, including its offset (rotation about the centre leaves it fixed). */
+/** Board centre of a reference, including its offset (rotation about the centre leaves it fixed).
+ * @param {RefPlacement} pl
+ * @param {RefBox} box
+ * @returns {Point}
+ */
 export function refCenterWorld(pl, box) {
     return placementLocalToWorld(pl, box.cx + (pl.refDx || 0), box.cy + (pl.refDy || 0));
 }
@@ -88,12 +99,15 @@ export function refCenterWorld(pl, box) {
 /**
  * Board corners of the reference's inline-edit rectangle. Keep these metrics
  * identical to the inline editor's caret box (text-inline-edit.js).
+ * @param {RefPlacement} pl
+ * @param {RefBox} box
+ * @returns {Point[]|null}
  */
 export function refEditBoxWorldCorners(pl, box) {
     const size = pl.refSize || REF_DEFAULT_SIZE;
     const width = measureStrokeText(pl.reference || '', size);
     const baseX = box.cx - width / 2;
-    const baseY = parseFloat(pl._refEl?.getAttribute('data-ref-anchor-y'));
+    const baseY = parseFloat(pl._refEl?.getAttribute('data-ref-anchor-y') || '');
     if (!Number.isFinite(baseY)) return null;
 
     const padX = size * 0.15;
@@ -117,9 +131,9 @@ export function refEditBoxWorldCorners(pl, box) {
 
 /**
  * The topmost component whose visible reference box contains a board point, or null.
- * @param {Map<string, object>} placements
- * @param {{x:number,y:number}} worldPos
- * @param {(pl: object) => any} [boxOf] reference box lookup (the editor passes its own)
+ * @param {Map<string, RefPlacement>} placements
+ * @param {Point} worldPos
+ * @param {(pl: RefPlacement) => RefBox|null} [boxOf] reference box lookup (the editor passes its own)
  * @returns {string|null}
  */
 export function hitTestRefText(placements, worldPos, boxOf = refBox) {

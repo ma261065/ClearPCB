@@ -46,6 +46,8 @@ import { createSilkArtworkMeshCache } from './board3d-layers.js';
 import { ensure3DStyles, build3DHost, ThreeScene } from './board3d-scene.js';
 import { boardSurfaceFrame, buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials, publishBoardSurfaces, createSurfacePublisher, createBoard3DSyncScheduler } from './board3d-surfaces.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./board2d.js').LayerStyleKey} LayerStyleKey */
+/** @typedef {import('./board2d.js').LayerStyle} LayerStyle */
 
 /** @param {PcbEditor} app */
 export function board2DDataFromApp(app) {
@@ -55,7 +57,7 @@ export function board2DDataFromApp(app) {
         vias: app.vias,
         pads: app.pads,
         circles: [],
-        boardShapes: (app.boardShapes || []).filter(shape => shape?.type !== 'fill'),
+        boardShapes: (app.boardShapes || []).filter(/** @param {{type?: string}|null|undefined} shape */ shape => shape?.type !== 'fill'),
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
         boardX: 0,
@@ -179,7 +181,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     /** @type {any} */
     const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null, view: initialView };
     setBoardViewPanel(app, panel);
-    app.refreshPcbRibbon();
+    app.refreshPcbRibbon?.();
 
     // ── Split-divider drag ───────────────────────────────────────────────
     // Resizes only the overlay panel; the PCB editor underneath is unaffected.
@@ -224,7 +226,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     let lastYieldAt = 0;
     let spinnerTimer = 0;
     const nextFrame = () =>
-        new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+        new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
     const revealSpinner = () => {
         if (!panel.closed && !spinnerShown) {
             dom.spinner?.classList.add('show');
@@ -286,6 +288,10 @@ export async function openBoard3DViewer(app, opts = {}) {
     const applySceneLayerOpacity = () => {
         if (!scene) return;
         const styles = getLayerStylesAppearance();
+        /**
+         * @param {{opacity: number, transparent: boolean, needsUpdate: boolean}} mat
+         * @param {number} opacity
+         */
         const applyMat = (mat, opacity) => {
             const o = Math.max(0, Math.min(1, Number(opacity) || 0));
             mat.opacity = o;
@@ -300,7 +306,9 @@ export async function openBoard3DViewer(app, opts = {}) {
         applyMat(scene.padMaterial, styles.pads.o);
     };
 
+    /** @type {LayerStyleKey} */
     let styleLayer = 'board';
+    /** @param {number} n */
     const hex2 = (n) => Number(n).toString(16).padStart(2, '0').toUpperCase();
     const updateStyleWindow = () => {
         const styles = getLayerStylesAppearance();
@@ -337,6 +345,10 @@ export async function openBoard3DViewer(app, opts = {}) {
         }
     };
 
+    /**
+     * @param {Partial<Record<LayerStyleKey, Partial<LayerStyle>>>} patch
+     * @param {{rebuild?: boolean}} [options]
+     */
     const applyLayerStyleChange = (patch, { rebuild = true } = {}) => {
         setLayerStylesAppearance(patch);
         if (scene) {
@@ -356,7 +368,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         dom.styleWin?.classList.add('hide');
     });
     dom.styleLayer?.addEventListener('change', () => {
-        styleLayer = String(dom.styleLayer.value || 'board');
+        styleLayer = /** @type {LayerStyleKey} */ (String(dom.styleLayer.value || 'board'));
         updateStyleWindow();
     });
     dom.styleH?.addEventListener('input', () => {
@@ -413,7 +425,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
             try { panel.popWin.document.title = popTitle(); } catch { /* ignore */ }
         }
-        app.refreshPcbRibbon();
+        app.refreshPcbRibbon?.();
     };
     panel.setView = applyView;
 
@@ -436,6 +448,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     const fetcher = getComponentLibrary()?.kicadFetcher;
     /** @type {Map<string, Promise<string|null>>} footprint → colored OBJ text */
     const modelCache = new Map();
+    /** @param {string} footprint */
     const fetchModel = (footprint) => {
         if (modelCache.has(footprint)) return modelCache.get(footprint);
         const p = (async () => {
@@ -518,6 +531,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // the part carries one in memory, otherwise a fallback box. STEP models load
     // asynchronously afterward via loadModelFor.
     const addBody = (/** @type {string} */ id, /** @type {any} */ pl) => {
+        if (!scene) return;
         let body = null;
         if (pl.model3dObj) {
             const parsed = parseObjModel(pl.model3dObj);
@@ -537,6 +551,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // so a model that arrives after the component was moved/removed is not
     // stamped onto a now-stale body.
     const loadModelFor = async (/** @type {string} */ id, /** @type {any} */ pl) => {
+        if (!scene) return;
         const footprint = pl.footprint || '';
         if (!fetcher || resolved.has(id) || !footprint.includes(':')) return;
         const objText = await fetchModel(footprint);
@@ -553,6 +568,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // moved components are rebuilt — unchanged ones (the common case while
     // routing tracks) keep their already-loaded STEP models untouched.
     syncBodies = () => {
+        if (!scene) return;
         const ids = new Set();
         /** @type {Array<[string, any]>} */
         const toLoad = [];
@@ -599,7 +615,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             // clipper; if it loads after this first build, rebuild once ready.
             if (!isClipperReady()) {
                 loadClipper().then(() => {
-                    if (!panel.closed) { rebuildSurfaces(); scene.requestRender(); }
+                    if (!panel.closed && scene) { rebuildSurfaces(); scene.requestRender(); }
                 }).catch(() => {});
             }
             await nextFrame();
@@ -659,6 +675,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     dom.btn2dSave?.addEventListener('click', () => {
         const b2 = board2d;
         if (!b2) return;
+        /** @param {Blob|null} blob */
         const done = (blob) => {
             if (!blob) return;
             const side = panel.view === 'bottom' ? 'bottom' : 'top';
@@ -837,7 +854,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         host.remove();
         splitter.remove();
         clearBoardViewPanel(app, panel);
-        app.refreshPcbRibbon();
+        app.refreshPcbRibbon?.();
     };
     panel.popOut = popOut;
     panel.dock = dock;
@@ -853,7 +870,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.closed || panel.hidden) return;
         if (panel.mode === 'popped') dock();
         panel.hidden = true;
-        app.refreshPcbRibbon();
+        app.refreshPcbRibbon?.();
         // Slide the overlay out to the right; the editor underneath is untouched.
         slideOut(() => {
             host.style.display = 'none';
@@ -862,7 +879,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     const showPanel = () => {
         if (panel.closed || !panel.hidden) return;
         panel.hidden = false;
-        app.refreshPcbRibbon();
+        app.refreshPcbRibbon?.();
         slideIn(() => {
             scene?.resize();
             if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();

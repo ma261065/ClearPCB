@@ -9,16 +9,34 @@ import { Pad } from '../../shapes/pad.js';
 import { beginRotationHandleDrag, endRotationHandleDrag } from './rotation-handle.js';
 import { getViaDrag } from './track-drag.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/pad.js').Pad} PadShape */
+/** @typedef {import('../../shapes/pad.js').PadState} PadState */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{before: Map<PadShape, PadState>, copies: Map<PadShape, PadShape>, originals: Map<PadShape, PadShape>, pads: PadShape[]}} PadPropertyPreview */
+/** @typedef {{original: PadShape, pad: PadShape, start: Point, rotation: number, pads?: PadShape[]}} PadRotationPreview */
+/** @typedef {{pad: PadShape, before: PadState, after: PadState}} PadChange */
 
+/** @type {WeakMap<PcbEditor, PadRotationPreview>} */
 const padRotationPreviews = new WeakMap();
+/** @type {WeakMap<PcbEditor, PadPropertyPreview>} */
 const padPropertyPreviews = new WeakMap();
+
+/** @param {PcbEditor} app @param {PadShape} pad */
+function schedulePadPictureCopperRefresh(app, pad) {
+    schedulePictureCopperRefresh(app, /** @type {null} */ (/** @type {unknown} */ (pad)));
+}
+
+/** @param {PcbEditor} app @returns {(id: string) => SVGGElement} */
+function padLayerGroup(app) {
+    return id => app.getLayerGroup(id);
+}
 
 /** @param {PcbEditor} app */
 export function getPadPropertyPreview(app) {
     return padPropertyPreviews.get(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PadShape} pad */
 export function canonicalPad(app, pad) {
     const viaDrag = getViaDrag(app);
     if (viaDrag?.via === pad) return viaDrag.original;
@@ -27,7 +45,7 @@ export function canonicalPad(app, pad) {
     return padPropertyPreviews.get(app)?.originals.get(pad) || pad;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PadShape} pad */
 export function displayedPad(app, pad) {
     pad = canonicalPad(app, pad);
     const viaDrag = getViaDrag(app);
@@ -40,6 +58,7 @@ export function displayedPad(app, pad) {
 /**
  * Numeric fields share one stable projection for the panel's selected pads.
  * @param {PcbEditor} app
+ * @param {PadShape[]} pads
  */
 export function beginPadPropertyPreview(app, pads) {
     if (padPropertyPreviews.has(app) || padRotationPreviews.has(app) || getViaDrag(app)) {
@@ -61,16 +80,19 @@ export function beginPadPropertyPreview(app, pads) {
 /**
  * Clear the projection before committing; restore untouched artwork on every exit.
  * @param {PcbEditor} app
+ * @param {((changes: PadChange[]) => void)|null|undefined} commit
  */
-export function finishPadPropertyPreview(app, commit) {
+export function finishPadPropertyPreview(app, commit = null) {
     const preview = padPropertyPreviews.get(app);
     if (!preview) return;
     padPropertyPreviews.delete(app);
     const changes = [];
     for (const [pad, copy] of preview.copies) {
         removePadElements(copy);
-        const before = preview.before.get(pad), after = copy.captureState();
-        if (Object.keys(before).some(key => before[key] !== after[key])) changes.push({ pad, before, after });
+        const before = /** @type {PadState} */ (preview.before.get(pad)), after = copy.captureState();
+        if (Object.keys(before).some(key => before[/** @type {keyof PadState} */ (key)] !== after[/** @type {keyof PadState} */ (key)])) {
+            changes.push({ pad, before, after });
+        }
     }
     let committed = false;
     try {
@@ -87,8 +109,8 @@ export function finishPadPropertyPreview(app, commit) {
         const available = new Set(app.pcbDocument.pads);
         for (const pad of preview.copies.keys()) {
             if (!available.has(pad)) continue;
-            if (!changed.has(pad)) renderPad(pad, id => app.getLayerGroup(id));
-            schedulePictureCopperRefresh(app, pad);
+            if (!changed.has(pad)) renderPad(pad, padLayerGroup(app));
+            schedulePadPictureCopperRefresh(app, pad);
         }
     }
 }
@@ -98,7 +120,7 @@ export function getPadRotationPreview(app) {
     return padRotationPreviews.get(app);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PadShape} original @param {Point} start */
 export function beginPadRotationPreview(app, original, start) {
     if (padRotationPreviews.has(app)) {
         throw new Error('Finish the current pad rotation preview before starting another.');
@@ -112,6 +134,8 @@ export function beginPadRotationPreview(app, original, start) {
 /**
  * Allocate once, on the first changed rotation, without touching authored geometry.
  * @param {PcbEditor} app
+ * @param {PadShape} original
+ * @param {number} rotation
  */
 export function previewPadRotation(app, original, rotation) {
     const preview = padRotationPreviews.get(app);
@@ -132,8 +156,9 @@ export function previewPadRotation(app, original, rotation) {
 /**
  * Hand artwork and collection ownership back before invoking the model command.
  * @param {PcbEditor} app
+ * @param {(() => void)|false|null|undefined} commit
  */
-export function finishPadRotationPreview(app, commit) {
+export function finishPadRotationPreview(app, commit = null) {
     const preview = padRotationPreviews.get(app);
     padRotationPreviews.delete(app);
     if (preview) {
@@ -151,7 +176,7 @@ export function finishPadRotationPreview(app, commit) {
         }
     } finally {
         if (preview?.pads && !committed && app.pcbDocument.pads.includes(preview.original)) {
-            renderPad(preview.original, id => app.getLayerGroup(id));
+            renderPad(preview.original, padLayerGroup(app));
         }
         if (preview) {
             updatePadHighlightGeometry(preview.original, app.getLayerGroup('selection-overlay'));
@@ -161,14 +186,14 @@ export function finishPadRotationPreview(app, commit) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {PadShape} pad */
 function refresh(app, pad) {
-    renderPad(pad, id => app.getLayerGroup(id));
-    schedulePictureCopperRefresh(app, pad);
+    renderPad(pad, padLayerGroup(app));
+    schedulePadPictureCopperRefresh(app, pad);
 }
 
 export class AddPadCommand extends ModelAddPadCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PadShape} pad */
     constructor(app, pad) { super(app.pcbDocument, pad); this.app = app; }
     execute() {
         super.execute();
@@ -178,18 +203,18 @@ export class AddPadCommand extends ModelAddPadCommand {
         removePadElements(this.pad);
         super.undo();
         if (isPcbSelected(this.app, 'pad', this.pad)) clearPcbSelection(this.app);
-        schedulePictureCopperRefresh(this.app, this.pad);
+        schedulePadPictureCopperRefresh(this.app, this.pad);
     }
 }
 
 export class RemovePadCommand extends ModelRemovePadCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PadShape} pad */
     constructor(app, pad) { super(app.pcbDocument, pad); this.app = app; }
     execute() {
         removePadElements(this.pad);
         super.execute();
         if (isPcbSelected(this.app, 'pad', this.pad)) clearPcbSelection(this.app);
-        schedulePictureCopperRefresh(this.app, this.pad);
+        schedulePadPictureCopperRefresh(this.app, this.pad);
     }
     undo() {
         super.undo();
@@ -198,10 +223,11 @@ export class RemovePadCommand extends ModelRemovePadCommand {
 }
 
 export class ModifyPadCommand extends ModelModifyPadCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PadShape} pad @param {PadState} before @param {PadState} after */
     constructor(app, pad, before, after) {
         super(pad, before, after); this.app = app;
     }
+    /** @param {Partial<PadState>} state */
     _apply(state) {
         super._apply(state);
         refresh(this.app, this.pad);
@@ -209,10 +235,11 @@ export class ModifyPadCommand extends ModelModifyPadCommand {
 }
 
 export class MovePadCommand extends ModelMovePadCommand {
-    /** @param {PcbEditor} app */
+    /** @param {PcbEditor} app @param {PadShape} pad @param {Point} from @param {Point} to */
     constructor(app, pad, from, to) {
         super(pad, from, to); this.app = app;
     }
+    /** @param {Point} point */
     _apply(point) {
         super._apply(point);
         refresh(this.app, this.pad);

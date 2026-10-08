@@ -3,15 +3,18 @@ import { fillEditProfile } from './copper-fill-edit.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {{x: number, y: number}} Point */
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {CopperFill} fill @param {string} id */
 export function createCopperFillSelectionAdapter(app, fill, id) {
-    return createBoardShapeSelectionAdapter(app, fill, id, fillEditProfile());
+    return createBoardShapeSelectionAdapter(app, fill, id, /** @type {any} */ (fillEditProfile()));
 }
 
 /**
  * Hit-test a world point against any pour region outline.
  * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function hitTestFill(app, worldPos) {
     if (!app.copperFills) return null;

@@ -18,6 +18,7 @@ import { endComponentDrag, getComponentDrag, showComponentPopup } from './compon
 import { endRefDrag, getRefDrag, selectRefText } from './ref-text-selection.js';
 import { showSaveToast } from './save-toast.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./selection-registry.js').PcbSelectionEntry} SelectionEntry */
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -55,15 +56,16 @@ export function runPcbDeleteAction(app) {
  * @param {'ArrowUp'|'ArrowDown'|'ArrowLeft'|'ArrowRight'} key
  */
 export function runPcbNudgeAction(app, key) {
+    const viewport = app.viewport;
     if (!isEditorActive(app) || app.currentTool !== 'select'
         || isPcbDrawing(app)
         || hasPcbInteractionInProgress(app) || isBoxSelectArmed(app)
-        || isBoxSelecting(app) || app.viewport.isPanning) return false;
-    const selected = getPcbSelectionEntries(app);
+        || isBoxSelecting(app) || !viewport || viewport.isPanning) return false;
+    const selected = /** @type {SelectionEntry[]} */ (getPcbSelectionEntries(app));
     // Locked members stay put (the group drag skips them); one movable member is enough.
     if (!selected.some(entry => !entry.locked) || selected.some(entry => entry.visible === false
         || entry.kind === 'reftext')) return false;
-    const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
+    const step = viewport.snapToGrid ? viewport.gridSize / 4 : 1;
     const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
     const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
     beginGroupDrag(app, { x: 0, y: 0 });
@@ -83,11 +85,11 @@ export function runPcbEscapeAction(app) {
     if (cancelPcbPropertyPreview(app)) return true;
     if (getBoardOutlineResize(app)) {
         endBoardOutlineResize(app, false);
-        app.viewport.svg.style.cursor = 'default';
+        if (app.viewport) app.viewport.svg.style.cursor = 'default';
         return true;
     }
     if (getPropertyEditor(app, 'boardDimension')?.active) {
-        getPropertyEditor(app, 'boardDimension').cancel();
+        getPropertyEditor(app, 'boardDimension')?.cancel();
         return true;
     }
     if (finishSelectionInteraction(app, false)) {
@@ -106,7 +108,7 @@ export function runPcbEscapeAction(app) {
     }
     if (getGroupDrag(app)) {
         cancelGroupDrag(app);
-        app.viewport.svg.style.cursor = 'default';
+        if (app.viewport) app.viewport.svg.style.cursor = 'default';
         return true;
     }
     if (isPcbPasteActive(app)) {
@@ -115,7 +117,7 @@ export function runPcbEscapeAction(app) {
     }
     if (getVertexDrag(app)) {
         cancelVertexDrag(app);
-        app.viewport.hideCrosshair();
+        app.viewport?.hideCrosshair();
         // No mouse-up cleanup follows a cancelled drag.
         setSegmentClickEdgeId(app, null);
         return true;
@@ -191,7 +193,7 @@ export function runPcbHistoryAction(app, action) {
         finishSelectionInteraction(app, false);
         if (getComponentDrag(app)) endComponentDrag(app, false);
         if (getRefDrag(app)) endRefDrag(app, false);
-        if (getVertexDrag(app)) { cancelVertexDrag(app); app.viewport.hideCrosshair(); }
+        if (getVertexDrag(app)) { cancelVertexDrag(app); app.viewport?.hideCrosshair(); }
         if (getViaDrag(app)) cancelViaDrag(app);
         if (getBoardShapeDrag(app)) {
             endBoardShapeDrag(app, false);

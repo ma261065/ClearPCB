@@ -11,6 +11,9 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { getPropertyEditor } from './property-editors.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {{componentId?: string|null, isNewPlacement?: boolean, select?: () => void, prepare?: () => void, transform?: () => string, localX?: (point: Point) => number, render?: () => void, validate?: (value: string) => boolean, finish?: (value: string, commit: boolean) => void}} TextInlineEditOptions */
 
 /*
  * In-place editing of free PCB text: a hidden input captures keystrokes, IME and
@@ -22,6 +25,11 @@ import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
  */
 
 /** Vertical extent of a string in the stroke font, including half the stroke width. */
+/**
+ * @param {string} text
+ * @param {number} size
+ * @param {number} [strokeWidth]
+ */
 function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
     const polylines = stringToPolylines(text, 0, 0, size, false);
     let top = Infinity;
@@ -53,16 +61,18 @@ export function activeTextInlineEdit(app) {
  * keystrokes and an SVG overlay draws the box and caret. Commits on Enter,
  * cancels on Escape (see the module comment for the other ways it ends).
  * @param {PcbEditor} app
- * @param {object} text
- * @param {{x:number,y:number}} [worldPos] - if given, the caret is
+ * @param {PcbText} text
+ * @param {{x:number,y:number}|null} [worldPos] - if given, the caret is
  *   placed at the character nearest this click point; otherwise it
  *   goes to the end of the text.
+ * @param {TextInlineEditOptions} [opts]
  */
 export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
     if (activeTextInlineEdit(app) && endTextInlineEdit(app, true) === false) return;
 
-    const svg = app.viewport?.svg;
+    const viewport = app.viewport;
+    const svg = viewport?.svg;
     if (!svg) return;
     invalidateFillRefresh(app);
     invalidateDrcRefresh(app);
@@ -82,9 +92,10 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
 
     const layerG = app.getLayerGroup(text.layer);
     const overlay = createInlineTextOverlay(
+        /** @param {SVGGElement} group */
         group => {
-            if (typeof app.viewport.addInteractionOverlay === 'function') {
-                app.viewport.addInteractionOverlay(group);
+            if (typeof viewport.addInteractionOverlay === 'function') {
+                viewport.addInteractionOverlay(group);
             } else {
                 layerG?.appendChild(group);
             }
@@ -186,6 +197,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
 
     // Resume label typing from property controls, but let numeric fields
     // own their editing keys. Enter/Escape still finish the inline edit.
+    /** @param {KeyboardEvent} ev */
     const docKeyCapture = (ev) => {
         const st = activeTextInlineEdit(app);
         if (!st || !isEditorActive(app)) return;

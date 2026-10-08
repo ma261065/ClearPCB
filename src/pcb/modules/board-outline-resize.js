@@ -13,6 +13,10 @@ import { renderPanelPreview } from './panelization-ui.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{width: number, height: number, radius: number}} BoardDimensions */
+/** @typedef {'width'|'height'|'radius'} BoardDimensionKey */
+/** @typedef {{active: boolean, sync: () => void, setValid: (key: BoardDimensionKey, valid: boolean) => void, preview: (key: BoardDimensionKey, value: number) => boolean, commit: () => void, cancel: () => void, dispose: () => void}} BoardDimensionBinding */
 
 const boardOutlineStates = new WeakMap();
 
@@ -37,7 +41,10 @@ export function isBoardOutlineDrawn(app) {
     return !!state(app).drawn;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {boolean} drawn
+ */
 export function setBoardOutlineDrawn(app, drawn) {
     state(app).drawn = !!drawn;
 }
@@ -50,7 +57,10 @@ export function isBoardOutlineSelected(app) {
     return !!state(app).selected;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {boolean} selected
+ */
 export function setBoardOutlineSelected(app, selected) {
     state(app).selected = !!selected;
 }
@@ -58,6 +68,7 @@ export function setBoardOutlineSelected(app, selected) {
 /**
  * Test if a world point is near the board outline edge.
  * @param {PcbEditor} app
+ * @param {Point} pos
  */
 export function hitTestBoardOutline(app, pos) {
     if (getBoardOutline(app)) return false;
@@ -82,6 +93,7 @@ export function hitTestBoardOutline(app, pos) {
 /**
  * Set board outline hover state.
  * @param {PcbEditor} app
+ * @param {boolean} hovered
  */
 export function hoverBoardOutline(app, hovered) {
     const outline = app.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
@@ -122,6 +134,7 @@ export function drawBoardOutline(app) {
 /**
  * Set board outline selection state.
  * @param {PcbEditor} app
+ * @param {boolean} selected
  */
 export function selectBoardOutline(app, selected) {
     const shape = getBoardOutline(app);
@@ -168,13 +181,21 @@ export function showBoardOutlineProperties(app) {
         showBoardShapeProperties(app, outline);
         return;
     }
+    /** @type {BoardDimensionBinding|null} */
     let binding = null;
     const refresh = () => app.refreshPropertyPanel?.(describe());
     /** @returns {PropertyPanel} */
     const describe = () => {
         const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
         const locked = isLayerLocked('board-outline') || !isLayerVisible('board-outline');
-        /** @returns {PropertyField} */
+        /**
+         * @param {BoardDimensionKey} key
+         * @param {string} id
+         * @param {string} label
+         * @param {number} min
+         * @param {number} step
+         * @returns {PropertyField}
+         */
         const number = (key, id, label, min, step) => ({
             key, id, type: 'number', label, value: board[key], min, step, disabled: locked,
             format: value => Number(value).toFixed(2),
@@ -204,14 +225,18 @@ export function showBoardOutlineProperties(app) {
     refresh();
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {BoardDimensions} dimensions
+ */
 export function previewBoardDimensions(app, dimensions) {
-    if (!['width', 'height', 'radius'].every(key => Number.isFinite(dimensions[key]))) throw new Error('Board dimensions must be finite.');
+    const keys = /** @type {BoardDimensionKey[]} */ (['width', 'height', 'radius']);
+    if (!keys.every(key => Number.isFinite(dimensions[key]))) throw new Error('Board dimensions must be finite.');
     if (dimensions.width <= 0 || dimensions.height <= 0 || dimensions.radius < 0) {
         throw new Error('Board dimensions must be positive with a nonnegative radius.');
     }
     const current = getBoardDimensionPreview(app)?.board || app.pcbDocument.board;
-    if (['width', 'height', 'radius'].every(key => dimensions[key] === current[key])) return false;
+    if (keys.every(key => dimensions[key] === current[key])) return false;
     let preview = getBoardDimensionPreview(app);
     if (!preview) {
         const model = app.pcbDocument, original = getBoardOutline(model);
@@ -257,7 +282,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
                 || getBoardOutline(app.pcbDocument) !== preview.original) {
                 throw new Error('The board outline is no longer available.');
             }
-            if (['width', 'height', 'radius'].some(key => preview.before[key] !== preview.board[key])) {
+            if ((/** @type {BoardDimensionKey[]} */ (['width', 'height', 'radius'])).some(key => preview.before[key] !== preview.board[key])) {
                 releaseDragSession(app, preview.session);
                 app.history.execute(new SetBoardOutlineCommand(app, preview.before, preview.board));
                 committed = true;
@@ -285,10 +310,12 @@ export function bindBoardDimensionProperties(app, refresh = () => {}) {
     const binding = {
         get active() { return !!getBoardDimensionPreview(app); },
         sync: refresh,
+        /** @param {BoardDimensionKey} key @param {boolean} valid */
         setValid(key, valid) {
             if (valid) invalid.delete(key);
             else invalid.add(key);
         },
+        /** @param {BoardDimensionKey} key @param {number} value */
         preview(key, value) {
             if (disposed) return false;
             const minimum = key === 'radius' ? 0 : 5;
@@ -366,13 +393,19 @@ export function renderBoardOutlineHandles(app) {
     overlay.appendChild(group);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ */
 export function hitTestBoardOutlineHandle(app, point) {
     const tolerance = 8 / Math.max(0.01, app.viewport?.scale || 1);
     return boardOutlineHandles(app).find(handle => Math.hypot(handle.x - point.x, handle.y - point.y) <= tolerance) || null;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ */
 export function beginBoardOutlineResize(app, point) {
     getPropertyEditor(app, 'boardDimension')?.commit();
     if (getBoardOutlineResize(app)) endBoardOutlineResize(app, false);
@@ -392,7 +425,10 @@ export function getBoardOutlineResize(app) {
     return getPcbInteraction(app, '_boardOutlineResize');
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ */
 export function updateBoardOutlineResize(app, point) {
     const drag = getBoardOutlineResize(app);
     if (!drag) return;

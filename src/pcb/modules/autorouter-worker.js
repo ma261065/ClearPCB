@@ -1,6 +1,10 @@
 import { routeWithMazeRouter } from './autorouter-maze.js';
 import { routeWithPathfinderRouter } from './autorouter-pathfinder.js';
 
+/** @typedef {import('./autorouter-common.js').CancelToken} CancelToken */
+/** @typedef {{x:number,y:number,[key:string]:unknown}} Point */
+
+/** @type {CancelToken|null} */
 let activeCancelToken = null;
 let running = false;
 
@@ -22,21 +26,27 @@ self.addEventListener('message', async (event) => {
         const router = routerMode === 'pathfinder' ? routeWithPathfinderRouter : routeWithMazeRouter;
         const result = await router(msg.routeInput, {
             cancelToken: activeCancelToken,
+            /** @param {number} done @param {number} total @param {string} net @param {Record<string, unknown>} [meta] */
             onProgress: (done, total, net, meta = {}) => {
                 self.postMessage({ type: 'progress', done, total, net, meta });
             },
+            /** @param {unknown[]} netTracks */
             onNetRouted: (netTracks) => {
                 self.postMessage({ type: 'netRouted', netTracks });
             },
+            /** @param {unknown} conn */
             onNetFailed: (conn) => {
                 self.postMessage({ type: 'netFailed', conn });
             },
+            /** @param {string} connId */
             onConnRipped: (connId) => {
                 self.postMessage({ type: 'connRipped', connId });
             },
+            /** @param {string} netName @param {number} pendingConnections */
             onNetPendingChanged: (netName, pendingConnections) => {
                 self.postMessage({ type: 'netPendingChanged', netName, pendingConnections });
             },
+            /** @param {Point} from @param {Point} to */
             onTrying: (from, to) => {
                 self.postMessage({ type: 'trying', from, to });
             },

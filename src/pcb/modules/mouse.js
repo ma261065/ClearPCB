@@ -43,10 +43,13 @@ import { hitTestComponent, showComponent3DMenu } from './component-selection.js'
 import { hitTestFill } from './copper-fill-selection.js';
 import { tryEditReferenceAt } from './ref-text-selection.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{rightPan: Point|null, trackLeft: Point|null, trackRight: Point|null, fillRight: Point|null, shapeRight: Point|null, suppressContextMenu: boolean}} GestureState */
 
 /** Screen movement (px) below which a press and release count as a click, not a drag. */
 const CLICK_SLOP_PX = 4;
 
+/** @type {WeakMap<PcbEditor, GestureState>} */
 const gestureStates = new WeakMap();
 
 /**
@@ -66,12 +69,17 @@ function gestures(app) {
     return state;
 }
 
+/** @param {MouseEvent} e */
 const screenPoint = e => ({ x: e.clientX, y: e.clientY });
 
-/** Take a recorded press (clearing it) and say whether the release moved past the click slop. */
+/**
+ * Take a recorded press (clearing it) and say whether the release moved past the click slop.
+ * @param {GestureState} state @param {'rightPan'|'trackLeft'|'trackRight'|'fillRight'|'shapeRight'} key @param {MouseEvent} e
+ */
 function takeMoved(state, key, e) {
     const down = state[key];
     state[key] = null;
+    if (!down) return false;
     return Math.hypot(e.clientX - down.x, e.clientY - down.y) >= CLICK_SLOP_PX;
 }
 
@@ -80,6 +88,7 @@ function takeMoved(state, key, e) {
  * @param {PcbEditor} app
  */
 export function bindPcbMouseEvents(app) {
+    if (!app.viewport) return;
     const svg = app.viewport.svg;
     if (!svg) return;
     svg.addEventListener('mousedown', e => onMouseDown(app, e));
@@ -108,15 +117,17 @@ export function bindPcbMouseEvents(app) {
     document.getElementById('ribbonPCB')?.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 function onMouseDown(app, e) {
     if (!isEditorActive(app)) return;
+    const viewport = app.viewport;
+    if (!viewport) return;
     // A live pour outline from Properties settles before any gesture saves the
     // overlay deferral (the field's blur only follows this press).
     settleFillGeometryPreview(app);
-    const svg = app.viewport.svg;
-    app.viewport.onInteractionStart?.('pointer');
-    app.viewport.shiftHeld = e.shiftKey;
+    const svg = viewport.svg;
+    viewport.onInteractionStart?.('pointer');
+    viewport.shiftHeld = e.shiftKey;
     // Freshly pasted entities are glued to the cursor; the first
     // left-click drops them at their current position.
     if (isPcbPasteActive(app) && e.button === 0) {
@@ -126,7 +137,7 @@ function onMouseDown(app, e) {
     }
     // Midpoint and context-menu split/conversion previews drop on the next click.
     if (e.button === 0 && placeFloatingSelectionInteraction(app)) {
-        app.viewport.hideCrosshair();
+        viewport.hideCrosshair();
         svg.style.cursor = 'default';
         return;
     }
@@ -140,12 +151,12 @@ function onMouseDown(app, e) {
     }
     const textEdit = activeTextInlineEdit(app);
     const selectedBoardShapeAnchor = worldPos && getPcbSelection(app, 'shape').some(
-        (shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
+        (/** @type {any} */ shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
     );
     const selectedGroupHit = worldPos && hasBoxSelection(app)
         && pointInBoxSelection(app, worldPos);
     const selectedTextAnchor = worldPos && textEdit
-        ? hitTestPcbSelectionAnchor(app, worldPos, ['text'])
+        ? /** @type {(app: PcbEditor, point: Point, kinds?: string[]|null) => any} */ (hitTestPcbSelectionAnchor)(app, worldPos, ['text'])
         : null;
     const rotatingEditedText = selectedTextAnchor?.anchor?.symbol === 'rotate'
         && selectedTextAnchor.adapter?.object?.id === textEdit?.text?.id;
@@ -199,7 +210,7 @@ function onMouseDown(app, e) {
     if (isPanButton || isPanTool) {
         e.preventDefault();
         if (e.button === 2) gestures(app).rightPan = screenPoint(e);
-        app.viewport.startPan(e.clientX, e.clientY);
+        viewport.startPan(e.clientX, e.clientY);
         return;
     }
     if (e.button !== 0) return;
@@ -210,14 +221,16 @@ function onMouseDown(app, e) {
     if (startingTrack && getTrackDraw(app)) gestures(app).trackLeft = screenPoint(e);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 function onMouseMove(app, e) {
     if (!isEditorActive(app)) return;
-    app.viewport.shiftHeld = e.shiftKey;
+    const viewport = app.viewport;
+    if (!viewport) return;
+    viewport.shiftHeld = e.shiftKey;
     // Before any press, show when the active tool's layer is locked or hidden.
     syncToolBlockIndicator(app, e);
-    if (app.viewport.isPanning) {
-        app.viewport.updatePan(e.clientX, e.clientY);
+    if (viewport.isPanning) {
+        viewport.updatePan(e.clientX, e.clientY);
         // Keep tool crosshairs anchored under the cursor while panning.
         followPcbTool(app, app.screenToWorld(e));
     } else if (dispatchPcbPointerMove(app, e)) {
@@ -225,11 +238,11 @@ function onMouseMove(app, e) {
     } else {
         hoverPcbTool(app, e);
     }
-    app.viewport.trackMouse(e);
+    viewport.trackMouse(e);
     updateDebugTooltip(app, e);
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 function onDoubleClick(app, e) {
     if (!isEditorActive(app)) return;
     if (getTrackDraw(app)) {
@@ -263,6 +276,7 @@ function onDoubleClick(app, e) {
  * Double-click: edit a text or reference in place, or explain why a locked track or via
  * cannot be selected.
  * @param {PcbEditor} app
+ * @param {MouseEvent} e
  */
 function editOrExplainAt(app, e) {
     const worldPos = app.screenToWorld(e);
@@ -286,17 +300,19 @@ function editOrExplainAt(app, e) {
     }
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MouseEvent} e */
 function onMouseUp(app, e) {
     if (!isEditorActive(app)) return;
+    const viewport = app.viewport;
+    if (!viewport) return;
     const state = gestures(app);
     if (e.button === 2 && state.rightPan && takeMoved(state, 'rightPan', e)) {
         // The release of a right-drag pan must not open the browser context menu.
         state.suppressContextMenu = true;
         setTimeout(() => { state.suppressContextMenu = false; }, 0);
     }
-    if (app.viewport.isPanning) {
-        app.viewport.endPan();
+    if (viewport.isPanning) {
+        viewport.endPan();
         // Restore the tool's own cursor (endPan resets it to grab/default).
         updateCursorForTool(app);
     }
@@ -325,7 +341,7 @@ function onMouseUp(app, e) {
  * @param {PcbEditor} app
  */
 function finishTrackAtSnap(app) {
-    const snap = getTrackDraw(app).snap;
+    const snap = /** @type {{snap: Point|null}} */ (getTrackDraw(app)).snap;
     if (snap) addTrackWaypoint(app, { x: snap.x, y: snap.y });
     if (getTrackDraw(app)) finishTrackDraw(app);
 }
@@ -333,6 +349,7 @@ function finishTrackAtSnap(app) {
 /**
  * Select tool: the context menu of the pour anchor, track, shape, pour or 3D component under the pointer.
  * @param {PcbEditor} app
+ * @param {MouseEvent} e
  */
 function onContextMenu(app, e) {
     e.preventDefault();
@@ -342,8 +359,8 @@ function onContextMenu(app, e) {
     if (app.currentTool !== 'select' || getTrackDraw(app)) return;
     const worldPos = app.screenToWorld(e);
     // A right-click that started a pan must not leave the viewport panning behind the menu.
-    const endPan = () => { if (app.viewport.isPanning) app.viewport.endPan(); };
-    const fillAnchor = hitTestPcbSelectionAnchor(app, worldPos, ['fill']);
+    const endPan = () => { if (app.viewport?.isPanning) app.viewport.endPan(); };
+    const fillAnchor = /** @type {(app: PcbEditor, point: Point, kinds?: string[]|null) => any} */ (hitTestPcbSelectionAnchor)(app, worldPos, ['fill']);
     if (fillAnchor) {
         endPan();
         showFillContextMenu(app, fillAnchor.adapter.object, e.clientX, e.clientY, worldPos);

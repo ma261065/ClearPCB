@@ -4,6 +4,19 @@ import { placementTransform } from './track-commands.js';
 import { shouldDeferShapeClearance } from './picture-refresh.js';
 import { isPcbPasteActive } from './pcb-paste.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/track.js').Point} Point */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeData} BoardShape */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {Point & {layer?: string, width?: number}} TrackRunPoint */
+/** @typedef {import('../../shapes/track.js').Track} TrackLike */
+/** @typedef {import('../../shapes/via.js').Via} ViaLike */
+/** @typedef {Record<string, any> & {id: string, layer: string, content?: string}} ClearanceShape */
+/** @typedef {{style: string, artwork: unknown, points: Point[], elements: SVGPolygonElement[]}} ShapeClearanceCacheEntry */
+/** @typedef {{cx: number, cy: number, r: number, net?: string}} ViaClearanceSource */
+/** @typedef {{element?: SVGCircleElement, sources: Map<string|SVGElement, ViaClearanceSource>}} ViaClearanceEntry */
+/** @typedef {{trackElements: Map<string, SVGPolygonElement[]>, viaCache: Map<string, ViaClearanceEntry>, viaKeys: Map<string|SVGElement, string>, clearancesVisible: boolean, boardShapeClearanceCache: Map<string, ShapeClearanceCacheEntry>, padHaloGroups: Map<string, SVGGElement>|null}} ClearanceOverlayState */
 
 /*
  * The clearance overlay: a faint halo at the Clearance distance around every pad,
@@ -12,6 +25,7 @@ import { isPcbPasteActive } from './pcb-paste.js';
  * a moved via or shape). The per-editor overlay state is owned here.
  */
 
+/** @type {WeakMap<PcbEditor, ClearanceOverlayState>} */
 const overlayStates = new WeakMap();
 
 /**
@@ -50,6 +64,7 @@ export function areClearancesVisible(app) {
 /**
  * Cached clearance halo of a board shape or copper text, if any.
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function getBoardShapeClearance(app, id) {
     return overlayState(app).boardShapeClearanceCache.get(id);
@@ -58,6 +73,7 @@ export function getBoardShapeClearance(app, id) {
 /**
  * Forget a board shape's or text's cached halo (its element is the caller's to remove).
  * @param {PcbEditor} app
+ * @param {string} id
  */
 export function forgetBoardShapeClearance(app, id) {
     overlayState(app).boardShapeClearanceCache.delete(id);
@@ -66,6 +82,7 @@ export function forgetBoardShapeClearance(app, id) {
 /**
  * The halo group that follows a component's pads during a move, if the overlay is on.
  * @param {PcbEditor} app
+ * @param {string} compId
  */
 export function getPadHaloGroup(app, compId) {
     return overlayState(app).padHaloGroups?.get(compId);
@@ -85,7 +102,7 @@ export function getPadHaloGroup(app, compId) {
  *
  * @param {PcbEditor} app
  * @param {boolean} [show] - explicit on/off; omit to toggle.
- * @param {object|null} [liveTrack] - update only this track's rendered clearance during a drag.
+ * @param {TrackLike|null} [liveTrack] - update only this track's rendered clearance during a drag.
  */
 export function showClearances(app, show, liveTrack = null) {
     const NS = 'http://www.w3.org/2000/svg';
@@ -125,6 +142,7 @@ export function showClearances(app, show, liveTrack = null) {
     // to vector-effect: non-scaling-stroke). 1px = thin clean line.
     const OUTLINE_W = 1;
 
+    /** @param {SVGElement} el */
     const styleHalo = (el) => {
         el.setAttribute('class', HALO_CLASS);
         el.setAttribute('fill', 'none');
@@ -134,6 +152,7 @@ export function showClearances(app, show, liveTrack = null) {
         el.setAttribute('pointer-events', 'none');
     };
 
+    /** @param {string} layerId */
     const isLayerVisible = (layerId) => {
         const g = app.getLayerGroup(layerId);
         return !g || g.style.display !== 'none';
@@ -145,6 +164,14 @@ export function showClearances(app, show, liveTrack = null) {
     // pad shape by `halo`. Returns null if shape unsupported.
     // Geometry is sized exactly to the clearance boundary; the constant-
     // width screen-pixel stroke straddles it.
+    /**
+     * @param {number} cx
+     * @param {number} cy
+     * @param {number} w
+     * @param {number} h
+     * @param {string} shape
+     * @returns {SVGCircleElement|SVGEllipseElement|SVGRectElement}
+     */
     const padHaloPath = (cx, cy, w, h, shape) => {
         const hw = w / 2, hh = h / 2;
         const grow = halo;
@@ -182,6 +209,7 @@ export function showClearances(app, show, liveTrack = null) {
     // translate() transform so they follow the component during drag
     // (the drag handler updates the same transform).
     if (!liveTrack) state.padHaloGroups = new Map();
+    const padHaloGroups = state.padHaloGroups;
     for (const [compId, pl] of liveTrack ? [] : app.placements) {
         const grp = document.createElementNS(NS, 'g');
         grp.setAttribute('class', 'halo-comp');
@@ -201,7 +229,7 @@ export function showClearances(app, show, liveTrack = null) {
             grp.appendChild(el);
         }
         overlay.appendChild(grp);
-        state.padHaloGroups.set(compId, grp);
+        padHaloGroups?.set(compId, grp);
     }
 
     // Halos for routed tracks. Computed as the Minkowski-sum offset
@@ -229,10 +257,19 @@ export function showClearances(app, show, liveTrack = null) {
     // and corners at the cost of more polygon vertices.
     const ARC_STEPS_FULL = 64;
 
+    /**
+     * @param {SVGElement} track
+     * @returns {Array<[number, number]>}
+     */
     const trackToPoints = (track) => {
+        /** @type {Array<[number, number]>} */
         const out = [];
+        /**
+         * @param {string|null} x
+         * @param {string|null} y
+         */
         const push = (x, y) => {
-            const xn = parseFloat(x), yn = parseFloat(y);
+            const xn = parseFloat(String(x)), yn = parseFloat(String(y));
             if (Number.isFinite(xn) && Number.isFinite(yn)) out.push([xn, yn]);
         };
         if (track.tagName === 'polyline') {
@@ -243,6 +280,7 @@ export function showClearances(app, show, liveTrack = null) {
             push(track.getAttribute('x2'), track.getAttribute('y2'));
         }
         // De-dupe consecutive identical points.
+        /** @type {Array<[number, number]>} */
         const dedup = [];
         for (const p of out) {
             if (dedup.length === 0 || dedup[dedup.length - 1][0] !== p[0] || dedup[dedup.length - 1][1] !== p[1]) {
@@ -254,11 +292,18 @@ export function showClearances(app, show, liveTrack = null) {
 
     // Build the offset polygon of `pts` by radius `r`. Returns array of
     // [x, y] pairs (closed polygon — first ≠ last).
+    /**
+     * @param {Array<[number, number]>} pts
+     * @param {number} r
+     * @returns {Array<[number, number]>}
+     */
     const offsetPolygon = (pts, r) => {
         if (pts.length < 2) return [];
         const n = pts.length;
         // Per-segment unit direction and perpendicular (right-hand normal).
+        /** @type {Array<[number, number]>} */
         const dirs = new Array(n - 1);
+        /** @type {Array<[number, number]>} */
         const perps = new Array(n - 1);
         for (let i = 0; i < n - 1; i++) {
             const dx = pts[i + 1][0] - pts[i][0];
@@ -268,6 +313,14 @@ export function showClearances(app, show, liveTrack = null) {
             perps[i] = [dy / len, -dx / len]; // right-hand perpendicular
         }
 
+        /**
+         * @param {number} cx
+         * @param {number} cy
+         * @param {number} fromAngle
+         * @param {number} toAngle
+         * @param {boolean} ccw
+         * @returns {Array<[number, number]>}
+         */
         const arcFan = (cx, cy, fromAngle, toAngle, ccw) => {
             // Returns intermediate arc points (not including endpoints).
             let delta = toAngle - fromAngle;
@@ -278,6 +331,7 @@ export function showClearances(app, show, liveTrack = null) {
             }
             // Number of steps proportional to arc sweep angle.
             const steps = Math.max(2, Math.ceil(Math.abs(delta) / (Math.PI * 2) * ARC_STEPS_FULL));
+            /** @type {Array<[number, number]>} */
             const out = [];
             for (let s = 1; s < steps; s++) {
                 const t = s / steps;
@@ -288,6 +342,7 @@ export function showClearances(app, show, liveTrack = null) {
         };
 
         // Right side, forward (i = 0 .. n-1)
+        /** @type {Array<[number, number]>} */
         const right = [];
         // Start cap (semicircle from left side around to right side)
         {
@@ -403,20 +458,25 @@ export function showClearances(app, show, liveTrack = null) {
         return right;
     };
 
-    const liveRuns = liveTrack ? (hasTrackElements(liveTrack) ? buildTrackLayerRuns(liveTrack) : []) : null;
+    const live = liveTrack;
+    const liveId = live?.id;
+    const liveNet = live?.net;
+    /** @type {Array<{layer: string, width: number, points: TrackRunPoint[]}>|null} */
+    const liveRuns = live ? (hasTrackElements(live) ? buildTrackLayerRuns(live) : []) : null;
     const layerIds = ['top-copper', 'bottom-copper'];
     for (const layerId of layerIds) {
         if (layerId === 'top-copper' && !topVisible) continue;
         if (layerId === 'bottom-copper' && !bottomVisible) continue;
         // Both the legacy incremental render ('.pcb-routed-track') and
         // the model-driven render ('.pcb-track') are valid track sources.
+        /** @type {Array<{points: Array<[number, number]>, width: number, id?: string, net?: string}>} */
         const tracks = liveRuns ? liveRuns.filter(run => run.layer === layerId).map(run => ({
             points: run.points.filter((point, index) => !index
                 || point.x !== run.points[index - 1].x || point.y !== run.points[index - 1].y)
-                .map(point => [point.x, point.y]), width: run.width,
-            id: liveTrack.id, net: liveTrack.net,
+                .map(point => /** @type {[number, number]} */ ([point.x, point.y])), width: run.width,
+            id: liveId, net: liveNet,
         })) : [.../** @type {NodeListOf<SVGElement>} */ (app.getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track'))]
-            .map(track => ({ points: trackToPoints(track), width: parseFloat(track.getAttribute('stroke-width')),
+            .map(track => ({ points: trackToPoints(track), width: parseFloat(String(track.getAttribute('stroke-width'))),
                 id: track.dataset?.trackId, net: track.dataset?.net }));
         if (tracks.length === 0) continue;
 
@@ -446,8 +506,9 @@ export function showClearances(app, show, liveTrack = null) {
             if (tnet) el.dataset.net = tnet;
             if (track.id) {
                 el.dataset.trackId = track.id;
-                if (!state.trackElements.has(track.id)) state.trackElements.set(track.id, []);
-                state.trackElements.get(track.id).push(el);
+                let trackElements = state.trackElements.get(track.id);
+                if (!trackElements) state.trackElements.set(track.id, trackElements = []);
+                trackElements.push(el);
             }
             overlay.appendChild(el);
         }
@@ -462,14 +523,22 @@ export function showClearances(app, show, liveTrack = null) {
     refreshViaClearance(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape} shape
+ * @param {number} clearance
+ * @returns {Point[][]}
+ */
 export function computeClearanceOutlines(app, shape, clearance) {
     return typeof shape.content === 'string'
         ? pcbTextClearanceOutlines(shape, clearance)
         : boardShapeClearanceOutlines(shape, clearance);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape} shape
+ */
 export function refreshBoardShapeClearance(app, shape) {
     if (isPcbPasteActive(app)) return;
     if (!areClearancesVisible(app)) return;
@@ -497,7 +566,7 @@ export function refreshBoardShapeClearance(app, shape) {
         && points.length && points.length === previous.points.length) {
         const dx = points[0].x - previous.points[0].x;
         const dy = points[0].y - previous.points[0].y;
-        if (points.every((point, index) => Math.abs(point.x - previous.points[index].x - dx) < 1e-9
+        if (points.every((/** @type {Point} */ point, /** @type {number} */ index) => Math.abs(point.x - previous.points[index].x - dx) < 1e-9
             && Math.abs(point.y - previous.points[index].y - dy) < 1e-9)) {
             for (const element of previous.elements) {
                 element.setAttribute('transform', `translate(${dx} ${dy})`);
@@ -509,6 +578,7 @@ export function refreshBoardShapeClearance(app, shape) {
     for (const element of previous?.elements || []) {
         if (element.parentNode === overlay) overlay.removeChild(element);
     }
+    /** @type {SVGPolygonElement[]} */
     const elements = [];
     if (visible) for (const outline of computeClearanceOutlines(app, shape, clearance)) {
         const element = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
@@ -518,14 +588,14 @@ export function refreshBoardShapeClearance(app, shape) {
         element.setAttribute('stroke-width', '1');
         element.setAttribute('vector-effect', 'non-scaling-stroke');
         element.setAttribute('pointer-events', 'none');
-        element.setAttribute('points', outline.map(point => `${point.x},${point.y}`).join(' '));
+        element.setAttribute('points', outline.map((/** @type {Point} */ point) => `${point.x},${point.y}`).join(' '));
         element.setAttribute('data-shape-id', shape.id);
         if (shape.net) element.dataset.net = shape.net;
         overlay.appendChild(element);
         elements.push(element);
     }
     cache.set(shape.id, { style, artwork: shape.artwork,
-        points: points.map(point => ({ x: point.x, y: point.y })), elements });
+        points: points.map((/** @type {Point} */ point) => ({ x: point.x, y: point.y })), elements });
 }
 
 /** @param {PcbEditor} app */
@@ -533,7 +603,10 @@ export function refreshClearanceHalos(app) {
     if (areClearancesVisible(app)) showClearances(app, true);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {TrackLike} track
+ */
 export function refreshTrackClearance(app, track) {
     if (areClearancesVisible(app)) showClearances(app, true, track);
 }
@@ -542,7 +615,7 @@ export function refreshTrackClearance(app, track) {
  * Refresh via halos: just this via's (and whatever shared its halo) when given,
  * otherwise every via.
  * @param {PcbEditor} app
- * @param {any} [via] - a Via, or null for every via
+ * @param {ViaLike|null} [via] - a Via, or null for every via
  */
 export function refreshViaClearance(app, via = null) {
     if (!areClearancesVisible(app)) return;
@@ -550,6 +623,7 @@ export function refreshViaClearance(app, via = null) {
     const layer = app.getLayerGroup('vias');
     if (!overlay) return;
     const state = overlayState(app);
+    /** @type {Set<string>} */
     const affected = new Set();
     if (via) {
         const previous = state.viaKeys.get(via.id);
@@ -563,11 +637,18 @@ export function refreshViaClearance(app, via = null) {
         state.viaCache.clear();
         state.viaKeys.clear();
     }
+    /**
+     * @param {string|SVGElement} id
+     * @param {number} cx
+     * @param {number} cy
+     * @param {number} r
+     * @param {string|undefined} net
+     */
     const register = (id, cx, cy, r, net) => {
         if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) return;
         const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
         if (!state.viaCache.has(key)) state.viaCache.set(key, { sources: new Map() });
-        const sources = state.viaCache.get(key).sources;
+        const sources = /** @type {ViaClearanceEntry} */ (state.viaCache.get(key)).sources;
         const previous = sources.get(id);
         if (!previous || r > previous.r) sources.set(id, { cx, cy, r, net: net || previous?.net });
         state.viaKeys.set(id, key);
@@ -579,20 +660,22 @@ export function refreshViaClearance(app, via = null) {
         } else for (const rendered of /** @type {NodeListOf<SVGElement>} */ (layer.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via'))) {
             const path = rendered.localName === 'path';
             register(rendered.dataset?.viaId || rendered,
-                parseFloat(rendered.getAttribute(path ? 'data-via-x' : 'cx')),
-                parseFloat(rendered.getAttribute(path ? 'data-via-y' : 'cy')),
-                parseFloat(rendered.getAttribute(path ? 'data-via-radius' : 'r')), rendered.dataset?.net);
+                parseFloat(String(rendered.getAttribute(path ? 'data-via-x' : 'cx'))),
+                parseFloat(String(rendered.getAttribute(path ? 'data-via-y' : 'cy'))),
+                parseFloat(String(rendered.getAttribute(path ? 'data-via-radius' : 'r'))), rendered.dataset?.net);
         }
     }
     const clearance = app.getRoutingParams().clearance;
     for (const key of affected) {
         const entry = state.viaCache.get(key);
+        if (!entry) continue;
         entry.element?.remove();
         if (!entry.sources.size) {
             state.viaCache.delete(key);
             continue;
         }
         // Coincident vias share the largest ring; moving one must retain any others.
+        /** @type {ViaClearanceSource|null} */
         let largest = null, net = '';
         for (const source of entry.sources.values()) {
             if (!largest || source.r > largest.r) {
@@ -600,6 +683,7 @@ export function refreshViaClearance(app, via = null) {
                 net = source.net || net;
             }
         }
+        if (!largest) continue;
         const element = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         element.setAttribute('cx', String(largest.cx));
         element.setAttribute('cy', String(largest.cy));

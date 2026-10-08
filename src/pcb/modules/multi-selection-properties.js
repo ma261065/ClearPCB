@@ -26,20 +26,29 @@ import { CompoundCommand, ModifyTrackGraphCommand, ModifyViaCommand, RotatePlace
 import { SetRefStyleCommand } from './ref-text-selection.js';
 import { applyNetToCopperSelection } from './track-select.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'fill'|'text'} MultiKind */
+/** @typedef {import('./selection-registry.js').PcbSelectionEntry} MultiEntry */
+/** @typedef {{type: 'number'|'select'|'checkbox'|'net', label: string, get: () => any, command: ((value: any) => any)|null, options?: Array<[any, string]>, disabled?: boolean, min?: number, max?: number, step?: number}} MultiCapability */
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {MultiEntry} entry @returns {Record<string, MultiCapability>} */
 export function multiPropertyCapabilities(app, entry) {
     const { kind, object } = entry;
+    /** @param {string} label @param {() => any} get @param {((value: any) => any)|null} command @param {number} [min] @param {number} [step] @param {number} [max] @returns {MultiCapability} */
     const number = (label, get, command, min = -Infinity, step = 1, max = Infinity) => (
         { type: 'number', label, get, command, min, max, step }
     );
+    /** @param {string} label @param {() => any} get @param {((value: any) => any)|null} command @param {Array<[any, string]>} options @param {boolean} [disabled] @returns {MultiCapability} */
     const select = (label, get, command, options, disabled = false) => (
         { type: 'select', label, get, command, options, disabled }
     );
+    /** @param {string} label @param {() => any} get @param {((value: any) => any)|null} command @param {boolean} [disabled] @returns {MultiCapability} */
     const checkbox = (label, get, command, disabled = false) => (
         { type: 'checkbox', label, get, command, disabled }
     );
+    /** @param {() => any} get @param {((value: any) => any)|null} command @returns {MultiCapability} */
     const net = (get, command) => ({ type: 'net', label: 'Net', get, command });
+    /** @param {(target: any) => void} mutate */
     const shapeCommand = (mutate) => {
         const before = captureBoardShapeState(object);
         const candidate = { ...object };
@@ -49,6 +58,7 @@ export function multiPropertyCapabilities(app, entry) {
         return JSON.stringify(before) === JSON.stringify(after)
             ? null : new ModifyBoardShapeCommand(app, object, before, after);
     };
+    /** @param {(target: CopperFill) => void} mutate */
     const fillCommand = (mutate) => {
         const before = object.captureState();
         const candidate = new CopperFill(before);
@@ -57,6 +67,9 @@ export function multiPropertyCapabilities(app, entry) {
         return JSON.stringify(before) === JSON.stringify(after)
             ? null : new ModifyFillCommand(app, object, before, after);
     };
+    /** @param {CopperFill} fill */
+    const fillBounds = fill => /** @type {{minX: number, minY: number, maxX: number, maxY: number}} */ (fill.getBounds());
+    /** @param {string} property @param {any} value */
     const padCommand = (property, value) => {
         const before = object.captureState();
         const after = { ...before, [property]: value };
@@ -64,6 +77,7 @@ export function multiPropertyCapabilities(app, entry) {
         return JSON.stringify(before) === JSON.stringify(after)
             ? null : new ModifyPadCommand(app, object, before, after);
     };
+    /** @type {Record<string, MultiCapability>} */
     const capabilities = {};
     if (kind === 'component') {
         const placement = app.placements.get(object);
@@ -83,6 +97,7 @@ export function multiPropertyCapabilities(app, entry) {
     } else if (kind === 'text') {
         capabilities.layer = select('Layer', () => object.layer,
             value => {
+                /** @type {Record<string, any>} */
                 const after = { layer: value };
                 const wasBottom = String(object.layer).startsWith('bottom-');
                 const willBottom = String(value).startsWith('bottom-');
@@ -137,7 +152,7 @@ export function multiPropertyCapabilities(app, entry) {
         capabilities.shapeKind = select('Outline', () => object.kind,
             value => fillCommand(target => {
                 if (value === target.kind) return;
-                const bounds = target.getBounds();
+                const bounds = fillBounds(target);
                 const contour = target.getOutline();
                 target.kind = value;
                 target.cornerRadius = 0;
@@ -167,23 +182,24 @@ export function multiPropertyCapabilities(app, entry) {
                     target.nodeCornerRadii = {};
                 }), 0, 0.05);
             if (object.kind === 'rect') {
+                /** @param {'x'|'y'} axis @param {number} value */
                 const resizeFill = (axis, value) => fillCommand(target => {
-                    const bounds = target.getBounds();
+                    const bounds = fillBounds(target);
                     const min = axis === 'x' ? 'minX' : 'minY';
                     const max = axis === 'x' ? 'maxX' : 'maxY';
                     if (value === bounds[max] - bounds[min]) return;
                     const factor = value / (bounds[max] - bounds[min]);
-                    target.outline = target.outline.map(point => ({
+                    target.outline = target.outline.map(/** @param {{x: number, y: number}} point */ point => ({
                         ...point,
                         [axis]: bounds[min] + (point[axis] - bounds[min]) * factor,
                     }));
                 });
                 capabilities.width = number('Width (mm)', () => {
-                    const bounds = object.getBounds();
+                    const bounds = fillBounds(object);
                     return bounds.maxX - bounds.minX;
                 }, value => resizeFill('x', value), 0.1, 0.05);
                 capabilities.height = number('Height (mm)', () => {
-                    const bounds = object.getBounds();
+                    const bounds = fillBounds(object);
                     return bounds.maxY - bounds.minY;
                 }, value => resizeFill('y', value), 0.1, 0.05);
             }
@@ -235,6 +251,7 @@ export function multiPropertyCapabilities(app, entry) {
                 width: Math.hypot(target.points[1].x - target.points[0].x, target.points[1].y - target.points[0].y),
                 height: Math.hypot(target.points[3].x - target.points[0].x, target.points[3].y - target.points[0].y),
             });
+            /** @param {'width'|'height'} dimension @param {number} value */
             const resize = (dimension, value) => shapeCommand(target => {
                 const current = imageSize(target);
                 const base = current[dimension];
@@ -242,7 +259,7 @@ export function multiPropertyCapabilities(app, entry) {
                 const factor = value / base;
                 const center = { x: (target.points[0].x + target.points[2].x) / 2,
                     y: (target.points[0].y + target.points[2].y) / 2 };
-                target.points = target.points.map(point => ({
+                target.points = target.points.map(/** @param {{x: number, y: number}} point */ point => ({
                     x: center.x + (point.x - center.x) * factor,
                     y: center.y + (point.y - center.y) * factor,
                 }));
@@ -262,7 +279,7 @@ export function multiPropertyCapabilities(app, entry) {
                 const cosine = Math.cos(radians), sine = Math.sin(radians);
                 const center = { x: (target.points[0].x + target.points[2].x) / 2,
                     y: (target.points[0].y + target.points[2].y) / 2 };
-                target.points = target.points.map(point => ({
+                target.points = target.points.map(/** @param {{x: number, y: number}} point */ point => ({
                     x: center.x + (point.x - center.x) * cosine - (point.y - center.y) * sine,
                     y: center.y + (point.x - center.x) * sine + (point.y - center.y) * cosine,
                 }));
@@ -292,6 +309,7 @@ export function multiPropertyCapabilities(app, entry) {
 /**
  * Show the editable intersection of properties for any PCB multi-selection.
  * @param {PcbEditor} app
+ * @param {MultiEntry[]} entries
  */
 export function showMultiSelectionProperties(app, entries) {
     const items = app.propertiesItems();
@@ -307,8 +325,11 @@ export function showMultiSelectionProperties(app, entries) {
     // Select All can always be unlocked in one step; it applies to the members that have one.
     if (!keys.includes('locked') && capabilitySets.some(capabilities => capabilities.locked)) keys.push('locked');
     keys = sortByPropertyOrder(keys, key => key);
+    /** @type {Map<string, {group: MultiCapability[], descriptor: MultiCapability}>} */
     const descriptors = new Map();
+    /** @type {PropertyField[]} */
     const fields = [];
+    /** @param {string} key @param {any} value */
     const commit = (key, value) => {
         const info = descriptors.get(key);
         if (!info || info.group.every(capability => capability.disabled)) return;
@@ -319,7 +340,8 @@ export function showMultiSelectionProperties(app, entries) {
             return;
         }
         if (key === 'net') {
-            const targets = entries.filter((entry, index) => editable[index]);
+            const targets = /** @type {Parameters<typeof applyNetToCopperSelection>[1]} */ (entries.filter((entry, index) => editable[index]));
+            /** @param {MultiEntry} entry */
             const routed = entry => entry.kind === 'track' || entry.kind === 'via';
             const otherCommands = entries.map((entry, index) => !editable[index] || routed(entry)
                 ? null : info.group[index].command?.(value)).filter(Boolean);
@@ -341,12 +363,14 @@ export function showMultiSelectionProperties(app, entries) {
         const group = capabilitySets.map(capabilities => capabilities[key]).filter(Boolean);
         const descriptor = group[0];
         if (descriptor.type === 'select') {
-            const allowed = new Set(descriptor.options.map(([value]) => value));
+            const descriptorOptions = /** @type {Array<[any, string]>} */ (descriptor.options);
+            const allowed = new Set(descriptorOptions.map(([value]) => value));
             for (const candidate of group.slice(1)) {
-                const values = new Set(candidate.options.map(([value]) => value));
+                const candidateOptions = /** @type {Array<[any, string]>} */ (candidate.options);
+                const values = new Set(candidateOptions.map(([value]) => value));
                 for (const value of [...allowed]) if (!values.has(value)) allowed.delete(value);
             }
-            descriptor.options = descriptor.options.filter(([value]) => allowed.has(value));
+            descriptor.options = descriptorOptions.filter(([value]) => allowed.has(value));
             if (!descriptor.options.length) continue;
         }
         const values = group.map(candidate => candidate.get());
@@ -357,17 +381,19 @@ export function showMultiSelectionProperties(app, entries) {
                 : `pcbPropIntersection_${key}`;
         descriptors.set(key, { group, descriptor });
         // Locked members keep their values; the row stays editable while any member can take an edit.
+        /** @type {PropertyField & Record<string, any>} */
         const field = { key, id, type: descriptor.type, label: descriptor.label, value: values[0], mixed,
             disabled: group.every(item => item.disabled), commit: value => commit(key, value) };
         if (descriptor.type === 'select') {
-            field.options = descriptor.options.map(([value, label]) => key === 'layer' && hasShapes
+            const descriptorOptions = /** @type {Array<[any, string]>} */ (descriptor.options);
+            field.options = descriptorOptions.map(([value, label]) => key === 'layer' && hasShapes
                 ? pcbLayerOption(value, label) : { value, label });
         } else if (descriptor.type === 'net') {
             field.nets = app.netNames();
         } else if (descriptor.type === 'number') {
-            const min = Math.max(...group.map(item => item.min));
-            const max = Math.min(...group.map(item => item.max));
-            Object.assign(field, { min, max, step: descriptor.step, commit: value => {
+            const min = Math.max(...group.map(item => /** @type {number} */ (item.min)));
+            const max = Math.min(...group.map(item => /** @type {number} */ (item.max)));
+            Object.assign(field, { min, max, step: descriptor.step, commit: /** @param {number} value */ value => {
                 if (key === 'rotation') value = ((value % 360) + 360) % 360;
                 commit(key, Math.max(min, Math.min(max, value)));
             } });

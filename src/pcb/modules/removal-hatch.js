@@ -1,6 +1,7 @@
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { ensureSvgDefs } from './svg-defs.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {'remove-copper'|'remove-solder-mask'|'remove-copper-mask'} RemovalMode */
 
 /*
  * Copper-removal hatching: removal shapes are filled with an SVG hatch pattern coloured
@@ -9,6 +10,7 @@ import { ensureSvgDefs } from './svg-defs.js';
  * millimetres, so the hatch zooms with the board. Exports strip it: it is an on-screen aid.
  */
 
+/** @type {Record<RemovalMode, string>} */
 const HATCH_COLORS = {
     'remove-copper': '#5f6770',
     'remove-solder-mask': '#8a6923',
@@ -30,9 +32,11 @@ const hatchPatterns = new WeakMap();
  * diagonals for copper and mask. Lines on tile edges are drawn on both opposite edges
  * so their halves join into full-width lines across tiles.
  */
+/** @param {RemovalMode} mode */
 function hatchTilePath(mode) {
     const t = HATCH_TILE_MM;
     const step = t / HATCH_LINES_PER_TILE;
+    /** @param {number} from */
     const offsets = (from) => Array.from({ length: Math.round((t - from) / step) + 1 }, (_, i) => +(from + i * step).toFixed(4));
     const d = [];
     if (mode === 'remove-solder-mask') {
@@ -50,9 +54,11 @@ function hatchTilePath(mode) {
  * SVG paint for a copper-removal shape of this mode. Returns 'none' for additive
  * copper, or when the editor has no SVG (tests, workers).
  * @param {PcbEditor} app
+ * @param {string} copperMode
  */
 export function removalHatchFill(app, copperMode) {
     const mode = normalizeShapeCopperMode(copperMode);
+    if (mode === 'add') return 'none';
     const color = HATCH_COLORS[mode];
     if (!color) return 'none';
     const defs = ensureSvgDefs(app);
@@ -83,12 +89,15 @@ export function removalHatchFill(app, copperMode) {
     return `url(#${id})`;
 }
 
-/** Unfill hatched removal shapes in an exported SVG copy (attribute and inlined style). */
+/** Unfill hatched removal shapes in an exported SVG copy (attribute and inlined style).
+ * @param {Element|DocumentFragment} root
+ */
 export function stripRemovalHatches(root) {
     const prefix = `url(#${HATCH_ID_PREFIX}`;
     for (const element of root.querySelectorAll(`[fill^="${prefix}"]`)) {
         if (!element.getAttribute('fill')?.startsWith(prefix)) continue;
         element.setAttribute('fill', 'none');
-        if (element.style) element.style.fill = 'none';
+        const styled = /** @type {SVGElement|HTMLElement} */ (element);
+        if (styled.style) styled.style.fill = 'none';
     }
 }

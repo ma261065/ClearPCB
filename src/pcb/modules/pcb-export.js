@@ -198,7 +198,8 @@ export function clonePcbViewportForExport(app, opts) {
     const mono = !!opts?.mono;
     const invert = !!opts?.invert;
 
-    const originalSvg = app.viewport.svg;
+    const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
+    const originalSvg = viewport.svg;
     let svgNode, b;
     uncullAllPlacements(app);
     try {
@@ -244,6 +245,10 @@ export function clonePcbViewportForExport(app, opts) {
     const artwork = new Set(ARTWORK_LAYER_IDS);
     for (const group of svgNode.querySelectorAll('[data-layer]')) {
         const id = group.getAttribute('data-layer');
+        if (!id) {
+            group.remove();
+            continue;
+        }
         const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
         if (!artwork.has(owner) || (layers && !layers.has(owner))) group.remove();
     }
@@ -360,6 +365,7 @@ function showPdfExportDialog(app) {
         syncScaleUi();
 
         let settled = false;
+        /** @param {PdfExportOptions|null} result */
         const close = (result) => {
             if (settled) return;
             settled = true;
@@ -495,7 +501,8 @@ export async function printPcb(app) {
         iframe.style.height = '1px';
         document.body.appendChild(iframe);
 
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const iframeWin = /** @type {Window} */ (iframe.contentWindow);
+        const iframeDoc = iframe.contentDocument || iframeWin.document;
         iframeDoc.open();
         iframeDoc.write('<!DOCTYPE html><html><head><title>Print PCB</title></head><body></body></html>');
         iframeDoc.close();
@@ -520,15 +527,15 @@ export async function printPcb(app) {
 
         const doPrint = () => {
             try {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
+                iframeWin.focus();
+                iframeWin.print();
             } finally {
                 setTimeout(() => {
                     if (iframe.parentNode) document.body.removeChild(iframe);
                 }, 500);
             }
         };
-        if (iframe.contentWindow.document.readyState === 'complete') {
+        if (iframeWin.document.readyState === 'complete') {
             requestAnimationFrame(doPrint);
         } else {
             iframe.addEventListener('load', doPrint, { once: true });

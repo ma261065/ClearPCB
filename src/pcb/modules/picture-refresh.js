@@ -5,8 +5,13 @@ import { getBoardShapeDrag } from './board-shapes.js';
 import { isRotationHandleDragActive } from './rotation-handle.js';
 import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./clearance-overlay.js').ClearanceShape | {id: string, [key: string]: any}} ClearanceShape */
+/** @typedef {{pendingShapeClearances: Map<string, ClearanceShape>|null, deferredShapeCopperCuts: boolean}} ShapeClearanceRefreshState */
+/** @type {WeakMap<PcbEditor, number>} */
 const pendingRefreshes = new WeakMap();
+/** @type {WeakMap<PcbEditor, () => void>} */
 const activeHolds = new WeakMap();
+/** @type {WeakMap<PcbEditor, ShapeClearanceRefreshState>} */
 const shapeClearanceRefreshes = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -27,9 +32,12 @@ export function pictureRefreshState(app) {
     return shapeClearanceRefreshState(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null|undefined} shape
+ */
 export function isShapeClearancePending(app, shape) {
-    return shapeClearanceRefreshState(app).pendingShapeClearances?.has(shape?.id) || false;
+    return !!shape?.id && (shapeClearanceRefreshState(app).pendingShapeClearances?.has(shape.id) || false);
 }
 
 /** @param {PcbEditor} app */
@@ -42,15 +50,21 @@ export function areShapeCopperCutsDeferred(app) {
     return !!shapeClearanceRefreshState(app).deferredShapeCopperCuts;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {boolean} deferred
+ */
 export function setShapeCopperCutsDeferred(app, deferred) {
     shapeClearanceRefreshState(app).deferredShapeCopperCuts = !!deferred;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null} shape
+ */
 export function shouldDeferShapeClearance(app, shape) {
-    return isPictureCopperRefreshPending(app) && isShapeClearancePending(app, shape)
-        && (shape.kind === 'image' || typeof shape.content === 'string');
+    return !!shape && isPictureCopperRefreshPending(app) && isShapeClearancePending(app, shape)
+        && (('kind' in shape && shape.kind === 'image') || ('content' in shape && typeof shape.content === 'string'));
 }
 
 /** @param {PcbEditor} app */
@@ -60,7 +74,7 @@ function refreshEditedClearances(app) {
     state.pendingShapeClearances = null;
     for (const shape of shapes?.values() || []) {
         if (app.boardShapes?.includes(shape) || app.texts?.get(shape.id) === shape) {
-            refreshBoardShapeClearance(app, shape);
+            refreshBoardShapeClearance(app, /** @type {import('./clearance-overlay.js').ClearanceShape} */ (shape));
         } else {
             const cached = getBoardShapeClearance(app, shape.id);
             for (const element of cached?.elements || []) element.parentNode?.removeChild(element);
@@ -113,7 +127,10 @@ export function cancelPictureCopperRefresh(app) {
     refreshEditedClearances(app);
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null} [shape]
+ */
 export function schedulePictureCopperRefresh(app, shape = null) {
     refreshSelectedDrcMarker(app);
     const timer = pendingRefreshes.get(app);
@@ -125,7 +142,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         state.pendingShapeClearances ??= new Map();
         state.pendingShapeClearances.set(shape.id, shape);
     }
-    if (shouldDeferShapeClearance(app, shape)) {
+    if (shape && shouldDeferShapeClearance(app, shape)) {
         const cached = getBoardShapeClearance(app, shape.id);
         for (const element of cached?.elements || []) {
             element.parentNode?.removeChild(element);

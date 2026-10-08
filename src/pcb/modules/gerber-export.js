@@ -1,19 +1,20 @@
 import { prepareFabricationSnapshot } from './fabrication-snapshot.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {string} label @param {number|null} [value] */
 export function showGerberProgress(label, value = null) {
     const host = document.getElementById('pcbGerberProgress');
     if (!host) return;
     host.hidden = !label;
-    const text = host.querySelector('[data-label]');
-    const bar = host.querySelector('progress');
+    const text = /** @type {HTMLElement} */ (host.querySelector('[data-label]'));
+    const bar = /** @type {HTMLProgressElement} */ (host.querySelector('progress'));
     text.textContent = label ? `Gerber: ${label}` : '';
     host.title = text.textContent;
     if (value === null) bar.removeAttribute('value');
     else bar.value = value;
 }
 
-/** @param {PcbEditor} app */
+/** @param {PcbEditor} app @param {(label: string, value?: number|null) => void} [onProgress] */
 export async function generateGerberArchive(app, onProgress = showGerberProgress) {
     onProgress('Capturing board');
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -22,6 +23,7 @@ export async function generateGerberArchive(app, onProgress = showGerberProgress
     onProgress('Starting export');
     return new Promise((resolve, reject) => {
         const worker = new Worker(new URL('./gerber-worker.js', import.meta.url), { type: 'module' });
+        /** @param {Error} error */
         const fail = error => { worker.terminate(); reject(error); };
         worker.onmessage = ({ data }) => {
             if (data.type === 'progress') onProgress(data.label, data.value);
@@ -36,6 +38,6 @@ export async function generateGerberArchive(app, onProgress = showGerberProgress
         };
         worker.onmessageerror = () => fail(new Error('Unable to receive Gerber export data.'));
         try { worker.postMessage(snapshot); }
-        catch (error) { fail(error); }
+        catch (error) { fail(/** @type {Error} */ (error)); }
     });
 }

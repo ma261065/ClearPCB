@@ -61,7 +61,10 @@ const onLayer = layer => (/** @type {any} */ app) => [{ id: layer(app) }];
  */
 function shapeTool(kind, title, content, icon) {
     /** @param {PcbEditor} app */
-    const layer = app => (getShapeDraw(app)?.kind === kind && getShapeDraw(app).layer) || resolveShapeDrawLayer(app, app.activeLayer);
+    const layer = app => {
+        const draw = getShapeDraw(app);
+        return (draw?.kind === kind && draw.layer) || resolveShapeDrawLayer(app, app.activeLayer);
+    };
     return {
         id: kind, button: { title, content, icon }, layer, targets: onLayer(layer),
         /** @param {PcbEditor} app */
@@ -254,5 +257,8 @@ export function refreshPcbToolFollow(app) {
     if (!tool?.targets) return;
     const own = tool.followPoint?.(app);
     if (own && tool.follow) tool.follow(app, own);
-    else if (getLastCrosshairWorld(app)) updateCursorCrosshair(app, getLastCrosshairWorld(app));
+    else {
+        const crosshair = getLastCrosshairWorld(app);
+        if (crosshair) updateCursorCrosshair(app, crosshair);
+    }
 }

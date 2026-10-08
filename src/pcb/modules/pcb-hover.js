@@ -13,7 +13,9 @@ import { hitTestPad } from './pad-tool.js';
 import { updateCursorForTool } from './tool-lifecycle.js';
 import { updateNetTooltip } from './net-tooltip.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{kind:string, object:any}} SelectionHit */
 
+/** @type {WeakMap<PcbEditor, {pendingEvent: MouseEvent|null, raf: number, nodeCursor: boolean, overlapHitCount: number, componentHover: any}>} */
 const hoverStates = new WeakMap();
 
 /** @param {PcbEditor} app */
@@ -42,7 +44,10 @@ export function hoverOverlapHitCount(app) {
     return state(app).overlapHitCount;
 }
 
-/** @param {PcbEditor} app */
+/**
+ * @param {PcbEditor} app
+ * @param {number} count
+ */
 export function setHoverOverlapHitCount(app, count) {
     state(app).overlapHitCount = count;
 }
@@ -74,6 +79,8 @@ export function scheduleHoverUpdate(app, e) {
         // Bail if the tool changed or the tab went inactive between the
         // event and this frame.
         if (!ev || !isEditorActive(app) || app.currentTool !== 'select') return;
+        const viewport = app.viewport;
+        if (!viewport) return;
         const worldPos = app.screenToWorld(ev);
         hoverBoardOutline(app, hitTestBoardOutline(app, worldPos));
         // Hover highlight for tracks/vias.
@@ -81,11 +88,11 @@ export function scheduleHoverUpdate(app, e) {
         // Read-only overlap count: skip the per-frame adapter-list rebuild
         // and reuse the last-synced entries (structural edits resync).
         const selectionHits = getPcbSelectionHits(app, worldPos, null, { sync: false });
-        const componentHover = (selectionHits.find(hit => hit.kind === 'component' && isPcbSelected(app, hit.kind, hit.object))
-            || selectionHits.find(hit => hit.kind === 'component'))?.object || null;
+        const componentHover = (selectionHits.find(/** @param {SelectionHit} hit */ (hit) => hit.kind === 'component' && isPcbSelected(app, hit.kind, hit.object))
+            || selectionHits.find(/** @param {SelectionHit} hit */ (hit) => hit.kind === 'component'))?.object || null;
         s.componentHover = componentHover;
         hoverComponent(app, componentHover);
-        const standalonePadHover = selectionHits.find(hit => hit.kind === 'pad')?.object || null;
+        const standalonePadHover = selectionHits.find(/** @param {SelectionHit} hit */ (hit) => hit.kind === 'pad')?.object || null;
         const shapeHover = hitTestBoardShape(app, worldPos);
         const copperShapeHover = shapeHover
             && (shapeHover.layer === 'top-copper' || shapeHover.layer === 'bottom-copper')
@@ -121,7 +128,8 @@ export function scheduleHoverUpdate(app, e) {
             && (trackHover?.type === 'track' || trackHover?.type === 'via');
         const overRef = !overNode && !overMidpoint
             && !!hitTestReferenceText(app, worldPos);
-        const selectedAnchor = hitTestPcbSelectionAnchor(app, worldPos, ['shape', 'text']);
+        // selection-anchors.js defaults `kinds` to null, so checkJs infers null-only there.
+        const selectedAnchor = hitTestPcbSelectionAnchor(app, worldPos, /** @type {null} */ (/** @type {unknown} */ (['shape', 'text'])));
         const shapeIsSelected = !!shapeHover && isPcbSelected(app, 'shape', shapeHover);
         const copperIsSelected = (trackHover?.type === 'track' && isPcbSelected(app, 'track', trackHover.track))
             || (trackHover?.type === 'via' && isPcbSelected(app, 'via', trackHover.via));
@@ -140,8 +148,8 @@ export function scheduleHoverUpdate(app, e) {
             // Compare against the live inline value so we skip redundant
             // writes without a private cache that other cursor-setting
             // paths (drag 'grabbing', tool crosshair) could leave stale.
-            if (app.viewport.svg.style.cursor !== hoverCursor) {
-                app.viewport.svg.style.cursor = hoverCursor;
+            if (viewport.svg.style.cursor !== hoverCursor) {
+                viewport.svg.style.cursor = hoverCursor;
             }
             s.nodeCursor = true;
         } else if (s.nodeCursor) {

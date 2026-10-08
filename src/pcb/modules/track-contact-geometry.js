@@ -4,14 +4,29 @@ import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
 import { spatialCrossPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{outer:Point[], holes:Point[][]}} CopperRegion */
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} Bounds */
+/** @typedef {{centerline:Point[], areaOutline:Point[], lineWidth:number, filled:boolean, pathClosed:boolean, strokeSegments:Array<{start:Point,end:Point,lineWidth:number}>, circle:null|{x:number,y:number,radius:number}}} ContactGeometry */
+/** @typedef {{geometry:ContactGeometry, bounds:Bounds, region?:CopperRegion}} Contact */
+/** @typedef {{region:CopperRegion, indices:Uint32Array, bounds:Float64Array, triangleBounds:Float64Array}} PreparedCopperRegionContact */
+/** @typedef {{prepared:PreparedCopperRegionContact, contact:Contact, points?:Point[], triangles?:PreparedTriangle[]}} PreparedRegionEntry */
+/** @typedef {{items:any[], bounds:Bounds}} SpatialOrder */
+/** @typedef {Record<string, any>} ContactBoardShape */
+
+/** @type {WeakMap<CopperRegion, ContactBoardShape>} */
 const regionShapes = new WeakMap();
+/** @type {WeakMap<CopperRegion, Contact[]>} */
 const regionContacts = new WeakMap();
+/** @type {WeakMap<CopperRegion, PreparedRegionEntry>} */
 const preparedRegions = new WeakMap();
 const validatedPreparations = new WeakSet();
 const terminalRegions = new WeakSet();
+/** @type {WeakMap<CopperRegion, SpatialOrder>} */
 const regionOrders = new WeakMap();
 
 /** Worker-transferable triangles/bounds; region and payload become read-only after adoption. */
+/** @param {CopperRegion} region @returns {PreparedCopperRegionContact} */
 export function prepareCopperRegionContact(region) {
     const points = [region.outer, ...region.holes].flat();
     let offset = region.outer.length;
@@ -38,6 +53,7 @@ export function prepareCopperRegionContact(region) {
 }
 
 /** Validate once at the transport boundary, binding metadata to the exact returned region. */
+/** @param {CopperRegion} region @param {PreparedCopperRegionContact} prepared */
 export function validateCopperRegionContact(region, prepared) {
     if (prepared?.region !== region) throw new Error('Prepared copper contact belongs to a different region');
     if (validatedPreparations.has(prepared)) return;
@@ -60,13 +76,16 @@ export function validateCopperRegionContact(region, prepared) {
     validatedPreparations.add(prepared);
 }
 
+/** @param {Point[]} contour @returns {ContactGeometry} */
 const polygonGeometry = contour => ({ centerline: contour, areaOutline: contour, lineWidth: 0,
     filled: true, pathClosed: true, strokeSegments: [], circle: null });
+/** @param {Float64Array|number[]} values @param {number} [offset] @returns {Bounds} */
 const unpackBounds = (values, offset = 0) => ({
     minX: values[offset], minY: values[offset + 1], maxX: values[offset + 2], maxY: values[offset + 3],
 });
 
 /** Adopt only validated, immutable worker results, never authored shapes or their metadata. */
+/** @param {CopperRegion} region @param {PreparedCopperRegionContact} prepared */
 export function installCopperRegionContact(region, prepared) {
     validateCopperRegionContact(region, prepared);
     preparedRegions.set(region, {
@@ -79,6 +98,7 @@ export function installCopperRegionContact(region, prepared) {
 }
 
 class PreparedTriangle {
+    /** @param {Point[]} points @param {PreparedCopperRegionContact} prepared @param {number} index */
     constructor(points, prepared, index) {
         this.points = points;
         this.indices = prepared.indices;
@@ -94,6 +114,7 @@ class PreparedTriangle {
     }
 }
 
+/** @param {PreparedRegionEntry} entry @param {number} index @returns {PreparedTriangle} */
 function preparedTriangle(entry, index) {
     const { prepared } = entry;
     entry.points ||= [prepared.region.outer, ...prepared.region.holes].flat();
@@ -101,6 +122,7 @@ function preparedTriangle(entry, index) {
     return entry.triangles[index] ||= new PreparedTriangle(entry.points, prepared, index * 3);
 }
 
+/** @param {PreparedRegionEntry} entry @param {Contact} other @param {number} tolerance */
 function preparedRegionTouches(entry, other, tolerance) {
     const bounds = entry.prepared.triangleBounds, target = other.bounds;
     for (let offset = 0; offset < bounds.length; offset += 4) {
@@ -111,11 +133,13 @@ function preparedRegionTouches(entry, other, tolerance) {
     return false;
 }
 
+/** @param {Point} point @param {CopperRegion} region */
 export function pointInCopperRegion(point, region) {
     return pointInPolygon(point, region.outer)
         && !region.holes.some(hole => pointInPolygon(point, hole));
 }
 
+/** @param {CopperRegion} region @returns {ContactBoardShape} */
 export function copperRegionShape(region) {
     let shape = regionShapes.get(region);
     if (!shape) {
@@ -127,11 +151,13 @@ export function copperRegionShape(region) {
     return shape;
 }
 
+/** @param {{start:Point,end:Point,layer:string,width:number}} segment */
 export function copperSegmentShape(segment) {
     return { kind: 'line', points: [segment.start, segment.end], layer: segment.layer,
         lineWidth: segment.width, copperSegment: segment };
 }
 
+/** @param {CopperRegion} region @returns {Contact[]} */
 function contactsForRegion(region) {
     let contacts = regionContacts.get(region);
     if (!contacts) {
@@ -169,10 +195,12 @@ function contactsForRegion(region) {
     return contacts;
 }
 
-const immutableRegion = region => preparedRegions.has(region) || terminalRegions.has(region);
+/** @param {CopperRegion|undefined} region */
+const immutableRegion = region => !!region && (preparedRegions.has(region) || terminalRegions.has(region));
+/** @param {Contact} contact @returns {SpatialOrder} */
 function orderedContacts(contact) {
     const region = contact.region;
-    let ordered = regionOrders.get(region);
+    let ordered = region ? regionOrders.get(region) : undefined;
     if (!ordered) {
         const items = prepareSpatialOrder(region ? contactsForRegion(region) : [contact], item => item.bounds);
         const bounds = { ...contact.bounds };
@@ -184,11 +212,12 @@ function orderedContacts(contact) {
             bounds.maxY = Math.max(bounds.maxY, item.bounds.maxY);
         }
         ordered = { items, bounds };
-        if (immutableRegion(region)) regionOrders.set(region, ordered);
+        if (region && immutableRegion(region)) regionOrders.set(region, ordered);
     }
     return ordered;
 }
 
+/** @param {SpatialOrder} ordered @param {Bounds} query @param {number} tolerance */
 function contactCandidates(ordered, query, tolerance) {
     const bounds = ordered.bounds;
     if (query.minX <= bounds.minX && query.minY <= bounds.minY
@@ -200,6 +229,7 @@ const cache = new WeakMap();
 const geometryKeys = ['kind', 'x', 'y', 'radius', 'start', 'end', 'bulge', 'points',
     'lineWidth', 'segmentWidths', 'segmentBulges', 'filled', 'cornerRadius', 'nodeCornerRadii', 'copperMode', 'layer', 'copperSegment'];
 
+/** @param {any} current @param {any} saved @returns {boolean} */
 function equalInput(current, saved) {
     if (Object.is(current, saved)) return true;
     if (!current || !saved || typeof current !== 'object' || typeof saved !== 'object') return false;
@@ -212,6 +242,7 @@ function equalInput(current, saved) {
         && keys.every((key) => Object.prototype.hasOwnProperty.call(saved, key) && equalInput(current[key], saved[key]));
 }
 
+/** @param {ContactBoardShape} shape @returns {Contact & {inputs?: Record<string, any>}} */
 export function resolveTrackContactGeometry(shape) {
     const prepared = preparedRegions.get(shape.region);
     if (prepared && regionShapes.get(shape.region) === shape) return prepared.contact;
@@ -225,10 +256,12 @@ export function resolveTrackContactGeometry(shape) {
 }
 
 /** Resolve pass-local segment descriptors without authored-shape cache snapshots. */
+/** @param {{start:Point,end:Point,width:number}} segment */
 export function copperSegmentContact(segment) {
     return createContact({ copperSegment: segment });
 }
 
+/** @param {Point[]} first @param {Point[]} second */
 function sameOutline(first, second) {
     if (first.length !== second.length) return false;
     for (let index = 0; index < first.length; index++) {
@@ -238,9 +271,10 @@ function sameOutline(first, second) {
 }
 
 /** Reuse only exact physical inputs; the retained geometry owns its contour and bore. */
+/** @param {any} cluster @param {any} previous */
 export function resolveTerminalCopperContact(cluster, previous) {
     const terminal = cluster.pad || cluster.via;
-    const outline = cluster.pad?.outline;
+    const outline = /** @type {Point[]|undefined} */ (cluster.pad?.outline);
     const { x, y, drill } = terminal;
     const slot = terminal.slot || null;
     if (previous && previous.kind === cluster.kind && previous.x === x && previous.y === y
@@ -253,6 +287,7 @@ export function resolveTerminalCopperContact(cluster, previous) {
     const outer = outline ? outline.map(point => ({ x: point.x, y: point.y })) : padFlashOutline({
         x, y, w: cluster.viaRadius * 2, h: cluster.viaRadius * 2, shape: 'circle',
     }, 1e-4);
+    /** @type {Point[][]} */
     const holes = [];
     if (drill > 0) holes.push(padFlashOutline({
         x: slot ? (slot.x1 + slot.x2) / 2 : x,
@@ -268,6 +303,7 @@ export function resolveTerminalCopperContact(cluster, previous) {
         shape, resolved: resolveTrackContactGeometry(shape) };
 }
 
+/** @param {ContactBoardShape} shape @returns {Contact} */
 function createContact(shape) {
     // Track widths are physical values, not generic-shape UI stroke defaults.
     const segment = shape.copperSegment;
@@ -296,11 +332,13 @@ function createContact(shape) {
     } };
 }
 
+/** @param {ContactBoardShape} first @param {ContactBoardShape} second */
 export function copperShapesTouch(first, second) {
     return copperContactsTouch(resolveTrackContactGeometry(first), resolveTrackContactGeometry(second));
 }
 
 /** Compare contacts prepared for the same synchronous geometry pass. */
+/** @param {Contact} firstContact @param {Contact} secondContact */
 export function copperContactsTouch(firstContact, secondContact) {
     const firstBounds = firstContact.bounds, secondBounds = secondContact.bounds;
     const tolerance = 1e-7;
@@ -310,9 +348,11 @@ export function copperContactsTouch(firstContact, secondContact) {
     if (!firstContact.region && !secondContact.region) {
         return copperGeometryTouches(firstGeometry, secondGeometry);
     }
-    const firstPrepared = preparedRegions.get(firstContact.region), secondPrepared = preparedRegions.get(secondContact.region);
+    const firstPrepared = firstContact.region ? preparedRegions.get(firstContact.region) : undefined;
+    const secondPrepared = secondContact.region ? preparedRegions.get(secondContact.region) : undefined;
     if (firstPrepared && !secondContact.region) return preparedRegionTouches(firstPrepared, secondContact, tolerance);
     if (secondPrepared && !firstContact.region) return preparedRegionTouches(secondPrepared, firstContact, tolerance);
+    /** @param {Contact} contact */
     const regions = contact => contact.region ? contactsForRegion(contact.region) : [contact];
     let pairs;
     if (immutableRegion(firstContact.region) || immutableRegion(secondContact.region)) {
@@ -328,8 +368,10 @@ export function copperContactsTouch(firstContact, secondContact) {
     return false;
 }
 
+/** @param {ContactGeometry} firstGeometry @param {ContactGeometry} secondGeometry */
 function copperGeometryTouches(firstGeometry, secondGeometry) {
     const tolerance = 1e-7;
+    /** @param {ContactGeometry} geometry */
     const segments = (geometry) => {
         if (geometry.strokeSegments.length) return geometry.strokeSegments;
         const points = geometry.centerline;
@@ -337,6 +379,7 @@ function copperGeometryTouches(firstGeometry, secondGeometry) {
             start, end: points[(index + 1) % points.length], lineWidth: geometry.lineWidth,
         }));
     };
+    /** @param {ContactGeometry & {circle: {x:number,y:number,radius:number}}} circleGeometry @param {ContactGeometry} other */
     const circleTouches = (circleGeometry, other) => {
         const circle = circleGeometry.circle;
         const outerRadius = circle.radius + circleGeometry.lineWidth / 2;
@@ -358,10 +401,11 @@ function copperGeometryTouches(firstGeometry, secondGeometry) {
                 && farthest + segment.lineWidth / 2 + tolerance >= innerRadius;
         });
     };
-    if (firstGeometry.circle) return circleTouches(firstGeometry, secondGeometry);
-    if (secondGeometry.circle) return circleTouches(secondGeometry, firstGeometry);
+    if (firstGeometry.circle) return circleTouches(/** @type {ContactGeometry & {circle: {x:number,y:number,radius:number}}} */ (firstGeometry), secondGeometry);
+    if (secondGeometry.circle) return circleTouches(/** @type {ContactGeometry & {circle: {x:number,y:number,radius:number}}} */ (secondGeometry), firstGeometry);
     if (firstGeometry.filled && secondGeometry.centerline.some((point) => pointInPolygon(point, firstGeometry.areaOutline))) return true;
     if (secondGeometry.filled && firstGeometry.centerline.some((point) => pointInPolygon(point, secondGeometry.areaOutline))) return true;
+    /** @param {Point} start @param {Point} end @param {Point} point */
     const side = (start, end, point) => (end.x - start.x) * (point.y - start.y) - (end.y - start.y) * (point.x - start.x);
     const firstSegments = segments(firstGeometry), secondSegments = segments(secondGeometry);
     for (const firstSegment of firstSegments) {
