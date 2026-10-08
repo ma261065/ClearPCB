@@ -12,6 +12,16 @@
  */
 import { escapeHtml } from '../core/ui-helpers.js';
 
+/**
+ * @typedef {{x:number,y:number,z:number}} StepPoint
+ * @typedef {{type:string, raw:string}} StepEntity
+ * @typedef {{loc:StepPoint,x:StepPoint,y:StepPoint,z:StepPoint}} StepFrame
+ * @typedef {{kind:'cylinder'|'sphere', frame:StepFrame, radius:number}} CurvedSurface
+ * @typedef {{u:number,v:number}} SurfacePoint
+ * @typedef {{vertices:StepPoint[], faces:number[][], faceColors?:number[][]|null, bodyFaces?:boolean[]}} StepGeometry
+ * @typedef {{width?:number,height?:number,lineColor?:string,lineWidth?:number,fillColor?:string,strokeOpacity?:number,fillOpacity?:number,proxyUrl?:string}} StepRenderOptions
+ */
+
 export class STEPPreview {
 
     // ── public API ──────────────────────────────────────────────────────
@@ -34,9 +44,10 @@ export class STEPPreview {
      *        Also attempts to extract STYLED_ITEM→SURFACE_STYLE→COLOR for face colors.
      *
      * @param {string} stepText - Full STEP file content
-     * @returns {{vertices:{x:number,y:number,z:number}[], faces:number[][], faceColors?:number[][]|null}|null}
+     * @returns {StepGeometry|null}
      */
     static parse(stepText) {
+        /** @type {StepGeometry} */
         const geometry = { vertices: [], faces: [], faceColors: null };
 
         try {
@@ -48,6 +59,7 @@ export class STEPPreview {
             if (!dataMatch) return null;
 
             // ── Build entity map ─────────────────────────────────────────
+            /** @type {Record<string, StepEntity>} */
             const entities = {};
             for (const stmt of dataMatch[1].split(';')) {
                 const t = stmt.trim();
@@ -58,8 +70,13 @@ export class STEPPreview {
 
             // ── Helpers ──────────────────────────────────────────────────
 
-            /** Split top-level comma-separated args, respecting nested parens & strings */
+            /**
+             * Split top-level comma-separated args, respecting nested parens & strings.
+             * @param {string} raw
+             * @returns {string[]}
+             */
             function splitArgs(raw) {
+                /** @type {string[]} */
                 const out = [];
                 let cur = '', depth = 0, inStr = false;
                 for (let i = 0; i < raw.length; i++) {
@@ -75,16 +92,23 @@ export class STEPPreview {
                 return out;
             }
 
+            /** @param {string} s @returns {string[]} */
             function refList(s) {
                 const inner = s.replace(/^\(/, '').replace(/\)$/, '').trim();
                 if (!inner) return [];
-                return inner.split(',')
-                    .map(t => { const r = t.trim().match(/#(\d+)/); return r ? r[1] : null; })
-                    .filter(Boolean);
+                /** @type {string[]} */
+                const out = [];
+                for (const t of inner.split(',')) {
+                    const r = t.trim().match(/#(\d+)/);
+                    if (r) out.push(r[1]);
+                }
+                return out;
             }
 
-            function ref(s) { const r = s.trim().match(/#(\d+)/); return r ? r[1] : null; }
+            /** @param {string|undefined} s @returns {string|null} */
+            function ref(s) { const r = (s || '').trim().match(/#(\d+)/); return r ? r[1] : null; }
 
+            /** @param {string} s @returns {StepPoint} */
             function coords(s) {
                 const inner = s.replace(/^\(/, '').replace(/\)$/, '').trim();
                 const p = inner.split(',').map(v => parseFloat(v.trim()));
@@ -92,10 +116,14 @@ export class STEPPreview {
             }
 
             // ── Cached lookups ───────────────────────────────────────────
+            /** @type {Record<string, StepPoint|null>} */
             const cpCache = {};
+            /** @type {Record<string, StepPoint|null>} */
             const vpCache = {};
 
+            /** @param {string|null} id @returns {StepPoint|null} */
             function getCartesianPoint(id) {
+                if (!id) return null;
                 if (cpCache[id] !== undefined) return cpCache[id];
                 const e = entities[id];
                 if (!e || e.type !== 'CARTESIAN_POINT') return (cpCache[id] = null);
@@ -103,7 +131,9 @@ export class STEPPreview {
                 return (cpCache[id] = args.length >= 2 ? coords(args[1]) : null);
             }
 
+            /** @param {string|null} id @returns {StepPoint|null} */
             function getVertexPoint(id) {
+                if (!id) return null;
                 if (vpCache[id] !== undefined) return vpCache[id];
                 const e = entities[id];
                 if (!e || e.type !== 'VERTEX_POINT') return (vpCache[id] = null);
@@ -119,19 +149,28 @@ export class STEPPreview {
             // single straight chord between the two end vertices. Straight lines
             // and unsupported/rational curves yield no extra points (graceful
             // fallback to the old chord behaviour).
+            /** @param {StepPoint} a @param {StepPoint} b @returns {StepPoint} */
             const vAdd = (a, b) => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+            /** @param {StepPoint} a @param {StepPoint} b @returns {StepPoint} */
             const vSub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
+            /** @param {StepPoint} a @param {number} s @returns {StepPoint} */
             const vScale = (a, s) => ({ x: a.x * s, y: a.y * s, z: a.z * s });
+            /** @param {StepPoint} a @param {StepPoint} b @returns {number} */
             const vDot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+            /** @param {StepPoint} a @param {StepPoint} b @returns {StepPoint} */
             const vCross = (a, b) => ({
                 x: a.y * b.z - a.z * b.y,
                 y: a.z * b.x - a.x * b.z,
                 z: a.x * b.y - a.y * b.x,
             });
+            /** @param {StepPoint} a @returns {number} */
             const vLen = (a) => Math.hypot(a.x, a.y, a.z);
+            /** @param {StepPoint} a @returns {StepPoint} */
             const vNorm = (a) => { const l = vLen(a) || 1; return vScale(a, 1 / l); };
 
+            /** @param {string|null} id @returns {StepPoint|null} */
             function getDirectionVec(id) {
+                if (!id) return null;
                 const e = entities[id];
                 if (!e || e.type !== 'DIRECTION') return null;
                 const a = splitArgs(e.raw);
@@ -142,7 +181,9 @@ export class STEPPreview {
              * Build an orthonormal frame {loc, x, y, z} from an
              * AXIS2_PLACEMENT_3D (location + local Z axis + local X ref dir).
              */
+            /** @param {string|null} id @returns {StepFrame|null} */
             function getPlacementFrame(id) {
+                if (!id) return null;
                 const e = entities[id];
                 if (!e || e.type !== 'AXIS2_PLACEMENT_3D') return null;
                 const a = splitArgs(e.raw);
@@ -172,6 +213,7 @@ export class STEPPreview {
             // never exceeds this fraction of the radius, so tight bends viewed
             // up close stay smooth regardless of sweep angle.
             const ARC_CHORD_TOL = 0.02;      // ≤2% of radius sagitta
+            /** @param {number} absDelta @param {number} radius @returns {number} */
             const arcSegments = (absDelta, radius) => {
                 let segs = Math.ceil(absDelta / ARC_STEP);
                 if (radius > 0) {
@@ -182,13 +224,21 @@ export class STEPPreview {
                 return Math.max(1, Math.min(ARC_MAX_SEGS, segs));
             };
 
-            /** Intermediate points (excluding both endpoints) along a CIRCLE arc. */
+            /**
+             * Intermediate points (excluding both endpoints) along a CIRCLE arc.
+             * @param {StepEntity} ent
+             * @param {StepPoint} vs
+             * @param {StepPoint} ve
+             * @param {boolean} sweepPositive
+             * @returns {StepPoint[]}
+             */
             function sampleCircleArc(ent, vs, ve, sweepPositive) {
                 const a = splitArgs(ent.raw);
                 const frame = a.length >= 2 && ref(a[1]) ? getPlacementFrame(ref(a[1])) : null;
                 const radius = a.length >= 3 ? getNumericValue(a[2]) : null;
-                if (!frame || !Number.isFinite(radius) || radius <= 0) return [];
+                if (!frame || typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) return [];
                 const { loc, x, y } = frame;
+                /** @param {StepPoint} P */
                 const ang = (P) => { const d = vSub(P, loc); return Math.atan2(vDot(d, y), vDot(d, x)); };
                 const ts = ang(vs);
                 let delta = ang(ve) - ts;
@@ -204,14 +254,22 @@ export class STEPPreview {
                 return out;
             }
 
-            /** Intermediate points (excluding both endpoints) along an ELLIPSE arc. */
+            /**
+             * Intermediate points (excluding both endpoints) along an ELLIPSE arc.
+             * @param {StepEntity} ent
+             * @param {StepPoint} vs
+             * @param {StepPoint} ve
+             * @param {boolean} sweepPositive
+             * @returns {StepPoint[]}
+             */
             function sampleEllipseArc(ent, vs, ve, sweepPositive) {
                 const a = splitArgs(ent.raw);
                 const frame = a.length >= 2 && ref(a[1]) ? getPlacementFrame(ref(a[1])) : null;
                 const r1 = a.length >= 3 ? getNumericValue(a[2]) : null;
                 const r2 = a.length >= 4 ? getNumericValue(a[3]) : null;
-                if (!frame || !Number.isFinite(r1) || !Number.isFinite(r2) || r1 <= 0 || r2 <= 0) return [];
+                if (!frame || typeof r1 !== 'number' || typeof r2 !== 'number' || !Number.isFinite(r1) || !Number.isFinite(r2) || r1 <= 0 || r2 <= 0) return [];
                 const { loc, x, y } = frame;
+                /** @param {StepPoint} P */
                 const ang = (P) => { const d = vSub(P, loc); return Math.atan2(vDot(d, y) / r2, vDot(d, x) / r1); };
                 const ts = ang(vs);
                 let delta = ang(ve) - ts;
@@ -227,14 +285,25 @@ export class STEPPreview {
                 return out;
             }
 
-            /** Parse a parenthesised list of numbers, e.g. "(1,2,1)" → [1,2,1]. */
+            /**
+             * Parse a parenthesised list of numbers, e.g. "(1,2,1)" → [1,2,1].
+             * @param {string|undefined} s
+             * @returns {number[]}
+             */
             function parseNumberList(s) {
                 const inner = (s || '').replace(/^\(/, '').replace(/\)$/, '');
                 if (!inner.trim()) return [];
                 return inner.split(',').map(t => parseFloat(t)).filter(v => Number.isFinite(v));
             }
 
-            /** De Boor evaluation of a (non-rational) B-spline at parameter u. */
+            /**
+             * De Boor evaluation of a (non-rational) B-spline at parameter u.
+             * @param {number} p
+             * @param {StepPoint[]} ctrl
+             * @param {number[]} knots
+             * @param {number} u
+             * @returns {StepPoint|undefined}
+             */
             function deBoor(p, ctrl, knots, u) {
                 const n = ctrl.length - 1;
                 let k = -1;
@@ -257,13 +326,19 @@ export class STEPPreview {
                 return d[p];
             }
 
-            /** Intermediate points along a B_SPLINE_CURVE_WITH_KNOTS (non-rational). */
+            /**
+             * Intermediate points along a B_SPLINE_CURVE_WITH_KNOTS (non-rational).
+             * @param {StepEntity} ent
+             * @param {boolean} sweepPositive
+             * @returns {StepPoint[]}
+             */
             function sampleBSpline(ent, sweepPositive) {
                 // B_SPLINE_CURVE_WITH_KNOTS(name, degree, (ctrl), form, closed,
                 //   self_intersect, (knot_mults), (knots), knot_spec)
                 const a = splitArgs(ent.raw);
                 const degree = parseInt(a[1], 10);
-                const ctrl = refList(a[2]).map(r => getCartesianPoint(r)).filter(Boolean);
+                /** @type {StepPoint[]} */
+                const ctrl = refList(a[2]).map(r => getCartesianPoint(r)).filter(p => p !== null);
                 if (!Number.isFinite(degree) || degree < 1 || ctrl.length < degree + 1) return [];
                 const mults = parseNumberList(a[6]).map(v => Math.round(v));
                 const knotsU = parseNumberList(a[7]);
@@ -289,10 +364,11 @@ export class STEPPreview {
              * Sample the analytic geometry of one EDGE_CURVE into intermediate
              * points (excluding endpoints), ordered from `vs` toward `ve`.
              * @param {string|null} curveId  geometry curve entity id
-             * @param {{x,y,z}|null} vs  traversal start point
-             * @param {{x,y,z}|null} ve  traversal end point
+             * @param {StepPoint|null} vs  traversal start point
+             * @param {StepPoint|null} ve  traversal end point
              * @param {boolean} sweepPositive  traversal matches the curve's
              *        natural parameter direction
+             * @returns {StepPoint[]}
              */
             function sampleEdgeCurve(curveId, vs, ve, sweepPositive) {
                 if (!curveId || !vs || !ve) return [];
@@ -315,27 +391,34 @@ export class STEPPreview {
             // an exact "unrolled" triangulation; for a sphere it curves the
             // silhouette. Both yield many correctly-oriented strips that shade
             // smoothly. Returns the surface descriptor or null for planes.
+            /** @param {string|null} id @returns {CurvedSurface|null} */
             function getCurvedSurface(id) {
+                if (!id) return null;
                 const e = entities[id];
                 if (!e) return null;
                 if (e.type === 'CYLINDRICAL_SURFACE') {
                     const a = splitArgs(e.raw);
                     const frame = a.length >= 2 && ref(a[1]) ? getPlacementFrame(ref(a[1])) : null;
                     const radius = a.length >= 3 ? getNumericValue(a[2]) : null;
-                    if (!frame || !Number.isFinite(radius) || radius <= 0) return null;
+                    if (!frame || typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) return null;
                     return { kind: 'cylinder', frame, radius };
                 }
                 if (e.type === 'SPHERICAL_SURFACE') {
                     const a = splitArgs(e.raw);
                     const frame = a.length >= 2 && ref(a[1]) ? getPlacementFrame(ref(a[1])) : null;
                     const radius = a.length >= 3 ? getNumericValue(a[2]) : null;
-                    if (!frame || !Number.isFinite(radius) || radius <= 0) return null;
+                    if (!frame || typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0) return null;
                     return { kind: 'sphere', frame, radius };
                 }
                 return null;
             }
 
-            /** Map a 3D point to raw (u,v) for a curved surface (u = angle). */
+            /**
+             * Map a 3D point to raw (u,v) for a curved surface (u = angle).
+             * @param {CurvedSurface} surf
+             * @param {StepPoint} P
+             * @returns {SurfacePoint}
+             */
             function surfaceUV(surf, P) {
                 const { loc, x, y, z } = surf.frame;
                 const d = vSub(P, loc);
@@ -351,6 +434,8 @@ export class STEPPreview {
              * Triangulate a closed loop of vertex indices that lies on a curved
              * surface. Maps to (u,v), unwraps the angular coordinate along the
              * loop so it stays continuous across the ±π seam, then ear-clips.
+             * @param {number[]} vertIdx
+             * @param {CurvedSurface} surf
              * @returns {number[][]} triangles as [i,j,k] vertex indices
              */
             function triangulateCurvedLoop(vertIdx, surf) {
@@ -372,7 +457,11 @@ export class STEPPreview {
                 return tris.map(([a, b, c]) => [vertIdx[a], vertIdx[b], vertIdx[c]]);
             }
 
-            /** Ear-clipping triangulation of a simple polygon in (u,v). */
+            /**
+             * Ear-clipping triangulation of a simple polygon in (u,v).
+             * @param {SurfacePoint[]} pts
+             * @returns {number[][]}
+             */
             function earClip2D(pts) {
                 const n = pts.length;
                 if (n < 3) return [];
@@ -384,15 +473,18 @@ export class STEPPreview {
                     area += a.u * b.v - b.u * a.v;
                 }
                 if (area < 0) V.reverse();
+                /** @param {number} o @param {number} a @param {number} b @returns {number} */
                 const cross = (o, a, b) =>
                     (pts[a].u - pts[o].u) * (pts[b].v - pts[o].v) -
                     (pts[a].v - pts[o].v) * (pts[b].u - pts[o].u);
+                /** @param {number} p @param {number} a @param {number} b @param {number} c @returns {boolean} */
                 const inTri = (p, a, b, c) => {
                     const d1 = cross(a, b, p), d2 = cross(b, c, p), d3 = cross(c, a, p);
                     const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
                     const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
                     return !(hasNeg && hasPos);
                 };
+                /** @type {number[][]} */
                 const tris = [];
                 let guard = 0;
                 while (V.length > 3 && guard++ < 5000) {
@@ -421,11 +513,14 @@ export class STEPPreview {
             }
 
             // Vertex deduplication
+            /** @type {Map<string, number>} */
             const vertexMap = new Map();
+            /** @param {StepPoint|null} pt @returns {number} */
             function vertexIdx(pt) {
                 if (!pt) return -1;
                 const key = `${pt.x.toFixed(6)},${pt.y.toFixed(6)},${pt.z.toFixed(6)}`;
-                if (vertexMap.has(key)) return vertexMap.get(key);
+                const cached = vertexMap.get(key);
+                if (cached !== undefined) return cached;
                 const idx = geometry.vertices.length;
                 geometry.vertices.push(pt);
                 vertexMap.set(key, idx);
@@ -433,9 +528,12 @@ export class STEPPreview {
             }
 
             // ── Build entity references graph ────────────────────────────
+            /** @type {Map<string, string[]>} */
             const refsById = new Map();
 
+            /** @param {string} raw @returns {string[]} */
             function collectRefs(raw) {
+                /** @type {string[]} */
                 const refs = [];
                 const re = /#(\d+)/g;
                 let m;
@@ -449,6 +547,7 @@ export class STEPPreview {
             }
 
             // ── STEP style/color resolver (AP214/AP242 variants) ────────
+            /** @type {Record<string, number[]>} */
             const predefinedColors = {
                 black: [0, 0, 0],
                 white: [255, 255, 255],
@@ -462,11 +561,14 @@ export class STEPPreview {
                 gray: [128, 128, 128]
             };
 
+            /** @type {Map<string, number|null>} */
             const numericValueCache = new Map();
+            /** @type {Map<string, number[]|null>} */
             const colorValueCache = new Map();
 
+            /** @param {number|null} r @param {number|null} g @param {number|null} b @returns {number[]|null} */
             function toRgb255(r, g, b) {
-                if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+                if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number' || !Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
 
                 const max = Math.max(r, g, b);
                 // STEP commonly uses normalized 0..1, but some sources emit 0..255 values.
@@ -485,6 +587,7 @@ export class STEPPreview {
                 ];
             }
 
+            /** @param {string|undefined} token @param {Set<string>} [seen] @returns {number|null} */
             function getNumericValue(token, seen = new Set()) {
                 const trimmed = (token || '').trim();
                 if (!trimmed) return null;
@@ -494,7 +597,10 @@ export class STEPPreview {
                 }
                 const rid = trimmed.slice(1);
                 if (!rid || seen.has(rid)) return null;
-                if (numericValueCache.has(rid)) return numericValueCache.get(rid);
+                if (numericValueCache.has(rid)) {
+                    const cached = numericValueCache.get(rid);
+                    return cached === undefined ? null : cached;
+                }
                 seen.add(rid);
 
                 const ent = entities[rid];
@@ -521,9 +627,13 @@ export class STEPPreview {
                 return value;
             }
 
+            /** @param {string|null} id @param {Set<string>} [seen] @returns {number[]|null} */
             function getColorFromEntity(id, seen = new Set()) {
                 if (!id || seen.has(id)) return null;
-                if (colorValueCache.has(id)) return colorValueCache.get(id);
+                if (colorValueCache.has(id)) {
+                    const cached = colorValueCache.get(id);
+                    return cached === undefined ? null : cached;
+                }
                 seen.add(id);
 
                 const ent = entities[id];
@@ -561,12 +671,16 @@ export class STEPPreview {
                 return color || null;
             }
 
+            /** @param {string|null} itemId @returns {string[]} */
             function getFaceTargetsFromItem(itemId) {
                 if (!itemId) return [];
                 if (entities[itemId]?.type === 'ADVANCED_FACE') return [itemId];
 
+                /** @type {Set<string>} */
                 const out = new Set();
+                /** @type {string[]} */
                 const stack = [itemId];
+                /** @type {Set<string>} */
                 const seen = new Set();
 
                 while (stack.length) {
@@ -589,7 +703,9 @@ export class STEPPreview {
                 return Array.from(out);
             }
 
+            /** @type {Map<string, number[]>} */
             const directFaceColor = new Map();
+            /** @type {Map<string, number[]>} */
             const inheritedFaceColor = new Map();
 
             for (const [id, ent] of Object.entries(entities)) {
@@ -629,6 +745,7 @@ export class STEPPreview {
             }
 
             // ── Walk ADVANCED_FACE topology and emit polygonal loops ─────
+            /** @type {(number[]|null)[]} */
             const faceColors = [];
             let anyResolvedFaceColor = false;
             let anyDirectResolvedFaceColor = false;
@@ -640,7 +757,9 @@ export class STEPPreview {
             // the pad outline — coincident with the pad face and the true cause
             // of the "shimmer". Shell membership lets us drop the right (body)
             // face without any colour guessing.
+            /** @type {Map<string, string>} */
             const faceShell = new Map();   // ADVANCED_FACE id → shell id
+            /** @type {Map<string, number>} */
             const shellSize = new Map();   // shell id → face count
             for (const [sid, sEnt] of Object.entries(entities)) {
                 if (sEnt.type !== 'CLOSED_SHELL' && sEnt.type !== 'OPEN_SHELL') continue;
@@ -656,6 +775,7 @@ export class STEPPreview {
 
             // Parallel to geometry.faces: the source ADVANCED_FACE id of each
             // emitted loop, so coincident faces can be resolved by shell size.
+            /** @type {string[]} */
             const faceSource = [];
 
             for (const [faceId, ent] of Object.entries(entities)) {
@@ -673,6 +793,7 @@ export class STEPPreview {
                 const inheritedResolved = inheritedFaceColor.get(faceId) || null;
                 const resolved = directResolved || inheritedResolved;
 
+                /** @param {number[]} verts */
                 const emitFace = (verts) => {
                     geometry.faces.push(verts);
                     faceSource.push(faceId);
@@ -687,13 +808,16 @@ export class STEPPreview {
 
                     const bArgs = splitArgs(bound.raw);
                     if (bArgs.length < 2) continue;
-                    const edgeLoop = entities[ref(bArgs[1])];
+                    const edgeLoopId = ref(bArgs[1]);
+                    const edgeLoop = edgeLoopId ? entities[edgeLoopId] : null;
                     if (!edgeLoop || edgeLoop.type !== 'EDGE_LOOP') continue;
 
                     const elArgs = splitArgs(edgeLoop.raw);
                     if (elArgs.length < 2) continue;
 
+                    /** @type {number[]} */
                     const faceVerts = [];
+                    /** @param {number} idx */
                     const pushVertIdx = (idx) => {
                         if (idx >= 0 && (faceVerts.length === 0 || faceVerts[faceVerts.length - 1] !== idx)) {
                             faceVerts.push(idx);
@@ -705,7 +829,8 @@ export class STEPPreview {
                         const oeArgs = splitArgs(oe.raw);
                         if (oeArgs.length < 5) continue;
 
-                        const ec = entities[ref(oeArgs[3])];
+                        const edgeCurveId = ref(oeArgs[3]);
+                        const ec = edgeCurveId ? entities[edgeCurveId] : null;
                         if (!ec || ec.type !== 'EDGE_CURVE') continue;
                         const ecArgs = splitArgs(ec.raw);
                         if (ecArgs.length < 3) continue;
@@ -758,6 +883,7 @@ export class STEPPreview {
             if (geometry.vertices.length > 0) {
                 if (anyResolvedFaceColor && faceColors.length === geometry.faces.length) {
                     const fallback = [120, 120, 120];
+                    /** @type {number[][]} */
                     const normalized = faceColors.map(c => c || fallback);
 
                     const uniq = new Set(normalized.map(c => `${c[0]},${c[1]},${c[2]}`));
@@ -804,32 +930,43 @@ export class STEPPreview {
      * We drop those exact duplicates first — keeping the smallest-shell copy — to
      * cut overdraw and remove same-depth twins outright.
      *
-     * @param {{vertices:{x:number,y:number,z:number}[], faces:number[][], faceColors:number[][], bodyFaces?:boolean[]}} geometry
+     * @param {StepGeometry} geometry
      * @param {string[]} faceSource  source ADVANCED_FACE id per emitted face
      * @param {Map<string,string>} faceShell  ADVANCED_FACE id → shell id
      * @param {Map<string,number>} shellSize  shell id → face count
      */
     static _tagCoplanarBodyFaces(geometry, faceSource, faceShell, shellSize) {
         let { faces, faceColors } = geometry;
-        if (!faceColors || faceColors.length !== faces.length) return;
+        if (!Array.isArray(faceColors) || faceColors.length !== faces.length) return;
         if (!faceSource || faceSource.length !== faces.length) return;
 
         // Identify the body shell (the largest).
         let bodyShell = null, bodyMax = -1;
         for (const [s, n] of shellSize) if (n > bodyMax) { bodyMax = n; bodyShell = s; }
-        const sizeOf = (i) => shellSize.get(faceShell.get(faceSource[i])) ?? Infinity;
+        /** @param {number} i @returns {number} */
+        const sizeOf = (i) => {
+            const shell = faceShell.get(faceSource[i]);
+            return shell ? (shellSize.get(shell) ?? Infinity) : Infinity;
+        };
 
         // ── Drop exact-coincident faces ──────────────────────────────────
         // Many details (pad bottoms, internal interfaces) share an *identical*
         // vertex set with a body sub-face. Keep the one from the smallest shell
         // (the detail) and drop the rest, so the hidden body twin is gone.
+        /** @type {Map<string, number[]>} */
         const groups = new Map();
         for (let i = 0; i < faces.length; i++) {
-            if (faces[i].length < 3) continue;
-            const k = [...faces[i]].sort((a, b) => a - b).join(',');
-            if (!groups.has(k)) groups.set(k, []);
-            groups.get(k).push(i);
+            const face = faces[i];
+            if (face.length < 3) continue;
+            const k = [...face].sort((a, b) => a - b).join(',');
+            let group = groups.get(k);
+            if (!group) {
+                group = [];
+                groups.set(k, group);
+            }
+            group.push(i);
         }
+        /** @type {Set<number>} */
         const drop = new Set();
         for (const idxs of groups.values()) {
             if (idxs.length < 2) continue;
@@ -838,7 +975,12 @@ export class STEPPreview {
             for (const i of idxs) if (i !== keep) drop.add(i);
         }
         if (drop.size > 0) {
-            const nf = [], nc = [], ns = [];
+            /** @type {number[][]} */
+            const nf = [];
+            /** @type {number[][]} */
+            const nc = [];
+            /** @type {string[]} */
+            const ns = [];
             for (let i = 0; i < faces.length; i++) {
                 if (drop.has(i)) continue;
                 nf.push(faces[i]); nc.push(faceColors[i]); ns.push(faceSource[i]);
@@ -862,6 +1004,11 @@ export class STEPPreview {
     /**
      * Project a 3D point to 2D isometric coordinates.
      */
+    /**
+     * @param {StepPoint} v
+     * @param {number} scale
+     * @returns {{x:number,y:number}}
+     */
     static _project(v, scale) {
         const a = Math.PI / 6;
         return {
@@ -872,8 +1019,8 @@ export class STEPPreview {
 
     /**
      * Render parsed geometry to an SVG string.
-     * @param {{vertices:{x:number,y:number,z:number}[], faces:number[][]}} geometry
-     * @param {object} [options]
+     * @param {StepGeometry} geometry
+     * @param {StepRenderOptions} [options]
      * @returns {string} SVG markup
      */
     static renderToSVG(geometry, options = {}) {
@@ -936,7 +1083,7 @@ export class STEPPreview {
     /**
      * Fetch a STEP file via URL and render a preview SVG.
      * @param {string} url
-     * @param {object} [options] - Rendering options + optional `proxyUrl`
+     * @param {StepRenderOptions} [options] - Rendering options + optional `proxyUrl`
      * @returns {Promise<string>} SVG markup or error HTML
      */
     static async fetchAndRender(url, options = {}) {

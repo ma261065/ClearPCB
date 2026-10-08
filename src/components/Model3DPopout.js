@@ -106,6 +106,7 @@ export function closeModel3DPopout() {
 function enableHeaderDrag(panel, handle) {
     let startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
 
+    /** @param {PointerEvent} e */
     const onMove = (e) => {
         const left = baseLeft + (e.clientX - startX);
         const top = baseTop + (e.clientY - startY);
@@ -115,6 +116,7 @@ function enableHeaderDrag(panel, handle) {
         panel.style.top = `${Math.min(Math.max(0, top), Math.max(0, maxTop))}px`;
     };
 
+    /** @param {PointerEvent} e */
     const onUp = (e) => {
         handle.removeEventListener('pointermove', onMove);
         handle.removeEventListener('pointerup', onUp);

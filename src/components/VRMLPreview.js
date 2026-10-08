@@ -3,6 +3,13 @@
  */
 import { escapeHtml } from '../core/ui-helpers.js';
 
+/**
+ * @typedef {{x:number,y:number,z:number}} ModelPoint
+ * @typedef {{vertices:ModelPoint[], faces:number[][], faceColors?:number[][]}} ModelGeometry
+ * @typedef {{minX:number,minY:number,maxX:number,maxY:number}} ProjectedBounds
+ * @typedef {{width?:number,height?:number,lineColor?:string,lineWidth?:number,fillColor?:string,strokeOpacity?:number,fillOpacity?:number,proxyUrl?:string}} RenderOptions
+ */
+
 export class VRMLPreview {
     /**
      * Extract balanced blocks like `Shape { ... }` from VRML text.
@@ -11,6 +18,7 @@ export class VRMLPreview {
      * @returns {string[]}
      */
     static _extractBlocks(text, keyword) {
+        /** @type {string[]} */
         const blocks = [];
         const needle = `${keyword}`;
         let i = 0;
@@ -54,6 +62,8 @@ export class VRMLPreview {
 
     /**
      * Parse VRML (.wrl) file content
+     * @param {string} vrmlText
+     * @returns {{vertices:ModelPoint[],faces:number[][]}|null}
      */
     static parseVRML(vrmlText) {
         const colored = this.parseVRMLWithColors(vrmlText);
@@ -70,6 +80,7 @@ export class VRMLPreview {
      * @returns {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors:number[][]}|null}
      */
     static parseVRMLWithColors(vrmlText) {
+        /** @type {ModelGeometry & {faceColors:number[][]}} */
         const geometry = {
             vertices: [],
             faces: [],
@@ -80,6 +91,7 @@ export class VRMLPreview {
             // KiCad models name each material once (`DEF PIN-01 Material { ... }`) and
             // reuse it in later shapes (`material USE PIN-01`), so collect the named
             // materials first.
+            /** @type {Map<string, number[]>} */
             const namedColors = new Map();
             for (const [, name, body] of vrmlText.matchAll(/DEF\s+([^\s{}]+)\s+Material\s*\{([^}]*)\}/g)) {
                 const color = this._diffuseColor(body);
@@ -107,6 +119,7 @@ export class VRMLPreview {
                     }
 
                     const indices = coordIndexMatch[1].trim().split(/[\s,]+/).filter(v => v);
+                    /** @type {number[]} */
                     let face = [];
                     for (const idx of indices) {
                         const index = parseInt(idx, 10);
@@ -177,6 +190,9 @@ export class VRMLPreview {
 
     /**
      * Project 3D point to isometric 2D coordinates
+     * @param {ModelPoint} vertex
+     * @param {number} [scale]
+     * @returns {{x:number,y:number}}
      */
     static projectIsometric(vertex, scale = 1) {
         // Isometric projection angles (30 degrees)
@@ -188,6 +204,9 @@ export class VRMLPreview {
 
     /**
      * Calculate bounding box of projected vertices
+     * @param {ModelPoint[]} vertices
+     * @param {number} [scale]
+     * @returns {ProjectedBounds}
      */
     static getBounds(vertices, scale = 1) {
         if (vertices.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -208,6 +227,9 @@ export class VRMLPreview {
 
     /**
      * Render geometry to SVG
+     * @param {ModelGeometry} geometry
+     * @param {RenderOptions} [options]
+     * @returns {string}
      */
     static renderToSVG(geometry, options = {}) {
         const {
@@ -289,6 +311,9 @@ export class VRMLPreview {
     /**
      * Fetch and render a 3D model from URL (auto-detects VRML/STEP).
      * STEP files are delegated to STEPPreview.
+     * @param {string} url
+     * @param {RenderOptions} [options]
+     * @returns {Promise<string>}
      */
     static async fetchAndRender(url, options = {}) {
         try {
@@ -328,6 +353,9 @@ export class VRMLPreview {
     /**
      * Render EasyEDA 3D model JSON data
      * EasyEDA stores 3D data as a simple array of vertices and faces
+     * @param {any} model3dJson raw EasyEDA JSON/string before validation
+     * @param {RenderOptions} [options]
+     * @returns {string}
      */
     static renderEasyEDAModel(model3dJson, options = {}) {
         try {
@@ -345,6 +373,7 @@ export class VRMLPreview {
             }
 
             // Convert to our geometry format
+            /** @type {ModelGeometry} */
             const geometry = {
                 vertices: [],
                 faces: []
@@ -353,18 +382,18 @@ export class VRMLPreview {
             // Handle different EasyEDA formats
             if (modelData.vertices && Array.isArray(modelData.vertices)) {
                 // Format: { vertices: [[x,y,z],...], faces: [[i1,i2,i3],...] }
-                geometry.vertices = modelData.vertices.map(v => ({
+                geometry.vertices = modelData.vertices.map(/** @param {any[]} v */ (v) => ({
                     x: parseFloat(v[0]) || 0,
                     y: parseFloat(v[1]) || 0,
                     z: parseFloat(v[2]) || 0
                 }));
 
                 if (modelData.faces && Array.isArray(modelData.faces)) {
-                    geometry.faces = modelData.faces.map(f => f.map(i => parseInt(i)));
+                    geometry.faces = modelData.faces.map(/** @param {any[]} f */ (f) => f.map(/** @param {any} i */ (i) => parseInt(i)));
                 }
             } else if (Array.isArray(modelData)) {
                 // Format: [[x,y,z],...]
-                geometry.vertices = modelData.map(v => ({
+                geometry.vertices = modelData.map(/** @param {any[]} v */ (v) => ({
                     x: parseFloat(v[0]) || 0,
                     y: parseFloat(v[1]) || 0,
                     z: parseFloat(v[2]) || 0
@@ -392,7 +421,8 @@ export class VRMLPreview {
     /**
      * Parse and render OBJ format 3D model
      * @param {string} objText - OBJ file content
-     * @param {object} options - Rendering options
+     * @param {RenderOptions} [options] - Rendering options
+     * @returns {string}
      */
     static renderOBJ(objText, options = {}) {
         try {
@@ -421,9 +451,10 @@ export class VRMLPreview {
     /**
      * Parse OBJ format content
      * @param {string} objText - OBJ file content
-     * @returns {object} Geometry data with vertices and faces
+     * @returns {ModelGeometry} Geometry data with vertices and faces
      */
     static parseOBJ(objText) {
+        /** @type {ModelGeometry} */
         const geometry = {
             vertices: [],
             faces: []

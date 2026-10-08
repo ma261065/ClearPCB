@@ -3,20 +3,29 @@ import { VRMLPreview } from './VRMLPreview.js';
 import { openModel3DPopout } from './Model3DPopout.js';
 import { getComponentLibrary } from './index.js';
 
+/**
+ * @typedef {{x:number,y:number,z:number}} ModelVertex
+ * @typedef {{vertices:ModelVertex[], faces:number[][], faceColors?:number[][]|null, bodyFaces?:boolean[]}} ModelMesh
+ * @typedef {{model3dObj?:string, model3dUrl?:string, has3d?:boolean, footprintName?:string, footprint?:string, reference?:string, value?:string, source?:string, _source?:string, [key:string]: any}} Model3DSourceData
+ * @typedef {{has3d?:boolean, modelUrl?:string}} KiCadFootprintAvailability
+ * @typedef {{corsProxy?:string, checkFootprintAvailability?:(footprintName:string)=>Promise<KiCadFootprintAvailability>}} KiCad3DFetcher
+ */
+
 /** @type {Map<string, string>} modelURL -> generated OBJ cache */
 const _modelObjCache = new Map();
 
 /**
  * True when a component/placement has some 3D source we can try to render.
- * @param {any} data
+ * @param {object|null|undefined} data
  * @returns {boolean}
  */
 export function hasAny3DModel(data) {
     if (!data) return false;
+    const source = /** @type {Model3DSourceData} */ (data);
     return !!(
-        data.model3dObj
-        || data.model3dUrl
-        || (data.has3d && (data.footprintName || data.footprint))
+        source.model3dObj
+        || source.model3dUrl
+        || (source.has3d && (source.footprintName || source.footprint))
     );
 }
 
@@ -25,14 +34,15 @@ export function hasAny3DModel(data) {
  * optional — a missing reference/value is dropped, and the source suffix only
  * shows for known supplier sources (KiCad/LCSC/EasyEDA), uppercased. Falls back
  * to '3D Model' when nothing identifying is available.
- * @param {{reference?: string, value?: string, source?: string, _source?: string}} data
+ * @param {object|null|undefined} data
  * @returns {string}
  */
 export function buildComponent3DTitle(data) {
-    const ref = (data?.reference || '').trim();
-    const val = (data?.value || '').trim();
+    const source = /** @type {Model3DSourceData|null|undefined} */ (data);
+    const ref = (source?.reference || '').trim();
+    const val = (source?.value || '').trim();
     let base = ref && val ? `${ref} \u2014 ${val}` : (ref || val);
-    const src = (data?.source || data?._source || '').trim();
+    const src = (source?.source || source?._source || '').trim();
     const label = /kicad/i.test(src) ? 'KICAD'
         : /lcsc/i.test(src) ? 'LCSC'
         : /easyeda/i.test(src) ? 'EASYEDA'
@@ -45,28 +55,33 @@ export function buildComponent3DTitle(data) {
  * Open the model pop-out for either OBJ-backed (EasyEDA) or KiCad model-backed
  * (KiCad URL/footprint) components.
  * @param {Object} opts
- * @param {any} opts.data component definition / placement-like object
+ * @param {object|null|undefined} opts.data component definition / placement-like object
  * @param {string} [opts.title]
  * @returns {Promise<boolean>}
  */
 export async function openComponent3DFromData({ data, title = '3D Model' }) {
     if (!data) return false;
+    const source = /** @type {Model3DSourceData} */ (data);
 
-    let objText = data.model3dObj || '';
+    let objText = source.model3dObj || '';
     if (!objText) {
-        const modelUrl = await _resolveModelUrl(data);
+        const modelUrl = await _resolveModelUrl(source);
         if (!modelUrl) return false;
         objText = await _resolveObjFromModelUrl(modelUrl, _getProxyUrl());
         if (!objText) return false;
         // Cache on the object so subsequent opens are instant.
-        data.model3dObj = objText;
-        if (!data.model3dUrl) data.model3dUrl = modelUrl;
-        data.has3d = true;
+        source.model3dObj = objText;
+        if (!source.model3dUrl) source.model3dUrl = modelUrl;
+        source.has3d = true;
     }
 
     return openModel3DPopout({ objText, title });
 }
 
+/**
+ * @param {Model3DSourceData} data
+ * @returns {Promise<string|null>}
+ */
 async function _resolveModelUrl(data) {
     if (data.model3dUrl) return data.model3dUrl;
 
@@ -97,6 +112,11 @@ export async function resolveObjFromModelUrl(modelUrl, proxyUrl = '') {
     return _resolveObjFromModelUrl(modelUrl, proxyUrl);
 }
 
+/**
+ * @param {string} modelUrl
+ * @param {string} proxyUrl
+ * @returns {Promise<string>}
+ */
 async function _resolveObjFromModelUrl(modelUrl, proxyUrl) {
     if (_modelObjCache.has(modelUrl)) return _modelObjCache.get(modelUrl) || '';
 
@@ -138,7 +158,7 @@ async function _resolveObjFromModelUrl(modelUrl, proxyUrl) {
 }
 
 /**
- * @param {{vertices:{x:number,y:number,z:number}[], faces:number[][]}} geometry
+ * @param {ModelMesh} geometry
  * @returns {string}
  */
 function _stepGeometryToObj(geometry) {
@@ -163,7 +183,7 @@ function _stepGeometryToObj(geometry) {
 /**
  * Convert a colored face mesh to OBJ text with inline materials.
  * parseObjModel supports inline `newmtl`/`Kd`/`usemtl`, so no external .mtl is needed.
- * @param {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors?:number[][],bodyFaces?:boolean[]}} geometry
+ * @param {ModelMesh} geometry
  * @returns {string}
  */
 function _coloredMeshToObj(geometry) {
@@ -174,11 +194,13 @@ function _coloredMeshToObj(geometry) {
         lines.push(`v ${v.x} ${v.y} ${v.z}`);
     }
 
+    /** @param {number[]|null|undefined} c @returns {number[]} */
     const safeColor = (c) => (Array.isArray(c) && c.length >= 3 ? c : [102, 102, 102]);
     // Body faces (the STEP solid's largest shell) are emitted under a distinct
     // material — same colour, "_body" suffix — so the renderer can draw them in
     // a separate, depth-offset pass to beat coplanar z-fighting with the pads
     // resting on them, without moving any geometry. See STEPPreview.
+    /** @param {number[]|null|undefined} c @param {boolean} body @returns {string} */
     const matName = (c, body) => {
         const col = safeColor(c);
         return `m_${col[0]}_${col[1]}_${col[2]}${body ? '_body' : ''}`;
@@ -221,6 +243,7 @@ function _coloredMeshToObj(geometry) {
     return lines.join('\n');
 }
 
+/** @returns {KiCad3DFetcher|null} */
 function _getKiCadFetcher() {
     try {
         return getComponentLibrary()?.kicadFetcher || null;
@@ -229,6 +252,7 @@ function _getKiCadFetcher() {
     }
 }
 
+/** @returns {string} */
 function _getProxyUrl() {
     return _getKiCadFetcher()?.corsProxy || '';
 }

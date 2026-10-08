@@ -26,10 +26,20 @@ export class Model3DViewer {
      * @param {HTMLElement} container host element; the canvas fills it
      */
     constructor(container) {
+        /** @type {HTMLElement} */
         this.container = container;
         this._disposed = false;
         this._raf = 0;
+        /** @type {any|null} */
         this._mesh = null;
+        /** @type {any|null} */
+        this._material = null;
+        /** @type {any|null} */
+        this._bodyMaterial = null;
+        /** @type {any[]|null} */
+        this._materials = null;
+        /** @type {ResizeObserver|null|undefined} */
+        this._resizeObs = undefined;
 
         const w = Math.max(1, container.clientWidth || 1);
         const h = Math.max(1, container.clientHeight || 1);
@@ -40,6 +50,7 @@ export class Model3DViewer {
         canvas.style.display = 'block';
         canvas.style.cursor = 'grab';
         canvas.style.touchAction = 'none';
+        /** @type {HTMLCanvasElement|null} */
         this.canvas = canvas;
         container.appendChild(canvas);
 
@@ -130,7 +141,7 @@ export class Model3DViewer {
         // gives each group a distinct stepped polygonOffset so coincident
         // markings/pads on the shell don't z-fight (see that helper). The board
         // view applies the identical fix to placed bodies.
-        const counts = geo.userData.groupVertCounts || [];
+        const counts = /** @type {{groupVertCounts?: number[]}} */ (geo.userData).groupVertCounts || [];
         if (counts.length > 1) {
             this._materials = makeComponentGroupMaterials(counts);
             meshMaterial = this._materials;
@@ -147,7 +158,10 @@ export class Model3DViewer {
         return true;
     }
 
-    /** Position the camera to frame a model of the given bounding radius. */
+    /**
+     * Position the camera to frame a model of the given bounding radius.
+     * @param {number} radius
+     */
     _frame(radius) {
         const r = Math.max(0.001, radius);
         const fov = (this.camera.fov * Math.PI) / 180;
