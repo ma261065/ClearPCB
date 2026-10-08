@@ -152,8 +152,10 @@ export class SchematicDocument {
         return serializeSchematicDocument({ shapes: this.shapes, components: this.components, settings });
     }
 
-    /** @returns {import('./ProjectDocument.js').ComponentInfo|null} */
-    /** @param {string} id */
+    /**
+     * @returns {import('./ProjectDocument.js').ComponentInfo|null}
+     * @param {string} id
+     */
     getComponentInfo(id) {
         const component = this.components.find(item => item.id === id);
         if (!component) return null;

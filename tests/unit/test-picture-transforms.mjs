@@ -69,7 +69,7 @@ for (const invert of [false, true]) {
         for (const flipVertical of [false, true]) {
             image.artwork = { ...originalArtwork, invert, flipHorizontal, flipVertical };
             const saved = serializeBoardShapes({ boardShapes: [image] });
-            const loaded = { boardShapes: [], shapeIdCounter: 1 };
+            const loaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
             loadBoardShapes(loaded, saved, { strict: true, render: false });
             assert.deepEqual(serializeBoardShapes(loaded), saved);
             assert.deepEqual(pictureRegions(loaded.boardShapes[0]), pictureRegions(image));

@@ -1,6 +1,7 @@
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { boardBoundary, getBoardOutline, validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { panelSettings } from '../../core/pcb-panelization.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 export { PANEL_DEFAULTS, panelSettings } from '../../core/pcb-panelization.js';
 
 const PRECISION = 100000;
@@ -37,6 +38,12 @@ function boundaryCrossing(points, axis, offset, high) {
     return high ? Math.max(...crossings) : Math.min(...crossings);
 }
 
+/**
+ * Lay out a panel of copies of the board.
+ * @param {{panelization?: unknown}} app - The editor, or Gerber export options: anything
+ *   board-outline.js reads the board outline from.
+ * @param {unknown} [input] Panel settings; panelSettings fills in and clamps each one.
+ */
 export function buildPanelLayout(app, input = app.panelization) {
     const settings = panelSettings(input);
     if (!validBoardOutline(getBoardOutline(app))) throw new Error('Panelization requires a valid closed board outline.');

@@ -183,12 +183,6 @@ export function isCulled(entity) {
 }
 
 /**
- * Re-renders all visible (non-culled) shapes and components. If `force` is true,
- * invalidates hit-test cache and recalculates stroke widths on zoom.
- * @param {object} app - Application state.
- * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
- */
-/**
  * Viewport scale of each editor's last completed renderShapes pass. Every render
  * path draws at the current scale, so clean shapes only need the zoom fast path
  * after the scale changes; skipping it otherwise keeps hover frames lookup-free.
@@ -212,6 +206,12 @@ export function setShapeSegmentSelectionElement(app, element) {
     else shapeSegmentSelectionElements.delete(app);
 }
 
+/**
+ * Re-renders all visible (non-culled) shapes and components. If `force` is true,
+ * invalidates hit-test cache and recalculates stroke widths on zoom.
+ * @param {object} app - Application state.
+ * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
+ */
 export function renderShapes(app, force = false) {
     syncAttachedLabels(app);
 

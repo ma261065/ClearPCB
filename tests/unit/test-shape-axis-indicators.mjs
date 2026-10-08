@@ -571,6 +571,7 @@ for (const commit of [false, true]) {
     const app = {
         viewport: { scale: 20, shiftHeld: true }, activeLayer: 'top-silk',
         shapeIdCounter: 0,
+        get pcbDocument() { return this; },
         getLayerGroup() { return layer; }, history: { execute() {} },
     };
     setPcbInteraction(app, '_shapeDraw', { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') });

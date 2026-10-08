@@ -5,11 +5,13 @@ import { AddPadCommand } from './pad-commands.js';
 import { Pad } from '../../shapes/pad.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { setPcbSelection } from './selection-registry.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const padToolDefaults = new WeakMap();
 const padPreviewGroups = new WeakMap();
 const padPreviewWorlds = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function getPadToolDefaults(app) {
     let defaults = padToolDefaults.get(app);
     if (!defaults) {
@@ -22,10 +24,12 @@ export function getPadToolDefaults(app) {
     return defaults;
 }
 
+/** @param {PcbEditor} app */
 export function setPadToolDefaults(app, defaults) {
     padToolDefaults.set(app, defaults);
 }
 
+/** @param {PcbEditor} app */
 export function snapPadPlacement(app, point) {
     return app.viewport?.getSnappedPosition?.(point) || { x: point.x, y: point.y };
 }
@@ -34,6 +38,7 @@ export function snapPadPlacement(app, point) {
  * Hit-test: find a pad whose bounding box contains the world position.
  * Returns `{ type:'pad', componentId, pinNumber }` or null. Pad shape
  * is approximated by the bounding box from padOffsets.
+ * @param {PcbEditor} app
  */
 export function hitTestPad(app, worldPos) {
     const topVisible = isLayerVisible('top-copper');
@@ -72,6 +77,7 @@ export function hitTestPad(app, worldPos) {
     return null;
 }
 
+/** @param {PcbEditor} app */
 export function updatePadPreview(app, worldPos) {
     if (!app.viewport) return;
     const snap = snapPadPlacement(app, worldPos);
@@ -103,6 +109,7 @@ export function updatePadPreview(app, worldPos) {
     outline.setAttribute('stroke-width', String(stroke * 1.5));
 }
 
+/** @param {PcbEditor} app */
 export function clearPadPreview(app) {
     const group = padPreviewGroups.get(app);
     if (group) {
@@ -112,10 +119,12 @@ export function clearPadPreview(app) {
     padPreviewWorlds.delete(app);
 }
 
+/** @param {PcbEditor} app */
 export function getPadPreviewWorld(app) {
     return padPreviewWorlds.get(app) || null;
 }
 
+/** @param {PcbEditor} app */
 export function showPadToolProperties(app) {
     showPadEditor(app, null, {
         defaults: getPadToolDefaults(app),
@@ -123,7 +132,10 @@ export function showPadToolProperties(app) {
     });
 }
 
-/** A primary press with the Pad tool: place a pad from the tool's defaults and select it. */
+/**
+ * A primary press with the Pad tool: place a pad from the tool's defaults and select it.
+ * @param {PcbEditor} app
+ */
 export function pressPadTool(app, worldPos) {
     const snap = snapPadPlacement(app, worldPos);
     const pad = new Pad({ ...getPadToolDefaults(app), x: snap.x, y: snap.y });

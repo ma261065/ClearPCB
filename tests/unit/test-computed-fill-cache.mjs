@@ -29,6 +29,7 @@ const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 globalThis.requestAnimationFrame = () => { checks++; return checks; };
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], board: { width: 10, height: 10, radius: 0 },
+    pcbDocument: model,
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
     existingLayerGroups() { return this._layerGroups; },
     _layerGroups: new Map() };

@@ -5,6 +5,7 @@
  * visibility and lock state. The panel auto-expands on hover and shows a
  * color swatch, name, lock toggle, and visibility eye for every layer.
  */
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
 const lockedBubbleTimers = new WeakMap();
@@ -14,26 +15,32 @@ export function registerLayerChangeHandlers(handlers) {
     layerChangeHandlers = handlers;
 }
 
+/** @param {PcbEditor} app */
 export function notifyLayerVisibilityChanged(app, layerId, visible) {
     layerChangeHandlers.onLayerVisibilityChanged?.(app, layerId, visible);
 }
 
+/** @param {PcbEditor} app */
 export function notifyLayerLockChanged(app, layerId, locked) {
     layerChangeHandlers.onLayerLockChanged?.(app, layerId, locked);
 }
 
+/** @param {PcbEditor} app */
 export function notifyCopperFillVisibilityChanged(app, layerId, visible) {
     layerChangeHandlers.onCopperFillVisibilityChanged?.(app, layerId, visible);
 }
 
+/** @param {PcbEditor} app */
 export function notifyCopperFillLockChanged(app, layerId, locked) {
     layerChangeHandlers.onCopperFillLockChanged?.(app, layerId, locked);
 }
 
+/** @param {PcbEditor} app */
 export function notifyOverlayVisibilityChanged(app, overlayId, visible) {
     layerChangeHandlers.onOverlayVisibilityChanged?.(app, overlayId, visible);
 }
 
+/** @param {PcbEditor} app */
 export function applyLayerPrefsToRender(app) {
     for (const l of PCB_LAYERS) {
         notifyLayerVisibilityChanged(app, l.id, l.visible);
@@ -124,22 +131,28 @@ export function isCopperFillVisible(copperLayerId) {
 }
 
 /**
+ * The layer panel's name for a layer ("Top Copper", "Hole"); unknown ids come back unchanged.
+ * @param {string} layerId
+ */
+export function pcbLayerName(layerId) {
+    return PCB_LAYERS.find(layer => layer.id === layerId)?.name || layerId;
+}
+
+/**
  * True when the copper pour on the given copper layer is locked (read-only)
  * via the Copper Fill section's lock toggle.
  * @param {string} copperLayerId
  * @returns {boolean}
  */
-/** The layer panel's name for a layer ("Top Copper", "Hole"); unknown ids come back unchanged. */
-export function pcbLayerName(layerId) {
-    return PCB_LAYERS.find(layer => layer.id === layerId)?.name || layerId;
-}
-
 export function isCopperFillLocked(copperLayerId) {
     const def = PCB_COPPER_FILLS.find(f => f.id === copperLayerId);
     return !!(def && def.locked);
 }
 
-/** Set a PCB layer lock through its panel control so all UI state stays in sync. */
+/**
+ * Set a PCB layer lock through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ */
 export function setPcbLayerLocked(app, layerId, locked) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
     if (!layer || layer.locked === !!locked) return;
@@ -154,12 +167,18 @@ export function setPcbLayerLocked(app, layerId, locked) {
     notifyLayerLockChanged(app, layerId, layer.locked);
 }
 
-/** Unlock a PCB layer through its panel control so all UI state stays in sync. */
+/**
+ * Unlock a PCB layer through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ */
 export function unlockPcbLayer(app, layerId) {
     setPcbLayerLocked(app, layerId, false);
 }
 
-/** Set a copper-fill lock through its panel control. */
+/**
+ * Set a copper-fill lock through its panel control.
+ * @param {PcbEditor} app
+ */
 export function setPcbCopperFillLocked(app, layerId, locked) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
     if (!fill || fill.locked === !!locked) return;
@@ -174,12 +193,18 @@ export function setPcbCopperFillLocked(app, layerId, locked) {
     notifyCopperFillLockChanged(app, layerId, fill.locked);
 }
 
-/** Unlock a copper-fill layer through its panel control. */
+/**
+ * Unlock a copper-fill layer through its panel control.
+ * @param {PcbEditor} app
+ */
 export function unlockPcbCopperFill(app, layerId) {
     setPcbCopperFillLocked(app, layerId, false);
 }
 
-/** Show or hide a PCB layer through its panel control so all UI state stays in sync. */
+/**
+ * Show or hide a PCB layer through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ */
 export function setPcbLayerVisible(app, layerId, visible) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
     if (!layer || layer.visible === !!visible) return;
@@ -194,7 +219,10 @@ export function setPcbLayerVisible(app, layerId, visible) {
     notifyLayerVisibilityChanged(app, layerId, layer.visible);
 }
 
-/** Show or hide one side's pours through the Copper Fill row's eye. */
+/**
+ * Show or hide one side's pours through the Copper Fill row's eye.
+ * @param {PcbEditor} app
+ */
 export function setPcbCopperFillVisible(app, layerId, visible) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
     if (!fill || fill.visible === !!visible) return;
@@ -380,7 +408,7 @@ const PIN_SVG = `<svg width="28" height="28" viewBox="3.5 0.5 7 13" fill="none" 
 
 /**
  * Build the layer panel inside #pcbLayerPanel and wire events.
- * @param {object} app - PCBApp instance
+ * @param {PcbEditor} app - PCBApp instance
  */
 export function buildLayerPanel(app) {
     const panel = document.getElementById('pcbLayerPanel');
@@ -778,7 +806,10 @@ export function placementBlockMessage(block) {
 /** The button label that lifts a block: Unlock or Show. */
 export const placementBlockAction = block => (block.reason === 'locked' ? 'Unlock' : 'Show');
 
-/** Lift a block through the layer panel's own control, so every view of the layer follows. */
+/**
+ * Lift a block through the layer panel's own control, so every view of the layer follows.
+ * @param {PcbEditor} app
+ */
 export function clearPlacementBlock(app, block) {
     if (block.reason === 'locked') {
         if (block.fill) unlockPcbCopperFill(app, block.id);
@@ -791,7 +822,7 @@ export function clearPlacementBlock(app, block) {
  * Refuse a placement onto a locked or hidden row, saying why at the pointer with a
  * button that lifts the block. Placement tools keep their preview there, so a silent
  * refusal would look like a dead click.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {PlacementLayer[]} targets every row the placed object would occupy
  * @param {{clientX: number, clientY: number}} [event] the press, to anchor the bubble
  * @returns {boolean} true when the press was refused
@@ -808,7 +839,7 @@ export function refuseBlockedPlacement(app, targets, event) {
  * selected. Anchors to the layer's row in the panel by default, or to a given
  * client-space point (e.g. the mouse cursor) when `anchor` is provided.
  * Auto-dismisses after a short delay.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {string} layerId
  * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
  */
@@ -820,7 +851,7 @@ export function showLockedLayerBubble(app, layerId, anchor) {
  * Speech bubble saying a row is locked or hidden, beside `anchor` or the row itself.
  * With `action`, it carries the button that unlocks or shows the row, and stays up
  * longer (and while the pointer is on it) so the button can be reached.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {PlacementBlock} block
  * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
  * @param {{action?: boolean}} [options]

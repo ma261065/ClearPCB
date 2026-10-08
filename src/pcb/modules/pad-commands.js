@@ -8,14 +8,17 @@ import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { Pad } from '../../shapes/pad.js';
 import { beginRotationHandleDrag, endRotationHandleDrag } from './rotation-handle.js';
 import { getViaDrag } from './track-drag.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const padRotationPreviews = new WeakMap();
 const padPropertyPreviews = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function getPadPropertyPreview(app) {
     return padPropertyPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function canonicalPad(app, pad) {
     const viaDrag = getViaDrag(app);
     if (viaDrag?.via === pad) return viaDrag.original;
@@ -24,6 +27,7 @@ export function canonicalPad(app, pad) {
     return padPropertyPreviews.get(app)?.originals.get(pad) || pad;
 }
 
+/** @param {PcbEditor} app */
 export function displayedPad(app, pad) {
     pad = canonicalPad(app, pad);
     const viaDrag = getViaDrag(app);
@@ -33,7 +37,10 @@ export function displayedPad(app, pad) {
     return padPropertyPreviews.get(app)?.copies.get(pad) || pad;
 }
 
-/** Numeric fields share one stable projection for the panel's selected pads. */
+/**
+ * Numeric fields share one stable projection for the panel's selected pads.
+ * @param {PcbEditor} app
+ */
 export function beginPadPropertyPreview(app, pads) {
     if (padPropertyPreviews.has(app) || padRotationPreviews.has(app) || getViaDrag(app)) {
         throw new Error('Finish the current pad preview before editing pad properties.');
@@ -51,7 +58,10 @@ export function beginPadPropertyPreview(app, pads) {
     return preview;
 }
 
-/** Clear the projection before committing; restore untouched artwork on every exit. */
+/**
+ * Clear the projection before committing; restore untouched artwork on every exit.
+ * @param {PcbEditor} app
+ */
 export function finishPadPropertyPreview(app, commit) {
     const preview = padPropertyPreviews.get(app);
     if (!preview) return;
@@ -83,10 +93,12 @@ export function finishPadPropertyPreview(app, commit) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function getPadRotationPreview(app) {
     return padRotationPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function beginPadRotationPreview(app, original, start) {
     if (padRotationPreviews.has(app)) {
         throw new Error('Finish the current pad rotation preview before starting another.');
@@ -97,7 +109,10 @@ export function beginPadRotationPreview(app, original, start) {
     beginRotationHandleDrag(app);
 }
 
-/** Allocate once, on the first changed rotation, without touching authored geometry. */
+/**
+ * Allocate once, on the first changed rotation, without touching authored geometry.
+ * @param {PcbEditor} app
+ */
 export function previewPadRotation(app, original, rotation) {
     const preview = padRotationPreviews.get(app);
     if (!preview || preview.original !== original) {
@@ -114,7 +129,10 @@ export function previewPadRotation(app, original, rotation) {
     return preview.pad;
 }
 
-/** Hand artwork and collection ownership back before invoking the model command. */
+/**
+ * Hand artwork and collection ownership back before invoking the model command.
+ * @param {PcbEditor} app
+ */
 export function finishPadRotationPreview(app, commit) {
     const preview = padRotationPreviews.get(app);
     padRotationPreviews.delete(app);
@@ -143,12 +161,14 @@ export function finishPadRotationPreview(app, commit) {
     }
 }
 
+/** @param {PcbEditor} app */
 function refresh(app, pad) {
     renderPad(pad, id => app.getLayerGroup(id));
     schedulePictureCopperRefresh(app, pad);
 }
 
 export class AddPadCommand extends ModelAddPadCommand {
+    /** @param {PcbEditor} app */
     constructor(app, pad) { super(app.pcbDocument, pad); this.app = app; }
     execute() {
         super.execute();
@@ -163,6 +183,7 @@ export class AddPadCommand extends ModelAddPadCommand {
 }
 
 export class RemovePadCommand extends ModelRemovePadCommand {
+    /** @param {PcbEditor} app */
     constructor(app, pad) { super(app.pcbDocument, pad); this.app = app; }
     execute() {
         removePadElements(this.pad);
@@ -177,6 +198,7 @@ export class RemovePadCommand extends ModelRemovePadCommand {
 }
 
 export class ModifyPadCommand extends ModelModifyPadCommand {
+    /** @param {PcbEditor} app */
     constructor(app, pad, before, after) {
         super(pad, before, after); this.app = app;
     }
@@ -187,6 +209,7 @@ export class ModifyPadCommand extends ModelModifyPadCommand {
 }
 
 export class MovePadCommand extends ModelMovePadCommand {
+    /** @param {PcbEditor} app */
     constructor(app, pad, from, to) {
         super(pad, from, to); this.app = app;
     }

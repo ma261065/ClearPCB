@@ -9,6 +9,7 @@ import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
+import { showAlert } from '../shared/ui/modal.js';
 import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
@@ -193,6 +194,7 @@ export default class PCBApp {
         this._initialized = false;
         setEditorActive(this, false);
         this.viewport = null;
+        /** @type {(() => void)|null} Refresh the ribbon's view toggles (set by controls.js). */
         this.syncPcbViewToggles = null;
         this.currentTool = 'select';
         this.activeLayer = 'top-copper';
@@ -217,7 +219,7 @@ export default class PCBApp {
          * Map of componentId → { x, y, pads: Map<padId, {x,y,number}>, element }
          * where padId uniquely identifies a physical pad (it equals the pad
          * number except for duplicate-numbered pads, which get a "#k" suffix).
-         * @type {Map<string, object>}
+         * @type {Map<string, import('../core/pcb-placement-geometry.js').Placement>}
          */
         this.placements = new Map();
         /**
@@ -230,7 +232,7 @@ export default class PCBApp {
          * @type {Map<string, import('../core/PcbPlacementState.js').PlacementOverride>}
          */
         this._placementOverrides = this.placementState.overrides;
-        /** Cached netlist from last sync */
+        /** @type {import('../core/netlist.js').NetlistEntry[]} Cached netlist from last sync */
         this.netlist = [];
 
         /** Currently selected CopperFill, or null. */
@@ -241,20 +243,13 @@ export default class PCBApp {
         /** True after the first sync (governs fitToBounds) */
         this._hasContent = false;
         initializeBoardOutlineState(this, !!getBoardOutline(this));
-        /** UI element refs (set by controls.js) */
+        /** @type {Record<string, HTMLElement|undefined>|null} Ribbon control elements (set by controls.js) */
         this.ui = null;
 
         // ── Selection & drag state ────────────────────────────
-        /**
-         * Box (marquee) multi-selection state. Populated lazily by the
-         * box-select module: { comps:Set, tracks:Set, vias:Set }.
-         * @type {{comps:Set, tracks:Set, vias:Set}|null}
-         */
-        /** Currently selected text object, or null. */
         /** In-memory PCB clipboard payload. */
         this._pcbClipboard = null;
         // Board-shape SVG elements, hover, node/segment focus and tool defaults live in the board-shape modules.
-        /** Currently selected board shape, or null. */
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -272,8 +267,6 @@ export default class PCBApp {
             onChanged: () => this._onHistoryChanged(),
             onRefused: error => showSaveToast(this, error.message),
         });
-        /** Transient message bubble shown over a component, or null. */
-        this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
         /** Document-change hook installed by ProjectDocument. @type {(() => void)|null} */
@@ -902,11 +895,6 @@ export default class PCBApp {
 
 
     /**
-     * Get the SVG group for a layer, creating it if needed.
-     * @param {string} layerId
-     * @returns {SVGGElement}
-     */
-    /**
      * The layer and overlay groups created so far, by id (read-only; use getLayerGroup
      * to create one). Lets modules inspect a layer without creating it.
      * @returns {ReadonlyMap<string, SVGGElement>}
@@ -915,6 +903,11 @@ export default class PCBApp {
         return this._layerGroups;
     }
 
+    /**
+     * Get the SVG group for a layer, creating it if needed.
+     * @param {string} layerId
+     * @returns {SVGGElement}
+     */
     getLayerGroup(layerId) {
         let g = this._layerGroups.get(layerId);
         if (!g) {
@@ -1426,6 +1419,15 @@ export default class PCBApp {
             minX - padding, minY - padding,
             maxX + padding, maxY + padding
         );
+    }
+
+    /**
+     * Show a modal message, as the schematic editor's alert does.
+     * @param {string} message
+     * @param {{title?: string}} [options]
+     */
+    alert(message, options = {}) {
+        return showAlert(message, options);
     }
 
     /**
@@ -1987,18 +1989,6 @@ export default class PCBApp {
         return scheduleFillRefresh(this);
     }
 
-    /**
-     * Re-render existing pour geometry (e.g. to reflect selection state)
-     * without recomputing polygons. Selection/highlight changes don't alter
-     * geometry, so reuse the cached fill results instead of re-running
-     * Clipper across every pour.
-     */
-    /**
-     * Recompute the poured geometry for every fill and re-render. Ensures
-     * the clipper engine is loaded first (async, once); until it is, the
-     * recompute is deferred.
-     * @returns {true|undefined} True when fills were computed and downstream refreshes requested.
-     */
     /** Resolve a pad's net from the netlist (componentId + pad number). */
     _padNetLookup(componentId, number) {
         if (!Array.isArray(this.netlist)) return '';

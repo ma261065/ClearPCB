@@ -6,7 +6,9 @@
 //     and folders already clean are listed in its cleanFolders.
 // Each pass ratchets against its baseline: a file whose error count rises, a new file
 // with errors, or any error in a clean folder fails. Without a baseline a pass only
-// reports.
+// reports. Before both, it fails on a declaration whose JSDoc tags sit in a block other
+// than the one nearest it: TypeScript reads only that block, so the others' types are
+// silently ignored.
 // TypeScript is not vendored. Install the pinned version into the repo's git-ignored
 // node_modules, as CI does (see .github/workflows/regression.yml):
 //   npm install --no-save --no-package-lock --ignore-scripts typescript@5.9.3
@@ -19,7 +21,7 @@
 // Set TSC=/path/to/tsc.js to use a specific compiler.
 
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +88,47 @@ export function cleanFolderErrors(files, cleanFolders = []) {
     return [...files].filter(([file]) => cleanFolders.some(folder => file.startsWith(folder.replace(/\/?$/, '/'))));
 }
 
+/**
+ * Declarations in `text` with JSDoc tags in a block TypeScript ignores (any block but the
+ * one nearest the declaration). Typedef and callback blocks declare types of their own.
+ * @param {any} ts The TypeScript module.
+ * @returns {number[]} 1-based line numbers of the ignored blocks.
+ */
+export function ignoredJsDocBlocks(ts, fileName, text) {
+    const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const lines = [];
+    const visit = node => {
+        const blocks = (node.jsDoc || []).filter(block => !(block.tags || [])
+            .some(tag => ['typedef', 'callback'].includes(tag.tagName.text)));
+        for (const block of blocks.slice(0, -1)) {
+            if (block.tags?.length) lines.push(source.getLineAndCharacterOfPosition(block.getStart()).line + 1);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return lines;
+}
+
+/** Fail on ignored JSDoc blocks anywhere in src/; returns 0 or 1. */
+function checkJsDocBlocks(tsc) {
+    const ts = createRequire(tsc)('./typescript.js');
+    const found = [];
+    const walk = dir => {
+        for (const name of readdirSync(dir)) {
+            const path = join(dir, name);
+            if (statSync(path).isDirectory()) walk(path);
+            else if (name.endsWith('.js')) {
+                for (const line of ignoredJsDocBlocks(ts, path, readFileSync(path, 'utf8'))) {
+                    found.push(`${relative(root, path).split(sep).join('/')}:${line}`);
+                }
+            }
+        }
+    };
+    walk(join(root, 'src'));
+    for (const where of found) console.error(`IGNORED JSDOC ${where}: merge its tags into the block nearest the declaration`);
+    return found.length ? 1 : 0;
+}
+
 /** Run one pass; returns 0 (ok), 1 (regressed) or 2 (could not run). */
 function runPass(tsc, version, pass) {
     const run = spawnSync(process.execPath, [tsc, '-p', pass.config, '--noEmit', '--pretty', 'false'], {
@@ -149,7 +192,7 @@ function main() {
     }
     const version = tscVersion(tsc);
     const passes = process.argv.includes('--strict-only') ? PASSES.filter(pass => pass.strict) : PASSES;
-    const results = passes.map(pass => runPass(tsc, version, pass));
+    const results = [checkJsDocBlocks(tsc), ...passes.map(pass => runPass(tsc, version, pass))];
     process.exitCode = Math.max(0, ...results);
 }
 

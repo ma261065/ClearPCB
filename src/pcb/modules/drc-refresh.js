@@ -5,22 +5,28 @@ import { getComputedFill } from './computed-fill-cache.js';
 import { fillRefreshError, isFillRefreshPending, onEditSettled, refreshStatus } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { collectDrcRatlines, drcShouldRun, isDrcDisposed, peekDrcPresentation, storedDrcRatlines } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const states = new WeakMap();
+/** @param {PcbEditor} app */
 const stateFor = app => {
     if (!states.has(app)) states.set(app, { revision: 0, frame: null, waiting: false, owed: false, worker: null, failed: false });
     return states.get(app);
 };
+/** @param {PcbEditor} app */
 const visible = app => isEditorActive(app) && !isDrcDisposed(app) && drcShouldRun(app);
+/** @param {PcbEditor} app */
 const deferred = app => {
     const status = refreshStatus(app);
     if (status.overlaysDeferred || status.fillSuspended) return true;
     return status.pictureCopperPending || status.fillScheduled || (status.fillPending && !status.fillError)
         || app.isSectionEditing?.();
 };
+/** @param {PcbEditor} app */
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
     ratlines: collectDrcRatlines(app) });
 const stopWaiting = state => { state.waiting = false; };
+/** @param {PcbEditor} app */
 function pending(app) {
     const presentation = peekDrcPresentation(app);
     if (presentation && !presentation.pending) {
@@ -31,7 +37,7 @@ function pending(app) {
 const resumeQueued = new WeakSet();
 /**
  * Check a waiting check once the current task (a drop and its command, say) has finished.
- * @param {any} app
+ * @param {PcbEditor} app
  */
 function queueResume(app) {
     if (resumeQueued.has(app)) return;
@@ -46,6 +52,7 @@ onEditSettled(queueResume);
 /**
  * Hold an owed check until nothing defers it: whatever ends last (an edit, or the pour
  * recompute it waits for) notes the edit settled (refresh-state.js). Nothing polls.
+ * @param {PcbEditor} app
  */
 function waitUntilSettled(app, state) {
     state.owed = true;
@@ -55,7 +62,7 @@ function waitUntilSettled(app, state) {
 }
 
 /** Run a check that was waiting, if nothing holds it back any more.
- * @param {any} app
+ * @param {PcbEditor} app
  */
 export function resumeDrcRefresh(app) {
     const state = states.get(app);
@@ -65,6 +72,7 @@ export function resumeDrcRefresh(app) {
     stopWaiting(state);
     scheduleDrcRefresh(app);
 }
+/** @param {PcbEditor} app */
 function report(app, error) {
     console.error('[DRC] check failed', error);
     app.setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -74,6 +82,7 @@ function report(app, error) {
     presentation.pending = true;
     presentation.updateStatus(null, true);
 }
+/** @param {PcbEditor} app */
 export function invalidateDrcRefresh(app) {
     const state = states.get(app);
     if (!state) return;
@@ -81,6 +90,7 @@ export function invalidateDrcRefresh(app) {
     state.worker?.invalidate();
     if (state.owed || state.frame !== null) waitUntilSettled(app, state);
 }
+/** @param {PcbEditor} app */
 export function disposeDrcRefresh(app) {
     const state = states.get(app);
     if (!state) return;
@@ -88,6 +98,7 @@ export function disposeDrcRefresh(app) {
     stopWaiting(state);
     states.delete(app);
 }
+/** @param {PcbEditor} app */
 function accept(app, state, result) {
     state.owed = false;
     stopWaiting(state);
@@ -98,7 +109,10 @@ function accept(app, state, result) {
     presentation.adoptResult(result);
 }
 
-/** Direct callers and unavailable/failed worker transports retain synchronous evaluation. */
+/**
+ * Direct callers and unavailable/failed worker transports retain synchronous evaluation.
+ * @param {PcbEditor} app
+ */
 export function runDrcNow(app) {
     if (isDrcDisposed(app)) return;
     const state = stateFor(app);
@@ -113,14 +127,16 @@ export function runDrcNow(app) {
     catch (error) { report(app, error); }
 }
 
+/** @param {PcbEditor} app */
 function ownership(app) {
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     const lists = [model.tracks || [], model.vias || [], model.pads || [], model.boardShapes || [],
         [...(model.texts?.values() || [])], [...(app.placements?.values() || [])]];
     const fills = model.copperFills || (model.boardShapes || []).filter(shape => shape.type === 'fill');
     return { model, lists: lists.map(list => [...list]), fills: fills.map(getComputedFill),
         ratlines: storedDrcRatlines(app), fillPending: isFillRefreshPending(app), fillError: fillRefreshError(app) };
 }
+/** @param {PcbEditor} app */
 function unchanged(app, saved) {
     const current = ownership(app);
     return current.model === saved.model && current.ratlines === saved.ratlines
@@ -130,6 +146,7 @@ function unchanged(app, saved) {
         && current.fills.length === saved.fills.length && current.fills.every((fill, index) => fill === saved.fills[index]);
 }
 
+/** @param {PcbEditor} app */
 export function scheduleDrcRefresh(app) {
     if (isDrcDisposed(app)) return;
     const state = stateFor(app);
@@ -165,7 +182,7 @@ export function scheduleDrcRefresh(app) {
                     state.owed = false;
                     state.worker?.dispose();
                     state.worker = null;
-                    if ((app.pcbDocument || app) === saved.model) waitUntilSettled(app, state);
+                    if (app.pcbDocument === saved.model) waitUntilSettled(app, state);
                 }
                 return;
             }

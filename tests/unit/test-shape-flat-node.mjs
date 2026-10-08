@@ -33,7 +33,7 @@ for (const radius of [0.05, 2, 50]) {
     const before = { ...shape, geom: { points: shape.points.map(point => ({ ...point })) } };
     setBoardShapeNodeCornerRadius(shape, 1, 0);
     assert.ok(!shapePathD(shape).includes('Q'), 'A zero node radius overrides the line default');
-    const restored = { boardShapes: [], shapeIdCounter: 1 };
+    const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(restored, serializeBoardShapes({ boardShapes: [shape] }), { render: false });
     assert.equal(restored.boardShapes[0].cornerRadius, 2);
     assert.equal(restored.boardShapes[0].nodeCornerRadii[1], 0);
@@ -76,7 +76,7 @@ for (const reversed of [false, true]) {
         assert.deepEqual(resolveBoardShapeGeometry(shape).physicalContours, original);
         commands[0].execute();
         assert.deepEqual(resolveBoardShapeGeometry(shape).physicalContours, dragged);
-        const restored = { boardShapes: [], shapeIdCounter: 1 };
+        const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
         loadBoardShapes(restored, serializeBoardShapes(app), { render: false });
         assert.deepEqual(resolveBoardShapeGeometry(restored.boardShapes[0]).physicalContours, dragged);
     }

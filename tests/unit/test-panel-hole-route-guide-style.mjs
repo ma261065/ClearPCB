@@ -34,6 +34,8 @@ for (const theme of ['light', 'dark']) {
             tracks: [], vias: [], pads: [], placements: new Map(), netlist: [],
             _shapeElements: new Map(),
             boardShapes: [rectangleBoardOutline(30, 20)],
+            board: { width: 30, height: 20, radius: 0 },
+            get pcbDocument() { return this; },
             panelization: { rows: 2, columns: 3, railTop: 6, railBottom: 6, railLeft: 6, railRight: 6,
                 horizontalPositioningHoles: true, verticalPositioningHoles: true },
             viewport: { svg: root, scale, gridVisible: false,

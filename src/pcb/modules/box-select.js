@@ -9,8 +9,7 @@
  *     derived from the schematic netlist and are never deleted here.
  *
  * The marquee rectangle itself is drawn with the shared helpers in
- * ../../shared/ui/box-selection.js (it reads `app.drag.start`,
- * `app.viewport.scale` and `app.viewport.contentLayer`).
+ * ../../shared/ui/box-selection.js, which keep it and its start point.
  */
 
 import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession } from './drag-session.js';
@@ -82,6 +81,8 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { setSelectionInteraction } from './selection-interaction.js';
 import { netsForComponent } from './component-selection.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -93,6 +94,7 @@ const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
 const boxSelectState = new WeakMap();
 
+/** @param {PcbEditor} app */
 function stateFor(app) {
     let state = boxSelectState.get(app);
     if (!state) {
@@ -108,18 +110,23 @@ function stateFor(app) {
     return state;
 }
 
-/** The active group (multi-selection) drag, or null. */
+/**
+ * The active group (multi-selection) drag, or null.
+ * @param {PcbEditor} app
+ */
 export function getGroupDrag(app) {
     return getPcbInteraction(app, '_groupDrag');
 }
 
+/** @param {PcbEditor} app */
 export function getGroupPreview(app) {
     return getGroupDrag(app)?.preview;
 }
 
+/** @param {PcbEditor} app */
 function beginGroupPreview(app, g) {
     if (g.preview || ![g.tracks, g.vias, g.pads, g.shapes, g.fills].some(entries => entries.length)) return;
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     assertGroupTargets(app, g);
     const tracks = getPlacementPreviewTracks(app) || model.tracks;
     const tracksById = new Map(tracks.map(track => [track.id, track]));
@@ -153,6 +160,7 @@ function beginGroupPreview(app, g) {
     for (const { pad } of g.pads) removePadElements(pad);
 }
 
+/** @param {PcbEditor} app */
 function groupIsEditable(app, g) {
     return isEditorActive(app)
         && g.comps.every(entry => !app.placements.get(entry.id)?.locked)
@@ -166,8 +174,9 @@ function groupIsEditable(app, g) {
             && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
 }
 
+/** @param {PcbEditor} app */
 function assertGroupTargets(app, g) {
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     for (const component of g.comps) {
         if (!app.placements.has(component.id) || !app.project.getPcbFootprint(component.id)) {
             throw new Error(`PCB footprint is no longer available: ${component.id}`);
@@ -195,7 +204,10 @@ function assertGroupTargets(app, g) {
 
 /* ───────────────────────────── state ───────────────────────────── */
 
-/** Any objects currently box-selected? */
+/**
+ * Any objects currently box-selected?
+ * @param {PcbEditor} app
+ */
 export function hasBoxSelection(app) {
     return hasPcbSelection(app);
 }
@@ -205,7 +217,7 @@ export function hasBoxSelection(app) {
 /**
  * Arm a potential box-select. Called from mousedown on empty canvas; the
  * marquee only materialises once the pointer passes the drag threshold.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{x:number,y:number}} screen - clientX/clientY at mousedown
  * @param {{x:number,y:number}} world  - world coords at mousedown
  */
@@ -213,17 +225,26 @@ export function armBoxSelect(app, screen, world) {
     stateFor(app).arm = { screen, world };
 }
 
-/** Discard a pending (not-yet-started) box-select arm. */
+/**
+ * Discard a pending (not-yet-started) box-select arm.
+ * @param {PcbEditor} app
+ */
 export function disarmBoxSelect(app) {
     stateFor(app).arm = null;
 }
 
-/** True while a potential marquee is armed but not yet active. */
+/**
+ * True while a potential marquee is armed but not yet active.
+ * @param {PcbEditor} app
+ */
 export function isBoxSelectArmed(app) {
     return !!stateFor(app).arm;
 }
 
-/** True while a marquee is actively being dragged. */
+/**
+ * True while a marquee is actively being dragged.
+ * @param {PcbEditor} app
+ */
 export function isBoxSelecting(app) {
     return !!stateFor(app).active;
 }
@@ -232,7 +253,7 @@ export function isBoxSelecting(app) {
  * Called on mousemove. If a box-select is armed and the pointer has moved
  * past the threshold, start the marquee. Returns true when the marquee is
  * active (so the caller should treat the move as a box-select update).
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {{x:number,y:number}} worldPos
  * @returns {boolean}
@@ -252,14 +273,16 @@ export function maybeStartBoxSelect(app, e, worldPos) {
     // Threshold crossed — begin the marquee. Clear any prior single
     // selection so the new box selection is the only highlighted thing.
     state.active = true;
-    app.drag = { start: { x: arm.world.x, y: arm.world.y } };
     clearBoxSelection(app);
-    createBoxSelectElement(app);
+    createBoxSelectElement(app, arm.world);
     _updateMarquee(app, worldPos);
     return true;
 }
 
-/** Coalesce expensive marquee containment work to one update per frame. */
+/**
+ * Coalesce expensive marquee containment work to one update per frame.
+ * @param {PcbEditor} app
+ */
 function _scheduleMarqueeUpdate(app, worldPos) {
     const state = stateFor(app);
     state.pendingWorld = worldPos;
@@ -272,6 +295,7 @@ function _scheduleMarqueeUpdate(app, worldPos) {
     });
 }
 
+/** @param {PcbEditor} app */
 function _flushMarqueeUpdate(app) {
     const state = stateFor(app);
     if (state.frame !== undefined) {
@@ -283,7 +307,10 @@ function _flushMarqueeUpdate(app) {
     if (pending && state.active) _updateMarquee(app, pending);
 }
 
-/** Update the marquee rect + recompute the enclosed set + redraw halos. */
+/**
+ * Update the marquee rect + recompute the enclosed set + redraw halos.
+ * @param {PcbEditor} app
+ */
 function _updateMarquee(app, worldPos) {
     updateBoxSelectElement(app, worldPos);
     const bounds = getBoxSelectBounds(app, worldPos);
@@ -291,7 +318,10 @@ function _updateMarquee(app, worldPos) {
     _applyHighlights(app);
 }
 
-/** Finish the marquee: keep the selection, remove the rubber-band rect. */
+/**
+ * Finish the marquee: keep the selection, remove the rubber-band rect.
+ * @param {PcbEditor} app
+ */
 export function finishBoxSelect(app) {
     const state = stateFor(app);
     if (!state.active) {
@@ -302,17 +332,22 @@ export function finishBoxSelect(app) {
     removeBoxSelectElement(app);
     state.active = false;
     state.arm = null;
-    app.drag = null;
     return hasBoxSelection(app);
 }
 
-/** Redraw the current marquee selection after an externally-driven edit. */
+/**
+ * Redraw the current marquee selection after an externally-driven edit.
+ * @param {PcbEditor} app
+ */
 export function refreshBoxSelectionHighlights(app) {
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
 
-/** Schedule one selection-overlay rebuild for the current animation frame. */
+/**
+ * Schedule one selection-overlay rebuild for the current animation frame.
+ * @param {PcbEditor} app
+ */
 export function scheduleBoxSelectionHighlights(app) {
     const state = stateFor(app);
     if (state.highlightFrame !== undefined) return;
@@ -322,7 +357,10 @@ export function scheduleBoxSelectionHighlights(app) {
     });
 }
 
-/** Toggle one board shape in the active PCB multi-selection. */
+/**
+ * Toggle one board shape in the active PCB multi-selection.
+ * @param {PcbEditor} app
+ */
 export function toggleBoxShapeSelection(app, shape) {
     if (!shape) return;
     togglePcbSelection(app, 'shape', shape);
@@ -332,7 +370,10 @@ export function toggleBoxShapeSelection(app, shape) {
 
 /* ─────────────────────── containment test ───────────────────────── */
 
-/** Replace the selection sets with everything fully inside `bounds`. */
+/**
+ * Replace the selection sets with everything fully inside `bounds`.
+ * @param {PcbEditor} app
+ */
 export function selectEnclosed(app, bounds) {
     const selected = [];
     const { minX, minY, maxX, maxY } = bounds;
@@ -413,7 +454,10 @@ export function selectEnclosed(app, bounds) {
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
 
-/** Draw halos for every selected object (clears old halos first). */
+/**
+ * Draw halos for every selected object (clears old halos first).
+ * @param {PcbEditor} app
+ */
 function _applyHighlights(app) {
     _clearHighlights(app);
     for (const compId of getPcbSelection(app, 'component')) _drawCompHighlight(app, compId);
@@ -431,7 +475,10 @@ function _applyHighlights(app) {
     renderPcbSelectionAnchors(app);
 }
 
-/** Remove all box-selection halos from the DOM. */
+/**
+ * Remove all box-selection halos from the DOM.
+ * @param {PcbEditor} app
+ */
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
@@ -445,7 +492,10 @@ function _clearHighlights(app) {
     }
 }
 
-/** Add a translucent rect over a component's footprint bounds. */
+/**
+ * Add a translucent rect over a component's footprint bounds.
+ * @param {PcbEditor} app
+ */
 function _drawCompHighlight(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl?.elements?.length || !pl.bounds) return;
@@ -464,7 +514,10 @@ function _drawCompHighlight(app, compId) {
     pl.elements[0].appendChild(rect);
 }
 
-/** Clear the multi-selection and remove its halos. */
+/**
+ * Clear the multi-selection and remove its halos.
+ * @param {PcbEditor} app
+ */
 export function clearBoxSelection(app) {
     const selectedTextIds = getPcbSelection(app, 'text').map((text) => text.id);
     const selectedPads = getPcbSelection(app, 'pad');
@@ -479,6 +532,7 @@ export function clearBoxSelection(app) {
  * Deselect only the selected objects that are no longer visible (e.g. after a
  * layer is hidden), keeping the rest of the selection. Returns true when
  * anything was deselected.
+ * @param {PcbEditor} app
  */
 export function deselectHiddenPcbSelection(app) {
     const selected = getPcbSelectionEntries(app);
@@ -500,6 +554,7 @@ export function deselectHiddenPcbSelection(app) {
  * True when `worldPos` lands on a member of the current box-selection —
  * i.e. clicking there should start a group drag rather than a fresh
  * single selection.
+ * @param {PcbEditor} app
  */
 export function pointInBoxSelection(app, worldPos) {
     if (!hasBoxSelection(app)) return false;
@@ -551,7 +606,10 @@ function _pointSegDist(p, a, b) {
     return Math.hypot(p.x - (a.x + t * vx), p.y - (a.y + t * vy));
 }
 
-/** Snapshot start positions of every selected object for a group drag. */
+/**
+ * Snapshot start positions of every selected object for a group drag.
+ * @param {PcbEditor} app
+ */
 export function beginGroupDrag(app, worldPos) {
     if (getGroupDrag(app)) cancelGroupDrag(app);
     commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape', 'fill']);
@@ -608,7 +666,10 @@ export function beginGroupDrag(app, worldPos) {
     }
 }
 
-/** Live-update positions of every selected object during a group drag. */
+/**
+ * Live-update positions of every selected object during a group drag.
+ * @param {PcbEditor} app
+ */
 export function scheduleGroupDrag(app, worldPos) {
     const drag = getGroupDrag(app);
     if (!drag) return;
@@ -623,6 +684,7 @@ export function scheduleGroupDrag(app, worldPos) {
     });
 }
 
+/** @param {PcbEditor} app */
 export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     try {
         updateGroupPreview(app, worldPos, snap);
@@ -632,6 +694,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     }
 }
 
+/** @param {PcbEditor} app */
 function updateGroupPreview(app, worldPos, snap) {
     const g = getGroupDrag(app);
     if (!g) return;
@@ -706,7 +769,10 @@ function updateGroupPreview(app, worldPos, snap) {
     _applyHighlights(app);
 }
 
-/** Commit a group drag as one undoable compound command. */
+/**
+ * Commit a group drag as one undoable compound command.
+ * @param {PcbEditor} app
+ */
 export function endGroupDrag(app) {
     const g = getGroupDrag(app);
     if (!g) return;
@@ -734,6 +800,7 @@ export function endGroupDrag(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 function groupMoveCommands(app, g) {
     const display = original => g.preview?.copies.get(original) || original;
     const cmds = [];
@@ -782,13 +849,17 @@ function groupMoveCommands(app, g) {
     return cmds;
 }
 
-/** Discard the projection and restore canonical artwork without authored rollback. */
+/**
+ * Discard the projection and restore canonical artwork without authored rollback.
+ * @param {PcbEditor} app
+ */
 export function cancelGroupDrag(app) {
     const g = getGroupDrag(app);
     if (!g) return;
     finishGroupPreview(app, g, false);
 }
 
+/** @param {PcbEditor} app */
 function removeGroupPreviewArtwork(app, g) {
     for (const entry of g.tracks) {
         const copy = g.preview?.copies.get(entry.track);
@@ -802,6 +873,7 @@ function removeGroupPreviewArtwork(app, g) {
     }
 }
 
+/** @param {PcbEditor} app */
 function finishGroupPreview(app, g, committed) {
     if (g.finished) return;
     g.finished = true;
@@ -814,7 +886,7 @@ function finishGroupPreview(app, g, committed) {
         finishPlacementPreview(app);
         finishTextPosePreview(app);
         if (g.preview && !committed) {
-            const model = app.pcbDocument || app;
+            const model = app.pcbDocument;
             for (const [entries, key, collection, render] of [
                 [g.tracks, 'track', model.tracks, track => renderTrack(track, id => app.getLayerGroup(id), _trackOpts(app, track))],
                 [g.vias, 'via', model.vias, via => renderVia(via, id => app.getLayerGroup(id))],
@@ -848,8 +920,9 @@ function finishGroupPreview(app, g, committed) {
     _applyHighlights(app);
 }
 
+/** @param {PcbEditor} app */
 function _trackOpts(app, track) {
-    const p = app.getRoutingParams?.() || {};
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     return { viaDiameter: p.viaDiameter, viaDrill: p.viaDrill };
 }
 
@@ -859,6 +932,7 @@ function _trackOpts(app, track) {
  * Delete the box-selected tracks and vias as one undoable action.
  * Components are intentionally NOT deleted (they are owned by the
  * schematic netlist). Returns true if anything was deleted.
+ * @param {PcbEditor} app
  */
 export function deleteBoxSelection(app) {
     if (getGroupDrag(app)) {

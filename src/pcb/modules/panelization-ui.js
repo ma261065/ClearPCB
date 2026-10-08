@@ -8,6 +8,7 @@ import { boardShapeRemovalPathD } from '../../shared/pcb/board-shape-geometry.js
 import { createPanelArtworkRaster } from './panelization-raster.js';
 import { insideStrokeGroup } from '../../core/ui-helpers.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const NS = 'http://www.w3.org/2000/svg';
 const previewState = new WeakMap();
@@ -71,6 +72,7 @@ export function panelPreviewOutlinePath(contours, source) {
     return paths.join('');
 }
 
+/** @param {PcbEditor} app */
 export function renderPanelPreview(app, settings = app.panelization) {
     const previous = previewState.get(app);
     const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app)]) : null;
@@ -176,6 +178,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
 }
 
 export class SetPanelizationCommand {
+    /** @param {PcbEditor} app */
     constructor(app, settings) {
         this.app = app;
         this.before = app.panelization ? { ...app.panelization } : null;
@@ -225,6 +228,7 @@ export function updatePanelRailConstraints(form) {
     return error;
 }
 
+/** @param {PcbEditor} app */
 export function openPanelizeDialog(app) {
     if (dialogs.has(app)) return;
     const settings = app.panelization ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
@@ -406,6 +410,7 @@ export function openPanelizeDialog(app) {
     form.querySelector('input')?.focus();
 }
 
+/** @param {PcbEditor} app */
 export function resetPanelPreview(app) {
     dialogs.get(app)?.();
     renderPanelPreview(app, null);

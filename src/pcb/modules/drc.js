@@ -41,6 +41,8 @@ import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
 import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior, strokedPointDistance } from './arc-clearance.js';
 import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
 const DEFAULT_MIN_ANNULAR_RING = 0.05;
@@ -138,7 +140,7 @@ function sameNet(a, b) {
 
 /**
  * Collect every copper primitive from the board into flat arrays.
- * @param {object} app - PCBApp instance.
+ * @param {PcbBoard} app - PCBApp instance.
  * @returns {{pads:Array, segments:Array, vias:Array, areas:Array, circles:Array, arcs:Array}}
  */
 export function collectCopper(app) {
@@ -316,7 +318,10 @@ function markerPair(first, second) {
     }));
 }
 
-/** Recheck only the selected entity pair against the displayed (possibly preview) geometry. */
+/**
+ * Recheck only the selected entity pair against the displayed (possibly preview) geometry.
+ * @param {PcbEditor} app
+ */
 export function resolveDrcPairMarker(app, violation, rules = {}) {
     const pair = violation.marker?.pair;
     if (!pair || pair.length !== 2) return null;
@@ -377,7 +382,7 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
 
 /**
  * Run all design-rule checks against the board.
- * @param {object} app - PCBApp instance.
+ * @param {PcbEditor} app - PCBApp instance.
  * @param {object} rules - { clearance, minAnnularRing, ratlines }. `ratlines`
  *   is an array of { net, x1, y1, x2, y2 } air wires (remaining ratsnest),
  *   each reported as an incomplete-connection violation.
@@ -388,6 +393,7 @@ export function runDRC(app, rules = {}) {
 }
 
 /** Physical inputs shared by direct checks and detached worker snapshots.
+ * @param {PcbBoard} app
  * @param {{pending: boolean, error: any}} [fill] Pour status; detached snapshots pass the editor's.
  */
 export function collectDrcInputs(app, rules = {}, fill = { pending: isFillRefreshPending(app), error: fillRefreshError(app) }) {

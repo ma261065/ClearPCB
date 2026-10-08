@@ -6,10 +6,11 @@ import { bindDesignSettings } from './design-settings.js';
 import { runPcbHistoryAction } from './editor-actions.js';
 import { selectPcbTool } from './tool-lifecycle.js';
 import { createPcbRibbonDescription } from './ribbon-description.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
- * @param {object} app
+ * @param {PcbEditor} app
  */
 export function bindPcbControls(app) {
     const ribbonEl = document.getElementById('ribbonPCB');
@@ -39,6 +40,7 @@ export function bindPcbControls(app) {
     syncGridSettings(app);
 }
 
+/** @param {PcbEditor} app */
 export function bindPcbHistoryButtons(app, undoBtn, redoBtn) {
     undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
     redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));

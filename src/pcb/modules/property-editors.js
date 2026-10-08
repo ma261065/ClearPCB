@@ -8,6 +8,7 @@
  * here rather than on the editor so no other module can replace a binding behind its
  * owner's back. No imports, so worker-loaded export code can query it.
  */
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** Panel editors, in the order lifecycle cancellation and disposal visit them. */
 export const PANEL_EDITOR_KINDS = Object.freeze(['text', 'component', 'pad', 'via', 'track', 'boardShape', 'fill']);
@@ -22,12 +23,18 @@ const checkKind = kind => {
     if (!KNOWN.has(kind)) throw new Error(`Unknown PCB property editor kind: ${kind}`);
 };
 
-/** @returns {any} The binding in `kind`'s slot, or null. */
+/**
+ * @param {PcbEditor} app
+ * @returns {any} The binding in `kind`'s slot, or null.
+ */
 export function getPropertyEditor(app, kind) {
     return editors.get(app)?.[kind] ?? null;
 }
 
-/** Claim `kind`'s slot for a binding (or clear it with null); returns the binding. */
+/**
+ * Claim `kind`'s slot for a binding (or clear it with null); returns the binding.
+ * @param {PcbEditor} app
+ */
 export function setPropertyEditor(app, kind, binding) {
     checkKind(kind);
     let slots = editors.get(app);
@@ -36,14 +43,20 @@ export function setPropertyEditor(app, kind, binding) {
     return binding;
 }
 
-/** Clear `kind`'s slot only if it still holds `binding` (a newer editor may own it). */
+/**
+ * Clear `kind`'s slot only if it still holds `binding` (a newer editor may own it).
+ * @param {PcbEditor} app
+ */
 export function releasePropertyEditor(app, kind, binding) {
     checkKind(kind);
     const slots = editors.get(app);
     if (slots?.[kind] === binding) slots[kind] = null;
 }
 
-/** Whether any of `kinds` has a binding with an uncommitted preview. */
+/**
+ * Whether any of `kinds` has a binding with an uncommitted preview.
+ * @param {PcbEditor} app
+ */
 export function hasActivePropertyEditor(app, kinds = PROPERTY_EDITOR_KINDS) {
     const slots = editors.get(app);
     if (!slots) return false;
@@ -51,7 +64,10 @@ export function hasActivePropertyEditor(app, kinds = PROPERTY_EDITOR_KINDS) {
     return false;
 }
 
-/** Commit each of `kinds`' bindings in order (an error stops the sequence). */
+/**
+ * Commit each of `kinds`' bindings in order (an error stops the sequence).
+ * @param {PcbEditor} app
+ */
 export function commitPropertyEditors(app, kinds) {
     for (const kind of kinds) getPropertyEditor(app, kind)?.commit();
 }
@@ -62,6 +78,7 @@ const LAYER_RELEASE_ORDER = Object.freeze(['track', 'boardShape', 'via', 'text',
 /**
  * Visit the panel editors whose targets are on `layerId`. Each editor's
  * `affectsLayer` runs just before `action`, so an earlier release cannot stale it.
+ * @param {PcbEditor} app
  * @param {(editor: any) => void} action
  */
 export function eachPropertyEditorOnLayer(app, layerId, action) {

@@ -16,6 +16,7 @@ import { areDragOverlaysDeferred } from './refresh-state.js';
 import { recomputeFillsNow } from './fill-refresh.js';
 import { setComputedFill } from './computed-fill-cache.js';
 import { refreshFillProperties } from './copper-fill-edit.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** State that does not shape a pour's copper; changing only these keeps its computed copper. */
 const NON_GEOMETRY = new Set(['net', 'locked', 'visible']);
@@ -26,6 +27,7 @@ function reshapesCopper(before, after) {
     return [...keys].some(key => !NON_GEOMETRY.has(key) && JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]));
 }
 
+/** @param {PcbEditor} app */
 function refresh(app) {
     // Empty or deferred pours still need connectivity, without requesting another pour.
     if (recomputeFillsNow(app) !== true) app.updateRatsnest?.({ skipFillRefresh: true });
@@ -33,6 +35,7 @@ function refresh(app) {
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
 export class AddFillCommand extends ModelAddFillCommand {
+    /** @param {PcbEditor} app */
     constructor(app, fill) {
         super(app.pcbDocument, fill);
         this.app = app;
@@ -50,6 +53,7 @@ export class AddFillCommand extends ModelAddFillCommand {
 
 /** Remove an existing CopperFill. */
 export class RemoveFillCommand extends ModelRemoveFillCommand {
+    /** @param {PcbEditor} app */
     constructor(app, fill) {
         super(app.pcbDocument, fill);
         this.app = app;
@@ -70,6 +74,7 @@ export class RemoveFillCommand extends ModelRemoveFillCommand {
  * `after` are captureState() snapshots.
  */
 export class ModifyFillCommand extends ModelModifyFillCommand {
+    /** @param {PcbEditor} app */
     constructor(app, fill, before, after) {
         super(fill, before, after);
         this.app = app;

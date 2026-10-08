@@ -27,7 +27,7 @@ if (!process.argv.includes('--worker')) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'SIGNAL' });
     const via = new Via({ x: 0, y: 0 });
     const app = { tracks: [track], vias: [via], pads: [], placements: new Map(), netlist: [],
-        boardShapes: shapes };
+        boardShapes: shapes, get pcbDocument() { return this; } };
     const start = performance.now();
     const bonded = collectBondedCopper(app, { track }, { includeShapes: true });
     const unrelatedMs = performance.now() - start;

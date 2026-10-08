@@ -25,7 +25,9 @@ import { EditTextCommand } from './text-commands.js';
 import { CompoundCommand, ModifyTrackGraphCommand, ModifyViaCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementRefVisibleCommand, SetPlacementSideCommand } from './track-commands.js';
 import { SetRefStyleCommand } from './ref-text-selection.js';
 import { applyNetToCopperSelection } from './track-select.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function multiPropertyCapabilities(app, entry) {
     const { kind, object } = entry;
     const number = (label, get, command, min = -Infinity, step = 1, max = Infinity) => (
@@ -287,7 +289,10 @@ export function multiPropertyCapabilities(app, entry) {
     return capabilities;
 }
 
-/** Show the editable intersection of properties for any PCB multi-selection. */
+/**
+ * Show the editable intersection of properties for any PCB multi-selection.
+ * @param {PcbEditor} app
+ */
 export function showMultiSelectionProperties(app, entries) {
     const items = app.propertiesItems();
     if (!items) return;

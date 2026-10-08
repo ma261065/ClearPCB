@@ -148,8 +148,10 @@ export class Arc extends Shape {
         return pointsBounds(sampleControlArc(this._controlArc()), this.lineWidth / 2);
     }
     
-    /** @override */
-    /** @param {Point} point @param {number} [tolerance] */
+    /**
+     * @override
+     * @param {Point} point @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0.5) {
         const points = sampleControlArc(this._controlArc());
         return (this.fill && pointInPolygon(point, points)) || hitTestStrokeSegments(point,
@@ -181,8 +183,10 @@ export class Arc extends Shape {
         }
     }
     
-    /** @override */
-    /** @param {Point} point */
+    /**
+     * @override
+     * @param {Point} point
+     */
     distanceTo(point) {
         const points = sampleControlArc(this._controlArc());
         return points.slice(0, -1).reduce((distance, start, index) =>
@@ -228,8 +232,10 @@ export class Arc extends Shape {
         };
     }
     
-    /** @override */
-    /** @param {string} anchorId @param {number} x @param {number} y */
+    /**
+     * @override
+     * @param {string} anchorId @param {number} x @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -254,8 +260,10 @@ export class Arc extends Shape {
         return undefined;
     }
 
-    /** @override */
-    /** @param {number} dx @param {number} dy */
+    /**
+     * @override
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         // Assign new objects through setters so _cachedGeometry is cleared at each step
@@ -269,8 +277,10 @@ export class Arc extends Shape {
     clone() {
         return new Arc(this.toJSON());
     }
-    /** @override */
-    /** @returns {Record<string, any>} */
+    /**
+     * @override
+     * @returns {Record<string, any>}
+     */
     captureState() {
         return {
             startPoint: { x: this._startPoint.x, y: this._startPoint.y },
@@ -291,8 +301,10 @@ export class Arc extends Shape {
             { key: 'fill',      label: 'Fill',       type: 'checkbox' },
         ];
     }
-    /** @override */
-    /** @param {Record<string, any>} state */
+    /**
+     * @override
+     * @param {Record<string, any>} state
+     */
     applyState(state) {
         if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
         if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
@@ -307,8 +319,10 @@ export class Arc extends Shape {
     getPosition() {
         return { x: this._startPoint.x, y: this._startPoint.y };
     }
-    /** @override — 'none' for the mid anchor, 'grid' for start/end. */
-    /** @param {string} anchorId */
+    /**
+     * @override — 'none' for the mid anchor, 'grid' for start/end.
+     * @param {string} anchorId
+     */
     getAnchorSnapMode(anchorId) {
         return anchorId === 'mid' ? 'none' : 'grid';
     }
@@ -316,8 +330,10 @@ export class Arc extends Shape {
     resetDragState() {
         this._dragBulgeRatio = null;
     }
-    /** @override */
-    /** @returns {Record<string, any>} */
+    /**
+     * @override
+     * @returns {Record<string, any>}
+     */
     toJSON() {
         const json = /** @type {Record<string, any>} */ ({
             ...super.toJSON(),

@@ -19,6 +19,7 @@
  * computed copper, for instance).
  */
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * @typedef {object} DragSession
@@ -38,7 +39,7 @@ export function copperNets(copper) {
 
 /**
  * Start deferring derived overlays for a drag.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{nets?: Iterable<string>|null, suspendBoardView?: boolean}} [options]
  * @returns {DragSession}
  */
@@ -57,7 +58,7 @@ export function beginDragSession(app, { nets = null, suspendBoardView = false } 
 
 /**
  * After a move: redraw the ratlines of the nets the drag moves, and no others.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {DragSession|null|undefined} session
  */
 export function refreshDragRatlines(app, session) {
@@ -67,7 +68,7 @@ export function refreshDragRatlines(app, session) {
 /**
  * Hand back the overlay deferral (and board-view suspension) the drag found. Returns
  * whether this call released it.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {DragSession|null|undefined} session
  */
 export function releaseDragSession(app, session) {

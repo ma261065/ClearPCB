@@ -69,6 +69,7 @@ import {
     renderAxisGlow,
     renderAxisGlowTop,
 } from './axis-glow.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const NS = 'http://www.w3.org/2000/svg';
 const trackSnapMarkers = new WeakMap();
@@ -83,19 +84,23 @@ const trackToolNets = new WeakMap();
 const ratlinePointKey = ({ x, y }) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/** @param {PcbEditor} app */
 
 export function getTrackToolLayer(app) {
     return trackToolLayers.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function setTrackToolLayer(app, layer) {
     trackToolLayers.set(app, layer);
 }
 
+/** @param {PcbEditor} app */
 export function getTrackToolNet(app) {
     return trackToolNets.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function setTrackToolNet(app, net) {
     trackToolNets.set(app, net);
 }
@@ -138,6 +143,7 @@ const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
 /**
  * Find the nearest Pad centre. Component Pads require entering their outline;
  * standalone Pads retain their minimum snap radius of `tolerance`.
+ * @param {PcbEditor} app
  * @returns {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}|null}
  */
 export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = 'top-copper', excludePad = null) {
@@ -203,6 +209,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
 
 /**
  * Find the nearest Track node (endpoint or junction) to `worldPos`.
+ * @param {PcbEditor} app
  * @returns {{x:number, y:number, track:object, nodeId:string}|null}
  */
 export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, excludeTrack = null) {
@@ -240,7 +247,7 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  * All proximity tests for grid/axis snapping use a screen-pixel
  * tolerance so the feel is constant across zoom levels.
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{x:number,y:number}} worldPos
  * @param {object} [options]
  * @param {number} [options.padTolerance]
@@ -284,7 +291,10 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     return resolveGridMagnetSnap(app, worldPos, lastPt);
 }
 
-/** @returns {TrackSnap} */
+/**
+ * @param {PcbEditor} app
+ * @returns {TrackSnap}
+ */
 export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
     if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
     const scale = Math.max(0.01, app.viewport?.scale || 1);
@@ -371,6 +381,7 @@ const SNAP_PX = GRID_SNAP_PX;
  * Same as findNearbyTrackNode but prefers nodes whose owning Track
  * matches `preferredNet`. A same-net hit beats an other-net hit even
  * if the other-net node is geometrically closer (within tolerance).
+ * @param {PcbEditor} app
  */
 function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet, excludeNode) {
     if (!app?.tracks?.length) return null;
@@ -440,7 +451,10 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
 
 /* ──────────────────────────── lifecycle ──────────────────────────── */
 
-/** @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}} */
+/**
+ * @param {PcbEditor} app
+ * @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}}
+ */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
     const layer = getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
@@ -514,12 +528,18 @@ function trackContactConflict(net, contactNets) {
     return true;
 }
 
-/** The open track drawing session (with its current `snap`), or null. */
+/**
+ * The open track drawing session (with its current `snap`), or null.
+ * @param {PcbEditor} app
+ */
 export function getTrackDraw(app) {
     return getPcbInteraction(app, '_trackDraw');
 }
 
-/** Show Track draw defaults and live draw settings in Properties. */
+/**
+ * Show Track draw defaults and live draw settings in Properties.
+ * @param {PcbEditor} app
+ */
 export function showTrackDrawProperties(app) {
     app.setPcbStatus();
     const ctx = getTrackDraw(app);
@@ -594,7 +614,7 @@ export function showTrackDrawProperties(app) {
  * draw context with the first anchor. If the click landed on a pad,
  * the pad's net is inherited.
  *
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {object} worldPos - Raw cursor world position
  * @returns {object} the draw context
  */
@@ -658,6 +678,7 @@ export function startTrackDraw(app, worldPos) {
 /**
  * Live preview update on mousemove. Computes the snapped+constrained
  * target and updates the preview polyline.
+ * @param {PcbEditor} app
  */
 export function updateTrackDraw(app, worldPos) {
     const ctx = getTrackDraw(app);
@@ -682,7 +703,10 @@ export function updateTrackDraw(app, worldPos) {
 
 }
 
-/** Rebuild the active rubber-band preview after a viewport-scale change. */
+/**
+ * Rebuild the active rubber-band preview after a viewport-scale change.
+ * @param {PcbEditor} app
+ */
 export function refreshTrackDrawPreview(app) {
     const ctx = getTrackDraw(app);
     if (!ctx?.snap) return;
@@ -693,6 +717,7 @@ export function refreshTrackDrawPreview(app) {
  * Commit the current preview vertex as a permanent waypoint.
  * If the new vertex lands on a pad (with matching net or no current net),
  * the draw is finished automatically.
+ * @param {PcbEditor} app
  */
 export function addTrackWaypoint(app, worldPos) {
     const ctx = getTrackDraw(app);
@@ -761,6 +786,7 @@ export function addTrackWaypoint(app, worldPos) {
  * becomes a layer-change node; on finish, the draw is split into
  * separate single-layer Track objects with a standalone `Via` at that
  * node.
+ * @param {PcbEditor} app
  */
 export function toggleTrackLayer(app) {
     const ctx = getTrackDraw(app);
@@ -777,6 +803,7 @@ export function toggleTrackLayer(app) {
 /**
  * Commit the in-progress track to app.tracks and render it. No-op if
  * the track has fewer than two points.
+ * @param {PcbEditor} app
  */
 export function finishTrackDraw(app) {
     const ctx = getTrackDraw(app);
@@ -801,13 +828,17 @@ export function finishTrackDraw(app) {
 
 /**
  * Abort the in-progress track without committing anything.
+ * @param {PcbEditor} app
  */
 export function cancelTrackDraw(app) {
     _teardownDraw(app);
     if (app.openPropertyPanel) showTrackDrawProperties(app);
 }
 
-/** Abort in-flight track drawing and remove any pre-draw snap affordance. */
+/**
+ * Abort in-flight track drawing and remove any pre-draw snap affordance.
+ * @param {PcbEditor} app
+ */
 export function cancelTrackDrawing(app) {
     if (getTrackDraw(app)) _teardownDraw(app);
     clearTrackSnapMarker(app);
@@ -816,6 +847,7 @@ export function cancelTrackDrawing(app) {
 /**
  * Remove the most recently committed waypoint (and its incoming edge).
  * If only the start anchor remains, the whole draw is cancelled.
+ * @param {PcbEditor} app
  */
 export function popTrackWaypoint(app) {
     const ctx = getTrackDraw(app);
@@ -879,7 +911,7 @@ function trackRatlineTargets(cluster, pathsByTrack) {
  * Autorouter "failed" lines (class `ratsnest-failed`) have their own
  * lifecycle and are left untouched.
  *
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {{nets?: Set<string>, skipFillRefresh?:boolean}} [opts] - Incremental
  *   mode can restrict ratline work to `nets`. `skipFillRefresh` is used after
  *   a fill recompute to consume its new geometry without scheduling another
@@ -913,7 +945,7 @@ export function reconcileRatsnest(app, opts) {
     };
 
     // Clear previously-generated ratsnest (keep autorouter failed lines).
-    for (const el of [...ratLayer.children]) {
+    for (const el of /** @type {SVGElement[]} */ ([...ratLayer.children])) {
         if (el.classList?.contains('ratsnest-failed')) continue;
         // Incremental mode: keep ratlines for nets we're not recomputing.
         if (onlyNets && !onlyNets.has(el.dataset?.net)) continue;
@@ -1028,21 +1060,6 @@ export function reconcileRatsnest(app, opts) {
 }
 
 /**
- * Walk copper reachable from a seed track/via, ignoring Net names.
- * Base connectivity follows layer-compatible junctions and Via/Track overlap.
- * With includeShapes, use the same physical contact geometry as ratlines for
- * all copper types, including Pad rims, curved strokes and pour regions.
- * Drill voids and region holes do not conduct. Cross-layer contact still
- * requires a through Via or Pad.
- *
- * @param {object} app
- * @param {{track?:any, tracks?:Set<object>, via?:object, padKey?:string, edgeId?:string, nodeId?:string}} seed
- * @param {{includeShapes?:boolean, newTracks?:Set<object>}} [options]
- *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
- * @returns {{tracks:Set<object>, trackNodes:Map<object,Set<string>>, vias:Set<object>, shapes:Set<object>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}}
- */
-
-/**
  * Closest pair of points between two point sets. Returns the segment
  * endpoints plus the squared distance.
  * @returns {{x1:number,y1:number,x2:number,y2:number,d2:number}}
@@ -1102,6 +1119,7 @@ export function _clusterMST(nodes) {
 
 /* ────────────────────────── internals ────────────────────────── */
 
+/** @param {PcbEditor} app */
 function _teardownDraw(app) {
     const ctx = getTrackDraw(app);
     if (!ctx) return;
@@ -1125,17 +1143,26 @@ function _clearPreviewElements(ctx, keepCached = false) {
     }
 }
 
-/** Shared Track and generic-shape H/V/45 glow renderer. */
+/**
+ * Shared Track and generic-shape H/V/45 glow renderer.
+ * @param {PcbEditor} app
+ */
 export function renderTrackAxisGlow(app, segments) {
     renderAxisGlow(app, segments);
 }
 
-/** Re-render Track-style patterned centerlines after copper redraw. */
+/**
+ * Re-render Track-style patterned centerlines after copper redraw.
+ * @param {PcbEditor} app
+ */
 export function renderTrackAxisGlowTop(app) {
     renderAxisGlowTop(app);
 }
 
-/** Remove shared Track/generic-shape H/V/45 glow overlays. */
+/**
+ * Remove shared Track/generic-shape H/V/45 glow overlays.
+ * @param {PcbEditor} app
+ */
 export function clearTrackAxisGlow(app) {
     clearAxisGlow(app);
 }
@@ -1146,7 +1173,7 @@ export function clearTrackAxisGlow(app) {
  * Replaces any previous marker. Pass a falsy `pos` (or call
  * `clearTrackSnapMarker`) to remove it.
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{x:number,y:number}|null} pos - snap point in world mm
  */
 export function showTrackSnapMarker(app, pos) {
@@ -1171,7 +1198,10 @@ export function showTrackSnapMarker(app, pos) {
     trackSnapMarkers.set(app, dot);
 }
 
-/** Remove the yellow snap target circle, if present. */
+/**
+ * Remove the yellow snap target circle, if present.
+ * @param {PcbEditor} app
+ */
 export function clearTrackSnapMarker(app) {
     const marker = trackSnapMarkers.get(app);
     if (marker) {
@@ -1180,6 +1210,7 @@ export function clearTrackSnapMarker(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function hasTrackSnapMarker(app) {
     return trackSnapMarkers.has(app);
 }
@@ -1202,7 +1233,7 @@ function _projectPointOnSegment(p, a, b) {
  * excluded via `excludeTracks`/`excludeVias`/`excludePadKeys` (a precomputed
  * bonded cluster) so the guide never points back at it.
  *
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} net - net name to search
  * @param {{x:number,y:number}} from - reference point (the live tip / node)
  * @param {object} [opts]
@@ -1311,13 +1342,14 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
     return best;
 }
 
+/** @param {PcbEditor} app */
 function refreshNetGuideLine(app) {
     const state = netGuideSources.get(app);
     if (!state) return;
     clearNetGuideLine(app);
     const layer = app.getLayerGroup?.('ratlines');
     let best = null, bestDistance = Infinity;
-    for (const line of layer?.children || []) {
+    for (const line of /** @type {Iterable<SVGElement>} */ (layer?.children || [])) {
         if (line.dataset?.net !== state.net || !line.classList?.contains('ratsnest-line')
             || line.classList.contains('ratsnest-failed')) continue;
         const from = { x: Number(line.getAttribute('x1')), y: Number(line.getAttribute('y1')) };
@@ -1342,7 +1374,10 @@ function refreshNetGuideLine(app) {
     netGuideSources.set(app, state);
 }
 
-/** Promote exactly one real ratline; every other graph edge keeps its own visibility. */
+/**
+ * Promote exactly one real ratline; every other graph edge keeps its own visibility.
+ * @param {PcbEditor} app
+ */
 export function updateNetGuideLine(app, net, from, sourceKeys, previewPoints = []) {
     clearNetGuideLine(app);
     if (!net || !from) return;
@@ -1353,6 +1388,7 @@ export function updateNetGuideLine(app, net, from, sourceKeys, previewPoints = [
     refreshNetGuideLine(app);
 }
 
+/** @param {PcbEditor} app */
 function refreshDrawRatlines(app, ctx, livePt) {
     if (!ctx.net && !ctx.ratlinePreview) return;
     const points = ctx.points.concat([livePt]);
@@ -1372,7 +1408,7 @@ function refreshDrawRatlines(app, ctx, livePt) {
  * Replaces any previous guide. Pass a
  * falsy endpoint, or call `clearNetGuideLine`, to remove it.
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{x:number,y:number}|null} from
  * @param {{x:number,y:number}|null} to
  */
@@ -1396,7 +1432,10 @@ export function showNetGuideLine(app, from, to) {
     netGuideLines.set(app, line);
 }
 
-/** Remove the net guide line, if present. */
+/**
+ * Remove the net guide line, if present.
+ * @param {PcbEditor} app
+ */
 export function clearNetGuideLine(app) {
     const source = netGuideSources.get(app);
     if (source) {
@@ -1412,10 +1451,12 @@ export function clearNetGuideLine(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function getNetGuideLine(app) {
     return netGuideLines.get(app) || null;
 }
 
+/** @param {PcbEditor} app */
 function _renderPreview(app, ctx, livePt) {
     _clearPreviewElements(ctx, true);
     const used = new Set();
@@ -1581,15 +1622,6 @@ function _alignColor(kind) {
 }
 
 /**
- * Build standalone Via shapes for each layer-change node in a freshly
- * built Track. Vias are independent objects — once placed they are not
- * coupled to the Track's nodes (dragging a node leaves the via behind).
- *
- * @param {Track} track
- * @param {object} ctx - draw context (for via diameter/drill)
- * @returns {Via[]}
- */
-/**
  * Build the committed Track object(s) and any layer-transition Vias from
  * a finished draw context.
  *
@@ -1659,6 +1691,7 @@ function _buildTracksFromContext(ctx) {
     return { tracks, vias };
 }
 
+/** @param {PcbEditor} app */
 export function _padNet(app, componentId, pinNumber) {
     if (!Array.isArray(app.netlist)) return '';
     for (const entry of app.netlist) {
@@ -1676,6 +1709,7 @@ function _layerColor(layerId) {
     return layerId === 'bottom-copper' ? '#3498db' : '#e74c3c';
 }
 
+/** @param {PcbEditor} app */
 function _getTrackWidth(app) {
     try {
         return app.getRoutingParams?.()?.trackWidth || 0.2;
@@ -1684,8 +1718,9 @@ function _getTrackWidth(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 function _renderOptsFromApp(app) {
-    const p = app.getRoutingParams?.() || {};
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     return {
         viaDiameter: p.viaDiameter,
         viaDrill: p.viaDrill,
@@ -1725,6 +1760,7 @@ function _renderOptsFromApp(app) {
 /**
  * Keys while a track is being drawn: Escape cancels, Enter finishes, Space drops a
  * waypoint at the snap point and switches copper layer. Other keys are not consumed.
+ * @param {PcbEditor} app
  * @returns {boolean|null} null when no track is being drawn, else whether the key was consumed.
  */
 export function handleTrackDrawKey(app, e) {
@@ -1747,7 +1783,10 @@ export function handleTrackDrawKey(app, e) {
     return false;
 }
 
-/** A primary press with the Track tool: start a track, or add its next waypoint. */
+/**
+ * A primary press with the Track tool: start a track, or add its next waypoint.
+ * @param {PcbEditor} app
+ */
 export function pressTrackTool(app, worldPos) {
     if (getTrackDraw(app)) addTrackWaypoint(app, worldPos);
     else startTrackDraw(app, worldPos);
@@ -1757,6 +1796,7 @@ export function pressTrackTool(app, worldPos) {
  * Pointer movement with the Track tool before a press: the crosshair sits on the snap
  * point, and a marker shows the copper the first press would start from, using the same
  * hard targets as the route itself so that press cannot snap elsewhere.
+ * @param {PcbEditor} app
  */
 export function hoverTrackTool(app, e) {
     const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});

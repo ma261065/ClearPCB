@@ -1,5 +1,6 @@
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { ensureSvgDefs } from './svg-defs.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
  * Copper-removal hatching: removal shapes are filled with an SVG hatch pattern coloured
@@ -48,6 +49,7 @@ function hatchTilePath(mode) {
 /**
  * SVG paint for a copper-removal shape of this mode. Returns 'none' for additive
  * copper, or when the editor has no SVG (tests, workers).
+ * @param {PcbEditor} app
  */
 export function removalHatchFill(app, copperMode) {
     const mode = normalizeShapeCopperMode(copperMode);

@@ -11,21 +11,25 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { showContextMenu } from '../../shared/ui/context-menu.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { hideNetTooltip } from './net-tooltip.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const componentDragFrames = new WeakMap();
 const hoveredComponents = new WeakMap();
 const componentPopups = new WeakMap();
 const PCB_LOD_PIXEL_THRESHOLD = 24;
 
+/** @param {PcbEditor} app */
 function showFootprintCrosshair(app, placement) {
     if (!placement || !app.viewport?.setCrosshair) return;
     app.viewport.setCrosshair({ x: placement.x, y: placement.y });
 }
 
+/** @param {PcbEditor} app */
 export function getComponentDrag(app) {
     return getPcbInteraction(app, '_drag');
 }
 
+/** @param {PcbEditor} app */
 export function showComponentPopup(app, compId, message) {
     const pl = app.placements.get(compId);
     if (!pl || !app.viewport?.worldToScreen || !app.viewport?.svg) return;
@@ -60,6 +64,7 @@ export function showComponentPopup(app, compId, message) {
     }, 1400);
 }
 
+/** @param {PcbEditor} app */
 export function beginComponentDrag(app, componentId, worldPos) {
     const placement = app.placements.get(componentId);
     if (!placement || placement.locked) return false;
@@ -96,6 +101,7 @@ export function beginComponentDrag(app, componentId, worldPos) {
  * collapse on-screen footprints that are drawn very small to a single
  * placeholder rect. This keeps each SVG viewBox change from repainting the
  * tens of thousands of pad/silk/text nodes of a large board.
+ * @param {PcbEditor} app
  */
 export function updatePcbCulling(app) {
     if (!app.viewport || !app.placements.size) return;
@@ -139,6 +145,7 @@ export function updatePcbCulling(app) {
  * non-culled state. Used before measuring all artwork for fit-to-content,
  * since culled (display:none) groups report a zero bounding box. The next
  * view-change re-applies culling automatically.
+ * @param {PcbEditor} app
  */
 export function uncullAllPlacements(app) {
     for (const [, pl] of app.placements) {
@@ -157,7 +164,7 @@ export function uncullAllPlacements(app) {
  * The set of net names a placement's pads belong to (from the netlist).
  * Used to scope the live ratsnest rebuild during a drag to just the nets
  * that actually move with the component.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {string} compId
  * @returns {Set<string>}
  */
@@ -219,6 +226,7 @@ function placementWorldBounds(pl) {
     return pl._cullBounds;
 }
 
+/** @param {PcbEditor} app */
 export function updateComponentDrag(app, worldPos) {
     const drag = getComponentDrag(app);
     if (!drag) return;
@@ -233,6 +241,7 @@ export function updateComponentDrag(app, worldPos) {
     refreshDragRatlines(app, drag.session);
 }
 
+/** @param {PcbEditor} app */
 export function scheduleComponentDragUpdate(app, e) {
     let frame = componentDragFrames.get(app);
     if (!frame) {
@@ -250,12 +259,14 @@ export function scheduleComponentDragUpdate(app, e) {
     });
 }
 
+/** @param {PcbEditor} app */
 export function handleComponentDrag(app, e) {
     if (!getComponentDrag(app)) return;
     app.viewport.shiftHeld = e.shiftKey;
     updateComponentDrag(app, app.screenToWorld(e));
 }
 
+/** @param {PcbEditor} app */
 export function endComponentDrag(app, commit = true) {
     const drag = getComponentDrag(app);
     if (!drag) return;
@@ -296,7 +307,7 @@ export function endComponentDrag(app, commit = true) {
  * extent for footprints without stored bounds. Returns the component ID
  * or null. Iterates in insertion order and keeps the last (topmost)
  * match so overlapping components resolve to the one drawn on top.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {{x: number, y: number}} worldPos
  * @param {boolean} [all=false] Return every hit in top-to-bottom order for overlap selection.
  * @returns {string|string[]|null}
@@ -356,7 +367,7 @@ export function hitTestComponent(app, worldPos, all = false) {
  * highlight already shows). Pass null to clear. The rect is appended to
  * the footprint's first layer group so it inherits the placement
  * transform (bounds are in footprint-local coords).
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {string|null} compId
  */
 export function hoverComponent(app, compId) {
@@ -388,6 +399,7 @@ export function hoverComponent(app, compId) {
     pl.elements[0].appendChild(hl);
 }
 
+/** @param {PcbEditor} app */
 export function getHoveredComponent(app) {
     return hoveredComponents.get(app) || null;
 }
@@ -399,7 +411,7 @@ export function getHoveredComponent(app) {
  * time — mirroring the Properties button — and never acts on a placement
  * that was orphaned by an autosave/schematic re-sync between right-click
  * and selecting the menu item.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {string} compId
  * @param {number} clientX
  * @param {number} clientY
@@ -413,7 +425,7 @@ export function showComponent3DMenu(app, compId, clientX, clientY) {
 
 /**
  * Open the interactive 3D model pop-out for a placement (or compId).
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {string|object} placementOrId
  */
 export function openComponent3DPopout(app, placementOrId) {
@@ -476,6 +488,7 @@ function appLocalToWorld(placement, point) {
     };
 }
 
+/** @param {PcbEditor} app */
 export function createComponentSelectionAdapter(app, componentId, id) {
     let rotationDrag = null;
     return {

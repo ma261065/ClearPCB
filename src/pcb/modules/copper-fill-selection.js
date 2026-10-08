@@ -2,12 +2,17 @@ import { createBoardShapeSelectionAdapter } from './board-shapes.js';
 import { fillEditProfile } from './copper-fill-edit.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function createCopperFillSelectionAdapter(app, fill, id) {
     return createBoardShapeSelectionAdapter(app, fill, id, fillEditProfile());
 }
 
-/** Hit-test a world point against any pour region outline. */
+/**
+ * Hit-test a world point against any pour region outline.
+ * @param {PcbEditor} app
+ */
 export function hitTestFill(app, worldPos) {
     if (!app.copperFills) return null;
     // Topmost (last drawn) first.

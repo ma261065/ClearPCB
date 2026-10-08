@@ -19,12 +19,14 @@ import { setPropertyEditor } from './property-editors.js';
 import { getPcbSelection } from './selection-registry.js';
 import { CompoundCommand } from './track-commands.js';
 import { isEditorActive } from './pcb-editor-api.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const SHAPES = [['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
     .map(([value, label]) => ({ value, label }));
 const LAYERS = [['top-copper', 'Top'], ['bottom-copper', 'Bottom'], ['both', 'Both']].map(([value, label]) => ({ value, label }));
 const ELONGATED = new Set(['stadium', 'rectangle', 'oval']);
 
+/** @param {PcbEditor} app */
 export function showPadEditor(app, pad, tool) {
     if (pad) pad = canonicalPad(app, pad);
     const selectedPads = pad ? getPcbSelection(app, 'pad').map(target => canonicalPad(app, target)) : [];

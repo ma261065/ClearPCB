@@ -9,22 +9,10 @@ import { roundedRectOutline, extrudePrism, triangulateWithHoles, cylinderWallMes
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 
 /**
- * Parse an EasyEDA/LCSC OBJ 3D model into vertices and per-face coloured
- * triangles. EasyEDA models are authored in millimetres with Z up and the
- * body centred on the footprint origin — the same convention as KiCad STEP.
- * Inline materials (`newmtl`/`Kd`/`usemtl`) provide per-region diffuse colour.
- *
- * @param {string} objText raw Wavefront OBJ text
- * @returns {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}|null}
- */
-
-
-/**
  * Transform a parsed OBJ model ({@link parseObjModel}) into a placed mesh.
  * Preserves per-face material colour.
- *
  * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>, source?: string}} parsed
- * @param {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl placement
+ * @param {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl
  * @returns {{verts: Array, faces: Array, cull?: boolean}|null}
  */
 export function objModelToMesh(parsed, pl) {

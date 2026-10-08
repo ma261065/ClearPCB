@@ -10,9 +10,13 @@ import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './p
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { renderPanelPreview } from './panelization-ui.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
 
 const boardOutlineStates = new WeakMap();
 
+/** @param {PcbEditor} app */
 function state(app) {
     let next = boardOutlineStates.get(app);
     if (!next) {
@@ -23,29 +27,37 @@ function state(app) {
     return next;
 }
 
+/** @param {PcbEditor} app */
 export function initializeBoardOutlineState(app, drawn = !!getBoardOutline(app)) {
     boardOutlineStates.set(app, { drawn: !!drawn, selected: false });
 }
 
+/** @param {PcbEditor} app */
 export function isBoardOutlineDrawn(app) {
     return !!state(app).drawn;
 }
 
+/** @param {PcbEditor} app */
 export function setBoardOutlineDrawn(app, drawn) {
     state(app).drawn = !!drawn;
 }
 
-/** Whether the board outline is selected. */
+/**
+ * Whether the board outline is selected.
+ * @param {PcbEditor} app
+ */
 export function isBoardOutlineSelected(app) {
     return !!state(app).selected;
 }
 
+/** @param {PcbEditor} app */
 export function setBoardOutlineSelected(app, selected) {
     state(app).selected = !!selected;
 }
 
 /**
  * Test if a world point is near the board outline edge.
+ * @param {PcbEditor} app
  */
 export function hitTestBoardOutline(app, pos) {
     if (getBoardOutline(app)) return false;
@@ -69,6 +81,7 @@ export function hitTestBoardOutline(app, pos) {
 
 /**
  * Set board outline hover state.
+ * @param {PcbEditor} app
  */
 export function hoverBoardOutline(app, hovered) {
     const outline = app.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
@@ -85,6 +98,7 @@ export function hoverBoardOutline(app, hovered) {
 
 /**
  * Draw (or redraw) the board outline on the board-outline layer.
+ * @param {PcbEditor} app
  */
 export function drawBoardOutline(app) {
     const layer = app.getLayerGroup('board-outline');
@@ -107,6 +121,7 @@ export function drawBoardOutline(app) {
 
 /**
  * Set board outline selection state.
+ * @param {PcbEditor} app
  */
 export function selectBoardOutline(app, selected) {
     const shape = getBoardOutline(app);
@@ -133,6 +148,7 @@ export function selectBoardOutline(app, selected) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function syncBoardOutlineInputs(app) {
     const editor = getPropertyEditor(app, 'boardDimension');
     if (typeof editor?.sync === 'function') editor.sync();
@@ -140,7 +156,10 @@ export function syncBoardOutlineInputs(app) {
 
 export { getBoardDimensionPreview } from '../../shared/pcb/board-outline.js';
 
-/** Properties for the board outline: the outline shape's panel, or board size fields before one exists. */
+/**
+ * Properties for the board outline: the outline shape's panel, or board size fields before one exists.
+ * @param {PcbEditor} app
+ */
 export function showBoardOutlineProperties(app) {
     const editor = getPropertyEditor(app, 'boardDimension');
     if (typeof editor?.dispose === 'function') editor.dispose();
@@ -151,9 +170,11 @@ export function showBoardOutlineProperties(app) {
     }
     let binding = null;
     const refresh = () => app.refreshPropertyPanel?.(describe());
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
         const locked = isLayerLocked('board-outline') || !isLayerVisible('board-outline');
+        /** @returns {PropertyField} */
         const number = (key, id, label, min, step) => ({
             key, id, type: 'number', label, value: board[key], min, step, disabled: locked,
             format: value => Number(value).toFixed(2),
@@ -183,6 +204,7 @@ export function showBoardOutlineProperties(app) {
     refresh();
 }
 
+/** @param {PcbEditor} app */
 export function previewBoardDimensions(app, dimensions) {
     if (!['width', 'height', 'radius'].every(key => Number.isFinite(dimensions[key]))) throw new Error('Board dimensions must be finite.');
     if (dimensions.width <= 0 || dimensions.height <= 0 || dimensions.radius < 0) {
@@ -223,6 +245,7 @@ export function previewBoardDimensions(app, dimensions) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function finishBoardDimensionPreview(app, commit = false) {
     const preview = clearBoardDimensionPreview(app);
     if (!preview) return;
@@ -255,6 +278,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
     if (committed && !isBoardViewRefreshSuspended(app)) refreshBoardView(app);
 }
 
+/** @param {PcbEditor} app */
 export function bindBoardDimensionProperties(app, refresh = () => {}) {
     let disposed = false;
     const invalid = new Set();
@@ -304,6 +328,7 @@ export function bindBoardDimensionProperties(app, refresh = () => {}) {
     return binding;
 }
 
+/** @param {PcbEditor} app */
 export function boardOutlineHandles(app) {
     if (!isBoardOutlineSelected(app) || !isBoardOutlineDrawn(app)
         || isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return [];
@@ -315,6 +340,7 @@ export function boardOutlineHandles(app) {
     ];
 }
 
+/** @param {PcbEditor} app */
 export function renderBoardOutlineHandles(app) {
     const overlay = app.getLayerGroup?.('selection-overlay');
     if (!overlay) return;
@@ -340,11 +366,13 @@ export function renderBoardOutlineHandles(app) {
     overlay.appendChild(group);
 }
 
+/** @param {PcbEditor} app */
 export function hitTestBoardOutlineHandle(app, point) {
     const tolerance = 8 / Math.max(0.01, app.viewport?.scale || 1);
     return boardOutlineHandles(app).find(handle => Math.hypot(handle.x - point.x, handle.y - point.y) <= tolerance) || null;
 }
 
+/** @param {PcbEditor} app */
 export function beginBoardOutlineResize(app, point) {
     getPropertyEditor(app, 'boardDimension')?.commit();
     if (getBoardOutlineResize(app)) endBoardOutlineResize(app, false);
@@ -359,10 +387,12 @@ export function beginBoardOutlineResize(app, point) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function getBoardOutlineResize(app) {
     return getPcbInteraction(app, '_boardOutlineResize');
 }
 
+/** @param {PcbEditor} app */
 export function updateBoardOutlineResize(app, point) {
     const drag = getBoardOutlineResize(app);
     if (!drag) return;
@@ -389,6 +419,7 @@ export function updateBoardOutlineResize(app, point) {
     getPropertyEditor(app, 'boardDimension')?.sync();
 }
 
+/** @param {PcbEditor} app */
 export function endBoardOutlineResize(app, commit = true) {
     const drag = getBoardOutlineResize(app);
     if (!drag) return;
@@ -405,12 +436,18 @@ export function endBoardOutlineResize(app, commit = true) {
 
 const dimensionDialogs = new WeakMap();
 
-/** The open Board Dimensions dialog's overlay, or null. */
+/**
+ * The open Board Dimensions dialog's overlay, or null.
+ * @param {PcbEditor} app
+ */
 export function boardDimensionsDialog(app) {
     return dimensionDialogs.get(app) || null;
 }
 
-/** Close the Board Dimensions dialog, if open; a later OK in it changes nothing. */
+/**
+ * Close the Board Dimensions dialog, if open; a later OK in it changes nothing.
+ * @param {PcbEditor} app
+ */
 export function closeBoardDimensionsDialog(app) {
     dimensionDialogs.get(app)?.remove();
     dimensionDialogs.delete(app);
@@ -420,6 +457,7 @@ export function closeBoardDimensionsDialog(app) {
  * Ask for the board's size (rectangle with corner radius, or circle) when a new board
  * is first shown. OK runs one undoable SetBoardOutlineCommand, or just draws the default
  * outline (and marks the document dirty) when the defaults are kept.
+ * @param {PcbEditor} app
  */
 export function showBoardDimensionsDialog(app) {
     if (dimensionDialogs.has(app)) return;

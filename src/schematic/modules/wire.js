@@ -550,13 +550,6 @@ export function addWireWaypoint(app, waypointData) {
 }
 
 /**
- * Finish the current wire drawing: create a Wire shape from the
- * accumulated waypoints, run reconciliation (merge, overlap,
- * junctions), and push an undo batch.
- * @param {object} app - SchematicApp instance
- * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
- */
-/**
  * Scan all surviving wires for a net conflict: a single wire whose connected
  * Net-label shapes carry two or more different net names. Returns the first
  * offending wire with the two clashing names (sorted), or null if none.
@@ -578,6 +571,13 @@ function _findWireNetConflict(app) {
     return null;
 }
 
+/**
+ * Finish the current wire drawing: create a Wire shape from the
+ * accumulated waypoints, run reconciliation (merge, overlap,
+ * junctions), and push an undo batch.
+ * @param {object} app - SchematicApp instance
+ * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
+ */
 export function finishWireDrawing(app, worldPos) {
     // Add final point if different from last waypoint
     if (app.drawCurrent) {

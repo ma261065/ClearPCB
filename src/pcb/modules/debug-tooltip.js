@@ -1,3 +1,4 @@
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /*
  * The footprint debug tooltip: when "Show footprint shape data" (Help tab) is on, hovering
  * near a component's pads shows its raw footprint shape strings. A stationary right-click
@@ -7,13 +8,17 @@
 
 const tooltipStates = new WeakMap();
 
+/** @param {PcbEditor} app */
 function tooltipState(app) {
     let state = tooltipStates.get(app);
     if (!state) tooltipStates.set(app, state = { element: null, enabled: false, visible: false, pinned: false });
     return state;
 }
 
-/** The tooltip's element and flags, for tests. */
+/**
+ * The tooltip's element and flags, for tests.
+ * @param {PcbEditor} app
+ */
 export function debugTooltipState(app) {
     return tooltipState(app);
 }
@@ -23,7 +28,10 @@ function hide(state) {
     state.visible = false;
 }
 
-/** Create the tooltip element (reusing the schematic's CSS classes) and bind its checkbox. */
+/**
+ * Create the tooltip element (reusing the schematic's CSS classes) and bind its checkbox.
+ * @param {PcbEditor} app
+ */
 export function initDebugTooltip(app) {
     const state = tooltipState(app);
     if (state.element) return;
@@ -53,6 +61,7 @@ export function initDebugTooltip(app) {
 
 /**
  * A right-button press over the visible tooltip pins it, or hides a pinned one.
+ * @param {PcbEditor} app
  * @returns {boolean} Whether the press was consumed.
  */
 export function toggleDebugTooltipPin(app) {
@@ -69,6 +78,7 @@ export function toggleDebugTooltipPin(app) {
 
 /**
  * Show/hide the debug tooltip based on mouse position over a footprint.
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  */
 export function updateDebugTooltip(app, e) {

@@ -15,6 +15,9 @@ import { setPropertyEditor } from './property-editors.js';
 import { AddTextCommand, EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
 import { startTextInlineEdit } from './text-inline-edit.js';
 import { isEditorActive } from './pcb-editor-api.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 
 const SYMBOLS = [
     ['', 'Symbol\u2026'],
@@ -38,6 +41,7 @@ const numberParse = (min, normalize = value => value) => text => {
 };
 const textToolDefaults = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function getTextToolDefaults(app) {
     let defaults = textToolDefaults.get(app);
     if (!defaults) {
@@ -47,15 +51,20 @@ export function getTextToolDefaults(app) {
     return defaults;
 }
 
+/** @param {PcbEditor} app */
 export function setTextToolDefaults(app, defaults) {
     textToolDefaults.set(app, defaults);
 }
 
-/** Show Text drawing defaults in Properties. */
+/**
+ * Show Text drawing defaults in Properties.
+ * @param {PcbEditor} app
+ */
 export function showTextToolProperties(app) {
     const defaults = getTextToolDefaults(app);
     const hold = pictureRefreshHold(app);
     const refresh = () => app.refreshPropertyPanel?.(describe());
+    /** @returns {PropertyField} */
     const number = (key, id, label, property, extra = {}) => {
         const { value, after, ...field } = extra;
         return {
@@ -65,6 +74,7 @@ export function showTextToolProperties(app) {
             ...field,
         };
     };
+    /** @returns {PropertyPanel} */
     const describe = () => ({
         title: 'New Text',
         actions: pcbToolBlockNotice(app, 'text').actions,
@@ -95,7 +105,7 @@ export function showTextToolProperties(app) {
  * Show properties for the given text and switch to Properties tab.
  * Editing pushes EditTextCommand on settled commit so undo collapses each edit run
  * into one entry.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {any} text
  * @param {() => any} [textEdit] The editor's inline text edit, if any.
  * @param {(textId:string, symbol:string) => boolean} [insertInlineSymbol]
@@ -152,6 +162,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
     const refresh = () => {
         if (!disposed) app.refreshPropertyPanel?.(describe());
     };
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const lock = lockedProperty(app, lockEntries);
         const readOnly = lock.readOnly;
@@ -159,7 +170,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
             title: 'Text',
             fields: [
                 lock.field,
-                ...(isEditingThis() ? [{ key: 'insert', id: 'pcbPropTextInsert', type: 'select', label: 'Insert',
+                ...(isEditingThis() ? /** @type {PropertyField[]} */ ([{ key: 'insert', id: 'pcbPropTextInsert', type: 'select', label: 'Insert',
                     value: '', disabled: readOnly, options: SYMBOLS, commit: symbol => {
                         if (!symbol || boardShapeLocked(text)) { refresh(); return; }
                         if (!insertInlineSymbol(text.id, symbol)) {
@@ -167,7 +178,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
                                 { content: (text.content || '') + symbol }));
                         }
                         refresh();
-                    } }] : []),
+                    } }]) : []),
                 ...binding.fields(readOnly, hold),
                 { key: 'border', id: 'pcbPropTextBorder', type: 'checkbox', label: 'Border',
                     value: text.border, disabled: readOnly, commit: value => {
@@ -193,7 +204,7 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
  * Shared field-binding machinery for stroke-text style panels. It exposes
  * PropertyField descriptions whose hooks preview into a temporary model and commit
  * one undo command when a number run settles.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {any} model object whose fields the inputs drive
  * @param {{fields: Array<{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void, refresh?:()=>void}} spec
  */
@@ -257,8 +268,10 @@ export function bindStrokeTextProps(app, model, spec) {
         spec,
         affectsLayer: layerId => model.layer === layerId || target.layer === layerId,
         get active() { return snapshot !== null; },
+        /** @returns {PropertyField[]} */
         fields(disabled = false, hold = undefined) {
             return spec.fields.map(field => {
+                /** @type {PropertyField} */
                 const base = {
                     key: field.key || field.field,
                     id: field.id,
@@ -314,6 +327,7 @@ export function bindStrokeTextProps(app, model, spec) {
 /**
  * A primary press with the Text tool: place an empty text from the tool's defaults,
  * select it and type into it in place, as in the schematic editor.
+ * @param {PcbEditor} app
  */
 export function pressTextTool(app, worldPos) {
     const snap = app.snapToGrid(worldPos);

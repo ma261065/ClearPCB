@@ -2,7 +2,9 @@ import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperM
 import { pcbTextSegments } from './pcb-text.js';
 import { pictureRegions } from '../../shared/pcb/picture-raster.js';
 import { getComputedFill } from './computed-fill-cache.js';
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
+/** @param {PcbBoard} app */
 export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
     const segments = [], areas = [], circles = [], arcs = [];
     const isCopper = (layer) => layer === 'top-copper' || layer === 'bottom-copper';

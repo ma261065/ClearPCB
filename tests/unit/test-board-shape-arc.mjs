@@ -342,6 +342,7 @@ const app = {
     boardShapes: [],
     activeLayer: 'top-silk',
     shapeIdCounter: 1,
+    get pcbDocument() { return this; },
     snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
     getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
     history: { execute(command) { app.boardShapes.push(command.shape); } },

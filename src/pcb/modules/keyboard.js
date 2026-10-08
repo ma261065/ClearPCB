@@ -5,6 +5,7 @@ import { hasPcbGesture } from './pcb-interactions.js';
 import { handleTrackDrawKey } from './track-draw.js';
 import { handleFillDrawKey } from './copper-fill-draw.js';
 import { handleShapeDrawKey } from './board-shapes.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
  * The PCB editor's keyboard shortcuts ? the counterpart of
@@ -23,7 +24,7 @@ import { handleShapeDrawKey } from './board-shapes.js';
  *   - In-flight Track draw: Escape cancels, Enter finishes, Space inserts a via.
  *   - Selection / drag:     Ctrl+Z/Y undo/redo, Delete removes, Escape cancels.
  *
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {KeyboardEvent} e
  * @returns {boolean} true if consumed
  */

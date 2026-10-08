@@ -1,12 +1,13 @@
 import { buildCopperObstacles } from './copper-obstacles.js';
 import { boardShapeBounds, normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * Convert the board's placements, netlist and copper shapes into the autorouter's
  * input: connections (with multi-pad alternates and filled copper shapes as
  * terminals), every pad as an obstacle, fixed copper obstacles, design rules and
  * routing bounds. Reads only the editor's public board state.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @returns {import('./autorouter-common.js').RouteInput}
  */
 export function buildRouteInput(app) {

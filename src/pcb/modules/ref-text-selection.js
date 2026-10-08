@@ -19,6 +19,7 @@ import {
     RotateRefTextCommand as ModelRotateRefTextCommand,
     SetRefStyleCommand as ModelSetRefStyleCommand,
 } from '../../core/pcb-placement-commands.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const refOverlays = new WeakMap();
 
@@ -27,14 +28,17 @@ export function isRefTextLocked(placement) {
         || isLayerLocked(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
 }
 
+/** @param {PcbEditor} app */
 export function getRefDrag(app) {
     return getPcbInteraction(app, '_refDrag');
 }
 
+/** @param {PcbEditor} app */
 export function hasRefOverlay(app) {
     return refOverlays.has(app);
 }
 
+/** @param {PcbEditor} app */
 function ensureRefOverlay(app) {
     let overlay = refOverlays.get(app);
     if (!overlay || !overlay.isConnected) {
@@ -47,6 +51,7 @@ function ensureRefOverlay(app) {
     return overlay;
 }
 
+/** @param {PcbEditor} app */
 export function refreshRefHighlight(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl || !refBox(pl)) return;
@@ -57,6 +62,7 @@ export function refreshRefHighlight(app, compId) {
         : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
 }
 
+/** @param {PcbEditor} app */
 export function drawRefOverlay(app, compId, withTether) {
     if (!compId) {
         const existing = refOverlays.get(app);
@@ -104,6 +110,7 @@ export function drawRefOverlay(app, compId, withTether) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function rerenderRef(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl) return;
@@ -122,6 +129,7 @@ export function rerenderRef(app, compId) {
     if (activeTextInlineEdit(app)?.options?.componentId === compId) activeTextInlineEdit(app).updateCaret?.();
 }
 
+/** @param {PcbEditor} app */
 export function beginRefTextDrag(app, componentId, worldPos) {
     getPropertyEditor(app, 'component')?.commit();
     const placement = app.placements.get(componentId);
@@ -136,6 +144,7 @@ export function beginRefTextDrag(app, componentId, worldPos) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function updateRefTextDrag(app, worldPos) {
     const drag = getRefDrag(app);
     if (!drag) return;
@@ -155,12 +164,14 @@ export function updateRefTextDrag(app, worldPos) {
     app.drawRefOverlay(drag.compId, true);
 }
 
+/** @param {PcbEditor} app */
 export function handleRefDrag(app, e) {
     if (!getRefDrag(app)) return;
     app.viewport.shiftHeld = e.shiftKey;
     updateRefTextDrag(app, app.screenToWorld(e));
 }
 
+/** @param {PcbEditor} app */
 export function endRefDrag(app, commit = true) {
     const drag = getRefDrag(app);
     if (!drag) return;
@@ -184,6 +195,7 @@ export function endRefDrag(app, commit = true) {
 }
 
 export class MoveRefTextCommand extends ModelMoveRefTextCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, fromDx, fromDy, toDx, toDy) {
         super(app.placementState, compId, fromDx, fromDy, toDx, toDy, app.placements?.get(compId));
         this.app = app;
@@ -201,6 +213,7 @@ export class MoveRefTextCommand extends ModelMoveRefTextCommand {
 }
 
 export class RotateRefTextCommand extends ModelRotateRefTextCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, fromDeg, toDeg) {
         super(app.placementState, compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
@@ -218,6 +231,7 @@ export class RotateRefTextCommand extends ModelRotateRefTextCommand {
 }
 
 export class SetRefStyleCommand extends ModelSetRefStyleCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, before, after) {
         super(app.placementState, compId, before, after, app.placements?.get(compId));
         this.app = app;
@@ -238,6 +252,7 @@ export class SetRefStyleCommand extends ModelSetRefStyleCommand {
     }
 }
 
+/** @param {PcbEditor} app */
 export function hitTestReferenceText(app, worldPos) {
     return hitTestRefText(app.placements, worldPos, refBox);
 }
@@ -247,6 +262,7 @@ registerPcbReferenceOverlayRefresh((app, componentId) => {
     if (componentId || hasRefOverlay(app)) app.drawRefOverlay?.(componentId, false);
 });
 
+/** @param {PcbEditor} app */
 export function tryEditReferenceAt(app, worldPos) {
     if (hitTestText(app, worldPos)) return false;
     const compId = hitTestReferenceText(app, worldPos);
@@ -330,7 +346,10 @@ export function tryEditReferenceAt(app, worldPos) {
     return true;
 }
 
-/** Select/deselect a component's reference text. Pass null to clear. */
+/**
+ * Select/deselect a component's reference text. Pass null to clear.
+ * @param {PcbEditor} app
+ */
 export function selectRefText(app, compId) {
     const prev = getPcbSelection(app, 'reftext')[0] || null;
     const next = compId || null;
@@ -343,6 +362,7 @@ export function selectRefText(app, compId) {
     app.drawRefOverlay(next, false);
 }
 
+/** @param {PcbEditor} app */
 function outlineForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
     const box = refBox(placement);
@@ -370,6 +390,7 @@ function outlineForRefText(app, componentId) {
     });
 }
 
+/** @param {PcbEditor} app */
 function boundsForRefText(app, componentId) {
     const points = outlineForRefText(app, componentId);
     if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -381,6 +402,7 @@ function boundsForRefText(app, componentId) {
     };
 }
 
+/** @param {PcbEditor} app */
 export function createRefTextSelectionAdapter(app, componentId, id) {
     return {
         id,

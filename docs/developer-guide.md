@@ -227,7 +227,9 @@ node tools/browser-test.mjs
 
 `typecheck.mjs` also runs the strict settings, where a file may only lose errors and a
 new file must have none, so type new code fully (JSDoc on parameters, no implicit
-`any`, null cases handled). `regression.mjs` covers the import rules, both private-access ratchets, the docs'
+`any`, null cases handled). A PCB module types the editor as `PcbEditor` and plain
+board data as `PcbBoard` (`pcb-editor-api.js`); keep a function's tags in one JSDoc
+block, since the type check reads only the block nearest the declaration. `regression.mjs` covers the import rules, both private-access ratchets, the docs'
 references (a test, file or page a doc names must exist, so rename or update the
 doc with the code), every unit test and the autorouter baseline. When a ratchet reports resolved accesses, remove
 them from its baseline so the count only falls. Files use LF line endings

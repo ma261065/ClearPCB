@@ -25,6 +25,7 @@ import { AddFillCommand } from './copper-fill-commands.js';
 import { setPcbSelection } from './selection-registry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { showFillProperties } from './copper-fill-edit.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-fill-preview';
@@ -35,6 +36,7 @@ const CLOSE_TOL = 0.6;
 /** The Fill tool's net and corner radius for new pours, per editor. */
 const toolDefaults = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function fillToolLayer(app) {
     const state = toolDefaults.get(app);
     return state && state.layer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
@@ -42,6 +44,7 @@ export function fillToolLayer(app) {
 
 /**
  * What a new pour gets (the Fill tool's Properties).
+ * @param {PcbEditor} app
  * @returns {{layer: 'top-copper'|'bottom-copper', net: string, cornerRadius: number}}
  */
 export function fillToolDefaults(app) {
@@ -51,7 +54,7 @@ export function fillToolDefaults(app) {
 
 /**
  * Change the Fill tool's defaults; a pour being drawn follows its layer and rounding.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{layer?: 'top-copper'|'bottom-copper', net?: string, cornerRadius?: number}} [changes]
  */
 export function setFillToolDefaults(app, changes = {}) {
@@ -69,20 +72,28 @@ export function setFillToolDefaults(app, changes = {}) {
     renderPreview(app);
 }
 
+/** @param {PcbEditor} app */
 function toolCornerRadius(app) {
     return fillToolDefaults(app).cornerRadius;
 }
 
+/** @param {PcbEditor} app */
 function snap(app, world) {
     return app.snapToGrid ? app.snapToGrid(world) : { x: world.x, y: world.y };
 }
 
-/** The open fill-region drawing session, or null. */
+/**
+ * The open fill-region drawing session, or null.
+ * @param {PcbEditor} app
+ */
 export function getFillDraw(app) {
     return getPcbInteraction(app, '_fillDraw');
 }
 
-/** Begin a new fill region at `world`. */
+/**
+ * Begin a new fill region at `world`.
+ * @param {PcbEditor} app
+ */
 export function startFillDraw(app, world) {
     const p = snap(app, world);
     setPcbInteraction(app, '_fillDraw', {
@@ -93,7 +104,10 @@ export function startFillDraw(app, world) {
     renderPreview(app);
 }
 
-/** Add a waypoint; closing automatically when near the first vertex. */
+/**
+ * Add a waypoint; closing automatically when near the first vertex.
+ * @param {PcbEditor} app
+ */
 export function addFillWaypoint(app, world) {
     const fd = getFillDraw(app);
     if (!fd) return;
@@ -114,7 +128,10 @@ export function addFillWaypoint(app, world) {
     renderPreview(app);
 }
 
-/** Update the rubber-band preview as the cursor moves. */
+/**
+ * Update the rubber-band preview as the cursor moves.
+ * @param {PcbEditor} app
+ */
 export function updateFillDraw(app, world) {
     const fd = getFillDraw(app);
     if (!fd) return;
@@ -123,7 +140,10 @@ export function updateFillDraw(app, world) {
     renderPreview(app);
 }
 
-/** Commit the region (â‰¥3 points) as a CopperFill, else cancel. */
+/**
+ * Commit the region (â‰¥3 points) as a CopperFill, else cancel.
+ * @param {PcbEditor} app
+ */
 export function finishFillDraw(app) {
     const fd = getFillDraw(app);
     if (!fd) return;
@@ -147,6 +167,7 @@ export function finishFillDraw(app) {
 /**
  * Commit the cursor position as the final corner, then finish: a stationary right-click,
  * as for a polygon (finishShapeDrawAtPoint) and a track.
+ * @param {PcbEditor} app
  */
 export function finishFillDrawAtPoint(app, world) {
     if (!getFillDraw(app) || !world) return;
@@ -154,7 +175,10 @@ export function finishFillDrawAtPoint(app, world) {
     if (getFillDraw(app)) finishFillDraw(app);
 }
 
-/** Abort the in-progress region without committing. */
+/**
+ * Abort the in-progress region without committing.
+ * @param {PcbEditor} app
+ */
 export function cancelFillDraw(app) {
     if (!getFillDraw(app)) return;
     clearPreview(app);
@@ -163,16 +187,19 @@ export function cancelFillDraw(app) {
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @param {PcbEditor} app */
 function previewGroup(app) {
     return app.getLayerGroup('selection-overlay');
 }
 
+/** @param {PcbEditor} app */
 function clearPreview(app) {
     const g = previewGroup(app);
     if (!g) return;
     for (const el of [...g.querySelectorAll(`.${PREVIEW_CLASS}`)]) el.remove();
 }
 
+/** @param {PcbEditor} app */
 function renderPreview(app) {
     clearPreview(app);
     const fd = getFillDraw(app);
@@ -224,6 +251,7 @@ function renderPreview(app) {
 
 /**
  * Keys while a pour outline is being drawn: Enter finishes, Escape cancels.
+ * @param {PcbEditor} app
  * @returns {boolean|null} null when no pour is being drawn, else whether the key was consumed.
  */
 export function handleFillDrawKey(app, e) {

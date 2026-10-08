@@ -2,7 +2,9 @@ import { ModalManager } from '../../core/ModalManager.js';
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { beginPcbPaste, preparePcbPaste } from './pcb-paste.js';
 import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from '../../shared/pcb/picture-raster.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function showPictureImport(app) {
     if (document.getElementById('pcb-picture-import')) return;
     const dialog = document.createElement('dialog');

@@ -17,11 +17,12 @@ import { cancelPcbPaste, isPcbPasteActive } from './pcb-paste.js';
 import { endComponentDrag, getComponentDrag, showComponentPopup } from './component-selection.js';
 import { endRefDrag, getRefDrag, selectRefText } from './ref-text-selection.js';
 import { showSaveToast } from './save-toast.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
  * and the schematic's ownership of components.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  */
 export function runPcbDeleteAction(app) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
@@ -50,7 +51,7 @@ export function runPcbDeleteAction(app) {
 /**
  * Move a selected group by one keyboard step using the existing pose/history
  * path. Group pickup owns committing pending numeric-property previews.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {'ArrowUp'|'ArrowDown'|'ArrowLeft'|'ArrowRight'} key
  */
 export function runPcbNudgeAction(app, key) {
@@ -75,7 +76,7 @@ export function runPcbNudgeAction(app, key) {
 /**
  * Unwind one level after drawing-mode keys have been handled: preview, pointer,
  * tool, then selection. Unlike full lifecycle cleanup, Escape retains controls.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  */
 export function runPcbEscapeAction(app) {
     if (!isEditorActive(app)) return false;
@@ -162,7 +163,7 @@ export function runPcbEscapeAction(app) {
 /**
  * Apply the PCB keyboard history policy to every UI entry point.
  * Returns whether the request was consumed, not whether a history entry existed.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {'undo'|'redo'} action
  */
 export function runPcbHistoryAction(app, action) {
@@ -205,7 +206,7 @@ export function runPcbHistoryAction(app, action) {
 
 /**
  * The editor's project owns save readiness, I/O and ordinary failure reporting.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {boolean} [saveAs]
  */
 export async function savePcbProject(app, saveAs = false) {

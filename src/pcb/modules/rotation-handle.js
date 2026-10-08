@@ -1,17 +1,21 @@
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const cursorArrow = 'M 25 12 A 10 10 0 1 0 26 19 M 25 5 V 12 H 18';
 const cursorSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="${cursorArrow}" stroke="white" stroke-width="5"/><path d="${cursorArrow}" stroke="black" stroke-width="2.5"/></g></svg>`;
 export const ROTATION_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(cursorSvg)}") 16 16, crosshair`;
 
+/** @param {PcbEditor} app */
 export function isRotationHandleDragActive(app) {
     return !!getPcbInteraction(app, '_rotationHandleDrag');
 }
 
+/** @param {PcbEditor} app */
 export function beginRotationHandleDrag(app) {
     setPcbInteraction(app, '_rotationHandleDrag', true);
 }
 
+/** @param {PcbEditor} app */
 export function endRotationHandleDrag(app) {
     setPcbInteraction(app, '_rotationHandleDrag', null);
 }

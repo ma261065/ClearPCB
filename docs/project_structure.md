@@ -124,7 +124,13 @@ services, listed and typed in `pcb/modules/pcb-editor-api.js` (`getLayerGroup`,
 crosshair, `alert`/`confirm`, the cancel helpers, inline text editing, tool
 selection and the command view hooks), rather than its `_`-prefixed members.
 Services are also the seams tests stub. A service both editors offer has one name
-in both (`fitToContent`, `setActiveRibbonTab`, `copySelection`).
+in both (`fitToContent`, `setActiveRibbonTab`, `copySelection`, `alert`).
+PCB modules type the editor they are given: `@param {PcbEditor} app`, where
+`PcbEditor` (in `pcb-editor-api.js`) is the editor class, so the type check knows
+which editor members each module uses. A computation that only reads the board's
+collections (DRC, copper connectivity, the 3D and Gerber builders) takes a
+`PcbBoard` instead, so it can be given a worker snapshot or a filtered copy, and
+state keyed by the editor that any object may read (`refresh-state.js`) takes `object`.
 `node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
 private editor accesses against `tools/pcb-editor-access-baseline.json`, and
 `node tools/check-schematic-editor-access.mjs` checks the schematic layer

@@ -1,15 +1,18 @@
-import { showAlert } from '../../shared/ui/modal.js';
-import { collectNodeConnections } from './track-connections.js';
+import { collectNodeConnections, copperBoardWith } from './track-connections.js';
 import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ModifyTrackCommand, ModifyTrackGraphCommand, ModifyViaCommand, CompoundCommand, canonicalTrack } from './track-commands.js';
 import { ModifyPadCommand } from './pad-commands.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { captureBoardShapeState } from './board-shapes.js';
 import { Track } from '../../shapes/track.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const VIA_NODE_EPS = 1e-4;
 const NODE_MERGE_EPS = 1e-3;
-/** True if any standalone Via sits on `(x, y)`. */
+/**
+ * True if any standalone Via sits on `(x, y)`.
+ * @param {PcbEditor} app
+ */
 function _viaAtPoint(app, x, y) {
     for (const via of (app.vias || [])) {
         if (Math.abs(via.x - x) < VIA_NODE_EPS && Math.abs(via.y - y) < VIA_NODE_EPS) return true;
@@ -26,7 +29,7 @@ function _viaAtPoint(app, x, y) {
  * place and returns whether anything was removed — callers fold the
  * result into their own undo snapshot.
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {Track} track
  * @returns {boolean} true if at least one node was dissolved.
  */
@@ -71,7 +74,10 @@ export function collapseCollinearTrackNodes(app, track) {
     return removedAny;
 }
 
-/** A locked track is never a join target: joining would rewrite or delete it. */
+/**
+ * A locked track is never a join target: joining would rewrite or delete it.
+ * @param {PcbEditor} app
+ */
 const lockedJoinTarget = (app, track) => !!canonicalTrack(app, track)?.locked;
 
 /** Set of copper layers of the edges incident to `nodeId` on `track`. */
@@ -91,6 +97,7 @@ function _incidentLayers(track, nodeId) {
  * edge on `layer`. Tracks in `exclude` (the freshly drawn ones, not yet
  * committed) are skipped.
  *
+ * @param {PcbEditor} app
  * @returns {{track:object, nodeId:string}|null}
  */
 function _findExistingMergeNode(app, x, y, net, layer, exclude) {
@@ -115,12 +122,16 @@ function _bondedNets(bonded, shapes = bonded.shapes) {
         .concat([...bonded.padNets]).filter(Boolean));
 }
 
-function _showBondedNetConflict(app, nets) {
-    const message = `Cannot connect different nets: ${[...nets].map(net => `"${net}"`).join(', ')}.`;
-    if (app.alert) app.alert(message);
-    else showAlert(message, { title: 'Net Conflict' });
+/**
+ * Say that a connection would join copper on different nets.
+ * @param {PcbEditor} app
+ * @param {Iterable<string>} nets
+ */
+export function showBondedNetConflict(app, nets) {
+    app.alert(`Cannot connect different nets: ${[...nets].map(net => `"${net}"`).join(', ')}.`, { title: 'Net Conflict' });
 }
 
+/** @param {PcbEditor} app */
 function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
     const commands = [];
     if (!net) return commands;
@@ -168,7 +179,7 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
  * layer-transition Vias as a single undo step. A draw that toggled
  * copper layers mid-route produces several single-layer Tracks joined
  * by vias; grouping them and connected-copper Net adoption keeps undo/redo atomic.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {object[]} tracks
  * @param {object[]} [vias]
  * @param {object[]} [destinationShapes]
@@ -194,7 +205,7 @@ export function commitDrawnTracks(app, tracks, vias = [], destinationShapes = []
  * Cross-layer coincidences are deliberately NOT fused here — those remain
  * distinct single-layer nodes bonded by a via (the via/transition model).
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {object|object[]} newTracks freshly built (uncommitted) tracks
  * @param {object[]} [newVias] standalone vias produced alongside the draw
  * @param {object[]} [destinationShapes] Explicit destination copper contacts.
@@ -204,14 +215,13 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
     const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
     const vias = newVias || [];
     const drawnSet = new Set(drawn);
-    const bonded = collectNodeConnections({
-        ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
-        pads: app.pads, boardShapes: app.boardShapes,
-    }, new Map(drawn.map(track => [track, new Set(track.nodes.keys())])));
+    const bonded = collectNodeConnections(copperBoardWith(app, {
+        tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
+    }), new Map(drawn.map(track => [track, new Set(track.nodes.keys())])));
     const shapes = new Set([...bonded.shapes, ...destinationShapes]);
     const nets = _bondedNets(bonded, shapes);
     if (nets.size > 1) {
-        _showBondedNetConflict(app, nets);
+        showBondedNetConflict(app, nets);
         return false;
     }
     const net = [...nets][0] || '';

@@ -179,7 +179,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             for (const field of ['start', 'end', 'bulge']) assert.equal(Object.hasOwn(shape, field), false);
         }
         const saved = serializeBoardShapes({ boardShapes: [shape] });
-        const loaded = { boardShapes: [], shapeIdCounter: 1 };
+        const loaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
         loadBoardShapes(loaded, saved, { render: false, strict: true });
         assert.equal(loaded.boardShapes[0].kind, kind);
         assert.deepEqual(cloneShapeGeometry(loaded.boardShapes[0]), cloneShapeGeometry(shape));
@@ -266,7 +266,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     commands[0].execute();
     assert.equal(shape.segmentBulges[0], 0.25);
     const saved = serializeBoardShapes({ boardShapes: [shape] });
-    const loaded = { boardShapes: [], shapeIdCounter: 1 };
+    const loaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(loaded, saved, { render: false, strict: true });
     assert.deepEqual(loaded.boardShapes[0].segmentBulges, { 0: 0.25 });
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'line'), true);
@@ -452,7 +452,7 @@ for (const cornerRadius of [0, 2]) {
     assert.equal(shape.lineWidth, 1, 'Typing preserves authored width');
     getPropertyEditor(app, 'boardShape').cancel();
     const serialized = serializeBoardShapes(app);
-    const loaded = { boardShapes: [], shapeIdCounter: 1 };
+    const loaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(loaded, serialized, { render: false });
     assert.deepEqual(serializeBoardShapes(loaded), serialized);
     assert.equal(createBoardShapeSelectionAdapter(app, shape, shape.id).getEditPath(), 'M 0 0 L 20 0 L 20 16 L 0 16 Z');
@@ -481,7 +481,7 @@ for (const shape of [
     assert.deepEqual(anchors.filter(anchor => !anchor.midpoint).map(({ x, y }) => ({ x, y })), expected);
 }
 
-const legacy = { boardShapes: [], shapeIdCounter: 1 };
+const legacy = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
 loadBoardShapes(legacy, [
     { id: 'legacy-rect', kind: 'rect', lineWidth: 2, points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] },
     { id: 'legacy-circle', kind: 'circle', x: 0, y: 0, radius: 5, lineWidth: 2 },
@@ -491,7 +491,7 @@ assert.deepEqual(legacy.boardShapes[0].points[0], { x: 0, y: 0 });
 assert.equal(legacy.boardShapes[1].radius, 5);
 assert.deepEqual(legacy.boardShapes[2].points, [{ x: 0, y: 0 }, { x: 20, y: 0 }]);
 const migrated = serializeBoardShapes(legacy);
-const reloaded = { boardShapes: [], shapeIdCounter: 1 };
+const reloaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
 loadBoardShapes(reloaded, migrated, { render: false });
 assert.deepEqual(serializeBoardShapes(reloaded), migrated);
 
@@ -665,7 +665,7 @@ for (const reversed of [false, true]) {
     commands[0].undo();
     commands[0].execute();
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [], shapeIdCounter: 1 };
+    const restored = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
     loadBoardShapes(restored, saved, { render: false });
     assert.ok(!('strokeSide' in saved[0]));
     assert.deepEqual(resolveBoardShapeGeometry(restored.boardShapes[0]).physicalContours,

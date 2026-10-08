@@ -4,6 +4,7 @@ import { resolveTrackSnap } from './track-draw.js';
 import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } from './track-commands.js';
 import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-drag.js';
 import { Via } from '../../shapes/via.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 
@@ -11,10 +12,12 @@ const viaToolNets = new WeakMap();
 const viaRingGroups = new WeakMap();
 const viaPreviewWorlds = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function getViaToolNet(app) {
     return viaToolNets.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function setViaToolNet(app, net) {
     viaToolNets.set(app, net);
 }
@@ -22,6 +25,7 @@ export function setViaToolNet(app, net) {
 /**
  * Via tool preview: crosshair + outlined via (ring + drill) at the
  * snapped cursor position.
+ * @param {PcbEditor} app
  */
 export function updateViaPreview(app, worldPos) {
     if (!app.viewport) return;
@@ -71,6 +75,7 @@ export function updateViaPreview(app, worldPos) {
     hole.setAttribute('stroke-width', String(stroke));
 }
 
+/** @param {PcbEditor} app */
 export function clearViaRing(app) {
     const group = viaRingGroups.get(app);
     if (group) {
@@ -80,16 +85,21 @@ export function clearViaRing(app) {
     viaPreviewWorlds.delete(app);
 }
 
+/** @param {PcbEditor} app */
 export function getViaPreviewWorld(app) {
     return viaPreviewWorlds.get(app) || null;
 }
 
+/** @param {PcbEditor} app */
 export function clearViaPreview(app) {
     clearViaRing(app);
     app.viewport?.hideCrosshair();
 }
 
-/** Show Via placement defaults in Properties. */
+/**
+ * Show Via placement defaults in Properties.
+ * @param {PcbEditor} app
+ */
 export function showViaToolProperties(app) {
     let diameterError = '', drillError = '';
     const routing = () => /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
@@ -151,10 +161,11 @@ export function showViaToolProperties(app) {
  * A primary press with the Via tool: place a via at the pointer. On a pad or track node it
  * joins that copper and takes its net; mid-segment it splits the track so the via sits on
  * a node of both halves; elsewhere it stands alone. A net chosen in the tool wins.
+ * @param {PcbEditor} app
  */
 export function pressViaTool(app, worldPos) {
     const snap = resolveTrackSnap(app, worldPos, {});
-    const p = app.getRoutingParams?.() || {};
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
     const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
     const selectedNet = String(getViaToolNet(app) || '').trim();

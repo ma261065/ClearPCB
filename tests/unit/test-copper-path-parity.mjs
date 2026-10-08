@@ -42,6 +42,7 @@ function trackFor(spec) {
 function board(extra) {
     const layer = fakeElement('g');
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
+        get pcbDocument() { return this; },
         texts: new Map(), _shapeElements: new Map(), viewport: { scale: 10 }, getLayerGroup: () => layer, ...extra };
 }
 /** Signed clearance from the drawn copper edge (negative inside), measured on the Track's rendered centreline. */

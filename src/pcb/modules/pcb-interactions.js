@@ -17,6 +17,7 @@
  * The only import is refresh-state.js, itself import-free.
  */
 import { noteEditSettled } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 export const PCB_INTERACTIONS = Object.freeze([
     { key: '_boardOutlineResize', category: 'gesture', blocksExport: true, owner: 'board-outline-resize.js' },
@@ -43,6 +44,7 @@ const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const EXPORT_BLOCKING_KEYS = keysWhere(entry => entry.blocksExport);
 const interactionState = new WeakMap();
 
+/** @param {PcbEditor} app */
 function slotState(app) {
     let state = interactionState.get(app);
     if (!state) {
@@ -56,13 +58,19 @@ function assertInteractionKey(key) {
     if (!INTERACTION_KEYS.has(key)) throw new Error(`Unknown PCB interaction slot ${key}.`);
 }
 
-/** Return one interaction slot's value, or null when inactive. */
+/**
+ * Return one interaction slot's value, or null when inactive.
+ * @param {PcbEditor} app
+ */
 export function getPcbInteraction(app, key) {
     assertInteractionKey(key);
     return interactionState.get(app)?.[key] || null;
 }
 
-/** Set one interaction slot. Passing null/undefined/false clears the slot. */
+/**
+ * Set one interaction slot. Passing null/undefined/false clears the slot.
+ * @param {PcbEditor} app
+ */
 export function setPcbInteraction(app, key, value) {
     assertInteractionKey(key);
     const state = slotState(app);
@@ -74,6 +82,7 @@ export function setPcbInteraction(app, key, value) {
     }
 }
 
+/** @param {PcbEditor} app */
 const anyActive = (app, keys) => {
     const state = interactionState.get(app);
     if (!state) return false;
@@ -81,11 +90,20 @@ const anyActive = (app, keys) => {
     return false;
 };
 
-/** A pointer or inline-edit gesture is in progress. */
+/**
+ * A pointer or inline-edit gesture is in progress.
+ * @param {PcbEditor} app
+ */
 export const hasPcbGesture = app => anyActive(app, GESTURE_KEYS);
 
-/** A track, fill or shape drawing session is open. */
+/**
+ * A track, fill or shape drawing session is open.
+ * @param {PcbEditor} app
+ */
 export const isPcbDrawing = app => anyActive(app, DRAWING_KEYS);
 
-/** An interaction whose transient geometry must not reach fabrication output. */
+/**
+ * An interaction whose transient geometry must not reach fabrication output.
+ * @param {PcbEditor} app
+ */
 export const blocksPcbExport = app => anyActive(app, EXPORT_BLOCKING_KEYS);

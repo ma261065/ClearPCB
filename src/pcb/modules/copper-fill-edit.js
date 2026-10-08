@@ -17,6 +17,9 @@ import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js
 import { addFillWaypoint, fillToolDefaults, getFillDraw, setFillToolDefaults, startFillDraw } from './copper-fill-draw.js';
 import { getPropertyEditor } from './property-editors.js';
 import { loadClipper } from './copper-fill-geom.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
 
 /**
  * A pour's outline follows its Properties number fields live (corner radius, size,
@@ -32,17 +35,21 @@ export function fillEditProfile() {
         missingEditMessage: 'Cannot edit a missing copper fill.',
         missingDragMessage: 'Cannot finish a drag of a missing copper fill.',
         canonical: canonicalBoardShape,
+        /** @param {PcbEditor} app */
         displayed: (app, fill) => displayedBoardShape(app, fill),
+        /** @param {PcbEditor} app */
         collection: app => app.pcbDocument?.boardShapes || app.boardShapes,
         copy: fill => new CopperFill(fill.captureState()),
         capture: fill => fill.captureState(),
         canEdit: (_app, fill) => canEditFill(fill),
         visible: (_app, fill) => fill.visible !== false && isCopperFillVisible(fill.layer),
+        /** @param {PcbEditor} app */
         locked: (app, fill) => isPcbObjectLocked(app, 'fill', fill),
         getNodeFocus: getBoardShapeNodeFocus,
         getSegmentFocus: getBoardShapeSegmentFocus,
         setNodeFocus: setBoardShapeNodeFocus,
         setSegmentFocus: setBoardShapeSegmentFocus,
+        /** @param {PcbEditor} app */
         clearFocus(app) {
             setBoardShapeNodeFocus(app, null);
             setBoardShapeSegmentFocus(app, null);
@@ -51,29 +58,40 @@ export function fillEditProfile() {
         getLockPosition(_app, fill, pointer, scale) {
             return lockPositionOutsideOutline(fill.getOutline(), pointer, scale);
         },
+        /** @param {PcbEditor} app */
         hitTest(app, fill, point, tolerance) {
             return fill.distanceToEdge(point.x, point.y) <= Math.max(0.6, tolerance)
                 || (isPcbSelected(app, 'fill', fill) && fillSegmentAt(fill, point, tolerance) != null);
         },
         segmentAt(_app, fill, point, tolerance) { return fillSegmentAt(fill, point, tolerance); },
+        /** @param {PcbEditor} app */
         getEditPath(app, fill) { return fillEditPath(app, fill); },
         anchorColor: () => '#3399ff',
+        /** @param {PcbEditor} app */
         render(app, fill, opts = {}) {
             renderCopperFill(fill, id => app.getLayerGroup(id), {
                 selected: isPcbSelected(app, 'fill', this.collection(app).includes(fill) ? fill : this.canonical(app, fill)),
                 outlineOnly: opts.outlineOnly || !this.collection(app).includes(fill),
             });
         },
+        /** @param {PcbEditor} app */
         renderHandles(app) { renderPcbSelectionAnchors(app); },
+        /** @param {PcbEditor} app */
         renderSegmentSelection(app) { renderPcbSelectionAnchors(app); },
+        /** @param {PcbEditor} app */
         remove(app, fill) { removeCopperFillElements(fill, id => app.getLayerGroup(id)); },
+        /** @param {PcbEditor} app */
         showProperties(app, fill) { showFillProperties(app, fill); },
+        /** @param {PcbEditor} app */
         refreshProperties(app, fill) { refreshFillProperties(app, fill); },
+        /** @param {PcbEditor} app */
         syncProperties(app, fill) { syncFillPanel(app, fill); },
         propertyPreviewPrepare() {},
+        /** @param {PcbEditor} app */
         propertyPreviewRender(app, changed) {
             for (const fill of changed) this.render(app, fill, { outlineOnly: true });
         },
+        /** @param {PcbEditor} app */
         propertyPreviewCancel(app, originals) {
             for (const original of originals) {
                 if (this.collection(app).includes(original)) this.render(app, original);
@@ -81,12 +99,15 @@ export function fillEditProfile() {
             }
             renderPcbSelectionAnchors(app);
         },
+        /** @param {PcbEditor} app */
         makeCommand(app, original, beforeState, afterState) {
             return new ModifyFillCommand(app, original, beforeState, afterState);
         },
+        /** @param {PcbEditor} app */
         modifyCommand(app, original, beforeState, afterState) {
             return new ModifyFillCommand(app, original, beforeState, afterState);
         },
+        /** @param {PcbEditor} app */
         removeCommand(app, fill) { return new RemoveFillCommand(app, fill); },
         valid(_app, fill) { return validFill(fill); },
         // A drop recomputes pours on the main thread; load the geometry library now, so the
@@ -94,6 +115,7 @@ export function fillEditProfile() {
         prepareDrag() { loadClipper().catch(() => {}); },
         // No dragRatsnestNets: ratlines see a pour's computed copper, which stays put until
         // the drop recomputes it, so rebuilding them while the outline moves changes nothing.
+        /** @param {PcbEditor} app */
         afterCommit(app, original) {
             if (this.collection(app).includes(original)) {
                 refreshFillProperties(app, original);
@@ -103,12 +125,16 @@ export function fillEditProfile() {
     };
 }
 
-/** The live outline copy of `fill` while its Properties numbers preview, else null. */
+/**
+ * The live outline copy of `fill` while its Properties numbers preview, else null.
+ * @param {PcbEditor} app
+ */
 export function fillGeometryPreview(app, fill) {
     const displayed = displayedBoardShape(app, fill);
     return displayed === fill ? null : displayed;
 }
 
+/** @param {PcbEditor} app */
 function previewFillGeometry(app, fill, mutate) {
     if (!getPropertyEditor(app, 'fill')) createBoardShapePropertyBinding(app, fillEditProfile());
     let preview = geometryPreviews.get(app);
@@ -127,6 +153,7 @@ function previewFillGeometry(app, fill, mutate) {
 /**
  * Commit a pour's live outline now. Pointer gestures call this before they save the
  * overlay deferral, so a preview ending mid-gesture cannot leave pours deferred.
+ * @param {PcbEditor} app
  */
 export function settleFillGeometryPreview(app) {
     const preview = geometryPreviews.get(app);
@@ -135,7 +162,10 @@ export function settleFillGeometryPreview(app) {
     return preview.control.commit({ rebuild: false });
 }
 
-/** End a pour's live outline, showing the pour as it is (copper included). */
+/**
+ * End a pour's live outline, showing the pour as it is (copper included).
+ * @param {PcbEditor} app
+ */
 export function endFillGeometryPreview(app) {
     const preview = geometryPreviews.get(app);
     if (!preview) return false;
@@ -148,6 +178,7 @@ export function canEditFill(fill) {
         && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer);
 }
 
+/** @param {PcbEditor} app */
 export function fillEditFocus(app, fill) {
     if (fill.kind === 'circle') return {};
     const nodeFocus = getBoardShapeNodeFocus(app);
@@ -176,6 +207,7 @@ function validFill(fill) {
     return validBoardOutline({ ...fill, points: fill.outline, layer: 'board-outline' });
 }
 
+/** @param {PcbEditor} app */
 export function commitFillEdit(app, fill, mutate) {
     if (!canEditFill(fill)) return false;
     const before = fill.captureState();
@@ -188,6 +220,7 @@ export function commitFillEdit(app, fill, mutate) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     settleFillGeometryPreview(app);
     return startBoardShapeDrag(app, fill, point, anchor, {
@@ -198,14 +231,17 @@ export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     });
 }
 
+/** @param {PcbEditor} app */
 export function updateFillEdit(app, point) {
     handleBoardShapeDrag(app, point);
 }
 
+/** @param {PcbEditor} app */
 export function endFillEdit(app, commit) {
     endBoardShapeDrag(app, commit);
 }
 
+/** @param {PcbEditor} app */
 export function startFillEditAt(app, fill, point) {
     if (!canEditFill(fill)) return false;
     const tolerance = Math.max(0.6, 8 / Math.max(0.01, app.viewport?.scale || 1));
@@ -215,6 +251,7 @@ export function startFillEditAt(app, fill, point) {
     return beginFillEdit(app, fill, point);
 }
 
+/** @param {PcbEditor} app */
 export function deleteFillNode(app, fill, index) {
     if (fill.kind === 'circle' || fill.outline.length <= 3 || !Number.isInteger(index)
         || index < 0 || index >= fill.outline.length) return false;
@@ -232,6 +269,7 @@ export function deleteFillNode(app, fill, index) {
     });
 }
 
+/** @param {PcbEditor} app */
 export function deleteFocusedFillPart(app, fill) {
     const { node, segment } = fillEditFocus(app, fill);
     if (node == null && segment == null) return false;
@@ -239,6 +277,7 @@ export function deleteFocusedFillPart(app, fill) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function showFillContextMenu(app, fill, clientX, clientY, point) {
     if (!canEditFill(fill)) return;
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
@@ -266,6 +305,7 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
     return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY);
 }
 
+/** @param {PcbEditor} app */
 export function fillEditPath(app, fill) {
     const { node, segment } = fillEditFocus(app, fill);
     if (node != null) return '';
@@ -277,17 +317,24 @@ export function fillEditPath(app, fill) {
 /** The open pour panel per editor: its pour id and in-place refresh. */
 const openFillPanels = new WeakMap();
 
-/** Re-describe the open pour panel in place when it shows `fill` (during a drag). */
+/**
+ * Re-describe the open pour panel in place when it shows `fill` (during a drag).
+ * @param {PcbEditor} app
+ */
 export function syncFillPanel(app, fill) {
     const panel = openFillPanels.get(app);
     if (fill && panel && panel.id === fill.id) panel.refresh();
 }
 
+/** @param {PcbEditor} app */
 export function refreshFillProperties(app, fill) {
     if (fill && isPcbSelected(app, 'fill', fill)) showFillProperties(app, fill);
 }
 
-/** Properties for a copper pour: Locked, Layer, Net, then its outline geometry. */
+/**
+ * Properties for a copper pour: Locked, Layer, Net, then its outline geometry.
+ * @param {PcbEditor} app
+ */
 export function showFillProperties(app, fill) {
     if (!fill) return;
     const lockEntries = [{ kind: 'fill', object: fill }];
@@ -301,6 +348,7 @@ export function showFillProperties(app, fill) {
         app.history.execute(new ModifyFillCommand(app, fill, before, after));
         refresh();
     };
+    /** @returns {PropertyPanel} */
     const describe = () => {
         // Read on every description: locking the pour from this panel changes it.
         const lock = lockedProperty(app, lockEntries);
@@ -331,11 +379,12 @@ export function showFillProperties(app, fill) {
 /**
  * Properties for the Fill tool, like the other drawing tools' "New …" panels: the
  * layer, net and corner radius a new pour gets. A pour being drawn follows them.
+ * @param {PcbEditor} app
  */
 export function showFillToolProperties(app) {
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const setCornerRadius = value => setFillToolDefaults(app, { cornerRadius: value });
-    /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const defaults = fillToolDefaults(app);
         const notice = pcbToolBlockNotice(app, 'fill');
@@ -358,6 +407,7 @@ export function showFillToolProperties(app) {
     app.openPropertyPanel?.(describe());
 }
 
+/** @param {PcbEditor} app */
 function fillNetNames(app) {
     if (typeof app.netNames === 'function') return app.netNames();
     const names = new Set((app.netlist || []).map(entry => String(entry.net || '')).filter(Boolean));
@@ -370,14 +420,20 @@ function fillNetNames(app) {
     return [...names].sort();
 }
 
+/**
+ * @param {PcbEditor} app
+ * @returns {PropertyField[]}
+ */
 export function addFillGeometryProperties(app, fill, disabled = false, refresh = () => {}) {
     const { node, segment } = fillEditFocus(app, fill);
     const bounds = fill.getBounds();
     // Values show the displayed pour: a drag's or preview's live copy, else the pour.
     const shown = displayedBoardShape(app, fill) || fill;
     const shownBounds = shown.getBounds();
+    /** @type {PropertyField[]} */
     const fields = [];
     // Each step previews the outline; the settled run commits once.
+    /** @returns {PropertyField} */
     const number = (id, key, label, value, min, max = Infinity, mutate) => ({
         key, id, type: 'number', label, value, min, max, step: 0.05, disabled,
         normalize: next => (next < min || next > max ? NaN : next),
@@ -460,7 +516,10 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
     return fields;
 }
 
-/** A primary press with the Fill tool: start a pour outline, or add its next corner. */
+/**
+ * A primary press with the Fill tool: start a pour outline, or add its next corner.
+ * @param {PcbEditor} app
+ */
 export function pressFillTool(app, worldPos) {
     if (getFillDraw(app)) {
         addFillWaypoint(app, worldPos);

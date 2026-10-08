@@ -26,6 +26,7 @@ function board(extra = {}) {
         removeChild(line) { this.children.splice(this.children.indexOf(line), 1); line.parentNode = null; },
     };
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
+        get pcbDocument() { return this; },
         placements: new Map(), netlist: [], texts: new Map(), getLayerGroup: () => layer, ...extra };
 }
 function check(app, expected, message, options) {

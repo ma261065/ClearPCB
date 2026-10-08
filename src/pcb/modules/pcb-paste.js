@@ -34,9 +34,11 @@ import { cancelPcbPosePreviews } from './edit-lifecycle.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 import { areShapeCopperCutsDeferred, setShapeCopperCutsDeferred } from './picture-refresh.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
+/** @param {PcbEditor} app */
 export function preparePcbPaste(app, clipboard) {
     let shapeId = app.pcbDocument.shapeIdCounter;
     const used = new Set(app.pcbDocument.boardShapes.map(shape => shape.id));
@@ -78,19 +80,25 @@ function editable(payload) {
             && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
 }
 
-/** Whether a floating paste is being placed. */
+/**
+ * Whether a floating paste is being placed.
+ * @param {PcbEditor} app
+ */
 export function isPcbPasteActive(app) {
     return !!getPcbPaste(app);
 }
 
+/** @param {PcbEditor} app */
 export function getPcbPaste(app) {
     return getPcbInteraction(app, '_pasteDrop');
 }
 
+/** @param {PcbEditor} app */
 export function getPcbPastePreview(app) {
     return getPcbPaste(app)?.preview || null;
 }
 
+/** @param {PcbEditor} app */
 export function isPcbPasteEditable(app) {
     const state = getPcbPaste(app);
     return !state || editable(state.payload);
@@ -109,6 +117,7 @@ function assertFresh(document, payload) {
     if (payload.shapes.some(shape => shape.layer === 'board-outline')) throw new Error('The board outline cannot be pasted.');
 }
 
+/** @param {PcbEditor} app */
 function removeArtwork(app, payload) {
     payload.tracks.forEach(removeTrackElements);
     payload.vias.forEach(removeViaElements);
@@ -135,6 +144,7 @@ function removeArtwork(app, payload) {
     }
 }
 
+/** @param {PcbEditor} app */
 function renderPayload(app, payload, preview) {
     const layer = id => app.getLayerGroup(id);
     for (const track of payload.tracks) renderTrack(track, layer, {
@@ -148,6 +158,7 @@ function renderPayload(app, payload, preview) {
     for (const fill of payload.fills) renderCopperFill(fill, layer, { outlineOnly: preview });
 }
 
+/** @param {PcbEditor} app */
 function refreshAuthoredPaste(app) {
     app.updateCopperCuts?.();
     app.refreshClearanceHalos?.();
@@ -156,6 +167,7 @@ function refreshAuthoredPaste(app) {
 }
 
 class PastePcbCommand {
+    /** @param {PcbEditor} app */
     constructor(app, payload) {
         this.description = 'Paste PCB objects';
         this.app = app;
@@ -208,6 +220,7 @@ class PastePcbCommand {
     }
 }
 
+/** @param {PcbEditor} app */
 export function beginPcbPaste(app, source, { select = false } = {}) {
     if (!isEditorActive(app)) throw new Error('Cannot start a paste while the PCB editor is inactive.');
     cancelPcbPosePreviews(app);
@@ -238,7 +251,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
         fills: payload.fills.map(fill => ({ fill, before: fill.captureState() })),
         preview: {
             tracks: [...model.tracks, ...payload.tracks], vias: [...model.vias, ...payload.vias],
-            pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => [text.id, text])]),
+            pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => /** @type {[string, any]} */ ([text.id, text]))]),
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
         flags: { deferredShapeCopperCuts: areShapeCopperCutsDeferred(app) },
@@ -259,6 +272,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     return !!getPcbPaste(app);
 }
 
+/** @param {PcbEditor} app */
 export function updatePcbPaste(app, world) {
     const state = getPcbPaste(app);
     if (!state) return;
@@ -293,6 +307,7 @@ export function updatePcbPaste(app, world) {
     }
 }
 
+/** @param {PcbEditor} app */
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
     setPcbInteraction(app, '_pasteDrop', null);
@@ -306,10 +321,12 @@ function release(app, state) {
     app.syncPcbHistoryButtons?.();
 }
 
+/** @param {PcbEditor} app */
 function resumePendingFill(app) {
     if (isFillRefreshPending(app) && !areDragOverlaysDeferred(app) && !isFillRefreshSuspended(app)) app.refreshFills?.();
 }
 
+/** @param {PcbEditor} app */
 export function cancelPcbPaste(app) {
     const state = getPcbPaste(app);
     if (!state) return;
@@ -324,6 +341,7 @@ export function cancelPcbPaste(app) {
     if (app.pcbDocument === state.model && isEditorActive(app)) showPcbSelectionProperties(app);
 }
 
+/** @param {PcbEditor} app */
 export function endPcbPaste(app) {
     const state = getPcbPaste(app);
     if (!state) return;

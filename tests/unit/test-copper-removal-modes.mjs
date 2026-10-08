@@ -25,6 +25,7 @@ function board(extra = {}) {
     };
     const app = { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(),
         texts: new Map(), netlist: [], _shapeElements: new Map(), viewport: { scale: 100, gridVisible: false },
+        get pcbDocument() { return this; },
         getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };
     setTrackToolLayer(app, 'top-copper');
     return app;

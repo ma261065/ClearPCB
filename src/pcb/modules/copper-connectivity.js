@@ -1,4 +1,5 @@
 import { copperLayer, resolveCopperPads } from './copper-model.js';
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 /**
  * One electrically-connected piece of copper: a Track's connected component, a
@@ -15,7 +16,10 @@ import { copperLayer, resolveCopperPads } from './copper-model.js';
  * @property {any} [shape] @property {any} [geometry] @property {any} [copperShape] @property {any} [source]
  */
 
-/** @returns {CopperCluster[]} */
+/**
+ * @returns {CopperCluster[]}
+ * @param {PcbBoard} app
+ */
 export function buildCopperClusters(app, nets = null) {
     /** @type {CopperCluster[]} */
     const clusters = [];

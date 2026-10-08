@@ -12,13 +12,18 @@ import { hoverComponent } from './component-selection.js';
 import { selectRefText } from './ref-text-selection.js';
 import { setToolCursor } from '../../shared/ui/cursor.js';
 import { clearCursorCrosshair } from './cursor-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
-/** Why the tool cannot place here, or null. */
+/**
+ * Why the tool cannot place here, or null.
+ * @param {PcbEditor} app
+ */
 export const pcbToolBlock = (app, tool = app.currentTool) => placementBlock(pcbToolTargets(app, tool));
 
 /**
  * What a tool's Properties shows when its layer is blocked: a warning on its layer field
  * and an action group that unlocks or shows the layer.
+ * @param {PcbEditor} app
  * @returns {{warning?: string, actions: import('../../shared/ui/property-fields.js').PropertyActionGroup[]}}
  */
 export function pcbToolBlockNotice(app, tool = app.currentTool) {
@@ -38,7 +43,10 @@ export function pcbToolBlockNotice(app, tool = app.currentTool) {
 
 const toolBadges = new WeakMap();
 
-/** The pointer badge saying the active tool's layer is blocked. */
+/**
+ * The pointer badge saying the active tool's layer is blocked.
+ * @param {PcbEditor} app
+ */
 function toolBadge(app) {
     let badge = toolBadges.get(app);
     if (!badge && typeof document !== 'undefined' && document.body) {
@@ -55,7 +63,7 @@ function toolBadge(app) {
  * Show at the pointer, before any press, that the active tool's layer is locked or
  * hidden: a not-allowed cursor, the tool's preview dimmed, and a badge naming the layer.
  * Called on every canvas pointer move (a few lookups), and with no event to hide it.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{clientX: number, clientY: number}|null} [event]
  */
 export function syncToolBlockIndicator(app, event = null) {
@@ -83,6 +91,7 @@ const ribbonBlockSignatures = new WeakMap();
 /**
  * Refresh the ribbon's tool badges when which tools are blocked changes. Called where
  * the status bar shows the tool's layer (setPcbStatus) and on layer lock/eye changes.
+ * @param {PcbEditor} app
  */
 export function syncPcbToolBlocks(app) {
     const signature = PCB_RIBBON_PLACEMENT_TOOLS.map(tool => pcbToolBlock(app, tool)?.reason?.[0] || '-').join('');
@@ -94,6 +103,7 @@ export function syncPcbToolBlocks(app) {
 /**
  * A layer's lock or eye changed: refresh the ribbon badges and, while a placement tool
  * owns Properties (nothing drawn or selected), its panel and its layer warning.
+ * @param {PcbEditor} app
  */
 export function refreshPcbToolLayerState(app) {
     syncPcbToolBlocks(app);
@@ -102,6 +112,7 @@ export function refreshPcbToolLayerState(app) {
     showPcbToolProperties(app);
 }
 
+/** @param {PcbEditor} app */
 export function updateCursorForTool(app) {
     if (!app.viewport?.svg) return;
     if (getPcbInteraction(app, '_pasteDrop')) {
@@ -125,7 +136,7 @@ export function updateCursorForTool(app) {
     clearCursorCrosshair(app);
 }
 
-/** @param {import('../../ui/PCBApp.js').default} app */
+/** @param {PcbEditor} app */
 export function resetPcbTool(app) {
     app.currentTool = 'select';
     updateCursorForTool(app);
@@ -135,7 +146,7 @@ export function resetPcbTool(app) {
 
 /**
  * Select a tool without cancelling a drawing already owned by that tool.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {string} tool
  */
 export function selectPcbTool(app, tool) {
@@ -154,7 +165,7 @@ export function selectPcbTool(app, tool) {
     showPcbToolProperties(app, next);
 }
 
-/** @param {import('../../ui/PCBApp.js').default} app */
+/** @param {PcbEditor} app */
 export function cancelPcbDrawingMode(app) {
     if (!PCB_PLACEMENT_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !activeTextInlineEdit(app)) return false;
     // Leaving an inline text edit (another tool, a ribbon tab, the other editor) keeps what
@@ -170,7 +181,7 @@ export function cancelPcbDrawingMode(app) {
 /**
  * Explicit navigation exits drawing; programmatic Properties navigation retains
  * track/fill sessions. Shape drawing keeps its existing tab-change cancellation.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {string|null} currentTab
  * @param {string} nextTab
  * @param {boolean} [userInitiated]

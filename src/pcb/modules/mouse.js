@@ -42,6 +42,7 @@ import { hasAny3DModel } from '../../components/model3d-source.js';
 import { hitTestComponent, showComponent3DMenu } from './component-selection.js';
 import { hitTestFill } from './copper-fill-selection.js';
 import { tryEditReferenceAt } from './ref-text-selection.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** Screen movement (px) below which a press and release count as a click, not a drag. */
 const CLICK_SLOP_PX = 4;
@@ -52,6 +53,7 @@ const gestureStates = new WeakMap();
  * Screen positions of the presses a later release is measured against, per editor.
  * rightPan: a right-button pan; trackLeft: the primary press that started a track;
  * trackRight/fillRight/shapeRight: a right press while that drawing was open.
+ * @param {PcbEditor} app
  */
 function gestures(app) {
     let state = gestureStates.get(app);
@@ -73,7 +75,10 @@ function takeMoved(state, key, e) {
     return Math.hypot(e.clientX - down.x, e.clientY - down.y) >= CLICK_SLOP_PX;
 }
 
-/** Wire the PCB canvas's mouse events (once, at viewport setup). */
+/**
+ * Wire the PCB canvas's mouse events (once, at viewport setup).
+ * @param {PcbEditor} app
+ */
 export function bindPcbMouseEvents(app) {
     const svg = app.viewport.svg;
     if (!svg) return;
@@ -103,6 +108,7 @@ export function bindPcbMouseEvents(app) {
     document.getElementById('ribbonPCB')?.addEventListener('contextmenu', e => e.preventDefault());
 }
 
+/** @param {PcbEditor} app */
 function onMouseDown(app, e) {
     if (!isEditorActive(app)) return;
     // A live pour outline from Properties settles before any gesture saves the
@@ -204,6 +210,7 @@ function onMouseDown(app, e) {
     if (startingTrack && getTrackDraw(app)) gestures(app).trackLeft = screenPoint(e);
 }
 
+/** @param {PcbEditor} app */
 function onMouseMove(app, e) {
     if (!isEditorActive(app)) return;
     app.viewport.shiftHeld = e.shiftKey;
@@ -222,6 +229,7 @@ function onMouseMove(app, e) {
     updateDebugTooltip(app, e);
 }
 
+/** @param {PcbEditor} app */
 function onDoubleClick(app, e) {
     if (!isEditorActive(app)) return;
     if (getTrackDraw(app)) {
@@ -254,6 +262,7 @@ function onDoubleClick(app, e) {
 /**
  * Double-click: edit a text or reference in place, or explain why a locked track or via
  * cannot be selected.
+ * @param {PcbEditor} app
  */
 function editOrExplainAt(app, e) {
     const worldPos = app.screenToWorld(e);
@@ -277,6 +286,7 @@ function editOrExplainAt(app, e) {
     }
 }
 
+/** @param {PcbEditor} app */
 function onMouseUp(app, e) {
     if (!isEditorActive(app)) return;
     const state = gestures(app);
@@ -310,14 +320,20 @@ function onMouseUp(app, e) {
     }
 }
 
-/** Commit a final waypoint at the current snap, then finish the track. */
+/**
+ * Commit a final waypoint at the current snap, then finish the track.
+ * @param {PcbEditor} app
+ */
 function finishTrackAtSnap(app) {
     const snap = getTrackDraw(app).snap;
     if (snap) addTrackWaypoint(app, { x: snap.x, y: snap.y });
     if (getTrackDraw(app)) finishTrackDraw(app);
 }
 
-/** Select tool: the context menu of the pour anchor, track, shape, pour or 3D component under the pointer. */
+/**
+ * Select tool: the context menu of the pour anchor, track, shape, pour or 3D component under the pointer.
+ * @param {PcbEditor} app
+ */
 function onContextMenu(app, e) {
     e.preventDefault();
     dismissBoardShapeContextMenu();

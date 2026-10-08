@@ -5,6 +5,7 @@ import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.j
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers.js';
 import { boundsOutline, lockPositionOutsideOutline } from '../../core/lock-position.js';
 import { getLastPointerWorld } from './cursor-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 export { lockPositionOutsideOutline };
 
@@ -16,11 +17,15 @@ function anchorId(anchor) {
     return anchor.id ?? anchor.key;
 }
 
+/** @param {PcbEditor} app */
 function anchorSize(app) {
     return 8 / Math.max(0.01, app.viewport?.scale || 1);
 }
 
-/** Return the selected adapter anchor under point, or null. */
+/**
+ * Return the selected adapter anchor under point, or null.
+ * @param {PcbEditor} app
+ */
 export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
     const tolerance = anchorSize(app);
@@ -39,7 +44,10 @@ export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     return null;
 }
 
-/** Rebuild all selected adapter anchor handles at the current viewport scale. */
+/**
+ * Rebuild all selected adapter anchor handles at the current viewport scale.
+ * @param {PcbEditor} app
+ */
 export function renderPcbSelectionAnchors(app) {
     clearPcbSelectionAnchors(app);
     const overlay = app.getLayerGroup?.('selection-overlay');
@@ -164,7 +172,10 @@ export function renderPcbSelectionAnchors(app) {
     }
 }
 
-/** Remove every adapter-driven anchor overlay. */
+/**
+ * Remove every adapter-driven anchor overlay.
+ * @param {PcbEditor} app
+ */
 export function clearPcbSelectionAnchors(app) {
     const overlay = app.getLayerGroup?.('selection-overlay');
     overlay?.querySelectorAll(`.${HANDLE_CLASS}`).forEach((element) => element.remove());

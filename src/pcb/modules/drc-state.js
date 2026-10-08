@@ -6,12 +6,15 @@ import { clearSelectionInteractionUi } from './selection-interaction.js';
 import { getPcbSelection } from './selection-registry.js';
 import { isBoardOutlineSelected } from './board-outline-resize.js';
 import { hasTrackEdit } from './track-select.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const emptyRatlines = Object.freeze([]);
 const states = new WeakMap();
 
-const modelFor = app => app.pcbDocument || app;
+/** @param {PcbEditor} app */
+const modelFor = app => app.pcbDocument;
 
+/** @param {PcbEditor} app */
 function stateFor(app) {
     let state = states.get(app);
     if (!state) {
@@ -21,7 +24,10 @@ function stateFor(app) {
     return state;
 }
 
-/** Lazily create and return the editor's DRC presentation owner. */
+/**
+ * Lazily create and return the editor's DRC presentation owner.
+ * @param {PcbEditor} app
+ */
 export function getDrcPresentation(app) {
     const state = stateFor(app);
     if (!state.presentation) {
@@ -51,15 +57,20 @@ export function getDrcPresentation(app) {
     return state.presentation;
 }
 
-/** Return the existing DRC presentation without creating one. */
+/**
+ * Return the existing DRC presentation without creating one.
+ * @param {PcbEditor} app
+ */
 export function peekDrcPresentation(app) {
     return states.get(app)?.presentation || null;
 }
 
+/** @param {PcbEditor} app */
 export function initDrc(app) {
     return getDrcPresentation(app).initialize();
 }
 
+/** @param {PcbEditor} app */
 export function disposeDrc(app) {
     const state = stateFor(app);
     state.disposed = true;
@@ -67,24 +78,31 @@ export function disposeDrc(app) {
     state.presentation?.dispose();
 }
 
+/** @param {PcbEditor} app */
 export function isDrcDisposed(app) {
     return states.get(app)?.disposed === true;
 }
 
-/** Whether a live check should run: only once initDrc has set the editor's DRC up. */
+/**
+ * Whether a live check should run: only once initDrc has set the editor's DRC up.
+ * @param {PcbEditor} app
+ */
 export function drcShouldRun(app) {
     return peekDrcPresentation(app)?.shouldRun() ?? false;
 }
 
+/** @param {PcbEditor} app */
 export function scheduleDrc(app) {
     refreshSelectedDrcMarker(app);
     scheduleDrcRefresh(app);
 }
 
+/** @param {PcbEditor} app */
 export function refreshSelectedDrcMarker(app) {
     peekDrcPresentation(app)?.scheduleMarkerRefresh();
 }
 
+/** @param {PcbEditor} app */
 export function resetDrc(app) {
     disposeDrcRefresh(app);
     setDrcRatlines(app, []);
@@ -96,16 +114,19 @@ export function resetDrc(app) {
     scheduleDrc(app);
 }
 
+/** @param {PcbEditor} app */
 export function setDrcRatlines(app, lines) {
     const state = stateFor(app);
     state.ratlines = lines;
     state.model = modelFor(app);
 }
 
+/** @param {PcbEditor} app */
 export function storedDrcRatlines(app) {
     return states.get(app)?.ratlines || emptyRatlines;
 }
 
+/** @param {PcbEditor} app */
 export function collectDrcRatlines(app) {
     const state = states.get(app);
     if (!state || state.model !== modelFor(app)) return [];
@@ -115,6 +136,7 @@ export function collectDrcRatlines(app) {
     }));
 }
 
+/** @param {PcbEditor} app */
 export function clearDrcResults(app) {
     const presentation = peekDrcPresentation(app);
     if (!presentation) return;

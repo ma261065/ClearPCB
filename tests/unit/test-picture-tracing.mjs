@@ -51,7 +51,7 @@ for (const invert of [false, true]) {
         for (const flipVertical of [false, true]) {
             ringShape.artwork = { ...ring, invert, flipHorizontal, flipVertical };
             const saved = serializeBoardShapes({ boardShapes: [ringShape] });
-            const loaded = { boardShapes: [], shapeIdCounter: 1 };
+            const loaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
             loadBoardShapes(loaded, saved, { strict: true, render: false });
             assert.deepEqual(serializeBoardShapes(loaded), saved);
             assert.deepEqual(pictureRegions(loaded.boardShapes[0]), pictureRegions(ringShape));
@@ -81,7 +81,7 @@ for (let column = 20; column < 1280; column += 20) {
 assert.ok(sourceArtwork.contours.flat().every(point => point.y >= 20 && point.y <= 23), 'Straight wire edges do not overshoot');
 sourceShape.id = 'pshape_1';
 const sourceSaved = serializeBoardShapes({ boardShapes: [sourceShape] });
-const sourceLoaded = { boardShapes: [], shapeIdCounter: 1 };
+const sourceLoaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
 loadBoardShapes(sourceLoaded, sourceSaved, { strict: true, render: false });
 assert.deepEqual(serializeBoardShapes(sourceLoaded), sourceSaved);
 assert.throws(() => validatePictureArtwork({ width: 513, height: 1, rectangles: [{ x: 0, y: 0, width: 513, height: 1 }] }), /512/);

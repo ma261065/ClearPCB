@@ -20,6 +20,8 @@ import { FILLED_CIRCLE_SEGMENTS, COLOR_RAW_BOARD, COLOR_SOLDERMASK, COLOR_PAD, C
 import { triangulateWithHoles, circleRing, unionBoreRings, polygonWallMesh, polygonWallSegmentsMesh, pointToSegmentDistance } from './board3d-board.js';
 import { flatPadMesh, throughHolePadMesh, discMesh, ribbonMesh, flatRingMesh, tubeMesh } from './board3d-parts.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 /**
  * Build a mesh that strokes a list of 2D polylines as flat ribbons with
@@ -739,7 +741,7 @@ export function buildMaskOpeningMesh(boardShapes = []) {
  * flattened SVG paths) from all component placements, dropped onto the top
  * or bottom face as appropriate. Stroke-font text is handled separately by
  * {@link buildTextMesh}.
- * @param {object} app
+ * @param {PcbBoard} app
  * @returns {{verts:Array, faces:Array}}
  */
 export function buildSilkMesh(app) {
@@ -861,7 +863,7 @@ export function createSilkArtworkMeshCache() {
  * Build one combined mesh of stroke-font text — free-standing PCB text
  * annotations plus component reference designators — as white silk strokes
  * (copper-coloured when the text lives on a copper layer).
- * @param {object} app PCBApp instance
+ * @param {PcbEditor} app PCBApp instance
  * @returns {{verts:Array, faces:Array}}
  */
 export function buildTextMesh(app) {
@@ -900,45 +902,10 @@ export function buildTextMesh(app) {
 /* ───────────────────────── mesh → BufferGeometry ─────────────────────────── */
 
 /**
- * Convert one of our `{verts, faces}` meshes into a non-indexed
- * BufferGeometry with flat per-face vertex colours. Faces are fan-triangulated.
- * @param {{verts:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}} mesh
- * @returns {THREE.BufferGeometry}
- */
-
-
-/** Shared flat-shaded, vertex-coloured, double-sided material. */
-
-
-/**
- * Material for a component body mesh (OBJ/STEP). Same shaded look the 3D scene
- * uses for placed bodies — exported so the standalone component preview
- * ({@link Model3DViewer}) shades models identically to the board view.
- */
-
-
-/**
- * Build one shaded material per geometry draw group for a component body whose
- * geometry was split by colour ({@link meshToGeometry} with groupByColor).
- *
- * OBJ component models author printed markings/logos and pads EXACTLY
- * coincident with the body shell, which z-fight (shimmer) and which no depth
- * precision can resolve. Each group gets a DISTINCT stepped polygonOffset (in
- * the OBJ's authoring order: shell first → furthest back, later detail pulled
- * progressively forward) so no two coincident faces ever share a depth value.
- * Nothing moves in screen space — KiCad's glPolygonOffset technique. Returns a
- * material array aligned to the geometry's group materialIndex order.
- * @param {number[]} groupVertCounts
- * @returns {any[]}
- */
-
-
-/**
  * Material for a thin board-surface layer (copper, vias, pads, silk, text).
  * Identical look to {@link makeMaterial} but nudged in the DEPTH BUFFER via a
  * CONSTANT polygonOffset so coplanar layers resolve deterministically with no
  * world-space Y step (a step shimmers at distance and shows a visible "side").
- *
  * Two rules learned the hard way:
  *  1. `polygonOffsetFactor` is kept at 0 (NOT slope-scaled). A non-zero factor
  *     scales the bias by the depth SLOPE, so at grazing angles it shoves the

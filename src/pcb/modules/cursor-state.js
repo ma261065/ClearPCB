@@ -1,8 +1,10 @@
 import { resolveTrackSnap } from './track-draw.js';
 import { getVertexDrag } from './track-drag.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const cursorState = new WeakMap();
 
+/** @param {PcbEditor} app */
 function stateFor(app) {
     let state = cursorState.get(app);
     if (!state) {
@@ -12,14 +14,17 @@ function stateFor(app) {
     return state;
 }
 
+/** @param {PcbEditor} app */
 export function setLastPointerWorld(app, worldPos) {
     stateFor(app).lastPointerWorld = worldPos;
 }
 
+/** @param {PcbEditor} app */
 export function getLastPointerWorld(app) {
     return stateFor(app).lastPointerWorld;
 }
 
+/** @param {PcbEditor} app */
 export function getLastCrosshairWorld(app) {
     return stateFor(app).lastCrosshairWorld;
 }
@@ -28,6 +33,7 @@ export function getLastCrosshairWorld(app) {
  * Show/update the drawing crosshair at the snapped cursor position.
  * Delegates the actual H+V lines to the shared Viewport crosshair so
  * schematic and PCB behave identically (and clear of the rulers).
+ * @param {PcbEditor} app
  */
 export function updateCursorCrosshair(app, worldPos) {
     if (!app.viewport) return;
@@ -37,6 +43,7 @@ export function updateCursorCrosshair(app, worldPos) {
     app.viewport.setCrosshair({ x: snap.x, y: snap.y });
 }
 
+/** @param {PcbEditor} app */
 export function clearCursorCrosshair(app) {
     app.viewport?.hideCrosshair();
     stateFor(app).lastCrosshairWorld = null;
@@ -48,6 +55,7 @@ export function clearCursorCrosshair(app) {
  * position has already been resolved by updateVertexDrag (grid / pad /
  * axis snap), so the crosshair lands exactly where the node will drop.
  * No-op for segment drags (two moving nodes, no single point).
+ * @param {PcbEditor} app
  */
 export function updateVertexDragCrosshair(app) {
     const drag = getVertexDrag(app);

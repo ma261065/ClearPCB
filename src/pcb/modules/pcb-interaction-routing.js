@@ -12,6 +12,7 @@ import { handleTextDrag, endTextDrag } from './pcb-text-selection.js';
 import { handleRefDrag, endRefDrag } from './ref-text-selection.js';
 import { clearCursorCrosshair, updateCursorCrosshair, updateVertexDragCrosshair } from './cursor-state.js';
 import { updatePcbPaste } from './pcb-paste.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** A release handler's outcome: the release is fully handled, so stop. */
 const RELEASE_CONSUMED = 'consumed';
@@ -32,7 +33,9 @@ const WRAPPER_FINISHED = 'wrapper-finished';
  */
 const HANDLERS = {
     _boardOutlineResize: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { updateBoardOutlineResize(app, app.screenToWorld(e)); },
+        /** @param {PcbEditor} app */
         release: (app, worldPos) => {
             if (worldPos) updateBoardOutlineResize(app, worldPos);
             endBoardOutlineResize(app);
@@ -41,41 +44,55 @@ const HANDLERS = {
         },
     },
     _pasteDrop: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { updatePcbPaste(app, app.screenToWorld(e)); },
     },
     _pcbSelectionInteraction: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             if (!updateSelectionInteraction(app, app.screenToWorld(e))) return false;
             app.viewport.svg.style.cursor = selectionInteractionCursor(app);
         },
         // Finishing may also leave a midpoint anchor floating (still active) for the next click.
+        /** @param {PcbEditor} app */
         release: (app, worldPos) => {
             if (!finishSelectionInteraction(app, true, worldPos)) return;
             clearCursorCrosshair(app);
             app.viewport.svg.style.cursor = 'default';
             return WRAPPER_FINISHED;
         },
+        /** @param {PcbEditor} app */
         cancel: app => { finishSelectionInteraction(app, false); },
     },
     _drag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { scheduleComponentDragUpdate(app, e); },
+        /** @param {PcbEditor} app */
         release: app => { endComponentDrag(app); },
+        /** @param {PcbEditor} app */
         cancel: app => { endComponentDrag(app, false); },
     },
     _groupDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { scheduleGroupDrag(app, app.screenToWorld(e)); },
+        /** @param {PcbEditor} app */
         release: app => {
             endGroupDrag(app);
             app.viewport.svg.style.cursor = 'default';
         },
+        /** @param {PcbEditor} app */
         cancel: app => { if (getGroupDrag(app)?.posePreview) cancelGroupDrag(app); },
     },
     _textDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { handleTextDrag(app, e); },
+        /** @param {PcbEditor} app */
         release: app => { endTextDrag(app); },
+        /** @param {PcbEditor} app */
         cancel: app => { endTextDrag(app, false); },
     },
     _shapeDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             const worldPos = app.screenToWorld(e);
             const draggingVertex = getBoardShapeDrag(app)?.mode === 'vertex';
@@ -83,6 +100,7 @@ const HANDLERS = {
             if (draggingVertex) updateCursorCrosshair(app, worldPos);
             refreshBoxSelectionHighlights(app);
         },
+        /** @param {PcbEditor} app */
         release: app => {
             endBoardShapeDrag(app, true);
             clearCursorCrosshair(app);
@@ -90,14 +108,19 @@ const HANDLERS = {
             app.viewport.svg.style.cursor = 'default';
         },
         wrapped: true,
+        /** @param {PcbEditor} app */
         cancel: app => { endBoardShapeDrag(app, false); },
     },
     _refDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { handleRefDrag(app, e); },
+        /** @param {PcbEditor} app */
         release: app => { endRefDrag(app); },
+        /** @param {PcbEditor} app */
         cancel: app => { endRefDrag(app, false); },
     },
     _vertexDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             // Preserve click-to-refine selection without treating a drag as a click.
             const down = getVertexDragDownScreen(app);
@@ -107,6 +130,7 @@ const HANDLERS = {
             updateVertexDragCrosshair(app);
         },
         // A segment press released without dragging refines the selection to that segment.
+        /** @param {PcbEditor} app */
         release: app => {
             setVertexDragDownScreen(app, null);
             const segmentEdgeId = getSegmentClickEdgeId(app);
@@ -127,10 +151,13 @@ const HANDLERS = {
             setSegmentClickEdgeId(app, null);
         },
         wrapped: true,
+        /** @param {PcbEditor} app */
         cancel: app => { cancelVertexDrag(app); },
     },
     _viaDrag: {
+        /** @param {PcbEditor} app */
         move: (app, e) => { updateViaDrag(app, app.screenToWorld(e)); },
+        /** @param {PcbEditor} app */
         release: app => {
             finishViaDrag(app);
             app.viewport.svg.style.cursor = 'default';
@@ -141,9 +168,11 @@ const HANDLERS = {
                 selectTrackOrVia(app, { type: 'via', via });
             }
         },
+        /** @param {PcbEditor} app */
         cancel: app => { cancelViaDrag(app); },
     },
     _trackDraw: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             updateTrackDraw(app, app.screenToWorld(e));
             const snap = getTrackDraw(app)?.snap;
@@ -151,6 +180,7 @@ const HANDLERS = {
         },
     },
     _fillDraw: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             updateFillDraw(app, app.screenToWorld(e));
             const snap = getFillDraw(app)?.snap;
@@ -158,6 +188,7 @@ const HANDLERS = {
         },
     },
     _shapeDraw: {
+        /** @param {PcbEditor} app */
         move: (app, e) => {
             updateShapeDrawPreview(app, app.screenToWorld(e));
             updateCursorCrosshair(app, app.screenToWorld(e));
@@ -222,7 +253,10 @@ export function createPointerGestureFinishers(h, finishMarquee = app => {
     const cancelKeys = keysWith('cancel');
     const releaseKeys = keysWith('release');
     return {
-        /** Cancel the selection gesture and any pointer drag it wraps, in priority order. */
+        /**
+         * Cancel the selection gesture and any pointer drag it wraps, in priority order.
+         * @param {PcbEditor} app
+         */
         cancel(app) {
             for (const key of cancelKeys) {
                 if (getPcbInteraction(app, key)) h[key].cancel(app);
@@ -234,6 +268,7 @@ export function createPointerGestureFinishers(h, finishMarquee = app => {
          * already ended (or, for a floating midpoint anchor, kept) the drag it wraps, so wrapped
          * drags are skipped after it. Other drags are mutually exclusive, and a marquee never
          * runs alongside one, so their relative order does not matter.
+         * @param {PcbEditor} app
          */
         release(app, worldPos) {
             let wrapperFinished = false;
@@ -255,14 +290,17 @@ export const PCB_RELEASE_OUTCOMES = Object.freeze({ consumed: RELEASE_CONSUMED, 
 
 const finishers = createPointerGestureFinishers(HANDLERS);
 
-/** Cancel the selection gesture and any pointer drag it wraps, in priority order. */
+/**
+ * Cancel the selection gesture and any pointer drag it wraps, in priority order.
+ * @param {PcbEditor} app
+ */
 export function cancelPcbPointerGestures(app) {
     finishers.cancel(app);
 }
 
 /**
  * Finish the gestures a primary-button release ends; see createPointerGestureFinishers.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{x: number, y: number}|null} worldPos
  */
 export function releasePcbPointerGestures(app, worldPos) {

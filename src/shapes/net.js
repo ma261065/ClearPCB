@@ -471,8 +471,10 @@ export class Net extends Shape {
         return { minX, minY, maxX, maxY };
     }
 
-    /** @override */
-    /** @param {Point} point */
+    /**
+     * @override
+     * @param {Point} point
+     */
     hitTest(point, tolerance = 0.5) {
         const bounds = this.getBounds();
         return (
@@ -483,8 +485,8 @@ export class Net extends Shape {
         );
     }
 
-    /** @override */
     /**
+     * @override
      * @param {Point} point
      * @param {number} scale
      */
@@ -539,8 +541,8 @@ export class Net extends Shape {
         this.labelText.invalidate();
     }
 
-    /** @override */
     /**
+     * @override
      * @param {string} anchorId
      * @param {number} x
      * @param {number} y
@@ -561,8 +563,8 @@ export class Net extends Shape {
         return undefined;
     }
 
-    /** @override */
     /**
+     * @override
      * @param {number} dx
      * @param {number} dy
      */

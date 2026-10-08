@@ -59,9 +59,11 @@ function board() {
     const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill]]);
     const app = {
         counts, tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [], texts: new Map(),
+        board: {},
         copperFills: [new CopperFill({ net: 'GND', outline: [
             { x: -5, y: -5 }, { x: 5, y: -5 }, { x: 5, y: 5 }, { x: -5, y: 5 },
         ] })],
+        get pcbDocument() { return this; },
         getLayerGroup: id => id === 'ratlines' ? ratLayer : fillGroups.get(id),
         existingLayerGroups() { return this._layerGroups; },
         _layerGroups: fillGroups,

@@ -234,13 +234,8 @@ function generateFromShapes(shapes, bbox, source) {
     }
 
     /**
-     * Map an EasyEDA layer code to a PCB layer id for outline/silk shapes.
-     * Returns null for layers we don't render (copper, etc.).
-     * @param {number} code
-     * @returns {string|null}
-     */
-    /**
-     * Map EasyEDA layer codes to PCB layer ids.
+     * Map an EasyEDA layer code to a PCB layer id for outline/silk shapes;
+     * null for layers we don't render (copper, etc.).
      * Official: https://docs.easyeda.com/en/DocumentFormat/3-EasyEDA-PCB-File-Format/
      * KiCad:    https://dev-docs.kicad.org/en/import-formats/easyeda/
      *   1  = TopLayer (F.Cu)       2  = BottomLayer (B.Cu)

@@ -4,6 +4,7 @@ import { areDragOverlaysDeferred } from './refresh-state.js';
 import { isPcbPasteActive } from './pcb-paste.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { ensureSvgDefs } from './svg-defs.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
  * Copper cuts: the per-side SVG clip-paths that remove copper under copper-removal
@@ -18,6 +19,7 @@ const cutStates = new WeakMap();
  * Per-editor state. `applied` holds the clip path string last applied per side
  * (`null` = cleared, `undefined` = not yet computed); `geometry` the resolved cut
  * geometry per side; `active` whether any side has a cut.
+ * @param {PcbEditor} app
  */
 function cutState(app) {
     let state = cutStates.get(app);
@@ -29,12 +31,18 @@ function cutState(app) {
     return state;
 }
 
-/** The copper-cut caches, for tests. */
+/**
+ * The copper-cut caches, for tests.
+ * @param {PcbEditor} app
+ */
 export function copperCutState(app) {
     return cutState(app);
 }
 
-/** Whether any copper cut is applied, so view changes know to re-fit the clip. */
+/**
+ * Whether any copper cut is applied, so view changes know to re-fit the clip.
+ * @param {PcbEditor} app
+ */
 export function hasCopperCuts(app) {
     return cutStates.get(app)?.active || false;
 }
@@ -50,6 +58,7 @@ export function hasCopperCuts(app) {
  * resolution-independent, so it stays exact at any zoom. A raster mask
  * blows past the GPU's maximum texture size when zoomed in and gets
  * silently dropped, which made the copper "fill back in".
+ * @param {PcbEditor} app
  */
 export function updateCopperCuts(app, { geometryChanged = true } = {}) {
     const defs = ensureSvgDefs(app);
@@ -136,6 +145,7 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
 /**
  * Drop the copper-cut clip-paths when the board is cleared; they are rebuilt as
  * removal shapes re-render.
+ * @param {PcbEditor} app
  */
 export function clearCopperCuts(app) {
     const state = cutState(app);

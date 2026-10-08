@@ -11,6 +11,7 @@ const rectangle = (left, top, right, bottom) => [
 function ratlines(options) {
     const lines = [];
     reconcileRatsnest({ boardShapes: [], copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
+        get pcbDocument() { return this; },
         getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }), ...options });
     return lines.length;
 }

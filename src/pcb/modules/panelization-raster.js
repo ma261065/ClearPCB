@@ -1,5 +1,6 @@
 import { inlineSvgComputedStyles } from '../../shared/ui/export.js';
 import { stripRemovalHatches } from './removal-hatch.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -11,6 +12,7 @@ export function panelRasterSize(bounds, scale, pixelRatio = 1) {
         height: Math.max(1, Math.ceil(bounds.h / longest * pixels)) };
 }
 
+/** @param {PcbEditor} app */
 export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const viewport = app.viewport;
     let disposed = false;

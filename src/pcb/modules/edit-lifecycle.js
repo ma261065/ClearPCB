@@ -10,9 +10,10 @@ import { hasPcbGesture } from './pcb-interactions.js';
 import { cancelPcbPointerGestures } from './pcb-interaction-routing.js';
 import { PANEL_EDITOR_KINDS, getPropertyEditor, setPropertyEditor, hasActivePropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** Cancel one active property preview without disposing its controls.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  */
 export function cancelPcbPropertyPreview(app) {
     // Shape/track previews retain their existing Escape priority.
@@ -26,13 +27,13 @@ export function cancelPcbPropertyPreview(app) {
 }
 
 /** Pointer/inline interactions that must finish before another selection action.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  */
 export function hasPcbInteractionInProgress(app) {
     return hasPcbGesture(app);
 }
 
-/** @param {import('../../ui/PCBApp.js').default} app */
+/** @param {PcbEditor} app */
 export function hasPcbEditInProgress(app) {
     return !!(hasPcbInteractionInProgress(app)
         || areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)
@@ -40,7 +41,7 @@ export function hasPcbEditInProgress(app) {
 }
 
 /** Release the old panel's editors before replacing its controls or document.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {object|null} [owner] Canonical target whose pointer gesture remains displayed.
  */
 export function disposePcbPropertyEditors(app, owner = null) {
@@ -58,7 +59,7 @@ export function disposePcbPropertyEditors(app, owner = null) {
 }
 
 /** Cancel previews, leaving drawing/inline-text policy to the caller.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  */
 export function cancelPcbPosePreviews(app) {
     disposeFillRefresh(app);

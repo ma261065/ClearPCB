@@ -10,6 +10,7 @@ import { measureText as measureStrokeText, stringToPolylines } from '../../share
 import { isEditorActive } from './pcb-editor-api.js';
 import { getPropertyEditor } from './property-editors.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
  * In-place editing of free PCB text: a hidden input captures keystrokes, IME and
@@ -39,7 +40,10 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
     return { top: top - strokeRadius, bottom: bottom + strokeRadius };
 }
 
-/** The in-progress inline text edit (`{ text, … }`), or null. */
+/**
+ * The in-progress inline text edit (`{ text, … }`), or null.
+ * @param {PcbEditor} app
+ */
 export function activeTextInlineEdit(app) {
     return getPcbInteraction(app, '_textEdit');
 }
@@ -48,6 +52,7 @@ export function activeTextInlineEdit(app) {
  * Begin in-place editing of a PCB text annotation. A hidden input takes the
  * keystrokes and an SVG overlay draws the box and caret. Commits on Enter,
  * cancels on Escape (see the module comment for the other ways it ends).
+ * @param {PcbEditor} app
  * @param {object} text
  * @param {{x:number,y:number}} [worldPos] - if given, the caret is
  *   placed at the character nearest this click point; otherwise it
@@ -341,6 +346,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
 /**
  * Finish in-place text editing. If `commit`, pushes an EditTextCommand
  * with the new content. Always tears down the overlay.
+ * @param {PcbEditor} app
  * @param {boolean} commit
  */
 export function endTextInlineEdit(app, commit) {

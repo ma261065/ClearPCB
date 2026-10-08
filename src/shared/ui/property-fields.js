@@ -51,7 +51,7 @@ export const MIXED_LABEL = 'Mixed';
  * @property {number} [max]
  * @property {number} [step]
  * @property {'rotation'|'precise'|string} [numberFormat] Display hint for core/number-inputs.js.
- * @property {(value: any) => string} [format] Number display; default two decimals, as every
+ * @property {(value: any) => string|number} [format] Number display; default two decimals, as every
  *   number input, unless `numberFormat` is rotation, precise or integer.
  * @property {(text: string) => number} [parse] Number parse; NaN is invalid. Default Number (blank is NaN).
  * @property {() => number} [seedMixed] Number used when a mixed/blank number starts a spinner or Arrow-key step.

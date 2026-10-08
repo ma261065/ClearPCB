@@ -149,15 +149,19 @@ export class Wire extends PolylineGraph {
 
     /* ──────────────────── Wire-specific graph overrides ───────────── */
 
-    /** @override — also clean up pinConnections when removing a node. */
-    /** @param {string} nodeId */
+    /**
+     * @override — also clean up pinConnections when removing a node.
+     * @param {string} nodeId
+     */
     removeNode(nodeId) {
         this.pinConnections.delete(nodeId);
         super.removeNode(nodeId);
     }
 
-    /** @override — handle pinConnections during merge. */
-    /** @param {string} keepId @param {string} removeId */
+    /**
+     * @override — handle pinConnections during merge.
+     * @param {string} keepId @param {string} removeId
+     */
     mergeNodes(keepId, removeId) {
         if (keepId === removeId) return;
         if (this.pinConnections.has(removeId) && !this.pinConnections.has(keepId))
@@ -166,14 +170,18 @@ export class Wire extends PolylineGraph {
         super.mergeNodes(keepId, removeId);
     }
 
-    /** @override — protect pin-connected nodes from graph simplification. */
-    /** @param {string} nodeId */
+    /**
+     * @override — protect pin-connected nodes from graph simplification.
+     * @param {string} nodeId
+     */
     _isProtectedNode(nodeId) {
         return this.pinConnections.has(nodeId);
     }
 
-    /** @override — handle pinConnections + net names during absorb. */
-    /** @param {any} other @param {Map<string, string>} remap */
+    /**
+     * @override — handle pinConnections + net names during absorb.
+     * @param {any} other @param {Map<string, string>} remap
+     */
     _onAbsorb(other, remap) {
         if (other.pinConnections) {
             for (const [oldNid, conn] of other.pinConnections) {
@@ -185,14 +193,18 @@ export class Wire extends PolylineGraph {
         if (!this.net && other.net) this.net = other.net;
     }
 
-    /** @override — create Wire instances for subgraph extraction. */
-    /** @returns {PolylineGraph} */
+    /**
+     * @override — create Wire instances for subgraph extraction.
+     * @returns {PolylineGraph}
+     */
     _createSubgraphInstance() {
         return /** @type {PolylineGraph} */ (/** @type {unknown} */ (new Wire({ color: this.color, lineWidth: this.lineWidth, net: this.net })));
     }
 
-    /** @override — copy pinConnections into extracted subgraph. */
-    /** @param {PolylineGraph} sub @param {Set<string>} nodeIds */
+    /**
+     * @override — copy pinConnections into extracted subgraph.
+     * @param {PolylineGraph} sub @param {Set<string>} nodeIds
+     */
     _onExtractSubgraph(sub, nodeIds) {
         const wireSub = /** @type {Wire} */ (/** @type {unknown} */ (sub));
         for (const nid of nodeIds) {
@@ -201,16 +213,20 @@ export class Wire extends PolylineGraph {
         }
     }
 
-    /** @override — also delete pinConnection when deleting an anchor. */
-    /** @param {string} anchorId */
+    /**
+     * @override — also delete pinConnection when deleting an anchor.
+     * @param {string} anchorId
+     */
     deleteAnchor(anchorId) {
         const result = super.deleteAnchor(anchorId);
         if (result) this.pinConnections.delete(anchorId);
         return result;
     }
 
-    /** @override — also move linked label text. */
-    /** @param {number} dx @param {number} dy */
+    /**
+     * @override — also move linked label text.
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         super.move(dx, dy);
         if (this.labelText) {
@@ -220,8 +236,10 @@ export class Wire extends PolylineGraph {
         }
     }
 
-    /** @override */
-    /** @returns {PolylineGraph} */
+    /**
+     * @override
+     * @returns {PolylineGraph}
+     */
     clone() {
         const c = new Wire({
             color: this.color, lineWidth: this.lineWidth,
@@ -246,8 +264,10 @@ export class Wire extends PolylineGraph {
         return s;
     }
 
-    /** @override — restores pinConnections, net, wireLabel, labelOffset. */
-    /** @param {Record<string, any>} state */
+    /**
+     * @override — restores pinConnections, net, wireLabel, labelOffset.
+     * @param {Record<string, any>} state
+     */
     applyState(state) {
         // Let base restore nodes/edges
         super.applyState(state);

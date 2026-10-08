@@ -921,8 +921,10 @@ export class PolylineGraph extends Shape {
         return { minX: minX - hw, minY: minY - hw, maxX: maxX + hw, maxY: maxY + hw };
     }
 
-    /** @override */
-    /** @param {Point} point */
+    /**
+     * @override
+     * @param {Point} point
+     */
     hitTest(point, tolerance = HIT_TEST_TOLERANCE) {
         if (this.type === 'polyline') {
             const segments = this._strokeSegments();
@@ -940,8 +942,10 @@ export class PolylineGraph extends Shape {
         return this.distanceTo(point) <= tolerance + this.lineWidth / 2;
     }
 
-    /** @override */
-    /** @param {Point} point */
+    /**
+     * @override
+     * @param {Point} point
+     */
     distanceTo(point) {
         if (this.type === 'polyline') {
             return this._strokeSegments().reduce((distance, segment) =>

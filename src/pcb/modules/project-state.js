@@ -19,8 +19,9 @@ import { isEditorActive, setEditorStale } from './pcb-editor-api.js';
 import { clearDrcResults, resetDrc } from './drc-state.js';
 import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
 import { clearFillGroups } from './fill-refresh.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
-/** @param {any} app */
+/** @param {PcbEditor} app */
 export function serializePcb(app) {
     return app.pcbDocument.serialize(serializeGridSettings(app.viewport));
 }
@@ -29,7 +30,7 @@ export function preparePcb(data) {
     return PcbDocument.prepare(data);
 }
 
-/** @param {any} app */
+/** @param {PcbEditor} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
     app.cancelAutoRoute?.();
     if (prepared.data) data = prepared.data;

@@ -1,3 +1,5 @@
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @param {PcbEditor} app */
 export function showSaveToast(app, text = 'Saved') {
     const anchor = app.status.docTitle || document.getElementById('pcbDocTitle');
     if (!anchor) return;

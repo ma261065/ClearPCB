@@ -31,7 +31,9 @@ import {
     ModifyBoardShapeCommand as ModelModifyBoardShapeCommand,
 } from '../../core/pcb-shape-commands.js';
 import { refreshBoardView } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
     const remaining = selected.filter((entry) => entry.kind !== 'shape' || entry.object.id !== shape.id);
@@ -41,6 +43,7 @@ function deselectRemovedShape(app, shape) {
 }
 
 export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
+    /** @param {PcbEditor} app */
     constructor(app, shape) {
         super(app.pcbDocument, shape);
         this.app = app;
@@ -68,6 +71,7 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
 }
 
 export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
+    /** @param {PcbEditor} app */
     constructor(app, shape) {
         super(app.pcbDocument, canonicalBoardShape(app, shape));
         this.app = app;
@@ -100,6 +104,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
+    /** @param {PcbEditor} app */
     constructor(app, shape, before, after) {
         super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
@@ -120,6 +125,7 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
 }
 
 export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
+    /** @param {PcbEditor} app */
     constructor(app, shape, before, after) {
         super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;

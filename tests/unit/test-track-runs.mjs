@@ -123,6 +123,7 @@ function connectivityApp(viaY) {
         placements: new Map(),
         boardShapes: [],
         copperFills: [],
+        get pcbDocument() { return this; },
         getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
     };
     getDrcPresentation(app).followRatline = () => {

@@ -3,10 +3,28 @@ import { placementPose } from '../shared/pcb/board-geometry.js';
 const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOffsets', 'pasteOffsets', 'silks',
     'pads', 'name', 'reference', 'outline', 'refVisible', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth'];
 
-/** @typedef {{x:number, y:number, number?:string|number}} BoardPad */
-/** @typedef {{padId?:string|number, number?:string|number, dx:number, dy:number, layer?:string, _baseLayer?:string}} PadOffset */
-/** @typedef {{side?:string, _baseSide?:string}} PasteOffset */
-/** @typedef {{x?:number, y?:number, rotation?:number, mirror?:boolean, side?:string, padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<any, BoardPad>, [key:string]:any}} Placement */
+/**
+ * A pad's world position, by pad id. Placements built without padOffsets (the
+ * autorouter's test board) also carry the pad's size, shape and layer here.
+ * @typedef {{x:number, y:number, number?:string|number, layer?:string, width?:number, height?:number, shape?:string}} BoardPad
+ */
+/**
+ * A footprint pad relative to the placement origin (pcb-footprint.js). `padId` tells
+ * duplicate-numbered pads apart; `_baseLayer` is the layer before a bottom-side flip.
+ * @typedef {{padId:string|number, number:string|number, dx:number, dy:number, width?:number, height?:number,
+ *   drill?:number, slotLength?:number, slotAngle?:number, layer?:string, shape?:string, mask?:boolean,
+ *   paste?:boolean, _baseLayer?:string}} PadOffset
+ */
+/** @typedef {{dx?:number, dy?:number, width?:number, height?:number, shape?:string, side?:string, _baseSide?:string}} PasteOffset */
+/**
+ * A component on the board: its saved pose (PlacementOverride) and the footprint
+ * resolved for it (PcbPlacementState.resolve). Render code also keeps its SVG
+ * elements on the placement, hence the open index.
+ * @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number,
+ *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:any,
+ *   outline?:any, silks?:any[], reference?:string, value?:string, footprint?:string, source?:string,
+ *   model3dObj?:unknown, model3dUrl?:string|null, [key:string]:any}} Placement
+ */
 /** @typedef {import('../shapes/track.js').Track} Track */
 
 /** Detach full-precision physical placement data without copying presentation state. */

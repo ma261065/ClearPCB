@@ -38,9 +38,9 @@ for (const options of [
     clone.move(3, 5);
     const translated = fill.getOutline().map(point => ({ x: point.x + 3, y: point.y + 5 }));
     clone.getOutline().forEach((point, index) => assert.ok(Math.hypot(point.x - translated[index].x, point.y - translated[index].y) < 1e-9));
-    const app = { boardShapes: [fill] };
+    const app = { boardShapes: [fill], get pcbDocument() { return this; } };
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [] };
+    const restored = { boardShapes: [], get pcbDocument() { return this; } };
     loadBoardShapes(restored, saved, { render: false, strict: true });
     assert.deepEqual(restored.boardShapes[0].getOutline(), fill.getOutline());
 }

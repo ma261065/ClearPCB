@@ -43,6 +43,9 @@ import {
 } from './board-shapes.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
 import { getLastCrosshairWorld } from './cursor-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -59,6 +62,7 @@ const COPPER_MODE_OPTIONS = [
     { value: 'remove-copper-mask', label: 'Remove Copper + Mask' },
 ];
 
+/** @param {PcbEditor} app */
 function boardNetNames(app) {
     const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
     for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
@@ -73,7 +77,7 @@ function boardNetNames(app) {
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {'line'|'circle'|'rect'|'polygon'|'arc'} kind
  */
 export function showBoardShapeToolProperties(app, kind) {
@@ -81,6 +85,7 @@ export function showBoardShapeToolProperties(app, kind) {
     if (!getShapeDraw(app)) app.activeLayer = resolveShapeDrawLayer(app, app.activeLayer);
     const redraw = () => updateShapeDrawPreview(app, getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1));
     const refresh = () => app.refreshPropertyPanel?.(describe());
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const layer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
         const copper = layer === 'top-copper' || layer === 'bottom-copper';
@@ -104,20 +109,20 @@ export function showBoardShapeToolProperties(app, kind) {
                         redraw();
                         showBoardShapeToolProperties(app, kind);
                     } },
-                ...(copper ? [{ key: 'copperMode', id: 'pcbToolShapeCopperMode', type: 'select', label: 'Copper Mode',
+                ...(copper ? /** @type {PropertyField[]} */ ([{ key: 'copperMode', id: 'pcbToolShapeCopperMode', type: 'select', label: 'Copper Mode',
                     value: normalizeShapeCopperMode(defaults.copperMode), options: COPPER_MODE_OPTIONS, commit: value => {
                         defaults.copperMode = normalizeShapeCopperMode(value);
                         redraw();
                         refresh();
-                    } }] : []),
+                    } }]) : []),
                 ...(copper && normalizeShapeCopperMode(defaults.copperMode) === 'add'
-                    ? [{ key: 'net', id: 'pcbToolShapeNet', type: 'net', label: 'Net', value: defaults.net || '',
-                        nets: boardNetNames(app), commit: value => { defaults.net = value.trim(); } }] : []),
-                ...(showFill ? [{ key: 'fill', id: 'pcbToolShapeFilled', type: 'checkbox', label: 'Fill', value: !!defaults.filled,
-                    commit: value => { defaults.filled = !!value; redraw(); refresh(); } }] : []),
-                ...(layer === 'hole' ? [{ key: 'plated', id: 'pcbToolShapePlated', type: 'checkbox', label: 'Plated',
-                    value: !!defaults.plated, commit: value => { defaults.plated = !!value; } }] : []),
-                ...(showLineWidth ? [{ key: 'lineWidth', id: 'pcbToolShapeLineWidth', type: 'number', label: 'Line Width (mm)',
+                    ? /** @type {PropertyField[]} */ ([{ key: 'net', id: 'pcbToolShapeNet', type: 'net', label: 'Net', value: defaults.net || '',
+                        nets: boardNetNames(app), commit: value => { defaults.net = value.trim(); } }]) : []),
+                ...(showFill ? /** @type {PropertyField[]} */ ([{ key: 'fill', id: 'pcbToolShapeFilled', type: 'checkbox', label: 'Fill', value: !!defaults.filled,
+                    commit: value => { defaults.filled = !!value; redraw(); refresh(); } }]) : []),
+                ...(layer === 'hole' ? /** @type {PropertyField[]} */ ([{ key: 'plated', id: 'pcbToolShapePlated', type: 'checkbox', label: 'Plated',
+                    value: !!defaults.plated, commit: value => { defaults.plated = !!value; } }]) : []),
+                ...(showLineWidth ? /** @type {PropertyField[]} */ ([{ key: 'lineWidth', id: 'pcbToolShapeLineWidth', type: 'number', label: 'Line Width (mm)',
                     value: normalizedBoardShapeLineWidth({ kind, layer }, defaults.lineWidth), min: lineWidthMinimum, step: 0.05,
                     format: value => Number(value).toFixed(2), preview: value => {
                         const next = normalizedBoardShapeLineWidth({ kind, layer }, value);
@@ -125,8 +130,8 @@ export function showBoardShapeToolProperties(app, kind) {
                         defaults.lineWidth = next;
                         redraw();
                         refresh();
-                    }, commit: () => {} }] : []),
-                ...(kind === 'rect' ? [{ key: 'cornerRadius', id: 'pcbToolShapeCornerRadius', type: 'number',
+                    }, commit: () => {} }]) : []),
+                ...(kind === 'rect' ? /** @type {PropertyField[]} */ ([{ key: 'cornerRadius', id: 'pcbToolShapeCornerRadius', type: 'number',
                     label: 'Corner Radius (mm)', value: Math.max(0, Number(defaults.cornerRadius) || 0), min: 0, max: 25, step: 0.5,
                     format: value => Number(value).toFixed(2), normalize: value => Math.min(25, Math.max(0, value)),
                     preview: value => {
@@ -135,7 +140,7 @@ export function showBoardShapeToolProperties(app, kind) {
                         defaults.cornerRadius = next;
                         redraw();
                         refresh();
-                    }, commit: () => {} }] : []),
+                    }, commit: () => {} }]) : []),
             ],
         };
     };
@@ -143,6 +148,7 @@ export function showBoardShapeToolProperties(app, kind) {
     app.setPcbStatus?.();
 }
 
+/** @param {PcbEditor} app */
 export function showImageProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
@@ -221,6 +227,7 @@ export function showImageProperties(app, shape) {
         });
         refresh();
     };
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const { width, height, rotation } = geometryValues();
         const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
@@ -237,10 +244,10 @@ export function showImageProperties(app, shape) {
                         if (!PICTURE_LAYERS.includes(value) || isLayerLocked(value)) { refresh(); return; }
                         commit(candidate => { candidate.layer = value; });
                     } },
-                ...(shape.layer.endsWith('copper') ? [{ key: 'net', id: 'pcbPropImageNet', type: 'select', label: 'Net',
+                ...(shape.layer.endsWith('copper') ? /** @type {PropertyField[]} */ ([{ key: 'net', id: 'pcbPropImageNet', type: 'select', label: 'Net',
                     value: shape.net || '', disabled: readOnly, options: [{ value: '', label: 'Unassigned' },
                         ...names.map(name => ({ value: name, label: name }))],
-                    commit: value => commit(candidate => { candidate.net = value.trim(); }) }] : []),
+                    commit: value => commit(candidate => { candidate.net = value.trim(); }) }]) : []),
                 { key: 'width', id: 'pcbPropImageWidth', type: 'number', label: 'Width (mm)', value: width, min: 0.1, max: 500,
                     step: 0.1, hold, format: value => Number(value).toFixed(2), disabled: readOnly,
                     preview: value => previewResize('width', value), commit: () => finishPreview(widthPreview),
@@ -282,6 +289,7 @@ const openShapePanels = new WeakMap();
  * Re-describe the open board-shape panel in place when it shows `shape` (a drag or
  * preview changed values it displays). Opening a new panel each pointer move would
  * churn editors and focus.
+ * @param {PcbEditor} app
  */
 export function syncBoardShapePanel(app, shape) {
     const panel = openShapePanels.get(app);
@@ -291,6 +299,7 @@ export function syncBoardShapePanel(app, shape) {
     else showBoardShapeProperties(app, shape);
 }
 
+/** @param {PcbEditor} app */
 export function showBoardShapeProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
@@ -489,6 +498,7 @@ export function showBoardShapeProperties(app, shape) {
     };
     // Board outline width/height scale the outline about its bounds; each step previews it live.
     const outlineDimensionPreviews = {};
+    /** @returns {PropertyField} */
     const outlineDimensionField = (key, id, label, axis, dimension) => ({
         key, id, type: 'number', label, value: boardBoundary(app)?.[dimension] ?? 0, min: 0.1, step: 1,
         format: formatNumberInputValue, disabled: isLayerLocked(shape.layer), hold,
@@ -509,6 +519,7 @@ export function showBoardShapeProperties(app, shape) {
         commit: () => finishPreview(outlineDimensionPreviews[key]),
         cancel: () => cancelPreview(outlineDimensionPreviews[key]),
     });
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const targets = propertyTargets();
         const lineWidthMinimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
@@ -550,6 +561,7 @@ export function showBoardShapeProperties(app, shape) {
         );
         const showBulge = targets.length === 1 && selectedNode == null
             && (shape.kind === 'arc' || (selectedSegment != null && boardShapeSegmentBulge(displayedBoardShape(app, shape), selectedSegment) !== 0));
+        /** @type {PropertyField[]} */
         const fields = [];
         if (selectedNode != null) {
             fields.push(
@@ -696,14 +708,17 @@ export function showBoardShapeProperties(app, shape) {
     refresh();
 }
 
+/** @param {PcbEditor} app */
 export function syncShapeBulgeProperty(app, shape) {
     syncBoardShapePanel(app, shape);
 }
 
+/** @param {PcbEditor} app */
 export function syncCircleDiameterProperty(app, shape) {
     if (shape?.kind === 'circle') syncBoardShapePanel(app, shape);
 }
 
+/** @param {PcbEditor} app */
 export function refreshBoardShapeProperties(app, shape) {
     if (!shape || !isPcbSelected(app, 'shape', shape)) return;
     // A multi-selection may be showing the shared panel (mixed kinds or locked members).

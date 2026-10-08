@@ -6,6 +6,9 @@ import { resolveCopperPads } from './copper-model.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
 import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, resolveTerminalCopperContact, pointInCopperRegion } from './track-contact-geometry.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** A board plus the document it came from, which keys the terminal-contact cache. @typedef {PcbBoard & {pcbDocument?: PcbEditor['pcbDocument']}} CopperBoard */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
 const ratlinePointKey = ({ x, y }) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
@@ -32,6 +35,19 @@ export function shapeCopperContains(contact, point) {
     return false;
 }
 
+/**
+ * Walk copper reachable from a seed track/via, ignoring Net names.
+ * Base connectivity follows layer-compatible junctions and Via/Track overlap.
+ * With includeShapes, use the same physical contact geometry as ratlines for
+ * all copper types, including Pad rims, curved strokes and pour regions.
+ * Drill voids and region holes do not conduct. Cross-layer contact still
+ * requires a through Via or Pad.
+ * @param {CopperBoard} app
+ * @param {{track?:any, tracks?:Set<object>, via?:object, padKey?:string, edgeId?:string, nodeId?:string}} seed
+ * @param {{includeShapes?:boolean, newTracks?:Set<object>|null}} [options]
+ *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
+ * @returns {{tracks:Set<object>, trackNodes:Map<object,Set<string>>, vias:Set<object>, shapes:Set<object>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}}
+ */
 export function collectBondedCopper(app, seed, { includeShapes = false, newTracks = null } = {}) {
     const clusters = buildBondedClusters(app, includeShapes);
 
@@ -89,6 +105,7 @@ export function expandCopperContactRoots(contacts, roots, newTracks = null, touc
     }
 }
 
+/** @param {CopperBoard} app */
 export function buildBondedClusters(app, includeShapes) {
     const clusters = buildCopperClusters(app);
     if (!clusters.length) terminalContactPasses.delete(app);
@@ -125,7 +142,7 @@ export function* nodeTargetPairs(nodes, contacts) {
 /**
  * Resolve placed nodes and their connected groups for Net validation/adoption.
  * Track connections are node-to-target hits; track/track crossings are never queried.
- * @param {object} app
+ * @param {CopperBoard} app
  * @param {Map<object, Set<string>>} placedNodes
  */
 export function collectNodeConnections(app, placedNodes) {
@@ -210,15 +227,30 @@ function _projectPointOnSegment(p, a, b) {
 // Retain only the last contact pass, not deleted terminals or an unbounded geometry history.
 const terminalContactPasses = new WeakMap();
 
+/**
+ * The editor's board with some collections replaced: what a connection query sees when
+ * it asks about copper that is not on the board yet (a drawn track, split parts).
+ * @param {PcbEditor} app
+ * @param {PcbBoard} changes
+ * @returns {CopperBoard}
+ */
+export function copperBoardWith(app, changes) {
+    return { tracks: app.tracks, vias: app.vias, pads: app.pads, texts: app.texts, boardShapes: app.boardShapes,
+        copperFills: app.copperFills, placements: app.placements, netlist: app.netlist, pcbDocument: app.pcbDocument,
+        ...changes };
+}
+
+/** @param {PcbEditor} app */
 export function clearTerminalContactPasses(app) {
     terminalContactPasses.delete(app);
 }
 
 /** Shared physical geometry for ratlines and bonded-Net traversal. */
+/** @param {CopperBoard} app */
 export function _clusterCopperContacts(app, clusters) {
     const contacts = [];
     const segments = new Map();
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     const previous = terminalContactPasses.get(app);
     const terminals = new Map();
     clusters.forEach((cluster, index) => {
@@ -304,6 +336,7 @@ function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
         }
     }
 }
+/** @param {PcbEditor} app */
 export function bondedExclusion(app, seedTrack, terminalSeed = null) {
     if (!seedTrack && !terminalSeed) return null;
     const { tracks, trackNodes, vias, padKeys } = collectBondedCopper(app, seedTrack ? { track: seedTrack } : terminalSeed);

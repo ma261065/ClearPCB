@@ -17,6 +17,7 @@
 import { noteEditSettled } from './refresh-state.js';
 import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia, setTrackLabelsVisible } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
+import { copperBoardWith } from './track-connections.js';
 import {
     hitTestTrackEdge,
     deleteTrackSegment,
@@ -82,6 +83,9 @@ import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -101,32 +105,39 @@ const HALO_OPACITY_HOVER = PCB_HOVER_HIGHLIGHT_OPACITY;
 const HIT_TOL_PX = 6;
 const COPPER_LAYERS = PCB_LAYERS.filter((layer) => layer.id === 'top-copper' || layer.id === 'bottom-copper');
 
+/** @param {PcbEditor} app */
 function trackSelectState(app) {
     let state = trackSelectStates.get(app);
     if (!state) trackSelectStates.set(app, state = { trackEdit: null, hoveredTrackOrVia: null });
     return state;
 }
 
+/** @param {PcbEditor} app */
 export function getTrackEdit(app) {
     return trackSelectState(app).trackEdit;
 }
 
+/** @param {PcbEditor} app */
 export function setTrackEdit(app, edit) {
     trackSelectState(app).trackEdit = edit;
 }
 
+/** @param {PcbEditor} app */
 export function clearTrackEdit(app) {
     setTrackEdit(app, null);
 }
 
+/** @param {PcbEditor} app */
 export function getSelectedTrack(app) {
     return getPcbSelection(app, 'track')[0] || null;
 }
 
+/** @param {PcbEditor} app */
 export function hasTrackEdit(app) {
     return !!getTrackEdit(app);
 }
 
+/** @param {PcbEditor} app */
 export function getSelectedVia(app) {
     return getPcbSelection(app, 'via')[0] || null;
 }
@@ -157,7 +168,10 @@ function trackHitTest(track, point, tolerance) {
     return false;
 }
 
-/** Adapter bridge for the graph-based Track model. */
+/**
+ * Adapter bridge for the graph-based Track model.
+ * @param {PcbEditor} app
+ */
 export function createTrackSelectionAdapter(app, track, id) {
     track = canonicalTrack(app, track);
     const current = () => displayedTrack(app, track);
@@ -310,6 +324,7 @@ export function createTrackSelectionAdapter(app, track, id) {
 
 registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
+/** @param {PcbEditor} app */
 export function createViaSelectionAdapter(app, via, id) {
     via = canonicalVia(app, via);
     const current = () => displayedVia(app, via);
@@ -351,6 +366,7 @@ registerPcbSelectionAdapter('via', createViaSelectionAdapter);
 
 /**
  * Find the topmost track/via under `worldPos` (vias preferred).
+ * @param {PcbEditor} app
  * @returns {{type:'track', track:object}|{type:'via', via:object}|null}
  */
 export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
@@ -383,7 +399,7 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
  * Hit-test a world position against LOCKED tracks/vias only — the mirror of
  * hitTestTrack, which deliberately ignores them. Used to detect when a user
  * clicks something that's locked so we can explain why it can't be selected.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{x:number,y:number}} worldPos
  * @param {number} [pxTol]
  * @returns {{type:'via'|'track', layerId:string}|null}
@@ -423,7 +439,7 @@ function _pointSegDist(p, a, b) {
 
 /**
  * Set the current track/via selection. Pass `null` to clear.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{type:'track', track:object}|{type:'via', via:object}|null} hit
  */
 export function selectTrackOrVia(app, hit) {
@@ -458,7 +474,7 @@ export function selectTrackOrVia(app, hit) {
  * Records the focused edge in the explicit Track edit state so selection
  * remains owned by the registry.
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {object} track
  * @param {string} edgeId
  */
@@ -482,6 +498,7 @@ export function selectTrackSegment(app, track, edgeId) {
     app.syncClipboardButtons?.();
 }
 
+/** @param {PcbEditor} app */
 export function selectTrackNode(app, track, nodeId) {
     track = canonicalTrack(app, track);
     if (!track.nodes.has(nodeId)) return;
@@ -491,6 +508,7 @@ export function selectTrackNode(app, track, nodeId) {
     app.setPcbStatus?.();
 }
 
+/** @param {PcbEditor} app */
 export function showTrackSelectionProperties(app, track) {
     track = canonicalTrack(app, track);
     const edit = getTrackEdit(app);
@@ -501,7 +519,10 @@ export function showTrackSelectionProperties(app, track) {
     } else selectTrackOrVia(app, { type: 'track', track });
 }
 
-/** Remove any track/via selection halos and clear stored references. */
+/**
+ * Remove any track/via selection halos and clear stored references.
+ * @param {PcbEditor} app
+ */
 export function clearTrackSelection(app) {
     getPropertyEditor(app, 'track')?.dispose();
     const prev = getSelectedTrack(app);
@@ -526,6 +547,7 @@ export function clearTrackSelection(app) {
  * Re-draw the selection halo for the currently-selected track/via.
  * Call this after the underlying track has been re-rendered (e.g.
  * during a vertex drag) so the halo follows the new geometry.
+ * @param {PcbEditor} app
  */
 export function refreshTrackSelectionHalo(app) {
     _removeHalos(app, HALO_CLASS);
@@ -559,6 +581,7 @@ export function refreshTrackSelectionHalo(app) {
  * Set the currently-hovered track/via highlight. Pass `null` to clear.
  * Selected objects keep their selection halo while the rest of the hovered
  * net receives hover halos.
+ * @param {PcbEditor} app
  */
 export function setHoverHighlight(app, hit) {
     if (hit?.type === 'track') {
@@ -622,7 +645,7 @@ export function setHoverHighlight(app, hit) {
  * to it through shared track nodes, vias at track nodes and pad connections. Tracks are
  * indexed by node position and pad once per walk, so a hover costs linear time on large
  * boards; the walk visits tracks in board order, as a scan would.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {any} seed
  */
 export function collectHoveredNet(app, seed) {
@@ -733,7 +756,10 @@ function _posKey(x, y) {
     return `${Math.round(x * 100)},${Math.round(y * 100)}`;
 }
 
-/** Look up the net name a pad belongs to, or '' if unknown. */
+/**
+ * Look up the net name a pad belongs to, or '' if unknown.
+ * @param {PcbEditor} app
+ */
 function _netForPad(app, componentId, pinNumber) {
     for (const entry of app.netlist || []) {
         for (const pin of entry.pins || []) {
@@ -750,6 +776,7 @@ function _netForPad(app, componentId, pinNumber) {
  * Draw a translucent overlay over a single pad (used for pad-hover).
  * Extracted from _drawPadHighlights so we can target one pad without
  * a Track context.
+ * @param {PcbEditor} app
  */
 function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     const pl = app.placements?.get(componentId);
@@ -806,6 +833,7 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     }
 }
 
+/** @param {PcbEditor} app */
 function _removeHalos(app, cls) {
     const groups = app.existingLayerGroups?.();
     if (!groups) return;
@@ -816,16 +844,23 @@ function _removeHalos(app, cls) {
 
 /* ── Public halo helpers (used by box-select multi-selection) ── */
 
-/** Draw a selection halo over a track using the given CSS class. */
+/**
+ * Draw a selection halo over a track using the given CSS class.
+ * @param {PcbEditor} app
+ */
 export function drawTrackHalo(app, track, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawTrackHalo(app, track, cls, opacity);
 }
 
-/** Draw a selection halo over a via using the given CSS class. */
+/**
+ * Draw a selection halo over a via using the given CSS class.
+ * @param {PcbEditor} app
+ */
 export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
     _drawViaHalo(app, via, cls, opacity);
 }
 
+/** @param {PcbEditor} app */
 export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELECTED) {
     const parent = app.getLayerGroup?.('selection-overlay');
     if (!parent) return;
@@ -842,7 +877,10 @@ export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELE
     parent.appendChild(polygon);
 }
 
-/** Remove every halo with the given CSS class from all layers. */
+/**
+ * Remove every halo with the given CSS class from all layers.
+ * @param {PcbEditor} app
+ */
 export function removeHalosByClass(app, cls) {
     _removeHalos(app, cls);
 }
@@ -850,6 +888,7 @@ export function removeHalosByClass(app, cls) {
 /**
  * Delete the currently selected track or via, then reconcile ratlines
  * and update the properties panel.
+ * @param {PcbEditor} app
  */
 export function deleteSelectedTrack(app) {
     getPropertyEditor(app, 'track')?.cancel();
@@ -894,6 +933,7 @@ export function deleteSelectedTrack(app) {
 /**
  * Delete a single segment (edge) of `track`, replacing it with the
  * remaining connected pieces. Runs as one undoable compound command.
+ * @param {PcbEditor} app
  */
 export function deleteTrackSegmentAt(app, track, edgeId) {
     track = canonicalTrack(app, track);
@@ -918,7 +958,7 @@ export function dismissTrackContextMenu() {
  * screen position. Selects the item first so the action targets it.
  * Intended for the select tool only (caller enforces that).
  *
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {{type:'track', track:object}|{type:'via', via:object}} hit
  * @param {number} clientX
  * @param {number} clientY
@@ -967,6 +1007,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
 
 /* ──────────────────────────── halos ──────────────────────────── */
 
+/** @param {PcbEditor} app */
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     if (!trackIsVisible(track)) return;
     const edit = getTrackEdit(app);
@@ -1000,6 +1041,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
 /**
  * Draw the selection halo for a single track edge (segment selection).
  * Overlays just that one edge plus handles at its two endpoints.
+ * @param {PcbEditor} app
  */
 function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const e = track.edges?.get(edgeId);
@@ -1030,6 +1072,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
  * Highlight every pad the track is connected to with the same
  * translucent-white overlay, so the user can see which component pins
  * the track lands on.
+ * @param {PcbEditor} app
  */
 function _drawPadHighlights(app, track, cls, opacity) {
     if (!track.padConnections?.size || !app.placements) return;
@@ -1080,6 +1123,7 @@ function _drawPadHighlights(app, track, cls, opacity) {
     }
 }
 
+/** @param {PcbEditor} app */
 function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const layer = app.getLayerGroup('vias');
     if (!layer) return;
@@ -1100,6 +1144,7 @@ function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTE
  * unmistakable. The visual state is derived from `cls`:
  *   - hover  → just the X (the bore stays open)
  *   - select → the X plus a filled disc
+ * @param {PcbEditor} app
  */
 function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     const layer = app.getLayerGroup('hole');
@@ -1148,6 +1193,7 @@ function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELEC
 /**
  * A layer change rebuilds the bonded copper region, removing and re-adding its
  * other tracks and vias; refuse it when that would rewrite a locked one.
+ * @param {PcbEditor} app
  */
 function regionRewritesLockedCopper(app, track, region) {
     const locked = region.removeTracks.some(other => other !== track && isPcbObjectLocked(app, 'track', other))
@@ -1156,6 +1202,7 @@ function regionRewritesLockedCopper(app, track, region) {
     return locked;
 }
 
+/** @param {PcbEditor} app */
 function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) {
     let preview = null;
     let activeSpec = null;
@@ -1305,10 +1352,12 @@ function bindTrackWidth(binding, edgeId = null) {
     }, { min: 0.05, step: 0.05, normalize: value => value > 0 ? value : NaN });
 }
 
+/** @param {PcbEditor} app */
 function _showTrackNodeProperties(app, track, nodeId) {
     const node = track.nodes.get(nodeId);
     if (!node) return;
     let binding;
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const current = track.nodes.get(nodeId);
         return {
@@ -1328,6 +1377,7 @@ function _showTrackNodeProperties(app, track, nodeId) {
     setPropertyEditor(app, 'track', binding);
 }
 
+/** @param {PcbEditor} app */
 function _showTrackProperties(app, track) {
     let binding;
     const layers = new Set();
@@ -1408,6 +1458,7 @@ function _showTrackProperties(app, track) {
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
     };
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const lock = lockedProperty(app, lockEntries);
         const readOnly = lock.readOnly;
@@ -1432,12 +1483,12 @@ function _showTrackProperties(app, track) {
                 commit: applyCopperMode },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
                 disabled: readOnly, nets: copperNetNames(app), commit: applyNet },
-            ...(canFillTrackLoop(track) ? [{ key: 'fill', id: 'pcbPropTrackFill', type: 'checkbox', label: 'Fill',
+            ...(canFillTrackLoop(track) ? /** @type {PropertyField[]} */ ([{ key: 'fill', id: 'pcbPropTrackFill', type: 'checkbox', label: 'Fill',
                 disabled: readOnly, value: false, commit: checked => {
                     if (!checked || !binding.prepare()) return;
                     clearTrackSelection(app);
                     if (!fillTrackLoop(app, track)) showTrackSelectionProperties(app, track);
-                } }] : []),
+                } }]) : []),
             bindTrackWidth(binding),
             bindTrackCornerRadius(binding),
         ];
@@ -1454,6 +1505,7 @@ function _showTrackProperties(app, track) {
  * Properties panel for a single selected track segment (one edge). The
  * Net is track-wide; the Layer and Width retarget only this edge so a
  * single segment can hop layers and change width independently.
+ * @param {PcbEditor} app
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
     let binding;
@@ -1505,6 +1557,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
     };
+    /** @returns {PropertyPanel} */
     const describe = () => {
         const fields = [
             { key: 'layer', id: 'pcbPropSegLayer', type: 'select', label: 'Layer',
@@ -1529,6 +1582,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
  * region touches a pad whose schematic-assigned net differs from `v`
  * (the schematic is authoritative — rename it there instead).
  *
+ * @param {PcbEditor} app
  * @returns {boolean} true if applied (or a no-op), false if refused.
  */
 export function _applyNetToBondedCopper(app, seed, v) {
@@ -1546,8 +1600,7 @@ export function _applyNetToBondedCopper(app, seed, v) {
             const selectedTrack = parts[selectedIndex];
             const tracks = (app.tracks || []).filter(track => track !== seed.track);
             tracks.push(...parts);
-            group = collectBondedCopper({ ...app, tracks, vias: app.vias, pads: app.pads,
-                boardShapes: app.boardShapes }, { track: selectedTrack });
+            group = collectBondedCopper(copperBoardWith(app, { tracks }), { track: selectedTrack });
             replacement = { original: seed.track, parts, selectedTrack };
         }
     }
@@ -1585,7 +1638,10 @@ export function _applyNetToBondedCopper(app, seed, v) {
     return true;
 }
 
-/** Apply a net to all selected vias and the copper bonded to each of them. */
+/**
+ * Apply a net to all selected vias and the copper bonded to each of them.
+ * @param {PcbEditor} app
+ */
 function _applyNetToSelectedVias(app, vias, v) {
     const tracks = new Set();
     const bondedVias = new Set();
@@ -1630,7 +1686,10 @@ function _applyNetToSelectedVias(app, vias, v) {
     return true;
 }
 
-/** Apply a net to the union of copper bonded to selected tracks and vias. */
+/**
+ * Apply a net to the union of copper bonded to selected tracks and vias.
+ * @param {PcbEditor} app
+ */
 export function applyNetToCopperSelection(app, entries, v, additionalCommands = []) {
     const tracks = new Set();
     const vias = new Set();
@@ -1679,6 +1738,7 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function showViaProperties(app, via) {
     via = canonicalVia(app, via);
     const selectedVias = getPcbSelection(app, 'via').map(target => canonicalVia(app, target));
@@ -1764,6 +1824,7 @@ export function showViaProperties(app, via) {
         reRender();
         refresh();
     };
+    /** @returns {PropertyField} */
     const numberField = (key, id, label) => {
         const current = shown(via);
         const currentLimits = limits();
@@ -1794,25 +1855,27 @@ export function showViaProperties(app, via) {
             if (!applied) refresh();
         }
     };
+    /** @returns {PropertyPanel} */
     function describe() {
         const lock = lockedProperty(app, lockEntries);
         const readOnly = lock.readOnly;
         return {
             title: 'Via',
-            fields: [
+            fields: /** @type {PropertyField[]} */ ([
                 lock.field,
                 { key: 'net', id: 'pcbPropViaNet', type: 'net', label: 'Net',
                     value: shown(via).net || '', mixed: mixed('net'), disabled: readOnly, nets: copperNetNames(app),
                     commit: applyNet },
                 numberField('diameter', 'pcbPropViaDia', 'Diameter (mm)'),
                 numberField('drill', 'pcbPropViaDrill', 'Drill (mm)'),
-            ].map(field => field.key === 'locked' ? field : { ...field, disabled: field.disabled || readOnly }),
+            ]).map(field => field.key === 'locked' ? field : { ...field, disabled: field.disabled || readOnly }),
         };
     }
     if (!app.openPropertyPanel?.(describe(), via)) { binding.dispose(); return; }
     setPropertyEditor(app, 'via', binding);
 }
 
+/** @param {PcbEditor} app */
 function copperNetNames(app) {
     if (typeof app.netNames === 'function') return app.netNames();
     const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));

@@ -10,6 +10,7 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFoc
 // Low-level plumbing that owner modules register into at load time, so it reads the
 // group-drag preview from the import-free store rather than importing box-select.
 import { getPcbInteraction } from './pcb-interactions.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
@@ -23,6 +24,7 @@ const groupGeometryMembers = new Set([
     'getLockPosition', 'invalidate', 'render',
 ]);
 
+/** @param {PcbEditor} app */
 function placementSelectionHit(app, point, method, readHit, all = false) {
     const query = hitQueries.get(app);
     const read = () => {
@@ -45,14 +47,17 @@ export function registerPcbReferenceOverlayRefresh(refresh) {
     referenceOverlayRefresher = refresh;
 }
 
+/** @param {PcbEditor} app */
 export function getComponentSelectionHits(app, point) {
     return placementSelectionHit(app, point, 'component', placementHitReaders.get('component'), true);
 }
 
+/** @param {PcbEditor} app */
 export function getRefTextSelectionHit(app, point) {
     return placementSelectionHit(app, point, '_hitTestRefText', placementHitReaders.get('reftext'));
 }
 
+/** @param {PcbEditor} app */
 function querySelectionHits(app, point) {
     const previous = hitQueries.get(app);
     hitQueries.set(app, { x: point.x, y: point.y, results: new Map() });
@@ -76,6 +81,7 @@ export function registerPcbSelectionAdapter(kind, factory) {
 // keyed weakly; component/reference IDs are pruned when their placement goes.
 let adapterCaches = new WeakMap();
 
+/** @param {PcbEditor} app */
 function adapter(app, kind, object) {
     let caches = adapterCaches.get(app);
     if (!caches) adapterCaches.set(app, caches = new Map());
@@ -86,6 +92,7 @@ function adapter(app, kind, object) {
     return entry;
 }
 
+/** @param {PcbEditor} app */
 function pruneIdAdapters(app) {
     for (const kind of ['component', 'reftext']) {
         const cache = adapterCaches.get(app)?.get(kind);
@@ -95,6 +102,7 @@ function pruneIdAdapters(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 function manager(app) {
     let selection = selectionManagers.get(app);
     if (!selection) {
@@ -126,10 +134,12 @@ function manager(app) {
     return selection;
 }
 
+/** @param {PcbEditor} app */
 export function getPcbSelectionManager(app) {
     return manager(app);
 }
 
+/** @param {PcbEditor} app */
 function createAdapter(app, kind, object) {
     const factory = adapterFactories.get(kind);
     if (factory) {
@@ -162,6 +172,7 @@ function createAdapter(app, kind, object) {
     };
 }
 
+/** @param {PcbEditor} app */
 function entries(app) {
     const out = [];
     for (const [id] of app.placements || []) out.push(adapter(app, 'component', id));
@@ -179,7 +190,10 @@ function entries(app) {
     return out;
 }
 
-/** Synchronize current PCB model entities while retaining selected keys. */
+/**
+ * Synchronize current PCB model entities while retaining selected keys.
+ * @param {PcbEditor} app
+ */
 export function syncPcbSelection(app) {
     const selection = manager(app);
     const next = entries(app);
@@ -199,21 +213,27 @@ export function syncPcbSelection(app) {
     selection._selectionCache = null;
 }
 
+/** @param {PcbEditor} app */
 export function setPcbSelection(app, values) {
     syncPcbSelection(app);
     manager(app).selectMultiple(values.map(({ kind, object }) => keyFor(kind, object)));
 }
 
+/** @param {PcbEditor} app */
 export function togglePcbSelection(app, kind, object) {
     syncPcbSelection(app);
     manager(app).toggle(keyFor(kind, object));
 }
 
+/** @param {PcbEditor} app */
 export function clearPcbSelection(app) {
     manager(app).clearSelection();
 }
 
-/** Discard selection and hover adapters before replacing the document's models. */
+/**
+ * Discard selection and hover adapters before replacing the document's models.
+ * @param {PcbEditor} app
+ */
 export function resetPcbSelection(app) {
     const selection = manager(app);
     selection.clearSelection();
@@ -222,25 +242,35 @@ export function resetPcbSelection(app) {
     adapterCaches.delete(app);
 }
 
-/** @param {string|null} [kind] */
+/**
+ * @param {PcbEditor} app
+ * @param {string|null} [kind]
+ */
 export function getPcbSelection(app, kind = null) {
     return manager(app).getSelection()
         .filter((item) => !kind || item.kind === kind)
         .map((item) => item.object);
 }
 
-/** Return selected adapters when the caller needs both kind and object. */
+/**
+ * Return selected adapters when the caller needs both kind and object.
+ * @param {PcbEditor} app
+ */
 export function getPcbSelectionEntries(app) {
     return manager(app).getSelection();
 }
 
+/** @param {PcbEditor} app */
 export function refreshPcbReferenceOverlay(app) {
     const componentId = getPcbSelection(app, 'reftext')[0] || null;
     referenceOverlayRefresher?.(app, componentId);
 }
 
 /** Hit test an adapter kind through the shared selection ordering rules. */
-/** @param {string|null} [kind] */
+/**
+ * @param {PcbEditor} app
+ * @param {string|null} [kind]
+ */
 export function hitTestPcbSelection(app, point, kind = null) {
     syncPcbSelection(app);
     const hits = querySelectionHits(app, point);
@@ -248,6 +278,7 @@ export function hitTestPcbSelection(app, point, kind = null) {
     return hit?.object || null;
 }
 
+/** @param {PcbEditor} app */
 export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = {}) {
     if (sync) syncPcbSelection(app);
     const allowed = kinds ? new Set(kinds) : null;
@@ -257,6 +288,7 @@ export function getPcbSelectionHits(app, point, kinds = null, { sync = true } = 
     return hits.sort((first, second) => rank(first) - rank(second));
 }
 
+/** @param {PcbEditor} app */
 export function hitTestPcbSelectionEntry(app, point, kinds) {
     return getPcbSelectionHits(app, point, kinds)[0] || null;
 }
@@ -277,10 +309,12 @@ export function boundsWithPathNodes(bounds, points) {
     return { minX, minY, maxX, maxY };
 }
 
+/** @param {PcbEditor} app */
 export function hasPcbSelection(app) {
     return manager(app).count > 0;
 }
 
+/** @param {PcbEditor} app */
 export function isPcbSelected(app, kind, object) {
     return !!object && manager(app).isSelected(keyFor(kind, object));
 }

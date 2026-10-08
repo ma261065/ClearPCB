@@ -19,6 +19,7 @@ function fixture(shape = 'rect', width = 0.5, height = 0.5, rotation = 0) {
         }]]),
         netlist: [{ net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] }],
         tracks: [], vias: [], pads: [], boardShapes: [],
+        get pcbDocument() { return this; },
         getLayerGroup() { return null; },
         viewport: { svg: fakeElement('svg'), scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
     };

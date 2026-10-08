@@ -2,10 +2,14 @@ import { buildFillContext } from './fill-context.js';
 import { computeFillPolygonsInOrder, loadClipper } from './copper-fill-geom.js';
 import { serializePcbText } from '../../core/pcb-text.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
-/** Capture only pour inputs, never editor projections, SVG or rounded file data. */
+/**
+ * Capture only pour inputs, never editor projections, SVG or rounded file data.
+ * @param {PcbEditor} app
+ */
 export function captureFillInputs(app) {
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     const context = buildFillContext({
         tracks: model.tracks, vias: model.vias, pads: model.pads,
         texts: model.texts, boardShapes: model.boardShapes, copperFills: model.copperFills,

@@ -9,6 +9,7 @@ import { pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-
 import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool } from './pcb-tools.js';
 import { placementBlockMessage } from './layers.js';
 import { peekDrcPresentation } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
@@ -17,22 +18,27 @@ const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] })
 
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
 
+/** @param {PcbEditor} app */
 function designFactor(app) {
     return app.designSettings.values.units === 'inch' ? 1 / 25.4 : 1;
 }
 
+/** @param {PcbEditor} app */
 function designDigits(app) {
     return app.designSettings.values.units === 'inch' ? 4 : 3;
 }
 
+/** @param {PcbEditor} app */
 function designDisplay(app, key) {
     return String(Number((app.designSettings.values[key] * designFactor(app)).toFixed(designDigits(app))));
 }
 
+/** @param {PcbEditor} app */
 function gridOptions(app) {
-    return app.viewport?.getGridOptions?.() || [{ value: '1.27', label: '1.27 mm' }];
+    return app.viewport?.getGridOptions?.() || [{ value: 1.27, label: '1.27 mm' }];
 }
 
+/** @param {PcbEditor} app */
 function nearestGridValue(app) {
     const options = gridOptions(app).filter(option => Number.isFinite(option.value));
     const current = app.viewport?.gridSize ?? Number(options[0]?.value || 1.27);
@@ -49,15 +55,18 @@ function nearestGridValue(app) {
     return String(best?.value ?? current);
 }
 
+/** @param {PcbEditor} app */
 function ensureViewport(app) {
     app.ensureViewport?.();
     return app.viewport;
 }
 
+/** @param {PcbEditor} app */
 function boardView(app) {
     return app.currentBoardView?.() || null;
 }
 
+/** @param {PcbEditor} app */
 function saveDesignDefaults(app) {
     try {
         localStorage.setItem('clearpcb_pcb_design_params', JSON.stringify(app.designSettings.values));
@@ -107,6 +116,7 @@ const shapeItems = [...SHAPE_TOOLS].map(shape => ({
     title: PCB_TOOLS[shape].button.title, content: PCB_TOOLS[shape].button.content,
 }));
 
+/** @param {PcbEditor} app */
 export function createPcbRibbonDescription(app) {
     let lastShape = 'circle';
     const setTool = tool => selectPcbTool(app, tool);
@@ -161,7 +171,7 @@ export function createPcbRibbonDescription(app) {
                 title: 'Render',
                 className: 'ribbon-group--persistent ribbon-group--right ribbon-group--3d',
                 items: [
-                    B('pcb2dView', '🟩 2D View', 'Toggle the flat 2D board view', { active: () => ['top', 'bottom'].includes(boardView(app)), run: () => app.open2DView?.(app.last2DSide?.() || 'top') }),
+                    B('pcb2dView', '🟩 2D View', 'Toggle the flat 2D board view', { active: () => boardView(app) === 'top' || boardView(app) === 'bottom', run: () => app.open2DView?.(app.last2DSide?.() || 'top') }),
                     B('pcb3dView', '🧊 3D View', 'Toggle the interactive 3D board view', { active: () => boardView(app) === '3d', run: () => app.open3DView?.() }),
                 ],
             },
@@ -287,7 +297,7 @@ export function createPcbRibbonDescription(app) {
                         B('pcbZoomIn', '+', 'Zoom In', { run: () => ensureViewport(app)?.zoomIn() }),
                         B('pcbZoomFit', 'Fit', 'Fit to Board Area', { run: () => app.fitToContent?.() }),
                         B('pcbResetView', 'Default', 'Default View', { run: () => ensureViewport(app)?.resetView() }),
-                        B('pcbThemeToggle', () => getThemeIcon(getSavedTheme()), 'Toggle Dark/Light Mode', { className: 'theme-toggle', run: () => { toggleSharedTheme(); app.refreshPcbRibbon?.(); app.project?.schematicApp?.refreshRibbon?.(); } }),
+                        B('pcbThemeToggle', () => getThemeIcon(getSavedTheme()), 'Toggle Dark/Light Mode', { className: 'theme-toggle', run: () => { toggleSharedTheme(); app.refreshPcbRibbon?.(); } }),
                     ] },
                     { title: 'Fabrication', items: [
                         B('pcbPanelize', [E('span', { attrs: { 'aria-hidden': 'true' } }, '▦'), ' Panelize'], 'Configure board panel, rails and separation', { run: () => app.openPanelize?.() }),

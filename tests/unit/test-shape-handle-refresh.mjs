@@ -56,6 +56,7 @@ try {
             const app = {
                 boardShapes: [shape], tracks: [], vias: [], placements: new Map(), texts: new Map(), copperFills: [],
                 history: new CommandHistory(), _shapeElements: new Map(),
+                get pcbDocument() { return this; },
                 viewport: { scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
                 getLayerGroup(id) {
                     if (id === 'clearance-overlay' && new Error().stack.includes('refreshBoardShapeClearance')

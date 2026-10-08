@@ -9,11 +9,14 @@ import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { EditTextCommand, MoveTextCommand, previewTextPose, finishTextPosePreview } from './text-commands.js';
 import { getPropertyEditor } from './property-editors.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function getTextDrag(app) {
     return getPcbInteraction(app, '_textDrag');
 }
 
+/** @param {PcbEditor} app */
 export function beginTextDrag(app, text, worldPos) {
     getPropertyEditor(app, 'text')?.commit();
     text = text && app.pcbDocument.texts.get(text.id);
@@ -29,6 +32,7 @@ export function beginTextDrag(app, text, worldPos) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function updateTextDrag(app, worldPos) {
     const drag = getTextDrag(app);
     if (!drag) return;
@@ -45,12 +49,14 @@ export function updateTextDrag(app, worldPos) {
     app.refreshText(text.id);
 }
 
+/** @param {PcbEditor} app */
 export function handleTextDrag(app, e) {
     if (!getTextDrag(app)) return;
     app.viewport.shiftHeld = e.shiftKey;
     updateTextDrag(app, app.screenToWorld(e));
 }
 
+/** @param {PcbEditor} app */
 export function endTextDrag(app, commit = true) {
     const drag = getTextDrag(app);
     if (!drag) return;
@@ -66,6 +72,7 @@ export function endTextDrag(app, commit = true) {
         : undefined);
 }
 
+/** @param {PcbEditor} app */
 export function createPcbTextSelectionAdapter(app, text, id) {
     let rotationDrag = null;
     const current = () => app.texts.get(text.id) || text;

@@ -31,6 +31,8 @@
  *   Reset the Properties panel.
  * @property {(text: string) => void} setStatus
  *   Show a transient status-bar message.
+ * @property {(message: string, options?: {title?: string}) => Promise<void>} alert
+ *   Show a modal message (the schematic editor offers the same).
  * @property {() => void} setPcbStatus
  *   Refresh the tool/layer mode indicator.
  * @property {() => void} syncClipboardButtons
@@ -89,11 +91,26 @@
  *   Redraw the selection halos and lock overlays after an externally driven edit.
  */
 
+/**
+ * The PCB editor as pcb/modules see it. Every module types its `app` parameter with this
+ * (`@typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor` at the top of the file),
+ * so the checker knows which editor members a module uses.
+ * @typedef {import('../../ui/PCBApp.js').default} PcbEditor
+ */
+
+/**
+ * A board as plain collections: what board computations (DRC, copper connectivity, the
+ * 2D, 3D and Gerber builders) read. The editor is one; a worker's detached snapshot or a
+ * filtered copy is another, so those functions take this rather than the whole editor.
+ * Any collection may be missing, and they read each with a fallback.
+ * @typedef {Partial<Pick<PcbEditor, 'tracks'|'vias'|'pads'|'texts'|'boardShapes'|'copperFills'|'placements'|'netlist'>>} PcbBoard
+ */
+
 const editorActive = new WeakMap();
 
 /**
  * Set whether the PCB editor is the active (visible) tab.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {boolean} active
  */
 export function setEditorActive(app, active) {
@@ -103,7 +120,7 @@ export function setEditorActive(app, active) {
 /**
  * Whether the PCB editor is the active (visible) tab. Editors and fixtures that
  * never set the flag count as active; only an explicitly deactivated editor is not.
- * @param {any} app
+ * @param {PcbEditor} app
  */
 export const isEditorActive = app => editorActive.get(app) !== false;
 
@@ -111,7 +128,7 @@ const editorStale = new WeakMap();
 
 /**
  * Set whether the PCB must be rebuilt from the schematic before it is next shown.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {boolean} stale
  */
 export function setEditorStale(app, stale) {
@@ -121,7 +138,7 @@ export function setEditorStale(app, stale) {
 /**
  * Whether the PCB must be rebuilt from the schematic before it is next shown.
  * Editors and fixtures that never set the flag are up to date.
- * @param {any} app
+ * @param {PcbEditor} app
  */
 export const isEditorStale = app => editorStale.get(app) === true;
 
@@ -129,7 +146,7 @@ export const isEditorStale = app => editorStale.get(app) === true;
 export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
     'updateCopperCuts', 'refreshText', 'isBoardOutlineDrawn', 'selectFill', 'clearProperties',
-    'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
+    'setStatus', 'alert', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',
     'showComponentProperties', 'screenToWorld', 'snapToGrid', 'ensureViewport', 'markDirty', 'cancelAutoRoute',

@@ -16,8 +16,13 @@ const { setDragOverlaysDeferred, setFillRefreshScheduled, setFillRefreshSuspende
 const { generateGerberArchive } = await import('../../src/pcb/modules/gerber-export.js');
 const outline = [{ x: 1, y: -1 }, { x: 19, y: -1 }, { x: 19, y: -19 }, { x: 1, y: -19 }];
 const fill = new CopperFill({ net: 'GND', outline });
-const app = { placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
-    boardShapes: [fill], copperFills: [fill], board: { width: 20, height: 20, radius: 0 },
+const pcbDocument = new PcbDocument();
+Object.assign(pcbDocument.board, { width: 20, height: 20, radius: 0 });
+pcbDocument.boardShapes.push(fill);
+const app = { placements: new Map(), tracks: pcbDocument.tracks, vias: pcbDocument.vias,
+    pads: pcbDocument.pads, texts: pcbDocument.texts, netlist: [],
+    pcbDocument, boardShapes: pcbDocument.boardShapes, get copperFills() { return this.pcbDocument.copperFills; },
+    board: pcbDocument.board,
     getRoutingParams: () => ({ clearance: 0.2 }) };
 setFillRefreshScheduled(app, true);
 assert.equal(hasFabricationContent(app), true);
@@ -45,7 +50,7 @@ for (const state of ['_deferDragOverlays', '_suspendFillRefresh', '_rotationHand
         /Finish the current edit before exporting/, `${state} must not leak preview state into manufacturing output`);
 }
 assert.equal(hasFabricationContent({ placements: new Map(), tracks: [], vias: [], texts: new Map(),
-    boardShapes: [{ kind: 'image', layer: 'top-silk' }] }), true);
+    boardShapes: [{ kind: 'image', layer: 'top-silk' }], get pcbDocument() { return this; } }), true);
 const track = new Track({ points: [{ x: 2, y: -2 }, { x: 18, y: -2 }], width: 0.6 });
 const connectedNode = [...track.nodes.keys()][0];
 track.padConnections.set(connectedNode, { componentId: 'pad', pinNumber: '1' });
@@ -108,8 +113,13 @@ for (const layer of TEXT_LAYERS) for (const border of [false, true]) {
     const text = createPcbText({ id: 'snapshot-label', content: 'R1', x: Math.PI, y: -Math.E,
         size: 1.23456789, rotation: 37.12345678, strokeWidth: 0.12345678, layer, border });
     const authored = serializePcbText(text);
-    const textApp = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map([[text.id, text]]),
-        boardShapes: [], copperFills: [], board: { width: 20, height: 20, radius: 0 },
+    const textDocument = new PcbDocument();
+    Object.assign(textDocument.board, { width: 20, height: 20, radius: 0 });
+    textDocument.texts.set(text.id, text);
+    const textApp = { placements: new Map(), tracks: textDocument.tracks, vias: textDocument.vias,
+        pads: textDocument.pads, texts: textDocument.texts,
+        pcbDocument: textDocument, boardShapes: textDocument.boardShapes,
+        get copperFills() { return this.pcbDocument.copperFills; }, board: textDocument.board,
         getRoutingParams: () => ({ clearance: 0.2 }) };
     const clean = await prepareFabricationSnapshot(textApp, { computeFills: false });
     const expectedGerbers = exportGerbers(clean);

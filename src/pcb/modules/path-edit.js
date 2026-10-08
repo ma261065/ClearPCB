@@ -3,8 +3,10 @@ import { findNearbyPad, resolveGridMagnetSnap } from './track-draw.js';
 import { resolvePathPoint, resolvePathTranslation } from '../../shapes/path-snap.js';
 import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 export { pathMoveInteraction } from '../../shapes/path-interaction.js';
 
+/** @param {PcbEditor} app */
 export function beginPathSplit(app, adapter, anchorId, prepare) {
     const original = adapter.beginAnchorDrag;
     adapter.beginAnchorDrag = (id, point, options) => {
@@ -22,6 +24,7 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
     return !!anchor && beginPcbAnchorInteraction(app, adapter, anchor, anchor, true);
 }
 
+/** @param {PcbEditor} app */
 export function snapPathPoint(app, point, neighbours = [], pads = false, continuations = []) {
     if (app.viewport?.shiftHeld) return { x: point.x, y: point.y };
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
@@ -32,7 +35,10 @@ export function snapPathPoint(app, point, neighbours = [], pads = false, continu
     return resolvePathPoint(point, neighbours, grid, threshold, null, continuations);
 }
 
-/** Track paths pass `pads` to lock moved nodes onto pads; board shapes and fills do not. */
+/**
+ * Track paths pass `pads` to lock moved nodes onto pads; board shapes and fills do not.
+ * @param {PcbEditor} app
+ */
 export function snapPathTranslation(app, points, delta, neighbours = [], constraints = [], pads = false) {
     if (app.viewport?.shiftHeld) return delta;
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);

@@ -12,7 +12,9 @@ import {
 import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function createPadSelectionAdapter(app, pad, id) {
     pad = canonicalPad(app, pad);
     const current = () => displayedPad(app, pad);

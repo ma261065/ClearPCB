@@ -402,8 +402,8 @@ export class ProjectIntegrityError extends Error {
  * Storage writes only what the loader accepts, so a save or autosave never leaves a
  * file or recovery snapshot that would not reopen.
  * @throws {ProjectIntegrityError}
+ * @param {any} data
  */
-/** @param {any} data */
 export function storableProject(data) {
     let normalized;
     try {

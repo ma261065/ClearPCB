@@ -57,15 +57,18 @@ import { cancelTrackDragOf, draggedTrack, draggedVia } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPadHaloGroup } from './clearance-overlay.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
 const trackPropertyPreviews = new WeakMap();
 
+/** @param {PcbEditor} app */
 export function getTrackPropertyPreview(app) {
     return trackPropertyPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function canonicalTrack(app, track) {
     const trackDrag = draggedTrack(app);
     if (trackDrag?.preview === track) return trackDrag.original || track;
@@ -75,6 +78,7 @@ export function canonicalTrack(app, track) {
         || placementPreviews.get(app)?.originals.get(track) || track;
 }
 
+/** @param {PcbEditor} app */
 export function displayedTrack(app, track) {
     track = canonicalTrack(app, track);
     const placement = placementPreviews.get(app)?.copiesByOriginal.get(track);
@@ -87,6 +91,7 @@ export function displayedTrack(app, track) {
     return preview?.original === track ? preview.track : track;
 }
 
+/** @param {PcbEditor} app */
 function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
     if (!app.pcbDocument.tracks.includes(track)
         || (edgeId != null && !track.edges.has(edgeId))
@@ -95,7 +100,10 @@ function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
     }
 }
 
-/** Keep one exact graph copy for the active numeric track property field. */
+/**
+ * Keep one exact graph copy for the active numeric track property field.
+ * @param {PcbEditor} app
+ */
 export function beginTrackPropertyPreview(app, original, scope) {
     if (trackPropertyPreviews.has(app) || placementPreviews.has(app)
         || draggedVia(app) || draggedTrack(app)) {
@@ -112,7 +120,10 @@ export function beginTrackPropertyPreview(app, original, scope) {
     return preview;
 }
 
-/** Drop display ownership before the existing graph command applies authored state. */
+/**
+ * Drop display ownership before the existing graph command applies authored state.
+ * @param {PcbEditor} app
+ */
 export function finishTrackPropertyPreview(app, commit) {
     const preview = trackPropertyPreviews.get(app);
     if (!preview) return;
@@ -133,16 +144,19 @@ export function finishTrackPropertyPreview(app, commit) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function getViaPropertyPreview(app) {
     return viaPropertyPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function canonicalVia(app, via) {
     const viaDrag = draggedVia(app);
     if (viaDrag?.preview === via) return viaDrag.original;
     return viaPropertyPreviews.get(app)?.originals.get(via) || via;
 }
 
+/** @param {PcbEditor} app */
 export function displayedVia(app, via) {
     via = canonicalVia(app, via);
     const viaDrag = draggedVia(app);
@@ -150,7 +164,10 @@ export function displayedVia(app, via) {
     return viaPropertyPreviews.get(app)?.copies.get(via) || via;
 }
 
-/** Numeric via fields reuse one fixed-selection projection from first change. */
+/**
+ * Numeric via fields reuse one fixed-selection projection from first change.
+ * @param {PcbEditor} app
+ */
 export function beginViaPropertyPreview(app, vias) {
     if (viaPropertyPreviews.has(app) || draggedVia(app)) {
         throw new Error('Finish the current via preview before editing via properties.');
@@ -168,7 +185,10 @@ export function beginViaPropertyPreview(app, vias) {
     return preview;
 }
 
-/** Model commands receive canonical targets only, after all preview SVG is removed. */
+/**
+ * Model commands receive canonical targets only, after all preview SVG is removed.
+ * @param {PcbEditor} app
+ */
 export function finishViaPropertyPreview(app, commit) {
     const preview = viaPropertyPreviews.get(app);
     if (!preview) return;
@@ -203,14 +223,17 @@ export function finishViaPropertyPreview(app, commit) {
     }
 }
 
-/** @returns {Track[]|undefined} */
+/**
+ * @param {PcbEditor} app
+ * @returns {Track[]|undefined}
+ */
 export function getPlacementPreviewTracks(app) {
     return placementPreviews.get(app)?.tracks;
 }
 
 /**
  * Move connected copper in an editor-owned projection, never in the document.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {string} compId
  * @param {Partial<{x:number, y:number, rotation:number}>} pose
  */
@@ -220,7 +243,7 @@ export function previewPlacementPose(app, compId, pose) {
 
 /**
  * Preview a fixed set of component poses, sharing one copy of each bonded track.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {Map<string, Partial<{x:number, y:number, rotation:number}>>} poses
  * @param {Set<string>} [deferredTrackIds] Tracks rendered after a mixed-group translation.
  */
@@ -269,7 +292,7 @@ export function previewPlacementPoses(app, poses, deferredTrackIds) {
 
 /**
  * End the projection before a command runs; failures restore canonical track artwork.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {() => void} [commit]
  */
 export function finishPlacementPreview(app, commit) {
@@ -307,12 +330,16 @@ export function finishPlacementPreview(app, commit) {
     return !!preview;
 }
 
-/** Discard preview copper and restore clearance after a cancelled pose gesture. */
+/**
+ * Discard preview copper and restore clearance after a cancelled pose gesture.
+ * @param {PcbEditor} app
+ */
 export function restorePlacementPosePreview(app) {
     finishPlacementPreview(app);
     refreshEditedTrackClearance(app);
 }
 
+/** @param {PcbEditor} app */
 function deselectRemovedTrack(app, track) {
     if (!getPcbSelection(app, 'track').includes(track)) return;
     clearTrackSelection(app);
@@ -321,11 +348,13 @@ function deselectRemovedTrack(app, track) {
     app.clearProperties?.();
 }
 
+/** @param {PcbEditor} app */
 function refreshEditedTrackClearance(app) {
     if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
     if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
 }
 
+/** @param {PcbEditor} app */
 function _opts(app, track) {
     return {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter,
@@ -334,7 +363,10 @@ function _opts(app, track) {
     };
 }
 
-/** Net labels are hidden while a track is selected or being dragged. */
+/**
+ * Net labels are hidden while a track is selected or being dragged.
+ * @param {PcbEditor} app
+ */
 function _shouldHideNetLabel(app, track) {
     return !!track && (track === getPcbSelection(app, 'track')[0] || track === draggedTrack(app)?.preview);
 }
@@ -349,7 +381,7 @@ function _shouldHideNetLabel(app, track) {
  * Pad world positions are read live from the placement, so the caller
  * must update `pl.pads` (and `pl.x`/`pl.y`) before calling this.
  *
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} compId - The component whose pads moved
  * @returns {Set<object>|null} the set of tracks that were repositioned
  */
@@ -380,7 +412,7 @@ export function placementTransform(pl) {
  *
  * Callers must set `pl.x`, `pl.y` and `pl.rotation` first, then call this; the
  * caller decides whether to also reconcile the ratsnest / record an override.
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} compId
  */
 export function applyPlacementPose(app, compId) {
@@ -392,7 +424,10 @@ export function applyPlacementPose(app, compId) {
     refreshEditedTrackClearance(app);
 }
 
-/** Update existing SVG transforms without changing pads, track bonds or clearance. */
+/**
+ * Update existing SVG transforms without changing pads, track bonds or clearance.
+ * @param {PcbEditor} app
+ */
 export function renderPlacementPose(app, compId) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
@@ -441,6 +476,7 @@ export function renderPlacementPose(app, compId) {
  *  also add associated standalone Vias (e.g. at layer-change nodes)
  *  in the same atomic undo step. */
 export class AddTrackCommand extends ModelAddTrackCommand {
+    /** @param {PcbEditor} app */
     constructor(app, track, vias = []) {
         super(app.pcbDocument, track, vias);
         this.app = app;
@@ -469,6 +505,7 @@ export class AddTrackCommand extends ModelAddTrackCommand {
 }
 
 export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
+    /** @param {PcbEditor} app */
     constructor(app, tracks, vias, failedConnections = []) {
         super(app.pcbDocument, tracks, vias);
         this.app = app;
@@ -490,7 +527,7 @@ export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
 /**
  * Redraw routed copper after routes are replaced or cleared: tracks and vias, the
  * failed-connection ratlines, selection, DRC and clearance halos.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {Array<{net: string, x1: number, y1: number, x2: number, y2: number}>} [failedRatlines]
  */
 export function renderRoutedCopper(app, failedRatlines = []) {
@@ -545,6 +582,7 @@ export function renderRoutedCopper(app, failedRatlines = []) {
 
 /** Remove an existing Track from app.tracks and its SVG. */
 export class RemoveTrackCommand extends ModelRemoveTrackCommand {
+    /** @param {PcbEditor} app */
     constructor(app, track) {
         super(app.pcbDocument, canonicalTrack(app, track));
         this.app = app;
@@ -571,6 +609,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
  * snapshots are plain {key: value} objects.
  */
 export class ModifyTrackCommand extends ModelModifyTrackCommand {
+    /** @param {PcbEditor} app */
     constructor(app, track, before, after) {
         super(canonicalTrack(app, track), before, after);
         this.app = app;
@@ -586,6 +625,7 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
 
 /** Move a single Track node from (fromX, fromY) to (toX, toY). */
 export class MoveVertexCommand extends ModelMoveVertexCommand {
+    /** @param {PcbEditor} app */
     constructor(app, track, nodeId, fromX, fromY, toX, toY) {
         super(canonicalTrack(app, track), nodeId, fromX, fromY, toX, toY);
         this.app = app;
@@ -607,6 +647,7 @@ export class MoveVertexCommand extends ModelMoveVertexCommand {
  * and `after` are `track.captureState()` snapshots.
  */
 export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
+    /** @param {PcbEditor} app */
     constructor(app, track, before, after) {
         super(canonicalTrack(app, track), before, after);
         this.app = app;
@@ -622,6 +663,7 @@ export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
 }
 
 export class AddViaCommand extends ModelAddViaCommand {
+    /** @param {PcbEditor} app */
     constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         super.execute();
@@ -638,6 +680,7 @@ export class AddViaCommand extends ModelAddViaCommand {
 }
 
 export class RemoveViaCommand extends ModelRemoveViaCommand {
+    /** @param {PcbEditor} app */
     constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         removeViaElements(this.via);
@@ -654,6 +697,7 @@ export class RemoveViaCommand extends ModelRemoveViaCommand {
 }
 
 export class ModifyViaCommand extends ModelModifyViaCommand {
+    /** @param {PcbEditor} app */
     constructor(app, via, before, after) {
         super(via, before, after);
         this.app = app;
@@ -669,6 +713,7 @@ export class ModifyViaCommand extends ModelModifyViaCommand {
 
 /** Apply the same property edit to several vias with one derived refresh. */
 export class ModifyViasCommand extends ModelModifyViasCommand {
+    /** @param {PcbEditor} app */
     constructor(app, changes) {
         super(changes);
         this.app = app;
@@ -686,6 +731,7 @@ export class ModifyViasCommand extends ModelModifyViasCommand {
 
 /** Move a standalone Via from (fromX, fromY) to (toX, toY). */
 export class MoveViaCommand extends ModelMoveViaCommand {
+    /** @param {PcbEditor} app */
     constructor(app, via, fromX, fromY, toX, toY) {
         super(via, fromX, fromY, toX, toY);
         this.app = app;
@@ -698,6 +744,7 @@ export class MoveViaCommand extends ModelMoveViaCommand {
     }
 }
 
+/** @param {PcbEditor} app */
 function presentPlacementPose(app, compId, result) {
     const pl = app.placements?.get(compId);
     if (pl) {
@@ -717,6 +764,7 @@ function presentPlacementPose(app, compId, result) {
 }
 
 export class MovePlacementCommand extends ModelMovePlacementCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, fromX, fromY, toX, toY) {
         super(app.project, compId, fromX, fromY, toX, toY, app.placements?.get(compId));
         this.app = app;
@@ -734,6 +782,7 @@ export class MovePlacementCommand extends ModelMovePlacementCommand {
  * pose override, reconciles the ratsnest and refreshes any open 3D view.
  */
 export class RotatePlacementCommand extends ModelRotatePlacementCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, fromDeg, toDeg) {
         super(app.project, compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
@@ -747,6 +796,7 @@ export class RotatePlacementCommand extends ModelRotatePlacementCommand {
 
 /** Toggle whether a PCB placement can be transformed or have its reference edited. */
 export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, locked) {
         super(app.placementState, compId, locked, app.placements?.get(compId));
         this.app = app;
@@ -775,6 +825,7 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
  * V = horizontal axis), regardless of current orientation.
  */
 export class FlipPlacementCommand extends ModelFlipPlacementCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, axis) {
         super(app.project, compId, axis, app.placements?.get(compId));
         this.app = app;
@@ -790,7 +841,7 @@ export class FlipPlacementCommand extends ModelFlipPlacementCommand {
  * Show or hide a placement's reference designator (the silkscreen label). The
  * reference group is tagged with `data-fp-ref` by {@link renderFootprint}, so
  * it can be toggled per placement without touching the rest of the footprint.
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} compId
  * @param {boolean} visible
  */
@@ -806,6 +857,7 @@ export function applyPlacementRefVisible(app, compId, visible) {
 
 /** Toggle a placement's reference-designator visibility through history. */
 export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, visible) {
         super(app.placementState, compId, visible, app.placements?.get(compId));
         this.app = app;
@@ -835,7 +887,7 @@ const FP_LAYER_FLIP = {
  * layer is now electrically disconnected, so its `padConnections` entry is
  * dropped and the track left where it lies. Through-hole pads (`both`) reach
  * every copper layer and keep their bonds.
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} compId
  */
 export function disconnectIncompatiblePadNodes(app, compId) {
@@ -853,7 +905,7 @@ export function disconnectIncompatiblePadNodes(app, compId) {
  * layers for the ratsnest, DRC and gerber export. Geometry mirroring itself is
  * handled by {@link applyPlacementPose} via {@link isPlacementMirrored}; the
  * caller must invoke that afterwards. Does not touch history.
- * @param {object} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {string} compId
  * @param {'top'|'bottom'} side
  */
@@ -866,7 +918,10 @@ export function applyPlacementSide(app, compId, side) {
     disconnectIncompatiblePadNodes(app, compId);
 }
 
-/** Reparent and recolor footprint artwork without changing pads or track bonds. */
+/**
+ * Reparent and recolor footprint artwork without changing pads or track bonds.
+ * @param {PcbEditor} app
+ */
 export function renderPlacementSide(app, compId, side) {
     const pl = app.placements.get(compId);
     const flip = side === 'bottom';
@@ -895,6 +950,7 @@ export function renderPlacementSide(app, compId, side) {
  * persists the override, reconciles the ratsnest and refreshes any 3D view.
  */
 export class SetPlacementSideCommand extends ModelSetPlacementSideCommand {
+    /** @param {PcbEditor} app */
     constructor(app, compId, side) {
         super(app.project, compId, side, app.placements?.get(compId));
         this.app = app;
@@ -912,6 +968,7 @@ export class SetPlacementSideCommand extends ModelSetPlacementSideCommand {
 }
 
 export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
+    /** @param {PcbEditor} app */
     constructor(app, before, after) {
         super(app.pcbDocument, before, after);
         this.app = app;

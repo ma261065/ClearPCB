@@ -28,18 +28,24 @@ import { selectBoardOutline } from './board-outline-resize.js';
 import { selectRefText } from './ref-text-selection.js';
 import { setLastPointerWorld } from './cursor-state.js';
 import { showFillProperties } from './copper-fill-edit.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
-/** The active shared selection interaction (`{ mode, adapter, ... }`), or null. */
+/**
+ * The active shared selection interaction (`{ mode, adapter, ... }`), or null.
+ * @param {PcbEditor} app
+ */
 export function getSelectionInteraction(app) {
     return getPcbInteraction(app, '_pcbSelectionInteraction');
 }
 
+/** @param {PcbEditor} app */
 export function setSelectionInteraction(app, state) {
     setPcbInteraction(app, '_pcbSelectionInteraction', state);
 }
 
+/** @param {PcbEditor} app */
 export function selectionInteractionCursor(app) {
     if (isRotationHandleDragActive(app)) return ROTATION_CURSOR;
     const state = getSelectionInteraction(app);
@@ -47,6 +53,7 @@ export function selectionInteractionCursor(app) {
         ? (state.anchorKey === 'radius' ? 'ew-resize' : 'move') : 'grabbing';
 }
 
+/** @param {PcbEditor} app */
 export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
     app.selectComponent?.(null);
@@ -57,6 +64,7 @@ export function clearSelectionInteractionUi(app) {
     selectBoardShape(app, null);
 }
 
+/** @param {PcbEditor} app */
 function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
         app.selectComponent?.(entry.object);
@@ -77,7 +85,10 @@ function showSingleProperties(app, entry) {
     }
 }
 
-/** Show Properties for the current registry selection without collapsing it. */
+/**
+ * Show Properties for the current registry selection without collapsing it.
+ * @param {PcbEditor} app
+ */
 export function showPcbSelectionProperties(app) {
     const selected = getPcbSelectionEntries(app);
     if (!selected.length) {
@@ -106,7 +117,10 @@ export function showPcbSelectionProperties(app) {
     }
 }
 
-/** Start an anchor gesture; context-menu actions may request floating placement. */
+/**
+ * Start an anchor gesture; context-menu actions may request floating placement.
+ * @param {PcbEditor} app
+ */
 export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floating = false) {
     if (adapter.locked) return false;
     const anchorId = anchor.id ?? anchor.key;
@@ -126,6 +140,7 @@ export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floati
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function beginSelectionInteraction(app, worldPos, additive, cycle = false) {
     setLastPointerWorld(app, worldPos);
     const selected = getPcbSelectionEntries(app);
@@ -182,7 +197,10 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     return true;
 }
 
-/** Update the active supported-entity pointer state. */
+/**
+ * Update the active supported-entity pointer state.
+ * @param {PcbEditor} app
+ */
 export function updateSelectionInteraction(app, worldPos) {
     const state = getSelectionInteraction(app);
     if (!state) return false;
@@ -232,7 +250,10 @@ export function updateSelectionInteraction(app, worldPos) {
     return false;
 }
 
-/** Finish the active supported-entity pointer state. */
+/**
+ * Finish the active supported-entity pointer state.
+ * @param {PcbEditor} app
+ */
 export function finishSelectionInteraction(app, commit = true, worldPos = null) {
     if (commit && worldPos && getSelectionInteraction(app)?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
     const state = getSelectionInteraction(app);
@@ -277,7 +298,10 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     return true;
 }
 
-/** Place an anchor picked up by a midpoint click or context-menu action. */
+/**
+ * Place an anchor picked up by a midpoint click or context-menu action.
+ * @param {PcbEditor} app
+ */
 export function placeFloatingSelectionInteraction(app) {
     const state = getSelectionInteraction(app);
     if (state?.mode !== 'floating-anchor') return false;

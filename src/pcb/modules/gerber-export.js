@@ -1,4 +1,5 @@
 import { prepareFabricationSnapshot } from './fabrication-snapshot.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 export function showGerberProgress(label, value = null) {
     const host = document.getElementById('pcbGerberProgress');
@@ -12,6 +13,7 @@ export function showGerberProgress(label, value = null) {
     else bar.value = value;
 }
 
+/** @param {PcbEditor} app */
 export async function generateGerberArchive(app, onProgress = showGerberProgress) {
     onProgress('Capturing board');
     await new Promise(resolve => setTimeout(resolve, 0));

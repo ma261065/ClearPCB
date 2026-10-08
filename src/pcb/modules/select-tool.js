@@ -27,6 +27,7 @@ import { beginSelectionInteraction, getSelectionInteraction, selectionInteractio
 import { getPcbSelection } from './selection-registry.js';
 import { commitCollinearCleanup, getVertexDrag, setSegmentClickEdgeId, setVertexDragDownScreen, startVertexDrag, startViaDrag } from './track-drag.js';
 import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, setHoverHighlight, getTrackEdit } from './track-select.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * @typedef {object} SelectPress
@@ -40,7 +41,7 @@ import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, se
 
 /**
  * A primary press with the select tool.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {{x: number, y: number}} worldPos
  * @param {any} selectedGroupHit
@@ -54,7 +55,7 @@ export function pressSelectTool(app, e, worldPos, selectedGroupHit, phases = SEL
 
 /**
  * Pointer movement with the select tool: a pending marquee owns it, otherwise hover.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  */
 export function hoverSelectTool(app, e) {
@@ -64,7 +65,10 @@ export function hoverSelectTool(app, e) {
 }
 
 /** Hand the press to the shared adapter controller (anchors, rotation, overlap cycling). */
-/** @type {SelectPressPhase} */
+/**
+ * @param {PcbEditor} app
+ * @type {SelectPressPhase}
+ */
 function pressSelectionInteraction(app, press) {
     const { e, worldPos, additiveSelection } = press;
     const svg = app.viewport.svg;
@@ -82,7 +86,10 @@ function pressSelectionInteraction(app, press) {
 }
 
 /** Ctrl/Cmd-click toggles a board shape in the multi-selection. */
-/** @type {SelectPressPhase} */
+/**
+ * @param {PcbEditor} app
+ * @type {SelectPressPhase}
+ */
 function pressToggleShape(app, press) {
     const { worldPos, additiveSelection } = press;
     // Ctrl/Cmd-click mirrors the schematic editor's additive
@@ -110,7 +117,10 @@ function pressToggleShape(app, press) {
 }
 
 /** Edit or drag an active box selection, or drop it when the press misses it. */
-/** @type {SelectPressPhase} */
+/**
+ * @param {PcbEditor} app
+ * @type {SelectPressPhase}
+ */
 function pressBoxSelection(app, press) {
     const { worldPos, selectedGroupHit } = press;
     const svg = app.viewport.svg;
@@ -151,7 +161,10 @@ function pressBoxSelection(app, press) {
 }
 
 /** Continue dragging the selected fill, track, via or shape; otherwise release it. */
-/** @type {SelectPressPhase} */
+/**
+ * @param {PcbEditor} app
+ * @type {SelectPressPhase}
+ */
 function pressCurrentSelection(app, press) {
     const { e, worldPos } = press;
     const svg = app.viewport.svg;
@@ -232,7 +245,10 @@ function pressCurrentSelection(app, press) {
 }
 
 /** Select (and start dragging) the topmost target under the pointer, or arm a box select. */
-/** @type {SelectPressPhase} */
+/**
+ * @param {PcbEditor} app
+ * @type {SelectPressPhase}
+ */
 function pressNewTarget(app, press) {
     const { e, worldPos } = press;
     const svg = app.viewport.svg;
@@ -340,7 +356,7 @@ function pressNewTarget(app, press) {
 
 /**
  * The status-bar tip for the select tool, from what is selected or under the pointer.
- * @param {any} app
+ * @param {PcbEditor} app
  * @returns {string}
  */
 export function selectToolTip(app) {

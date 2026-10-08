@@ -55,15 +55,19 @@ export class NoConnect extends Shape {
         };
     }
 
-    /** @override */
-    /** @param {{x:number,y:number}} point */
+    /**
+     * @override
+     * @param {{x:number,y:number}} point
+     */
     hitTest(point, tolerance = 0.5) {
         const d = Math.hypot(point.x - this.x, point.y - this.y);
         return d <= NC_HALF + tolerance;
     }
 
-    /** @override */
-    /** @param {{x:number,y:number}} point */
+    /**
+     * @override
+     * @param {{x:number,y:number}} point
+     */
     distanceTo(point) {
         return Math.hypot(point.x - this.x, point.y - this.y);
     }
@@ -75,8 +79,8 @@ export class NoConnect extends Shape {
         ];
     }
 
-    /** @override */
     /**
+     * @override
      * @param {string} anchorId
      * @param {number} x
      * @param {number} y
@@ -90,8 +94,8 @@ export class NoConnect extends Shape {
         return undefined;
     }
 
-    /** @override */
     /**
+     * @override
      * @param {number} dx
      * @param {number} dy
      */

@@ -12,9 +12,11 @@ import { hitTestBoardOutline, hoverBoardOutline } from './board-outline-resize.j
 import { hitTestPad } from './pad-tool.js';
 import { updateCursorForTool } from './tool-lifecycle.js';
 import { updateNetTooltip } from './net-tooltip.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const hoverStates = new WeakMap();
 
+/** @param {PcbEditor} app */
 function state(app) {
     let s = hoverStates.get(app);
     if (!s) {
@@ -25,6 +27,7 @@ function state(app) {
     return s;
 }
 
+/** @param {PcbEditor} app */
 export function cancelHoverUpdate(app) {
     const s = state(app);
     s.pendingEvent = null;
@@ -34,14 +37,17 @@ export function cancelHoverUpdate(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function hoverOverlapHitCount(app) {
     return state(app).overlapHitCount;
 }
 
+/** @param {PcbEditor} app */
 export function setHoverOverlapHitCount(app, count) {
     state(app).overlapHitCount = count;
 }
 
+/** @param {PcbEditor} app */
 export function hoverComponentCandidate(app) {
     return state(app).componentHover;
 }
@@ -52,7 +58,7 @@ export function hoverComponentCandidate(app) {
  * every pad/track/text, so running it per-event makes the highlight lag
  * the cursor on dense boards. We stash the latest pointer event and do a
  * single hit-test pass per frame against the current viewport.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  */
 export function scheduleHoverUpdate(app, e) {

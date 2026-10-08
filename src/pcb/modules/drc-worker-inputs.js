@@ -1,6 +1,7 @@
 import { collectDrcInputs } from './drc.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const featureFields = ['kind', 'pin', 'componentId', 'padId', 'number', 'drill', 'slot', 'net', 'layer',
     'width', 'height', 'hw', 'hh', 'shape', 'rotation', 'reference', 'outline', 'uid', 'label', 'keyId',
@@ -11,9 +12,12 @@ const shapeFields = ['id', 'type', 'kind', 'layer', 'copperMode', 'x', 'y', 'rad
     'segmentBulges', 'filled', 'artwork'];
 const pick = (object, fields) => Object.fromEntries(fields.filter(key => key in object).map(key => [key, object[key]]));
 
-/** Full-precision physical DTOs, detached once, with no model/SVG references or file serialization. */
+/**
+ * Full-precision physical DTOs, detached once, with no model/SVG references or file serialization.
+ * @param {PcbEditor} app
+ */
 export function captureDrcInputs(app, rules = {}) {
-    const model = app.pcbDocument || app;
+    const model = app.pcbDocument;
     const inputs = collectDrcInputs({
         tracks: model.tracks, pads: model.pads, vias: model.vias, texts: model.texts,
         boardShapes: model.boardShapes, copperFills: model.copperFills,

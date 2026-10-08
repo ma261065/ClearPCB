@@ -17,6 +17,7 @@ import { showPathContextMenu } from './path-edit.js';
 import { isPcbSelected } from './selection-registry.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { CompoundCommand, SetPlacementLockedCommand } from './track-commands.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const NOUNS = {
     component: 'component', reftext: 'component', track: 'track', via: 'via',
@@ -29,7 +30,10 @@ const NOUNS = {
  * @typedef {{object: boolean, layers: LayerLock[]}} PcbLockState
  */
 
-/** The layers an object lives on; components have none of their own. */
+/**
+ * The layers an object lives on; components have none of their own.
+ * @param {PcbEditor} app
+ */
 export function pcbObjectLayers(app, kind, object) {
     if (kind === 'component') return [];
     if (kind === 'reftext') {
@@ -46,6 +50,7 @@ export function pcbObjectLayers(app, kind, object) {
 /**
  * The locks holding one object. Components and reference text are keyed by
  * component id; every other kind is the model object.
+ * @param {PcbEditor} app
  * @returns {PcbLockState}
  */
 export function pcbLockState(app, kind, object) {
@@ -63,12 +68,16 @@ export function pcbLockState(app, kind, object) {
  * Whether a layer lock holds the object. Select All and the marquee skip these (a
  * locked layer is meant to stay out of the way) but take objects locked on their
  * own, so a whole selection can be unlocked again from Properties.
+ * @param {PcbEditor} app
  */
 export function isPcbObjectLayerLocked(app, kind, object) {
     return pcbLockState(app, kind, object).layers.length > 0;
 }
 
-/** Whether an object is held by its own lock or a layer lock. */
+/**
+ * Whether an object is held by its own lock or a layer lock.
+ * @param {PcbEditor} app
+ */
 export function isPcbObjectLocked(app, kind, object) {
     const state = pcbLockState(app, kind, object);
     return state.object || state.layers.length > 0;
@@ -77,6 +86,7 @@ export function isPcbObjectLocked(app, kind, object) {
 /**
  * Tracks and vias that routing and Clear Routes keep: everything locked. The router
  * treats them as fixed copper, so new routes join same-net copper and avoid the rest.
+ * @param {PcbEditor} app
  */
 export function lockedRoutedCopper(app) {
     return {
@@ -92,6 +102,7 @@ export function boardShapeLocked(shape) {
 
 /** Editor command: the model toggle plus the Properties refresh it implies. */
 export class SetObjectLockedCommand extends ModelSetObjectLockedCommand {
+    /** @param {PcbEditor} app */
     constructor(app, kind, object, locked) {
         super(app.pcbDocument, kind, object, locked);
         this.app = app;
@@ -102,14 +113,20 @@ export class SetObjectLockedCommand extends ModelSetObjectLockedCommand {
     }
 }
 
-/** The undoable command that sets one object's own lock. */
+/**
+ * The undoable command that sets one object's own lock.
+ * @param {PcbEditor} app
+ */
 export function objectLockCommand(app, kind, object, locked) {
     return kind === 'component' || kind === 'reftext'
         ? new SetPlacementLockedCommand(app, object, locked)
         : new SetObjectLockedCommand(app, kind, object, locked);
 }
 
-/** Set (or clear) the own lock of several objects as one undo step. */
+/**
+ * Set (or clear) the own lock of several objects as one undo step.
+ * @param {PcbEditor} app
+ */
 export function setPcbObjectsLocked(app, entries, locked) {
     const seen = new Set();
     const commands = [];
@@ -123,18 +140,25 @@ export function setPcbObjectsLocked(app, entries, locked) {
     return commands.length > 0;
 }
 
+/** @param {PcbEditor} app */
 function unlockLayer(app, lock) {
     if (lock.fill) unlockPcbCopperFill(app, lock.id);
     else unlockPcbLayer(app, lock.id);
 }
 
-/** The layer panel's name for a lock: "Hole", "Top Solder Mask", or "Top Copper Fill" for a fill row. */
+/**
+ * The layer panel's name for a lock: "Hole", "Top Solder Mask", or "Top Copper Fill" for a fill row.
+ * @param {PcbEditor} app
+ */
 function layerName(app, lock) {
     if (!lock.fill) return app.layerLabel(lock.id);
     return `${PCB_COPPER_FILLS.find(fill => fill.id === lock.id)?.name || app.layerLabel(lock.id)} Copper Fill`;
 }
 
-/** Describe layer locks for menus, e.g. "Top Copper layer" or "Top Copper and Top Copper Fill layers". */
+/**
+ * Describe layer locks for menus, e.g. "Top Copper layer" or "Top Copper and Top Copper Fill layers".
+ * @param {PcbEditor} app
+ */
 export function describeLayerLocks(app, layers) {
     const names = layers.map(lock => layerName(app, lock));
     return `${names.join(' and ')} layer${names.length > 1 ? 's' : ''}`;
@@ -142,7 +166,7 @@ export function describeLayerLocks(app, layers) {
 
 /**
  * Message for an edit the lock gate refused, e.g. "This track is locked" or "Top Copper layer is locked".
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {import('../../core/edit-guard.js').LockTarget} target
  */
 export function describeLockedEdit(app, { kind, object }) {
@@ -154,7 +178,7 @@ export function describeLockedEdit(app, { kind, object }) {
 /**
  * The PCB editor's undo history, guarded by the lock gate (core/edit-guard.js).
  * PCBApp and the test fixtures both build it here, so they cannot drift apart.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{onChanged?: Function, onRefused?: (error: Error) => void}} [options] `onRefused` tells the user why
  */
 export function createPcbHistory(app, { onChanged, onRefused } = {}) {
@@ -167,7 +191,10 @@ export function createPcbHistory(app, { onChanged, onRefused } = {}) {
     });
 }
 
-/** Menu items lifting the object's own lock, its layer locks, or both; only applicable ones. */
+/**
+ * Menu items lifting the object's own lock, its layer locks, or both; only applicable ones.
+ * @param {PcbEditor} app
+ */
 export function unlockMenuItems(app, kind, object) {
     const state = pcbLockState(app, kind, object);
     const unlockObject = () => app.history.execute(objectLockCommand(app, kind, object, false));
@@ -181,7 +208,10 @@ export function unlockMenuItems(app, kind, object) {
     return items;
 }
 
-/** The lock icon's click: offer the applicable unlock choices at the pointer. */
+/**
+ * The lock icon's click: offer the applicable unlock choices at the pointer.
+ * @param {PcbEditor} app
+ */
 export function showUnlockMenu(app, kind, object, clientX, clientY) {
     return showPathContextMenu('pcbUnlockMenu', unlockMenuItems(app, kind, object), clientX, clientY);
 }
@@ -193,6 +223,7 @@ const LOCK_INPUT_ID = 'pcbPropObjectLocked';
  * layer panel), and whether the panel's other fields are read-only: an object or its
  * layer is locked. Edit paths enforce the same rule; this keeps the panel from
  * offering edits that would be refused.
+ * @param {PcbEditor} app
  * @returns {{field: import('../../shared/ui/property-fields.js').PropertyField, readOnly: boolean}}
  */
 export function lockedProperty(app, entries) {

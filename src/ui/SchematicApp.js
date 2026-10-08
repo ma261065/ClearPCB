@@ -152,8 +152,6 @@ export default class SchematicApp {
         this.didDrag = false;              // true once an actual drag occurred
         this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
         this.skipClickSelection = false;
-        // ── Box selection ──────────────────────────────────────────────
-        this.boxSelectElement = null;
 
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
         this.pastePreviewGroup = null;

@@ -13,6 +13,7 @@ const frameFields = ['x', 'y', 'width', 'height', 'rotation', 'reversed'];
 const legacyRecord = (record, points) => ({
     ...Object.fromEntries(Object.entries(record).filter(([key]) => !frameFields.includes(key))), points,
 });
+const boardModel = () => ({ boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } });
 function assertFrame(record, points) {
     const u = { x: points[1].x - points[0].x, y: points[1].y - points[0].y };
     const v = { x: points[3].x - points[0].x, y: points[3].y - points[0].y };
@@ -79,12 +80,12 @@ assert.equal(saved[3].points[0].x, -74.93, 'Polygons still save rounded points')
 assertFrame(saved[4], shapes[4].points);
 assert.ok(saved.every(shape => shape.lineWidth === 0.2));
 assert.deepEqual(shapes, before, 'saving does not mutate live geometry');
-const restored = { boardShapes: [], shapeIdCounter: 1 };
+const restored = boardModel();
 loadBoardShapes(restored, [...saved, fill.toJSON()], { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(restored), [...saved, fill.toJSON()]);
 assertCorners(restored.boardShapes[4].points, shapes[4].points);
 const staleVersionCircle = { ...saved[0], geometryVersion: 1, radius: 5 };
-const restoredStaleVersionCircle = { boardShapes: [], shapeIdCounter: 1 };
+const restoredStaleVersionCircle = boardModel();
 loadBoardShapes(restoredStaleVersionCircle, [staleVersionCircle], { render: false, strict: true });
 assert.equal(restoredStaleVersionCircle.boardShapes[0].radius, 5,
     'all circle radii are interpreted as outer radii regardless of stale metadata');
@@ -103,7 +104,7 @@ const [savedImage] = serializeBoardShapes({ boardShapes: [image] });
 assertFrame(savedImage, imagePoints);
 assert.deepEqual(image, imageBefore, 'saving does not mutate live image geometry');
 assert.deepEqual(decodePictureArtwork(savedImage.artwork), image.artwork, 'image source geometry remains lossless');
-const restoredImage = { boardShapes: [], shapeIdCounter: 1 };
+const restoredImage = boardModel();
 loadBoardShapes(restoredImage, [savedImage], { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(restoredImage), [savedImage]);
 assertCorners(restoredImage.boardShapes[0].points, imagePoints);
@@ -120,7 +121,7 @@ for (const angle of [17.3, 33.1234567, 89.9, 137, 271.2]) for (const reversed of
     const savedRotated = JSON.parse(JSON.stringify(serializeBoardShapes({ boardShapes: [rotated] })));
     assertFrame(savedRotated[0], rotated.points);
     assert.deepEqual(rotated, beforeRotated, 'Frame persistence never mutates live image coordinates or artwork');
-    const loadedRotated = { boardShapes: [], shapeIdCounter: 1 };
+    const loadedRotated = boardModel();
     loadBoardShapes(loadedRotated, savedRotated, { render: false, strict: true });
     assertCorners(loadedRotated.boardShapes[0].points, rotated.points);
     assert.deepEqual(serializeBoardShapes(loadedRotated), savedRotated, `${angle}-degree frame reloads stably`);
@@ -129,7 +130,7 @@ for (const angle of [17.3, 33.1234567, 89.9, 137, 271.2]) for (const reversed of
     const beforeRect = structuredClone(rotatedRect);
     const savedRect = serializeBoardShapes({ boardShapes: [rotatedRect] });
     assertFrame(savedRect[0], rotatedRect.points);
-    const loadedRect = { boardShapes: [], shapeIdCounter: 1 };
+    const loadedRect = boardModel();
     loadBoardShapes(loadedRect, savedRect, { render: false, strict: true });
     assertCorners(loadedRect.boardShapes[0].points, rotatedRect.points);
     assert.deepEqual(loadedRect.boardShapes[0].nodeCornerRadii, { 1: 0.4568 });
@@ -142,34 +143,34 @@ for (const angle of [17.3, 33.1234567, 89.9, 137, 271.2]) for (const reversed of
     })))];
     if (angle === 17.3) assert.throws(() => validatePicturePoints(rounded[0].points), /nonempty rectangle/,
         'Four-decimal rounding reproduces the original rejection without weakening runtime validation');
-    const loadedRounded = { boardShapes: [], shapeIdCounter: 1 };
+    const loadedRounded = boardModel();
     loadBoardShapes(loadedRounded, rounded, { render: false, strict: true });
     validatePicturePoints(loadedRounded.boardShapes[0].points);
     loadedRounded.boardShapes[0].points.forEach((point, index) => assert.ok(
         Math.hypot(point.x - rounded[0].points[index].x, point.y - rounded[0].points[index].y) < 0.00015,
         'Legacy normalization corrects only bounded corner-rounding noise'));
     const normalizedSave = JSON.parse(JSON.stringify(serializeBoardShapes(loadedRounded)));
-    const reloadedRounded = { boardShapes: [], shapeIdCounter: 1 };
+    const reloadedRounded = boardModel();
     loadBoardShapes(reloadedRounded, normalizedSave, { render: false, strict: true });
     assert.deepEqual(serializeBoardShapes(reloadedRounded), normalizedSave,
         'Legacy rounded image bounds normalize once and then reload without drift');
     const malformed = structuredClone(rounded);
     malformed[0].points[2].x += 0.01;
-    assert.throws(() => loadBoardShapes({ boardShapes: [] }, malformed, { render: false, strict: true }),
+    assert.throws(() => loadBoardShapes(boardModel(), malformed, { render: false, strict: true }),
         /nonempty rectangle/, 'distortion beyond legacy rounding tolerance must still be rejected');
 }
 for (const kind of ['rect', 'image']) {
     const record = kind === 'rect' ? saved[4] : savedImage;
-    assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...record, points: imagePoints }],
+    assert.throws(() => loadBoardShapes(boardModel(), [{ ...record, points: imagePoints }],
         { render: false, strict: true }), /both a frame and corner points/, 'Mixed representations are explicitly rejected');
     for (const field of ['x', 'y', 'width', 'height', 'rotation']) {
         const partial = { ...record };
         delete partial[field];
-        assert.throws(() => loadBoardShapes({ boardShapes: [] }, [partial], { render: false, strict: true }),
+        assert.throws(() => loadBoardShapes(boardModel(), [partial], { render: false, strict: true }),
             /Rectangle frame/, `Partial ${kind} frame missing ${field} is rejected`);
     }
     for (const invalid of [{ width: 0 }, { height: -1 }, { x: Infinity }, { rotation: NaN }, { reversed: 1 }]) {
-        assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...record, ...invalid }],
+        assert.throws(() => loadBoardShapes(boardModel(), [{ ...record, ...invalid }],
             { render: false, strict: true }), /Rectangle frame/);
     }
 }
@@ -178,7 +179,7 @@ for (const invalid of [
     [{ x: 0, y: 0 }, { x: 0.0001, y: 0 }, { x: 0.0002, y: 0 }, { x: 0.0001, y: 0 }],
     [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 11, y: 10 }, { x: 1, y: 10 }],
 ]) {
-    assert.throws(() => loadBoardShapes({ boardShapes: [] }, [legacyRecord(savedImage, invalid)],
+    assert.throws(() => loadBoardShapes(boardModel(), [legacyRecord(savedImage, invalid)],
         { render: false, strict: true }), /nonempty rectangle/);
 }
 

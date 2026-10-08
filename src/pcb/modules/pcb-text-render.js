@@ -6,10 +6,12 @@ import { isPcbSelected } from './selection-registry.js';
 import { pcbTextHitTest, renderPcbText } from './pcb-text.js';
 import { refreshBoardShapeClearance } from './clearance-overlay.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const textElements = new WeakMap();
 const hoveredTexts = new WeakMap();
 
+/** @param {PcbEditor} app */
 function elementMap(app) {
     let map = textElements.get(app);
     if (!map) {
@@ -19,7 +21,10 @@ function elementMap(app) {
     return map;
 }
 
-/** Render `text` into its layer group, replacing any prior SVG for the same id. */
+/**
+ * Render `text` into its layer group, replacing any prior SVG for the same id.
+ * @param {PcbEditor} app
+ */
 export function renderText(app, text) {
     removeTextElement(app, text.id);
     const layerG = app.getLayerGroup(text.layer);
@@ -45,7 +50,10 @@ export function renderText(app, text) {
     if (isEditing) activeTextInlineEdit(app)?.updateCaret?.();
 }
 
-/** Remove the SVG element for a text id (model untouched). */
+/**
+ * Remove the SVG element for a text id (model untouched).
+ * @param {PcbEditor} app
+ */
 export function removeTextElement(app, id) {
     const map = elementMap(app);
     const el = map.get(id);
@@ -53,12 +61,18 @@ export function removeTextElement(app, id) {
     map.delete(id);
 }
 
-/** Return the currently rendered SVG element for a text id, or null. */
+/**
+ * Return the currently rendered SVG element for a text id, or null.
+ * @param {PcbEditor} app
+ */
 export function getTextElement(app, id) {
     return elementMap(app).get(id) || null;
 }
 
-/** Remove all tracked text SVG elements for an editor instance. */
+/**
+ * Remove all tracked text SVG elements for an editor instance.
+ * @param {PcbEditor} app
+ */
 export function clearTextElements(app) {
     for (const id of [...elementMap(app).keys()]) removeTextElement(app, id);
 }
@@ -66,6 +80,7 @@ export function clearTextElements(app) {
 /**
  * Hit-test the given world point against every text. Returns the
  * topmost (last-added) hit, or null.
+ * @param {PcbEditor} app
  */
 export function hitTestText(app, worldPos) {
     let hit = null;
@@ -76,7 +91,10 @@ export function hitTestText(app, worldPos) {
     return hit;
 }
 
-/** Set/clear hover highlight for text annotations. */
+/**
+ * Set/clear hover highlight for text annotations.
+ * @param {PcbEditor} app
+ */
 export function setTextHover(app, text) {
     const prev = hoveredTexts.get(app) || null;
     const next = text || null;
@@ -87,7 +105,10 @@ export function setTextHover(app, text) {
     if (next) app.refreshText(next.id);
 }
 
-/** Re-render an existing text in place (e.g. after a property change). */
+/**
+ * Re-render an existing text in place (e.g. after a property change).
+ * @param {PcbEditor} app
+ */
 export function refreshText(app, id) {
     const t = app.texts.get(id);
     if (!t) return;

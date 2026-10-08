@@ -8,14 +8,17 @@ import { hasActivePropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function hasFabricationContent(app) {
-    const entities = app.pcbDocument || app;
+    const entities = app.pcbDocument;
     return !!(app.placements?.size || entities.tracks?.length || entities.vias?.length
         || entities.pads?.length || entities.texts?.size
         || entities.boardShapes?.some(shape => !String(shape.layer).endsWith('-document')) || entities.copperFills?.length);
 }
 
+/** @param {PcbEditor} app */
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
     flushSettledChanges();
     if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app) || blocksPcbExport(app)

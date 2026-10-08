@@ -3,6 +3,7 @@ import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from './copper-
 import { placementTransform } from './track-commands.js';
 import { shouldDeferShapeClearance } from './picture-refresh.js';
 import { isPcbPasteActive } from './pcb-paste.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
  * The clearance overlay: a faint halo at the Clearance distance around every pad,
@@ -13,7 +14,10 @@ import { isPcbPasteActive } from './pcb-paste.js';
 
 const overlayStates = new WeakMap();
 
-/** Halo elements per track id, shared via halos keyed by geometry, and overlay view state. */
+/**
+ * Halo elements per track id, shared via halos keyed by geometry, and overlay view state.
+ * @param {PcbEditor} app
+ */
 function overlayState(app) {
     let state = overlayStates.get(app);
     if (!state) overlayStates.set(app, state = {
@@ -27,27 +31,42 @@ function overlayState(app) {
     return state;
 }
 
-/** The overlay's caches, for tests. */
+/**
+ * The overlay's caches, for tests.
+ * @param {PcbEditor} app
+ */
 export function clearanceOverlayState(app) {
     return overlayState(app);
 }
 
-/** Whether the clearance overlay is showing. */
+/**
+ * Whether the clearance overlay is showing.
+ * @param {PcbEditor} app
+ */
 export function areClearancesVisible(app) {
     return !!overlayState(app).clearancesVisible;
 }
 
-/** Cached clearance halo of a board shape or copper text, if any. */
+/**
+ * Cached clearance halo of a board shape or copper text, if any.
+ * @param {PcbEditor} app
+ */
 export function getBoardShapeClearance(app, id) {
     return overlayState(app).boardShapeClearanceCache.get(id);
 }
 
-/** Forget a board shape's or text's cached halo (its element is the caller's to remove). */
+/**
+ * Forget a board shape's or text's cached halo (its element is the caller's to remove).
+ * @param {PcbEditor} app
+ */
 export function forgetBoardShapeClearance(app, id) {
     overlayState(app).boardShapeClearanceCache.delete(id);
 }
 
-/** The halo group that follows a component's pads during a move, if the overlay is on. */
+/**
+ * The halo group that follows a component's pads during a move, if the overlay is on.
+ * @param {PcbEditor} app
+ */
 export function getPadHaloGroup(app, compId) {
     return overlayState(app).padHaloGroups?.get(compId);
 }
@@ -64,6 +83,7 @@ export function getPadHaloGroup(app, compId) {
  * Wired to the "Clearance" toggle button in the routing tab. Also
  * callable from the console: `bootstrap.pcbApp.showClearances(true|false)`.
  *
+ * @param {PcbEditor} app
  * @param {boolean} [show] - explicit on/off; omit to toggle.
  * @param {object|null} [liveTrack] - update only this track's rendered clearance during a drag.
  */
@@ -395,7 +415,7 @@ export function showClearances(app, show, liveTrack = null) {
                 || point.x !== run.points[index - 1].x || point.y !== run.points[index - 1].y)
                 .map(point => [point.x, point.y]), width: run.width,
             id: liveTrack.id, net: liveTrack.net,
-        })) : [...app.getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track')]
+        })) : [.../** @type {NodeListOf<SVGElement>} */ (app.getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track'))]
             .map(track => ({ points: trackToPoints(track), width: parseFloat(track.getAttribute('stroke-width')),
                 id: track.dataset?.trackId, net: track.dataset?.net }));
         if (tracks.length === 0) continue;
@@ -442,12 +462,14 @@ export function showClearances(app, show, liveTrack = null) {
     refreshViaClearance(app);
 }
 
+/** @param {PcbEditor} app */
 export function computeClearanceOutlines(app, shape, clearance) {
     return typeof shape.content === 'string'
         ? pcbTextClearanceOutlines(shape, clearance)
         : boardShapeClearanceOutlines(shape, clearance);
 }
 
+/** @param {PcbEditor} app */
 export function refreshBoardShapeClearance(app, shape) {
     if (isPcbPasteActive(app)) return;
     if (!areClearancesVisible(app)) return;
@@ -506,10 +528,12 @@ export function refreshBoardShapeClearance(app, shape) {
         points: points.map(point => ({ x: point.x, y: point.y })), elements });
 }
 
+/** @param {PcbEditor} app */
 export function refreshClearanceHalos(app) {
     if (areClearancesVisible(app)) showClearances(app, true);
 }
 
+/** @param {PcbEditor} app */
 export function refreshTrackClearance(app, track) {
     if (areClearancesVisible(app)) showClearances(app, true, track);
 }
@@ -517,7 +541,7 @@ export function refreshTrackClearance(app, track) {
 /**
  * Refresh via halos: just this via's (and whatever shared its halo) when given,
  * otherwise every via.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {any} [via] - a Via, or null for every via
  */
 export function refreshViaClearance(app, via = null) {
@@ -552,7 +576,7 @@ export function refreshViaClearance(app, via = null) {
     if (layer && layer.style.display !== 'none') {
         if (via) {
             if (hasViaElements(via)) register(via.id, via.x, via.y, via.diameter / 2, via.net);
-        } else for (const rendered of layer.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via')) {
+        } else for (const rendered of /** @type {NodeListOf<SVGElement>} */ (layer.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via'))) {
             const path = rendered.localName === 'path';
             register(rendered.dataset?.viaId || rendered,
                 parseFloat(rendered.getAttribute(path ? 'data-via-x' : 'cx')),

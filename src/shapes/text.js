@@ -133,8 +133,10 @@ export class Text extends Shape {
         return { minX: rMinX, minY: rMinY, maxX: rMaxX, maxY: rMaxY };
     }
 
-    /** @override */
-    /** @param {Point} point @param {number} [tolerance] */
+    /**
+     * @override
+     * @param {Point} point @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0.5) {
         if (!this.rotation) {
             const bounds = this.getBounds();
@@ -186,8 +188,10 @@ export class Text extends Shape {
             { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
     }
-    /** @override */
-    /** @param {string} anchorId @param {number} x @param {number} y */
+    /**
+     * @override
+     * @param {string} anchorId @param {number} x @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -198,8 +202,10 @@ export class Text extends Shape {
         return undefined;
     }
 
-    /** @override */
-    /** @param {number} dx @param {number} dy */
+    /**
+     * @override
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -235,8 +241,10 @@ export class Text extends Shape {
         return state;
     }
 
-    /** @override */
-    /** @param {Partial<TextState> & Record<string, any>} state */
+    /**
+     * @override
+     * @param {Partial<TextState> & Record<string, any>} state
+     */
     applyState(state) {
         super.applyState(state);
         if ('attachment' in state) {

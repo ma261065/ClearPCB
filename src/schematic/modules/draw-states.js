@@ -648,7 +648,7 @@ function beginBoxSelectSession(app, worldPos, additive) {
         additive: !!additive
     };
     app.selection.captureBoxSelectBase();
-    createBoxSelectElement(app);
+    createBoxSelectElement(app, worldPos);
     app.interactionState = 'boxSelect';
 }
 

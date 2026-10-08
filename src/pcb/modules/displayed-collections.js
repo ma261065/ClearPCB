@@ -20,6 +20,7 @@ import { getPcbPastePreview } from './pcb-paste.js';
 import { getTextPosePreviewTexts } from './text-commands.js';
 import { getPlacementPreviewTracks, getTrackPropertyPreview, getViaPropertyPreview } from './track-commands.js';
 import { getVertexDrag, getViaDrag } from './track-drag.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {'tracks'|'vias'|'pads'|'texts'|'boardShapes'} DisplayedCollection */
 /**
@@ -32,11 +33,15 @@ import { getVertexDrag, getViaDrag } from './track-drag.js';
 export const PREVIEW_SOURCES = Object.freeze(/** @type {PreviewSource[]} */ ([
     { name: 'group move', collections: ['tracks', 'vias', 'pads', 'boardShapes'], preview: getGroupPreview },
     { name: 'paste', collections: ['tracks', 'vias', 'pads', 'texts', 'boardShapes'], preview: getPcbPastePreview },
+    /** @param {PcbEditor} app */
     { name: 'component move', collections: ['tracks'], preview: app => wrap('tracks', getPlacementPreviewTracks(app)) },
     { name: 'board size', collections: ['boardShapes'], preview: getBoardDimensionPreview },
+    /** @param {PcbEditor} app */
     { name: 'via or pad drag', collections: ['tracks', 'vias', 'pads'], preview: app => getViaDrag(app)?.preview },
+    /** @param {PcbEditor} app */
     { name: 'track drag', collections: ['tracks'], preview: app => getVertexDrag(app)?.preview },
     { name: 'shape drag', collections: ['boardShapes'], preview: getBoardShapePointerPreview },
+    /** @param {PcbEditor} app */
     { name: 'text move or rotation', collections: ['texts'], preview: app => wrap('texts', getTextPosePreviewTexts(app)) },
     { name: 'pad rotation', collections: ['pads'], preview: getPadRotationPreview },
     { name: 'shape rotation', collections: ['boardShapes'], preview: getBoardShapeRotationPreview },
@@ -64,7 +69,7 @@ for (const source of PREVIEW_SOURCES) {
 
 /**
  * The collection the editor displays: the first active preview's copy, else the document's.
- * @param {any} app - PCBApp
+ * @param {PcbEditor} app - PCBApp
  * @param {DisplayedCollection} key
  */
 export function displayedCollection(app, key) {

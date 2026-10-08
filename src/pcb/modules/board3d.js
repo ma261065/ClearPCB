@@ -45,7 +45,9 @@ import { objModelToMesh, fallbackBoxMesh } from './board3d-parts.js';
 import { createSilkArtworkMeshCache } from './board3d-layers.js';
 import { ensure3DStyles, build3DHost, ThreeScene } from './board3d-scene.js';
 import { boardSurfaceFrame, buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials, publishBoardSurfaces, createSurfacePublisher, createBoard3DSyncScheduler } from './board3d-surfaces.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
+/** @param {PcbEditor} app */
 export function board2DDataFromApp(app) {
     return {
         placements: app.placements,
@@ -71,7 +73,7 @@ export function board2DDataFromApp(app) {
  * Open the interactive 3D board visualiser as a 50:50 split panel beside the
  * PCB editor. The panel can be popped out into a separate window and docked
  * back again, carrying its live WebGL view with it.
- * @param {any} app The PCBApp instance.
+ * @param {PcbEditor} app The PCBApp instance.
  * @param {{view?: '3d'|'top'|'bottom'}} [opts] Initial view; defaults to 3D.
  */
 export async function openBoard3DViewer(app, opts = {}) {

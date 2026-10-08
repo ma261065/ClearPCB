@@ -146,16 +146,18 @@ export class Track extends PolylineGraph {
         return result;
     }
 
-    /** @override — also clean up padConnections when removing a node. */
-    /** @param {string} nodeId */
+    /**
+     * @override — also clean up padConnections when removing a node.
+     * @param {string} nodeId
+     */
     removeNode(nodeId) {
         this.padConnections.delete(nodeId);
         delete this.nodeCornerRadii[nodeId];
         super.removeNode(nodeId);
     }
 
-    /** @override — preserve padConnections during node merge. */
     /**
+     * @override — preserve padConnections during node merge.
      * @param {string} keepId
      * @param {string} removeId
      */
@@ -172,15 +174,17 @@ export class Track extends PolylineGraph {
         delete this.nodeCornerRadii[removeId];
     }
 
-    /** @override — protect pad-connected nodes from graph simplification. */
-    /** @param {string} nodeId */
+    /**
+     * @override — protect pad-connected nodes from graph simplification.
+     * @param {string} nodeId
+     */
     _isProtectedNode(nodeId) {
         return this.padConnections.has(nodeId);
     }
 
-    /** @override — preserve padConnections during absorb. Per-edge layer
-     * and width are carried automatically by the base class. */
     /**
+     * @override — preserve padConnections during absorb. Per-edge layer
+     * and width are carried automatically by the base class.
      * @param {Track} other
      * @param {Map<string,string>} remap
      */
@@ -209,9 +213,9 @@ export class Track extends PolylineGraph {
         });
     }
 
-    /** @override — copy padConnections into subgraph. Per-edge attributes
-     * are preserved by the base class (edge IDs + attrs are kept intact). */
     /**
+     * @override — copy padConnections into subgraph. Per-edge attributes
+     * are preserved by the base class (edge IDs + attrs are kept intact).
      * @param {Track} sub
      * @param {Set<string>} nodeIds
      */
@@ -224,8 +228,10 @@ export class Track extends PolylineGraph {
         }
     }
 
-    /** @override — also delete padConnection when deleting an anchor. */
-    /** @param {string} anchorId */
+    /**
+     * @override — also delete padConnection when deleting an anchor.
+     * @param {string} anchorId
+     */
     deleteAnchor(anchorId) {
         const result = super.deleteAnchor(anchorId);
         if (result) this.padConnections.delete(anchorId);
@@ -279,8 +285,10 @@ export class Track extends PolylineGraph {
         };
     }
 
-    /** @override — restore track-specific fields. */
-    /** @param {Partial<ReturnType<Track['captureState']>>} state */
+    /**
+     * @override — restore track-specific fields.
+     * @param {Partial<ReturnType<Track['captureState']>>} state
+     */
     applyState(state) {
         super.applyState(state);
         if ('net' in state) this.net = state.net || '';

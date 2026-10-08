@@ -136,7 +136,7 @@ for (const rotation of [30, 90, 137.5]) {
                 app.history.redo();
                 assert.deepEqual(shape.points, after);
                 const saved = serializeBoardShapes(app);
-                const reloaded = { boardShapes: [], shapeIdCounter: 1 };
+                const reloaded = { boardShapes: [], shapeIdCounter: 1, get pcbDocument() { return this; } };
                 loadBoardShapes(reloaded, saved, { strict: true, render: false });
                 validateRectanglePoints(reloaded.boardShapes[0].points);
                 assert.deepEqual(serializeBoardShapes(reloaded), saved);

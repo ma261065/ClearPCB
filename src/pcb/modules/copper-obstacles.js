@@ -2,6 +2,7 @@ import { pcbTextObstacles } from './pcb-text.js';
 import { boardShapeBounds, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 import { resolveTrackSegments } from '../../shapes/track-geometry.js';
 import { lockedRoutedCopper } from './object-locks.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const ROUTER_LAYERS = { 'top-copper': 'top', 'bottom-copper': 'bottom' };
 
@@ -9,7 +10,7 @@ const ROUTER_LAYERS = { 'top-copper': 'top', 'bottom-copper': 'bottom' };
  * The router's fixed copper obstacles from the live board: copper text strokes,
  * copper shapes as pads (filled) or stroke segments (outlines), and locked tracks
  * and vias, which routing keeps.
- * @param {any} app
+ * @param {PcbEditor} app
  * @returns {import('./autorouter-common.js').CopperObstacle[]}
  */
 export function buildCopperObstacles(app) {

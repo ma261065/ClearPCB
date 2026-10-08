@@ -24,6 +24,7 @@ import { hoverSelectTool, pressSelectTool, selectToolTip } from './select-tool.j
 import { getTextToolDefaults, pressTextTool, showTextToolProperties } from './text-properties.js';
 import { getTrackDraw, getTrackToolLayer, hoverTrackTool, pressTrackTool, showTrackDrawProperties } from './track-draw.js';
 import { getViaPreviewWorld, pressViaTool, showViaToolProperties, updateViaPreview } from './via-tool.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {{x: number, y: number}} WorldPoint */
 /**
@@ -59,23 +60,27 @@ const onLayer = layer => (/** @type {any} */ app) => [{ id: layer(app) }];
  * @returns {PcbTool}
  */
 function shapeTool(kind, title, content, icon) {
-    /** @param {any} app */
+    /** @param {PcbEditor} app */
     const layer = app => (getShapeDraw(app)?.kind === kind && getShapeDraw(app).layer) || resolveShapeDrawLayer(app, app.activeLayer);
     return {
         id: kind, button: { title, content, icon }, layer, targets: onLayer(layer),
+        /** @param {PcbEditor} app */
         drawing: app => getShapeDraw(app)?.kind === kind,
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => shapeDrawClick(app, kind, worldPos),
+        /** @param {PcbEditor} app */
         showProperties: app => showBoardShapeToolProperties(app, kind),
         // The Hole button is this tool on the Hole layer.
+        /** @param {PcbEditor} app */
         tip: app => (kind === 'circle' && layer(app) === 'hole' ? 'Tip: A hole is just a circle on the hole layer' : ''),
     };
 }
 
-/** @param {any} app */
+/** @param {PcbEditor} app */
 const trackLayer = app => getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
-/** @param {any} app */
+/** @param {PcbEditor} app */
 const textLayer = app => getTextToolDefaults(app).layer;
-/** @param {any} app */
+/** @param {PcbEditor} app */
 const fillLayer = app => getFillDraw(app)?.layer || fillToolDefaults(app).layer;
 
 /** @type {Readonly<Record<string, Readonly<PcbTool>>>} */
@@ -86,7 +91,9 @@ export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} 
     },
     {
         id: 'track', button: { id: 'pcbToolTrack', title: 'Route Track', content: '⏤ Track' },
+        /** @param {PcbEditor} app */
         layer: trackLayer, targets: onLayer(trackLayer), drawing: app => !!getTrackDraw(app),
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => pressTrackTool(app, worldPos), hover: hoverTrackTool,
         showProperties: showTrackDrawProperties,
         tip: () => 'Tip: Press SPACE to insert a via and switch to the other layer',
@@ -94,12 +101,15 @@ export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} 
     {
         id: 'via', button: { id: 'pcbToolVia', title: 'Place Via', content: '◉ Via' },
         targets: () => [{ id: 'vias' }],
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => pressViaTool(app, worldPos),
         follow: updateViaPreview, followPoint: getViaPreviewWorld, showProperties: showViaToolProperties,
     },
     {
         id: 'pad', button: { id: 'pcbToolPad', title: 'Place Pad', content: '▣ Pad' },
+        /** @param {PcbEditor} app */
         targets: app => padLayers(getPadToolDefaults(app)).map(id => ({ id })),
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => pressPadTool(app, worldPos),
         follow: updatePadPreview, followPoint: getPadPreviewWorld, showProperties: showPadToolProperties,
         tip: () => PAD_TIP,
@@ -112,12 +122,16 @@ export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} 
     {
         id: 'text', button: { id: 'pcbToolText', title: 'Place Text', content: 'T Text' },
         layer: textLayer, targets: onLayer(textLayer),
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => pressTextTool(app, worldPos), showProperties: showTextToolProperties,
     },
     {
         id: 'fill', button: { id: 'pcbToolFill', title: 'Draw Copper Fill / Pour', content: '▦ Fill' },
+        /** @param {PcbEditor} app */
         layer: fillLayer, targets: app => [{ id: fillLayer(app) }, { id: fillLayer(app), fill: true }],
+        /** @param {PcbEditor} app */
         drawing: app => !!getFillDraw(app),
+        /** @param {PcbEditor} app */
         press: (app, _e, worldPos) => pressFillTool(app, worldPos), showProperties: showFillToolProperties,
     },
 ]).map(tool => [tool.id, Object.freeze(tool)])));
@@ -153,7 +167,7 @@ export function normalizePcbTool(tool) {
  * The layer-panel rows a placement tool or preset would put new objects on, from its own
  * settings (or the draw in progress). Its press, cursor, ribbon button and Properties
  * all read this, so they always agree. Tools that place nothing give none.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {string} [tool]
  * @returns {import('./layers.js').PlacementLayer[]}
  */
@@ -164,7 +178,7 @@ export function pcbToolTargets(app, tool = app.currentTool) {
 
 /**
  * The layer the status bar names for the active tool.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {string} [tool]
  */
 export function pcbToolLayer(app, tool = app.currentTool) {
@@ -173,7 +187,7 @@ export function pcbToolLayer(app, tool = app.currentTool) {
 
 /**
  * The status-bar tip for the active tool, or ''.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {string} [tool]
  * @returns {string}
  */
@@ -183,7 +197,7 @@ export function pcbToolTip(app, tool = app.currentTool) {
 
 /**
  * Show the Properties panel the tool owns (its defaults, or the draw in progress).
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {string} [tool]
  */
 export function showPcbToolProperties(app, tool = app.currentTool) {
@@ -194,7 +208,7 @@ export function showPcbToolProperties(app, tool = app.currentTool) {
  * A primary press on the canvas with the active tool. Starting to place on a locked or
  * hidden layer is refused with the reason at the pointer; a press that continues a draw
  * is not. Returns whether a tool took the press.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {WorldPoint|null} worldPos - the press position when already resolved
  * @param {any} [groupHit] - the box-selected group member under the pointer
@@ -210,7 +224,7 @@ export function pressPcbTool(app, e, worldPos, groupHit = null, tools = PCB_TOOL
 
 /**
  * Keep the active tool's cursor preview (via ring, pad outline or crosshair) under the pointer.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {WorldPoint} worldPos
  */
 export function followPcbTool(app, worldPos) {
@@ -222,7 +236,7 @@ export function followPcbTool(app, worldPos) {
 
 /**
  * Pointer movement with no interaction under way: the active tool's hover, else its cursor.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  */
 export function hoverPcbTool(app, e) {
@@ -233,7 +247,7 @@ export function hoverPcbTool(app, e) {
 
 /**
  * Redraw the active tool's cursor preview where it last was (after a zoom).
- * @param {any} app
+ * @param {PcbEditor} app
  */
 export function refreshPcbToolFollow(app) {
     const tool = PCB_TOOLS[app.currentTool];

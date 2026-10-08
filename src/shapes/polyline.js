@@ -145,8 +145,10 @@ export class Polyline extends PolylineGraph {
         this.invalidate();
     }
 
-    /** @override */
-    /** @param {string} anchorId */
+    /**
+     * @override
+     * @param {string} anchorId
+     */
     deleteAnchor(anchorId) {
         const path = this.toEditablePath();
         if (path) {
@@ -242,8 +244,10 @@ export class Polyline extends PolylineGraph {
         return { newNodeId: nodeIds[index + 1], edge1Id: chain[index].edgeId, edge2Id: chain[index + 1].edgeId };
     }
 
-    /** @override */
-    /** @param {string} anchorId */
+    /**
+     * @override
+     * @param {string} anchorId
+     */
     getAnchorSnapMode(anchorId) {
         if (typeof anchorId === 'string' && anchorId.startsWith('bulge_')) return 'none';
         return this.isRect ? 'grid' : 'axis';
@@ -258,8 +262,10 @@ export class Polyline extends PolylineGraph {
         return s;
     }
 
-    /** @override */
-    /** @param {any} state */
+    /**
+     * @override
+     * @param {any} state
+     */
     applyState(state) {
         super.applyState(state);
         if ('isRect' in state) this.isRect = state.isRect;

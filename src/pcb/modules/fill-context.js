@@ -1,10 +1,20 @@
 import { resolveCopperPads } from './copper-model.js';
 import { resolvePlacementDrills } from '../../shared/pcb/board-geometry.js';
 import { boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.js';
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/**
+ * What a pour computation reads: the board's collections, its routing rules and its
+ * outline. The editor is one; a worker snapshot (captureFillInputs) is another.
+ * @typedef {PcbBoard & {getRoutingParams?: () => Partial<RoutingParams>, board?: object, pcbDocument?: object}} FillBoard
+ */
 
-/** @returns {import('./copper-fill-geom.js').FillContext} */
+/**
+ * @param {FillBoard} app
+ * @returns {import('./copper-fill-geom.js').FillContext}
+ */
 export function buildFillContext(app) {
-    const params = app.getRoutingParams?.() || {};
+    const params = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
     const dimensions = boardDimensions(app);
     return {
         tracks: app.tracks, vias: app.vias,

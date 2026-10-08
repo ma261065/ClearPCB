@@ -1,6 +1,7 @@
 import { refreshBoardView } from './refresh-state.js';
 import { PCB_DESIGN_MAX_MM, clampDesignDimensions } from '../../core/PcbDesignSettings.js';
 import { areClearancesVisible } from './clearance-overlay.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const STORAGE_KEY = 'clearpcb_pcb_design_params';
 const INPUTS = {
@@ -9,6 +10,7 @@ const INPUTS = {
 };
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
 
+/** @param {PcbEditor} app */
 function saveDefaults(app) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(app.designSettings.values));
@@ -17,17 +19,24 @@ function saveDefaults(app) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function renderDesignSettings(app) {
     app.refreshPcbRibbon?.();
 }
 
-/** Refresh controls and local defaults after model adoption, without editing data. */
+/**
+ * Refresh controls and local defaults after model adoption, without editing data.
+ * @param {PcbEditor} app
+ */
 export function refreshDesignSettings(app) {
     renderDesignSettings(app);
     saveDefaults(app);
 }
 
-/** Bind presentation to the model; never read rounded controls back on unit changes. */
+/**
+ * Bind presentation to the model; never read rounded controls back on unit changes.
+ * @param {PcbEditor} app
+ */
 export function bindDesignSettings(app) {
     if (!app.designSettings) return;
     try {
@@ -68,6 +77,7 @@ function readDesignInput(element, units, key) {
     return result.value;
 }
 
+/** @param {PcbEditor} app */
 function commitDesignUpdate(app, key, value) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
@@ -78,7 +88,10 @@ function commitDesignUpdate(app, key, value) {
     }
 }
 
-/** Both ribbon and drawing-tool editors commit through the same mm conversion. */
+/**
+ * Both ribbon and drawing-tool editors commit through the same mm conversion.
+ * @param {PcbEditor} app
+ */
 export function commitDesignInput(app, key, element, units) {
     const value = readDesignInput(element, units, key);
     if (value === null) return false;
@@ -86,7 +99,10 @@ export function commitDesignInput(app, key, element, units) {
     return true;
 }
 
-/** Commit a design value without a DOM input; returns the validation message for panels. */
+/**
+ * Commit a design value without a DOM input; returns the validation message for panels.
+ * @param {PcbEditor} app
+ */
 export function commitDesignValue(app, key, rawValue, units = 'mm', onError = null) {
     const { value, message } = readDesignValue(key, rawValue, units);
     if (value === null) {

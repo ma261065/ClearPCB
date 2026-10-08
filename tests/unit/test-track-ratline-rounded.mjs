@@ -19,7 +19,8 @@ const { distanceToSegment } = await import('../../src/core/geometry.js');
 function board(extra = {}) {
     const layer = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
-        placements: new Map(), netlist: [], texts: new Map(), getLayerGroup: () => layer, ...extra };
+        placements: new Map(), netlist: [], texts: new Map(), get pcbDocument() { return this; },
+        getLayerGroup: () => layer, ...extra };
 }
 const ratlines = app => {
     reconcileRatsnest(app);

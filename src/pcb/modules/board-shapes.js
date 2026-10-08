@@ -102,6 +102,8 @@ import { forgetBoardShapeClearance, getBoardShapeClearance, refreshBoardShapeCle
 import { hasCopperCuts } from './copper-cuts.js';
 import { removalHatchFill } from './removal-hatch.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -110,46 +112,56 @@ const shapeElementsByApp = new WeakMap();
 const boardShapeRotationPreviews = new WeakMap();
 const boardShapePropertyPreviews = new WeakMap();
 
+/** @param {PcbEditor} app */
 function shapeElements(app) {
     let elements = shapeElementsByApp.get(app);
     if (!elements) shapeElementsByApp.set(app, elements = new Map());
     return elements;
 }
 
+/** @param {PcbEditor} app */
 function boardShapeIdDocument(app) {
-    return app.pcbDocument || app;
+    return app.pcbDocument;
 }
 
+/** @param {PcbEditor} app */
 function nextBoardShapeId(app) {
     return `pshape_${boardShapeIdDocument(app).shapeIdCounter++}`;
 }
 
+/** @param {PcbEditor} app */
 function peekBoardShapeId(app) {
     return `pshape_${boardShapeIdDocument(app).shapeIdCounter}`;
 }
 
+/** @param {PcbEditor} app */
 function setBoardShapeIdCounter(app, value) {
     boardShapeIdDocument(app).shapeIdCounter = value;
 }
 
+/** @param {PcbEditor} app */
 function snapActive(app) {
     let snap = !!app.viewport?.snapToGrid;
     if (app.viewport?.shiftHeld && app.viewport?.gridVisible) snap = !snap;
     return snap;
 }
 
+/** @param {PcbEditor} app */
 export function getBoardShapeElement(app, id) {
     return shapeElements(app).get(id);
 }
 
+/** @param {PcbEditor} app */
 export function hasBoardShapeElement(app, id) {
     return shapeElements(app).has(id);
 }
 
+/** @param {PcbEditor} app */
 export function boardShapeElementCount(app) {
     return shapeElements(app).size;
 }
 
+/** @param {PcbEditor} app */
 export function clearBoardShapeElements(app) {
     for (const id of [...shapeElements(app).keys()]) removeBoardShapeElement(app, id);
 }
@@ -162,6 +174,7 @@ function boardShapeEditProfile() {
         missingDragMessage: 'Cannot finish a drag of a missing board shape.',
         canonical: canonicalBoardShape,
         displayed: displayedBoardShape,
+        /** @param {PcbEditor} app */
         collection: app => app.pcbDocument?.boardShapes || app.boardShapes,
         copy: copyBoardShape,
         capture: shapeSnapshot,
@@ -170,26 +183,39 @@ function boardShapeEditProfile() {
         getSegmentFocus: getBoardShapeSegmentFocus,
         setNodeFocus: setBoardShapeNodeFocus,
         setSegmentFocus: setBoardShapeSegmentFocus,
+        /** @param {PcbEditor} app */
         clearFocus(app) {
             setBoardShapeNodeFocus(app, null);
             setBoardShapeSegmentFocus(app, null);
         },
+        /** @param {PcbEditor} app */
         remove(app, shape) { removeBoardShapeElement(app, shape.id); },
+        /** @param {PcbEditor} app */
         render(app, shape, opts = {}) { renderBoardShape(app, shape, opts); },
+        /** @param {PcbEditor} app */
         renderHandles(app, shape) { renderBoardShapeHandles(app, shape); },
+        /** @param {PcbEditor} app */
         renderSegmentSelection(app) { renderBoardShapeSegmentSelection(app); },
+        /** @param {PcbEditor} app */
         showProperties(app, shape) { showBoardShapeProperties(app, shape); },
+        /** @param {PcbEditor} app */
         refreshProperties(app, shape) { showBoardShapeProperties(app, shape); },
-        /** Update the open panel's values in place during a drag. */
+        /**
+         * Update the open panel's values in place during a drag.
+         * @param {PcbEditor} app
+         */
         syncProperties(app, shape) { syncBoardShapePanel(app, shape); },
+        /** @param {PcbEditor} app */
         propertyPreviewRender(app, changed, liveDrag) {
             for (const target of changed) renderBoardShape(app, target, {
                 liveDrag, skipCopperUpdate: target.kind === 'image' && !target.layer.endsWith('copper'),
             });
         },
+        /** @param {PcbEditor} app */
         propertyPreviewPrepare(app, target) {
             if (target.kind !== 'image' || target.layer.endsWith('copper')) schedulePictureCopperRefresh(app, target);
         },
+        /** @param {PcbEditor} app */
         propertyPreviewCancel(app, originals, preview) {
             for (const original of originals) {
                 if (this.collection(app).includes(original)) {
@@ -207,6 +233,7 @@ function boardShapeEditProfile() {
             renderBoardShapeSegmentSelection(app);
             renderPcbSelectionAnchors(app);
         },
+        /** @param {PcbEditor} app */
         makeCommand(app, original, beforeState, afterState, previewShape, drag) {
             const after = cloneShapeGeometry(previewShape);
             const metadataChanged = ['kind', 'segmentWidths', 'segmentBulges', 'nodeCornerRadii'].some(
@@ -215,9 +242,11 @@ function boardShapeEditProfile() {
                 ? new ModifyBoardShapeCommand(app, original, beforeState, afterState)
                 : new MoveBoardShapeCommand(app, original, drag.before, after);
         },
+        /** @param {PcbEditor} app */
         modifyCommand(app, original, beforeState, afterState) {
             return new ModifyBoardShapeCommand(app, original, beforeState, afterState);
         },
+        /** @param {PcbEditor} app */
         removeCommand(app, shape) { return new RemoveBoardShapeCommand(app, shape); },
         valid(_app, shape) { return shape.layer !== 'board-outline' || validBoardOutline(shape); },
         /** The nets whose ratlines follow the shape while it is dragged: its own, if it is net copper. */
@@ -226,6 +255,7 @@ function boardShapeEditProfile() {
             return net && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
                 && normalizeShapeCopperMode(shape.copperMode) === 'add' ? new Set([net]) : null;
         },
+        /** @param {PcbEditor} app */
         afterCommit(app, original, committed, drag) {
             if (drag.session?.nets) app.updateRatsnest?.({ nets: drag.session.nets, skipFillRefresh: !committed });
             if (original && this.collection(app).includes(original)) {
@@ -245,19 +275,25 @@ function dragProfile(drag) {
     return editProfile(drag?.editProfile);
 }
 
-/** The active board-shape drag (`{ original, mode, ... }`), or null. */
+/**
+ * The active board-shape drag (`{ original, mode, ... }`), or null.
+ * @param {PcbEditor} app
+ */
 export function getBoardShapeDrag(app) {
     return getPcbInteraction(app, '_shapeDrag');
 }
 
+/** @param {PcbEditor} app */
 export function getBoardShapePropertyPreview(app) {
     return boardShapePropertyPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function getBoardShapeRotationPreview(app) {
     return boardShapeRotationPreviews.get(app);
 }
 
+/** @param {PcbEditor} app */
 export function canonicalBoardShape(app, shape) {
     shape = boardShapePropertyPreviews.get(app)?.originalsByCopy.get(shape) || shape;
     const drag = getBoardShapeDrag(app);
@@ -266,6 +302,7 @@ export function canonicalBoardShape(app, shape) {
     return preview && preview.shape === shape ? preview.original : shape;
 }
 
+/** @param {PcbEditor} app */
 export function displayedBoardShape(app, shape) {
     shape = boardShapePropertyPreviews.get(app)?.copiesByOriginal.get(shape) || shape;
     const drag = getBoardShapeDrag(app);
@@ -274,6 +311,7 @@ export function displayedBoardShape(app, shape) {
     return preview && (preview.original === shape || preview.shape === shape) ? preview.shape : shape;
 }
 
+/** @param {PcbEditor} app */
 export function getBoardShapePointerPreview(app) {
     return getBoardShapeDrag(app)?.preview;
 }
@@ -287,6 +325,7 @@ export function copyBoardShape(shape) {
     return copy;
 }
 
+/** @param {PcbEditor} app */
 function beginBoardShapePointerPreview(app, drag) {
     if (!drag.preview) {
         const profile = dragProfile(drag);
@@ -301,7 +340,10 @@ function beginBoardShapePointerPreview(app, drag) {
     return drag.shape;
 }
 
-/** Release displayed geometry before handing the canonical image to history. */
+/**
+ * Release displayed geometry before handing the canonical image to history.
+ * @param {PcbEditor} app
+ */
 export function finishBoardShapeRotationPreview(app, commit = false) {
     const preview = boardShapeRotationPreviews.get(app);
     if (!preview) return false;
@@ -418,6 +460,7 @@ export function canFillTrackLoop(track) {
  * Fill a closed track loop: a filled area is copper a Track cannot represent, so
  * the loop becomes a filled board shape (polygon, or rectangle when axis-aligned)
  * that keeps the track's net.
+ * @param {PcbEditor} app
  */
 export function fillTrackLoop(app, track) {
     return canFillTrackLoop(track) && replaceTrackWithBoardShape(app, track, { filled: true, net: track.net || '' });
@@ -432,6 +475,7 @@ export function canMoveTrackToBoardLayer(track) {
 /**
  * Move a track off copper: it becomes an unfilled board shape on `layer`. Tracks
  * remember the shape they were made from, so a hole keeps its plating on the way back.
+ * @param {PcbEditor} app
  */
 export function moveTrackToBoardLayer(app, track, layer) {
     if (layer === 'top-copper' || layer === 'bottom-copper' || !canMoveTrackToBoardLayer(track)) return false;
@@ -442,6 +486,7 @@ export function moveTrackToBoardLayer(app, track, layer) {
 /**
  * Give a track a copper removal mode. Removal shapes add no copper, so the
  * track becomes an unfilled board shape on its layer without a net; 'add' is a no-op.
+ * @param {PcbEditor} app
  */
 export function setTrackCopperMode(app, track, copperMode) {
     const mode = normalizeShapeCopperMode(copperMode);
@@ -449,6 +494,7 @@ export function setTrackCopperMode(app, track, copperMode) {
     return replaceTrackWithBoardShape(app, track, { filled: false, net: '', copperMode: mode, allowPadConnections: true });
 }
 
+/** @param {PcbEditor} app */
 function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, plated = false, copperMode = 'add', allowPadConnections = false }) {
     if (!app.tracks?.includes(track)) return false;
     const source = simpleTrackLinePoints(track, { allowPadConnections });
@@ -490,6 +536,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
 /**
  * Command adding a new board shape, or the equivalent Track when the shape is a
  * copper path (see isCopperPathShape).
+ * @param {PcbEditor} app
  * @returns {{command: any, track: import('../../shapes/track.js').Track|null}}
  */
 export function addBoardShapeOrTrackCommand(app, shape) {
@@ -501,6 +548,7 @@ export function addBoardShapeOrTrackCommand(app, shape) {
 /**
  * Commands replacing a board shape whose edited copy has become a copper path
  * (e.g. unfilled, opened, or moved to additive copper) with the equivalent Track.
+ * @param {PcbEditor} app
  * @returns {{commands: any[], track: import('../../shapes/track.js').Track}|null}
  */
 export function copperPathReplacementCommands(app, original, edited) {
@@ -509,7 +557,10 @@ export function copperPathReplacementCommands(app, original, edited) {
     return { commands: [new RemoveBoardShapeCommand(app, original), new AddTrackCommand(app, track)], track };
 }
 
-/** Select tracks that replaced board shapes and show their properties. */
+/**
+ * Select tracks that replaced board shapes and show their properties.
+ * @param {PcbEditor} app
+ */
 export function selectReplacementTracks(app, tracks) {
     selectBoardShape(app, null);
     setPcbSelection(app, tracks.map(track => ({ kind: 'track', object: track })));
@@ -547,7 +598,10 @@ function closeBoardLineIfCoincident(shape, handle) {
     return true;
 }
 
-/** Find a compatible open-Line endpoint to merge with the dragged endpoint. */
+/**
+ * Find a compatible open-Line endpoint to merge with the dragged endpoint.
+ * @param {PcbEditor} app
+ */
 function findBoardLineJoinTarget(app, shape, handle, worldPos) {
     if (shape.kind !== 'line' || (handle !== 0 && handle !== shape.points.length - 1)) return null;
     const tolerance = 8 / Math.max(0.01, app.viewport?.scale || 1);
@@ -567,7 +621,10 @@ function findBoardLineJoinTarget(app, shape, handle, worldPos) {
     return best;
 }
 
-/** Combine two open Lines whose selected endpoints have been snapped together. */
+/**
+ * Combine two open Lines whose selected endpoints have been snapped together.
+ * @param {PcbEditor} app
+ */
 function mergeBoardLines(app, first, firstEndpoint, second, secondEndpoint) {
     return {
         ...joinPaths(first, firstEndpoint, second, secondEndpoint),
@@ -682,6 +739,7 @@ function shapeStyle(shape) {
 
 // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/** @param {PcbEditor} app */
 function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false, editProfile: profileArg = null } = {}) {
     const profile = editProfile(profileArg);
     redrawPropertyPreview(targets, {
@@ -698,6 +756,7 @@ function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false, editP
     });
 }
 
+/** @param {PcbEditor} app */
 export function createBoardShapePropertyBinding(app, profileArg = null) {
     const profile = editProfile(profileArg);
     getPropertyEditor(app, profile.editorKey)?.dispose();
@@ -719,7 +778,7 @@ export function createBoardShapePropertyBinding(app, profileArg = null) {
 }
 
 /**
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {any[]} targets
  * @param {{liveDrag?: boolean, beforeCommit?: (copies: any[]) => boolean|void, editProfile?: any}} [options]
  */
@@ -813,6 +872,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
     return control;
 }
 
+/** @param {PcbEditor} app */
 export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.interactionOnly) refreshSelectedDrcMarker(app);
     shape = displayedBoardShape(app, shape);
@@ -924,6 +984,7 @@ export function shapeAffectsCopperCuts(shape) {
     return false;
 }
 
+/** @param {PcbEditor} app */
 export function removeBoardShapeElement(app, id, opts = {}) {
     const el = shapeElements(app).get(id);
     if (el?.parentNode) el.parentNode.removeChild(el);
@@ -940,10 +1001,12 @@ export function removeBoardShapeElement(app, id, opts = {}) {
 
 // â”€â”€ Hit-test / hover / selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/** @param {PcbEditor} app */
 export function hitTestBoardShape(app, worldPos) {
     return worldPos ? hitTestPcbSelection(app, worldPos, 'shape') : null;
 }
 
+/** @param {PcbEditor} app */
 export function setBoardShapeHover(app, shape) {
     const prev = getHoveredBoardShape(app) || null;
     const next = canonicalBoardShape(app, shape) || null;
@@ -953,6 +1016,7 @@ export function setBoardShapeHover(app, shape) {
     if (next) renderBoardShape(app, next, { interactionOnly: true, skipCopperUpdate: true });
 }
 
+/** @param {PcbEditor} app */
 export function setBoardShapeNetHover(app, shapes) {
     const previous = getNetHoveredShapeIds(app) || new Set();
     const next = new Set([...shapes || []].map(shape => shape.id));
@@ -966,6 +1030,7 @@ export function setBoardShapeNetHover(app, shapes) {
     }
 }
 
+/** @param {PcbEditor} app */
 export function selectBoardShape(app, shape) {
     shape = canonicalBoardShape(app, shape);
     const properties = boardShapePropertyPreviews.get(app);
@@ -1051,7 +1116,10 @@ export function getBoardShapeAnchors(shape) {
     return [...vertices, ...midpoints];
 }
 
-/** Move one anchor through the existing geometry and rendering path. */
+/**
+ * Move one anchor through the existing geometry and rendering path.
+ * @param {PcbEditor} app
+ */
 export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     const before = cloneShapeGeometry(shape);
     const snap = app.snapToGrid(worldPos);
@@ -1062,7 +1130,10 @@ export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     syncCircleDiameterProperty(app, shape);
 }
 
-/** Full SelectionManager adapter for rectangle, polygon, and arc objects. */
+/**
+ * Full SelectionManager adapter for rectangle, polygon, and arc objects.
+ * @param {PcbEditor} app
+ */
 export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = null) {
     const profile = editProfile(profileArg);
     shape = profile.canonical(app, shape);
@@ -1233,7 +1304,10 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
 
 registerPcbSelectionAdapter('shape', createBoardShapeSelectionAdapter);
 
-/** Draw the resize handles for the selected shape on the overlay layer. */
+/**
+ * Draw the resize handles for the selected shape on the overlay layer.
+ * @param {PcbEditor} app
+ */
 export function renderBoardShapeHandles(app, shape) {
     shape = displayedBoardShape(app, shape);
     if (!shape || boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return;
@@ -1248,12 +1322,18 @@ export function renderBoardShapeHandles(app, shape) {
     renderPcbSelectionAnchors(app);
 }
 
-/** Remove all board-shape resize handles from the overlay. */
+/**
+ * Remove all board-shape resize handles from the overlay.
+ * @param {PcbEditor} app
+ */
 export function clearBoardShapeHandles(app) {
     clearPcbSelectionAnchors(app);
 }
 
-/** Remove obsolete standalone segment overlays after selection changes. */
+/**
+ * Remove obsolete standalone segment overlays after selection changes.
+ * @param {PcbEditor} app
+ */
 export function renderBoardShapeSegmentSelection(app) {
     const overlay = app.getLayerGroup?.('selection-overlay');
     if (!overlay) return;
@@ -1271,7 +1351,10 @@ export function renderBoardShapeSegmentSelection(app) {
         boardShapeSegmentWidth(shape, selected.segment), handles);
 }
 
-/** Return the handle key (vertex index, or 'start'/'end'/'bulge') near worldPos, else null. */
+/**
+ * Return the handle key (vertex index, or 'start'/'end'/'bulge') near worldPos, else null.
+ * @param {PcbEditor} app
+ */
 export function hitTestBoardShapeVertex(app, shape, worldPos) {
     if (!shape || !worldPos) return null;
     const scale = app.viewport?.scale || 50;
@@ -1341,6 +1424,7 @@ function polygonSegmentIndexAt(shape, worldPos, tolerance) {
     })), tolerance);
 }
 
+/** @param {PcbEditor} app */
 function polygonVertexSnap(app, before, index, worldPos, closed, requireGrid = false, bulges = []) {
     const points = before.points || [];
     if (points.length < 2) return snapPathPoint(app, worldPos);
@@ -1350,6 +1434,7 @@ function polygonVertexSnap(app, before, index, worldPos, closed, requireGrid = f
     return snapPathPoint(app, worldPos, neighbours, false, pathContinuationConstraints(points, closed, index, bulges));
 }
 
+/** @param {PcbEditor} app */
 function clearPolygonAxisIndicators(app) {
     clearAxisGlow(app);
 }
@@ -1361,6 +1446,7 @@ function boardSquareIndicators(shape) {
         .map(segment => ({ ...segment, layerId: shape.layer }));
 }
 
+/** @param {PcbEditor} app */
 function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [], haloMarginPx = null) {
     if (shape.kind === 'rect') {
         renderAxisGlow(app, boardSquareIndicators(shape));
@@ -1400,7 +1486,10 @@ function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [],
     renderAxisGlow(app, segments);
 }
 
-/** Snap a parallel segment drag when either adjoining segment reaches H/V/45. */
+/**
+ * Snap a parallel segment drag when either adjoining segment reaches H/V/45.
+ * @param {PcbEditor} app
+ */
 function snapPolylineSegmentDrag(app, shape, before, segment, worldPos) {
     const points = before.points || [];
     const firstIndex = segment;
@@ -1427,6 +1516,7 @@ export function splitBoardShapeSegmentMetadata(shape, segment) {
     splitPathSegmentMetadata(shape, segment);
 }
 
+/** @param {PcbEditor} app */
 function finishBoardShapeRemoval(app) {
     setBoardShapeNodeFocus(app, null);
     setBoardShapeSegmentFocus(app, null);
@@ -1434,6 +1524,7 @@ function finishBoardShapeRemoval(app) {
     app.setActiveRibbonTab?.('pcb-home');
 }
 
+/** @param {PcbEditor} app */
 export function deleteSelectedBoardShape(app) {
     const s = getPcbSelection(app, 'shape')[0] || null;
     if (!s) return false;
@@ -1445,6 +1536,7 @@ export function deleteSelectedBoardShape(app) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function setBoardShapeSegmentType(app, shape, segment, type, { floating = false } = {}) {
     shape = canonicalBoardShape(app, shape);
     const original = shape;
@@ -1507,6 +1599,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 
 // â”€â”€ Drag (move whole shape) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/** @param {PcbEditor} app */
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     const profile = editProfile(options.editProfile);
     shape = profile.canonical(app, shape);
@@ -1577,6 +1670,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function handleBoardShapeDrag(app, worldPos) {
     const d = getBoardShapeDrag(app);
     if (!d) return;
@@ -1673,6 +1767,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     refreshDragRatlines(app, d.session);
 }
 
+/** @param {PcbEditor} app */
 export function endBoardShapeDrag(app, commit) {
     const d = getBoardShapeDrag(app);
     if (!d) return;
@@ -1754,7 +1849,10 @@ export function endBoardShapeDrag(app, commit) {
     }
 }
 
-/** Split a closed shape at a node and float one of the coincident endpoints. */
+/**
+ * Split a closed shape at a node and float one of the coincident endpoints.
+ * @param {PcbEditor} app
+ */
 export function openBoardShape(app, shape, vertexIndex = 0) {
     shape = canonicalBoardShape(app, shape);
     if (shape?.layer === 'board-outline') return false;
@@ -1789,6 +1887,7 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function deleteBoardShapeSegment(app, shape, segment) {
     if (shape?.layer === 'board-outline') {
         if (!Number.isInteger(segment) || segment < 0 || segment >= (shape.points?.length || 0)) return false;
@@ -1813,6 +1912,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
     return true;
 }
 
+/** @param {PcbEditor} app */
 export function deleteFocusedBoardShape(app) {
     const selected = getPcbSelection(app, 'shape');
     if (selected.length !== 1 || getPcbSelection(app).length !== 1) return false;
@@ -1840,7 +1940,10 @@ export function deleteFocusedBoardShape(app) {
     return true;
 }
 
-/** Delete a polyline vertex; a triangle reduces to an open two-point Line. */
+/**
+ * Delete a polyline vertex; a triangle reduces to an open two-point Line.
+ * @param {PcbEditor} app
+ */
 export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     shape = canonicalBoardShape(app, shape);
     if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || boardShapeLocked(shape)) return false;
@@ -1870,7 +1973,10 @@ export function dismissBoardShapeContextMenu() {
     dismissPathContextMenu('pcbBoardShapeContextMenu');
 }
 
-/** Show topology actions for a Line, Polygon, or Rectangle. */
+/**
+ * Show topology actions for a Line, Polygon, or Rectangle.
+ * @param {PcbEditor} app
+ */
 export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos) {
     dismissBoardShapeContextMenu();
     if (!shape || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind) || boardShapeLocked(shape)) return;
@@ -1910,6 +2016,7 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
  * The layer a shape tool draws on: the active layer, with display-only layers (paste,
  * mask, outline, Via) mapped to a drawable one. A locked or hidden layer is kept, not
  * swapped for another: the tool refuses to draw there and says why (tool-lifecycle.js).
+ * @param {PcbEditor} app
  * @returns {string}
  */
 export function resolveShapeDrawLayer(app, layerId) {
@@ -1921,6 +2028,7 @@ export function resolveShapeDrawLayer(app, layerId) {
     return (drawable.find(layer => layer.id === id) || drawable[0]).id;
 }
 
+/** @param {PcbEditor} app */
 function makePreview(app) {
     const preview = document.createElementNS(NS, 'path');
     preview.setAttribute('class', 'pcb-shape-preview');
@@ -1933,6 +2041,7 @@ function makePreview(app) {
     return preview;
 }
 
+/** @param {PcbEditor} app */
 function shapeDrawSnap(app, worldPos) {
     const draw = getShapeDraw(app);
     if (draw?.kind === 'arc' && draw.points.length === 2) return worldPos;
@@ -1945,12 +2054,18 @@ function shapeDrawSnap(app, worldPos) {
 /** Screen distance (px) within which a click repeats the last placed vertex. */
 const REPEAT_CLICK_PX = 4;
 
-/** The open shape drawing session (`{ kind, â€¦ }`), or null. */
+/**
+ * The open shape drawing session (`{ kind, â€¦ }`), or null.
+ * @param {PcbEditor} app
+ */
 export function getShapeDraw(app) {
     return getPcbInteraction(app, '_shapeDraw');
 }
 
-/** Left-click while a shape tool is active. */
+/**
+ * Left-click while a shape tool is active.
+ * @param {PcbEditor} app
+ */
 export function shapeDrawClick(app, kind, worldPos) {
     if (!SHAPE_KINDS.has(kind) || kind === 'image') return;
     const snap = shapeDrawSnap(app, worldPos);
@@ -1984,7 +2099,10 @@ export function shapeDrawClick(app, kind, worldPos) {
     else updateShapeDrawPreview(app, worldPos);
 }
 
-/** Live preview as the cursor moves (cursor acts as the pending next point). */
+/**
+ * Live preview as the cursor moves (cursor acts as the pending next point).
+ * @param {PcbEditor} app
+ */
 export function updateShapeDrawPreview(app, worldPos) {
     const d = getShapeDraw(app);
     if (!d) return;
@@ -2015,7 +2133,10 @@ export function updateShapeDrawPreview(app, worldPos) {
     }
 }
 
-/** Remove the live preview element and clear draw state. */
+/**
+ * Remove the live preview element and clear draw state.
+ * @param {PcbEditor} app
+ */
 export function cancelShapeDraw(app) {
     const d = getShapeDraw(app);
     if (!d) return;
@@ -2024,17 +2145,26 @@ export function cancelShapeDraw(app) {
     setPcbInteraction(app, '_shapeDraw', null);
 }
 
-/** Finish a multi-click polygon (Enter / double-click). */
+/**
+ * Finish a multi-click polygon (Enter / double-click).
+ * @param {PcbEditor} app
+ */
 export function finishPolygonDraw(app) {
     if (getShapeDraw(app)?.kind === 'polygon') finishShapeDraw(app);
 }
 
-/** Finish a multi-click open Line (Enter / double-click). */
+/**
+ * Finish a multi-click open Line (Enter / double-click).
+ * @param {PcbEditor} app
+ */
 export function finishLineDraw(app) {
     if (getShapeDraw(app)?.kind === 'line') finishShapeDraw(app);
 }
 
-/** Commit the cursor position as the final point and finish the active shape. */
+/**
+ * Commit the cursor position as the final point and finish the active shape.
+ * @param {PcbEditor} app
+ */
 export function finishShapeDrawAtPoint(app, worldPos) {
     const draw = getShapeDraw(app);
     if (!draw || !worldPos) return false;
@@ -2045,7 +2175,10 @@ export function finishShapeDrawAtPoint(app, worldPos) {
     return true;
 }
 
-/** Commit the in-progress draw into a board shape. */
+/**
+ * Commit the in-progress draw into a board shape.
+ * @param {PcbEditor} app
+ */
 export function finishShapeDraw(app) {
     const d = getShapeDraw(app);
     if (!d) return;
@@ -2092,6 +2225,7 @@ export function finishShapeDraw(app) {
 /**
  * SVG sub-paths for board shapes that subtract copper on the given copper
  * layer. Returns { count, d } to fold into updateCopperCuts (copper-cuts.js).
+ * @param {PcbBoard} app
  */
 export function boardShapeCopperCuts(app, copperLayer) {
     let d = '';
@@ -2144,6 +2278,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
 
 // â”€â”€ Serialisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/** @param {PcbEditor} app */
 export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
     const stage = { boardShapes: [], shapeIdCounter: boardShapeIdDocument(app).shapeIdCounter };
     loadBoardShapeData(stage, arr, { strict, lineWidth: getShapeDefaults(app)?.lineWidth ?? 0.2 });
@@ -2158,6 +2293,7 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
 /**
  * Keys while a board shape is being drawn: Escape cancels; Enter finishes a polygon
  * or line, or completes any other shape at the cursor.
+ * @param {PcbEditor} app
  * @returns {boolean|null} null when no shape is being drawn, else whether the key was consumed.
  */
 export function handleShapeDrawKey(app, e) {

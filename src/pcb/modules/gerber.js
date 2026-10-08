@@ -1069,8 +1069,7 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
         if (nonPlated) drills.push(...panel.drills.map(drill => ({ x: drill.x, y: drill.y, dia: drill.diameter })));
         bounds = null;
     }
-    /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
-    /** @type {Map<number, Array<{x:number,y:number,x2?:number,y2?:number}>>} */
+    /** @type {Map<number, Array<{x:number,y:number,x2?:number,y2?:number}>>} drill mm → positions (and slot ends) */
     const tools = new Map();
     for (const d of drills) {
         if (!d.dia || d.dia <= 0) continue;

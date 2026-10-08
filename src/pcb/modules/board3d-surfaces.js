@@ -13,13 +13,14 @@ import { roundedRectOutline, capsuleRing, discardNestedBores, boardSlabWithCutou
 import { padMesh } from './board3d-parts.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 import { buildCopperMesh, collectCopperSubtractHoles, collectMaskOpeningHoles, buildMaskFaceMesh, buildFillMesh, buildViaMesh, buildPlatedShapeHoleMesh, standalonePadMesh, standalonePadEdgeMesh, boardCutoutEdgeRings, collectBoardHoles, buildMaskOpeningMesh, buildSilkMesh, buildTextMesh } from './board3d-layers.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**
  * Board outline and drilled holes shared by every 3D surface: pad drills,
  * HOLE-layer cutouts and via bores, with nested bores discarded. Bores wholly
  * inside the board are punched as holes (`boardHoles`); bores breaching the
  * edge notch the outline (`crossingRings`); bores wholly outside are ignored.
- * @param {any} app
+ * @param {PcbEditor} app
  */
 export function boardSurfaceFrame(app) {
     const dimensions = boardDimensions(app);
@@ -128,7 +129,7 @@ export function boardSurfaceFrame(app) {
 /**
  * Per-layer worker inputs for the 3D board surfaces (meshes plus the holes to
  * punch through each), built from the editor model and a surface frame.
- * @param {any} app
+ * @param {PcbEditor} app
  * @param {{ outline: any[], drilledHoles: any[], boardHoles: any[], crossingRings: any[] }} frame
  * @param {(boardShapes: any[]) => any} silkArtworkMesh Per-viewer cache from createSilkArtworkMeshCache().
  */

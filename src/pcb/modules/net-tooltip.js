@@ -1,5 +1,7 @@
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 const netTooltipStates = new WeakMap();
 
+/** @param {PcbEditor} app */
 function state(app) {
     let s = netTooltipStates.get(app);
     if (!s) {
@@ -11,7 +13,7 @@ function state(app) {
 
 /**
  * Resolve the net name for a hovered pad/track/via hit, or '' if none.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {{type:string, track?:any, via?:any, pad?:any, shape?:any, componentId?:string, pinNumber?:string|number}|null} hovered
  * @returns {string}
  */
@@ -32,7 +34,10 @@ export function netNameForHover(app, hovered) {
     return '';
 }
 
-/** Hide the net-name tooltip if it is showing. */
+/**
+ * Hide the net-name tooltip if it is showing.
+ * @param {PcbEditor} app
+ */
 export function hideNetTooltip(app) {
     const s = state(app);
     if (s.timer) {
@@ -45,7 +50,7 @@ export function hideNetTooltip(app) {
 /**
  * Show/hide a small tooltip with the net name of the hovered element.
  * Appears for any hovered pad/track/via after a short delay.
- * @param {import('../../ui/PCBApp.js').default} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {{type:string, track?:any, via?:any}|null} hovered
  */
@@ -82,6 +87,7 @@ export function updateNetTooltip(app, e, hovered) {
     }, 400);
 }
 
+/** @param {PcbEditor} app */
 export function getNetTooltipElement(app) {
     return state(app).tooltip;
 }

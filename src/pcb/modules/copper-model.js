@@ -1,9 +1,11 @@
 import { placementPose, padFlashOutline } from '../../shared/pcb/board-geometry.js';
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 
 export function padCopperOutline(pad) {
     return padFlashOutline({ x: pad.x, y: pad.y, w: pad.width, h: pad.height, shape: pad.shape }, 0.001, true);
 }
 
+/** @param {PcbBoard} app */
 export function resolveCopperPads(app, { physical = false } = {}) {
     const outline = physical ? pad => padFlashOutline({ x: pad.x, y: pad.y,
         w: pad.width, h: pad.height, shape: pad.shape }, 1e-4) : padCopperOutline;

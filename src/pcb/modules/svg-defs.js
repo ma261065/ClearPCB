@@ -1,9 +1,11 @@
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 const svgDefs = new WeakMap();
 
 /** Get (or lazily create) the shared <defs> in the editor SVG. */
 /**
  * The editor's own top-level <defs> (copper-cut clip paths, removal hatches). Not the
  * grid's: the viewport rebuilds the grid layer, <defs> included, on zoom.
+ * @param {PcbEditor} app
  */
 export function ensureSvgDefs(app) {
     const svg = app.viewport?.svg;

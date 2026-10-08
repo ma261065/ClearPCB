@@ -62,14 +62,18 @@ export class Circle extends Shape {
         };
     }
     
-    /** @override */
-    /** @param {Point} point @param {number} [tolerance] */
+    /**
+     * @override
+     * @param {Point} point @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0.5) {
         return circleHitTest(this, point, tolerance, this.fill, this.lineWidth);
     }
     
-    /** @override */
-    /** @param {Point} point */
+    /**
+     * @override
+     * @param {Point} point
+     */
     distanceTo(point) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         if (this.fill) {
@@ -104,8 +108,10 @@ export class Circle extends Shape {
         return undefined;
     }
     
-    /** @override */
-    /** @param {number} dx @param {number} dy */
+    /**
+     * @override
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -117,13 +123,17 @@ export class Circle extends Shape {
     clone() {
         return new Circle({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius });
     }
-    /** @override */
-    /** @returns {{x:number,y:number,radius:number,fill:boolean,lineWidth:number}} */
+    /**
+     * @override
+     * @returns {{x:number,y:number,radius:number,fill:boolean,lineWidth:number}}
+     */
     captureState() {
         return { x: this.x, y: this.y, radius: this.radius, fill: this.fill, lineWidth: this.lineWidth };
     }
-    /** @override */
-    /** @param {CircleState} state */
+    /**
+     * @override
+     * @param {CircleState} state
+     */
     applyState(state) {
         if ('x' in state) this.x = /** @type {number} */ (state.x);
         if ('y' in state) this.y = /** @type {number} */ (state.y);
