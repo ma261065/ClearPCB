@@ -209,6 +209,8 @@ Project and documents:
 PCB editor:
 
 - `pcb/modules/pcb-editor-api.js` — public editor services for PCB modules.
+- `pcb/modules/displayed-collections.js` — which copy of each board collection the
+  editor shows: the ordered table of previews behind `PCBApp`'s collection getters.
 - `pcb/modules/edit-lifecycle.js` — preview cancellation, property-editor disposal,
   snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
 - `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points;

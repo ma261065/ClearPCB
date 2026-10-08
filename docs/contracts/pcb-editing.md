@@ -292,6 +292,16 @@ disappear from connectivity checks.
 
 ## Previews and Projections
 
+A preview shows detached copies of the objects it changes and leaves the document's
+collections alone until its command commits. `PCBApp`'s collection getters (`tracks`,
+`vias`, `pads`, `texts`, `boardShapes`) all resolve through one table,
+`PREVIEW_SOURCES` in `displayed-collections.js`: each row names a preview and the
+collections it replaces, and the first active row that supplies a collection wins,
+otherwise the document's is shown. Rows run outermost first: a group move or paste
+(which hold everything they show), then pointer drags, rotations and Properties
+previews. A new kind of preview adds one row; the setters always write the document
+(`test-displayed-collections`).
+
 Image rotation and dimension number controls retain their DOM nodes during
 focused native `input`/`change` steps. Commits update the displayed numeric
 values in place rather than rebuilding the panel and losing keyboard focus;
@@ -508,8 +518,8 @@ state. Discarded previews do not repour unchanged copper. Property/terminal
 handoffs finish pending edits before canonical pickup; save/export guards remain.
 Mixed-object group movement in `box-select.js` reuses detached copies of
 directly selected tracks, vias, pads, board shapes and fills alongside the
-component/text projections. `PCBApp` collection getters give the group
-projection precedence. The selection manager itself lives in `selection-registry.js` per-editor WeakMap state, exposed through selection-registry helpers for diagnostics and tests. Group-specific selection-registry forwarding resolves
+component/text projections. The group projection is the first row of the displayed-collection
+table, so it takes precedence. The selection manager itself lives in `selection-registry.js` per-editor WeakMap state, exposed through selection-registry helpers for diagnostics and tests. Group-specific selection-registry forwarding resolves
 displayed bounds, paths, hits and anchors without retargeting gesture methods
 away from canonical objects. Selected tracks also attached to a moving component
 are rendered once, not by both preview paths.

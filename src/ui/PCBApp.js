@@ -40,22 +40,21 @@ import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { getTrackDraw, getTrackToolLayer, startTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, resolveTrackSnap, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable, getTrackEdit } from '../pcb/modules/track-select.js';
-import { getBoardShapeDrag, getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, getShapeDraw } from '../pcb/modules/board-shapes.js';
+import { getBoardShapeDrag, getShapeDraw } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
     startViaDrag,
     getVertexDrag,
-    getViaDrag,
     setSegmentClickEdgeId,
     setVertexDragDownScreen,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
     commitCollinearCleanup,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
+import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
-import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
+import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, selectBoardShape, startBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties } from '../pcb/modules/board-shape-properties.js';
 import { renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
@@ -70,7 +69,6 @@ import {
     clearBoxSelection,
     hasBoxSelection,
     beginGroupDrag,
-    getGroupPreview,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
 import {
@@ -89,7 +87,7 @@ import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { renderPad } from '../pcb/modules/pad.js';
-import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
+import { AddPadCommand } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts } from '../pcb/modules/copper-cuts.js';
@@ -110,14 +108,14 @@ import {
     addFillWaypoint,
     fillToolDefaults,
 } from '../pcb/modules/copper-fill-draw.js';
-import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, getPcbPastePreview, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
+import { displayedCollection } from '../pcb/modules/displayed-collections.js';
+import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getLastCrosshairWorld, updateCursorCrosshair, updateVertexDragCrosshair } from '../pcb/modules/cursor-state.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setDragOverlaysDeferred, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
     drawBoardOutline,
-    getBoardDimensionPreview,
     hitTestBoardOutline,
     hoverBoardOutline,
     initializeBoardOutlineState,
@@ -188,21 +186,16 @@ function boardNetNames(app) {
 }
 
 export default class PCBApp {
-    get tracks() {
-        return getGroupPreview(this)?.tracks || getPcbPastePreview(this)?.tracks || getPlacementPreviewTracks(this) || getViaDrag(this)?.preview?.tracks
-            || getVertexDrag(this)?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
-    }
+    // While a preview runs, these are its detached copies (displayed-collections.js).
+    get tracks() { return displayedCollection(this, 'tracks'); }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return getGroupPreview(this)?.vias || getPcbPastePreview(this)?.vias || getViaDrag(this)?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
+    get vias() { return displayedCollection(this, 'vias'); }
     set vias(value) { this.pcbDocument.vias = value; }
-    get pads() {
-        return getGroupPreview(this)?.pads || getPcbPastePreview(this)?.pads || getViaDrag(this)?.preview?.pads || getPadRotationPreview(this)?.pads
-            || getPadPropertyPreview(this)?.pads || this.pcbDocument.pads;
-    }
+    get pads() { return displayedCollection(this, 'pads'); }
     set pads(value) { this.pcbDocument.pads = value; }
-    get texts() { return getPcbPastePreview(this)?.texts || getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
+    get texts() { return displayedCollection(this, 'texts'); }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return getGroupPreview(this)?.boardShapes || getPcbPastePreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
+    get boardShapes() { return displayedCollection(this, 'boardShapes'); }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get panelization() { return this.pcbDocument.panelization; }
     set panelization(value) { this.pcbDocument.loadPanelization(value); }
