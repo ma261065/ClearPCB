@@ -11,7 +11,9 @@ than `schematic` and `pcb`, `schematic.json` and optional `pcb.json` hold the
 sections, and `models/` holds deduplicated OBJ meshes. The ZIP manifest uses
 `format: "clearpcb-zip", version: 1`; that container version is independent of
 the project version and app release.
-Plain JSON input is also supported, subject to the same project validation.
+Project Open accepts `.cpcb` ZIP containers, not standalone `.json` files. The
+JSON document described here is stored inside the container; related JSON data
+is also used internally for clipboard serialization and browser autosave.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
 are not valid. ClearPCB-owned records are strict: unknown fields, obsolete
@@ -1149,7 +1151,7 @@ Schema file. The authoritative implementation points are:
 - `src/core/ProjectDocument.js`: document assembly and section ownership.
 - `src/core/project-format.js`: format validation, stackup contract, editor capability gate,
   and the storage check every save and autosave passes (`storableProject`).
-- `src/core/FileManager.js`: ZIP container and raw JSON reading.
+- `src/core/FileManager.js`: ZIP container writing and ZIP-member JSON reading.
 - `src/core/SchematicDocument.js`: schematic envelope, components, definitions,
   and shape serialization.
 - `src/shapes/shape.js`, `src/shapes/polyline-graph.js`, and concrete classes in

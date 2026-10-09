@@ -239,35 +239,6 @@ export function updateTitle(app) {
 }
 
 /**
- * Checks for auto-saved content on startup and prompts the user to recover
- * or discard it.
- * @param {SchematicEditor} app
- */
-export async function checkAutoSave(app) {
-    if (app.fileManager.hasAutoSave()) {
-        const saved = app.fileManager.loadAutoSave();
-        if (saved && saved.data) {
-            const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
-                               (saved.data.components && saved.data.components.length > 0);
-            if (hasContent) {
-                const time = new Date(saved.timestamp).toLocaleString();
-                const recoveryChoice = await app.confirm(
-                    `Found auto-saved content from ${time}.\n\nRecover it? Choosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
-                    { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
-                );
-                if (recoveryChoice === true) {
-                    await loadProjectDocument(app, saved.data);
-                    app.fileManager.setDirty(true);
-                    console.log('Recovered auto-saved content');
-                } else if (recoveryChoice === false) {
-                    app.fileManager.clearAutoSave();
-                }
-            }
-        }
-    }
-}
-
-/**
  * Fetches `version.json` and displays the version number in the UI.
  * @param {SchematicEditor} app
  */
