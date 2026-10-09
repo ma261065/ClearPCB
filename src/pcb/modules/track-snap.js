@@ -363,6 +363,7 @@ const SNAP_PX = GRID_SNAP_PX;
 function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, preferredNet, excludeNode) {
     if (!app?.tracks?.length) return null;
     const tol2 = tolerance * tolerance;
+    const needsLayerCheck = TOGGLE_LAYERS.some(layer => !isLayerVisible(layer) || isLayerLocked(layer));
     let bestSameNet = null, bestSameD2 = Infinity;
     let bestAny = null, bestAnyD2 = Infinity;
     for (const track of app.tracks) {
@@ -374,7 +375,7 @@ function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, p
             const d2 = dx * dx + dy * dy;
             if (d2 > tol2) continue;
             if (excludeNode && excludeNode(track, nid)) continue;
-            if (!track.incidentEdges(nid).some(/** @param {{edgeId: string}} incident */ ({ edgeId }) => {
+            if (needsLayerCheck && !track.incidentEdges(nid).some(/** @param {{edgeId: string}} incident */ ({ edgeId }) => {
                 const layer = track.getEdgeLayer(edgeId);
                 return isLayerVisible(layer) && !isLayerLocked(layer);
             })) continue;
