@@ -134,7 +134,9 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         const xform = opts.transform?.()
             ?? `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
 
-        const caretIdx = input.selectionStart ?? input.value.length;
+        const selectionStart = input.selectionStart ?? input.value.length;
+        const selectionEnd = input.selectionEnd ?? selectionStart;
+        const caretIdx = input.selectionDirection === 'backward' ? selectionStart : selectionEnd;
         const sub = input.value.slice(0, caretIdx);
         const lx = measureStrokeText(sub, text.size);
         const verticalBounds = measureStrokeTextVerticalBounds(
@@ -146,6 +148,8 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         overlay.updateGeometry({
             ...editBox,
             caretX: lx,
+            selectionStartX: measureStrokeText(input.value.slice(0, selectionStart), text.size),
+            selectionEndX: measureStrokeText(input.value.slice(0, selectionEnd), text.size),
             caretTop: verticalBounds.top - caretExtension,
             caretBottom: verticalBounds.bottom + caretExtension,
             transform: xform,

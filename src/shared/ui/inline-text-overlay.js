@@ -3,9 +3,9 @@ const BLINK_MS = 530;
 const ACTIVE_HOLD_MS = 400;
 
 /** @typedef {import('../../core/Viewport.js').Point} Point */
-/** @typedef {{x: number, y: number, width: number, height: number, caretX: number, caretTop?: number, caretBottom?: number, transform?: string}} InlineTextOverlayGeometry */
+/** @typedef {{x: number, y: number, width: number, height: number, caretX: number, caretTop?: number, caretBottom?: number, selectionStartX?: number, selectionEndX?: number, transform?: string}} InlineTextOverlayGeometry */
 /** @typedef {{start: Point|null, end: Point|null}} TextConnectionGuide */
-/** @typedef {{group: SVGGElement, box: SVGRectElement, caret: SVGLineElement, blinkEpoch: number, forceVisibleUntil: number, releasePending: boolean, blinkTimer: number|null, keepCaretVisible: () => void, updateGeometry: (geometry: InlineTextOverlayGeometry) => boolean, raise: () => void, destroy: () => void}} InlineTextOverlay */
+/** @typedef {{group: SVGGElement, box: SVGRectElement, selection: SVGRectElement, caret: SVGLineElement, blinkEpoch: number, forceVisibleUntil: number, releasePending: boolean, blinkTimer: number|null, keepCaretVisible: () => void, updateGeometry: (geometry: InlineTextOverlayGeometry) => boolean, raise: () => void, destroy: () => void}} InlineTextOverlay */
 
 /**
  * @param {HTMLInputElement|null|undefined} input
@@ -49,7 +49,13 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     caret.setAttribute('stroke-linecap', 'butt');
     caret.style.opacity = '1';
 
+    const selection = document.createElementNS(SVG_NS, 'rect');
+    selection.setAttribute('class', 'text-edit-selection');
+    selection.setAttribute('fill', 'var(--accent-color, #00ccff)');
+    selection.setAttribute('fill-opacity', '0.3');
+    selection.style.display = 'none';
     group.appendChild(box);
+    group.appendChild(selection);
     group.appendChild(caret);
     append(group);
 
@@ -57,6 +63,7 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
     const overlay = {
         group,
         box,
+        selection,
         caret,
         blinkEpoch: performance.now(),
         forceVisibleUntil: 0,
@@ -74,6 +81,8 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
             caretX,
             caretTop = y,
             caretBottom = y + height,
+            selectionStartX = caretX,
+            selectionEndX = caretX,
             transform = '',
         }) {
             const values = [x, y, width, height, caretX, caretTop, caretBottom];
@@ -94,6 +103,15 @@ export function createInlineTextOverlay(append, { emphasized = false } = {}) {
             this.caret.setAttribute('x2', String(caretX));
             this.caret.setAttribute('y1', String(caretTop));
             this.caret.setAttribute('y2', String(caretBottom));
+            const selected = Number.isFinite(selectionStartX) && Number.isFinite(selectionEndX)
+                && selectionStartX !== selectionEndX;
+            selection.style.display = selected ? '' : 'none';
+            if (selected) {
+                selection.setAttribute('x', String(Math.min(selectionStartX, selectionEndX)));
+                selection.setAttribute('y', String(caretTop));
+                selection.setAttribute('width', String(Math.abs(selectionEndX - selectionStartX)));
+                selection.setAttribute('height', String(caretBottom - caretTop));
+            }
             this.raise();
             return true;
         },

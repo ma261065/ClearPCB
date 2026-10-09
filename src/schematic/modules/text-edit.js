@@ -14,7 +14,7 @@ import { isWireItem as isWireShape } from '../../core/schematic-items.js';
 /** @typedef {import('../../shapes/wire.js').Wire} WireShape */
 /** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
 /** @typedef {import('../../shared/ui/inline-text-overlay.js').InlineTextOverlay} InlineTextOverlay */
-/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
+/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, selectionAnchor?: number|null, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
 /** @typedef {{x: number, width: number}} CaretProbe */
 
 /**
@@ -83,6 +83,7 @@ export function startTextEdit(app, shape) {
         shape,
         originalText: initialText,
         caretIndex: initialCaret,
+        selectionAnchor: null,
         overlay: null,
         overlayGroup: null,
         overlayBox: null,
@@ -232,6 +233,37 @@ export function handleTextEditKey(app, e) {
     const shape = state.shape;
     const text = typeof shape.text === 'string' ? shape.text : '';
     const caret = state.caretIndex ?? text.length;
+    const anchor = state.selectionAnchor ?? caret;
+    const selectionStart = Math.min(caret, anchor);
+    const selectionEnd = Math.max(caret, anchor);
+    const hasSelection = selectionStart !== selectionEnd;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        state.selectionAnchor = 0;
+        state.caretIndex = text.length;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+        let next = caret;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = text.length;
+        else if (!e.shiftKey && hasSelection) next = e.key === 'ArrowLeft' ? selectionStart : selectionEnd;
+        else if (e.key === 'ArrowLeft') next = e.ctrlKey || e.metaKey
+            ? findWordBoundaryLeft(text, caret) : Math.max(0, caret - 1);
+        else next = e.ctrlKey || e.metaKey ? findWordBoundaryRight(text, caret) : Math.min(text.length, caret + 1);
+        state.selectionAnchor = e.shiftKey ? anchor : null;
+        state.caretIndex = next;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
 
     if (e.key === 'Escape') {
         endTextEdit(app, false);
@@ -249,52 +281,9 @@ export function handleTextEditKey(app, e) {
         return true;
     }
 
-    if (e.key === 'ArrowLeft') {
-        if (e.ctrlKey || e.metaKey) {
-            state.caretIndex = findWordBoundaryLeft(text, caret);
-        } else {
-            state.caretIndex = Math.max(0, caret - 1);
-        }
-        updateTextEditOverlay(app);
-        resetCaretBlink(state);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    if (e.key === 'ArrowRight') {
-        if (e.ctrlKey || e.metaKey) {
-            state.caretIndex = findWordBoundaryRight(text, caret);
-        } else {
-            state.caretIndex = Math.min(text.length, caret + 1);
-        }
-        updateTextEditOverlay(app);
-        resetCaretBlink(state);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    if (e.key === 'Home') {
-        state.caretIndex = 0;
-        updateTextEditOverlay(app);
-        resetCaretBlink(state);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
-    if (e.key === 'End') {
-        state.caretIndex = text.length;
-        updateTextEditOverlay(app);
-        resetCaretBlink(state);
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-    }
-
     if (e.key === 'Backspace') {
-        if (caret > 0) {
+        if (hasSelection) updateText(app, text.slice(0, selectionStart) + text.slice(selectionEnd), selectionStart);
+        else if (caret > 0) {
             const nextText = text.slice(0, caret - 1) + text.slice(caret);
             updateText(app, nextText, caret - 1);
         }
@@ -305,7 +294,8 @@ export function handleTextEditKey(app, e) {
     }
 
     if (e.key === 'Delete') {
-        if (caret < text.length) {
+        if (hasSelection) updateText(app, text.slice(0, selectionStart) + text.slice(selectionEnd), selectionStart);
+        else if (caret < text.length) {
             const nextText = text.slice(0, caret) + text.slice(caret + 1);
             updateText(app, nextText, caret);
         }
@@ -316,15 +306,15 @@ export function handleTextEditKey(app, e) {
     }
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const nextText = text.slice(0, caret) + e.key + text.slice(caret);
-        updateText(app, nextText, caret + 1);
+        const nextText = text.slice(0, selectionStart) + e.key + text.slice(selectionEnd);
+        updateText(app, nextText, selectionStart + 1);
         resetCaretBlink(state);
         e.preventDefault();
         e.stopPropagation();
         return true;
     }
 
-    // Consume all other keys (e.g. Ctrl+A) so they don't trigger
+    // Consume other keys so they don't trigger
     // browser defaults or app shortcuts while editing text.
     e.preventDefault();
     e.stopPropagation();
@@ -380,6 +370,8 @@ export function updateTextEditOverlay(app) {
     const caretProbe = { x: box.contentX + originX, width: box.contentWidth };
     const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
     const caretX = caretXAbs - originX;
+    const selectionX = state.selectionAnchor == null ? caretX
+        : getCaretX(app, shape, el, caretProbe, state.selectionAnchor) - originX;
     const caretExtension = box.contentHeight * 0.15;
     state.overlay?.updateGeometry({
         x: box.x,
@@ -387,6 +379,8 @@ export function updateTextEditOverlay(app) {
         width: box.width,
         height: box.height,
         caretX,
+        selectionStartX: selectionX,
+        selectionEndX: caretX,
         caretTop: box.contentY - caretExtension,
         caretBottom: box.contentY + box.contentHeight + caretExtension,
         transform: groupTransform,
@@ -425,6 +419,7 @@ export function nudgeTextEditOverlay(app, dx, dy) {
 export function setTextCaretFromScreen(app, screenPos) {
     const state = getSchematicTextEdit(app);
     if (!state || !state.shape) return;
+    state.selectionAnchor = null;
 
     const shapeEl = viewElementOf(state.shape);
     const ownTextEl = state.shape.type === 'text'
@@ -555,6 +550,7 @@ function updateText(app, nextText, caretIndex) {
         state.shape.invalidate();
     }
     state.caretIndex = caretIndex;
+    state.selectionAnchor = null;
     app.fileManager.setDirty(true);
     app.renderShapes(true);
     updateTextEditOverlay(app);

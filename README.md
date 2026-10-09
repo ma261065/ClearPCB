@@ -307,6 +307,11 @@ Schematic editor only:
 
 While drawing a PCB track, `Enter` finishes it and `Space` inserts a via.
 
+While editing inline text, `Ctrl+A` (`Cmd+A` on macOS) selects the text rather
+than canvas objects. `Shift+Left/Right` extends the selection, with `Ctrl/Cmd`
+added to select by word; `Shift+Home/End` selects to either end. Typing replaces
+the highlighted text, and Backspace/Delete removes it.
+
 ## Testing
 
 The repo has a single regression gate; run it before committing:

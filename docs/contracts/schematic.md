@@ -78,6 +78,14 @@ an in-progress drawing, and Escape cancels its live preview without blurring the
 field or applying the canvas-level Escape action. Enter and Escape on the canvas
 retain their normal drawing and cancellation behavior.
 
+Inline text editing supports Ctrl+A (Cmd+A on macOS), Shift+Left/Right,
+Ctrl/Cmd+Shift+Left/Right for word selection, and Shift+Home/End. A translucent
+highlight shows the selected text. Typing replaces the selection; Backspace and
+Delete remove it. An unshifted arrow collapses the selection to that end, and
+clicking places the caret and clears selection. Enter commits the entire edit as
+one undoable change; Escape restores the original text.
+PCB inline text uses the native input selection shortcuts and the same highlight.
+
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 
 - `draw-states.js` owns the mouse state table, draw snap result, pending
