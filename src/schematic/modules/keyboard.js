@@ -148,6 +148,11 @@ export function bindKeyboardShortcuts(app) {
             return;
         }
         const target = /** @type {(EventTarget & {tagName?: string, type?: string, isContentEditable?: boolean})|null} */ (e.target);
+        const targetElement = e.target instanceof Element ? e.target : null;
+        // Enter and Escape belong to a focused Properties control. Let its own
+        // handler commit/cancel before the canvas can finish a draw or deselect.
+        if ((e.key === 'Enter' || e.key === 'Escape')
+            && targetElement?.closest('#propertiesPanel')) return;
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
         // Only block when user is actively typing in a text field
         if (target) {

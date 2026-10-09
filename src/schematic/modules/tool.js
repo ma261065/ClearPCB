@@ -5,6 +5,7 @@ import { normalizeNetStyle } from '../../shapes/net.js';
 import { removeToolGhost } from './tool-ghost.js';
 import { SCHEMATIC_TOOLS } from './schematic-tools.js';
 import { isPlacingComponent } from './components.js';
+import { hasSchematicTextEdit } from './text-edit.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 export { getToolGhost } from './tool-ghost.js';
 export { updateToolGhost } from './tool-ghost.js';
@@ -70,10 +71,11 @@ export function saveToolOptions(options) {
  * @param {string} tool - Tool identifier to activate.
  */
 export function onToolSelected(app, tool) {
-    // Every in-progress interaction except inline text (it ends on blur) and a
-    // component placement, which the Component tool keeps; other tools cancel the
-    // placement below, once the new tool is current.
-    cancelSchematicInteractions(app, ['textEdit', 'placingComponent']);
+    // Ribbon tool buttons do not blur the SVG text overlay, so explicitly commit
+    // before clearing its selection or replacing the Properties description.
+    if (hasSchematicTextEdit(app)) app.endTextEdit(true);
+    // The Component tool keeps its placement; all other active interactions cancel.
+    cancelSchematicInteractions(app, ['placingComponent']);
     app.cancelDrawing();
     
     // Clear any snap highlight left from the previous tool (e.g. wire hover dot)

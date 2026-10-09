@@ -48,7 +48,7 @@ the snapshot guard (`SchematicApp.isSectionEditing()`, with the Properties live
 preview), Escape (cancels the highest-priority interaction), Undo/Redo (drawing
 blocks it, inline text, paste and placement are only cancelled, pointer previews
 are cancelled and history then steps, as in the PCB editor), tool switching
-(cancels everything but inline text and a placement the Component tool keeps), New
+(commits inline text and cancels everything else except a placement the Component tool keeps), New
 (cancels everything) and selection actions (delete, cut, paste, nudge, flip,
 rotate, select all wait while anything is in progress). `interactionState` in
 `draw-states.js` drives pointer dispatch; `resolveState()` derives it from
@@ -70,6 +70,13 @@ placed (`finishInPlace`), and releasing the button finishes single-click draws o
 (tools marked `multiClick` keep drawing). The `toolActive` and `drawing` mouse states,
 the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read the
 entry (`test-schematic-tools`).
+
+Switching tools commits an active inline text edit before the new tool clears
+selection or updates the Properties panel. In Properties, Enter and
+Escape belong to the focused control: Enter commits that field without completing
+an in-progress drawing, and Escape cancels its live preview without blurring the
+field or applying the canvas-level Escape action. Enter and Escape on the canvas
+retain their normal drawing and cancellation behavior.
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 
