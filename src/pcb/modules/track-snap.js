@@ -1,5 +1,5 @@
 /**
- * Where the Track tool's cursor lands: on a pad, a track node or a via (the hard targets),
+ * Where the Track tool's cursor lands: on a pad, a track node, segment or via (the hard targets),
  * on copper it would touch, or on the grid with axis and 45-degree magnets. Drawing and
  * node drags share these rules, and the snap marker that shows the hard target under the
  * cursor.
@@ -8,6 +8,8 @@ import { getComputedFill } from './computed-fill-cache.js';
 import { GRID_SNAP_PX, snapToGridLines } from '../../core/grid-snap.js';
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
+import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
+import { isLayerVisible, isLayerLocked } from './layers.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { padFlashOutline, placementPose } from '../../shared/pcb/board-geometry.js';
 import { resolveTrackContactGeometry } from './track-contact-geometry.js';
@@ -16,6 +18,7 @@ import { getTrackDraw, getTrackToolLayer, getTrackToolNet } from './track-draw.j
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}} PadSnap */
+/** @typedef {{track: Track, edgeId: string, x: number, y: number}} TrackSegmentTarget */
 /** @typedef {{padTolerance?: number, trackTolerance?: number, excludeTrack?: Track|null, excludePad?: unknown, layer?: string, excludeNode?: (track: Track, nodeId: string) => boolean, lastPt?: Point|null, net?: string, checkNodeContacts?: boolean}} TrackSnapOptions */
 /**
  * @typedef {object} TrackSnap
@@ -24,6 +27,7 @@ import { getTrackDraw, getTrackToolLayer, getTrackToolNet } from './track-draw.j
  * @property {'pad'|'track-node'|'axis'|'grid'|'free'|'via'|string} snapType
  * @property {any} [pad]
  * @property {any} [trackNode]
+ * @property {TrackSegmentTarget} [trackSegment]
  */
 
 const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
@@ -172,8 +176,9 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  *   1. Pad centre (electrical connection)
  *   2. Track node on the *same net*
  *   3. Track node on any net
- *   4. 45° diagonal line from `options.lastPt`
- *   5. Per-axis snap to grid line or to H/V axis through `options.lastPt`
+ *   4. Compatible track segment interior on the active copper layer
+ *   5. 45° diagonal line from `options.lastPt`
+ *   6. Per-axis snap to grid line or to H/V axis through `options.lastPt`
  *      (X and Y resolved independently — both axes can snap, only one
  *      can snap, or neither)
  *
@@ -208,8 +213,52 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     if (nearNode) {
         return { x: nearNode.x, y: nearNode.y, snapType: 'track-node', trackNode: nearNode };
     }
+    const segment = findNearbyTrackSegment(app, worldPos, trackTol, layer, excludeTrack, net, excludeNode);
+    if (segment) {
+        return { x: segment.x, y: segment.y, snapType: 'track-segment', trackSegment: segment };
+    }
 
     return resolveGridMagnetSnap(app, worldPos, lastPt);
+}
+
+/**
+ * Project onto joinable segment interiors, including arcs, without changing their graphs.
+ * @param {Pick<PcbEditor, 'tracks'>} app
+ * @param {Point} point
+ * @param {number} tolerance
+ * @param {string} layer
+ * @param {Track|null} [excludeTrack]
+ * @param {string} [net]
+ * @param {((track: Track, nodeId: string) => boolean)|null} [excludeNode]
+ * @returns {TrackSegmentTarget|null}
+ */
+export function findNearbyTrackSegment(app, point, tolerance, layer, excludeTrack = null, net = '', excludeNode = null) {
+    if (!isLayerVisible(layer) || isLayerLocked(layer)) return null;
+    let best = null;
+    let bestDistance = Infinity;
+    let bestSameNet = false;
+    for (const track of app.tracks || []) {
+        if (track === excludeTrack || track.locked || track.visible === false) continue;
+        if (net && track.net && net !== track.net) continue;
+        for (const [edgeId, edge] of track.edges) {
+            if (track.getEdgeLayer(edgeId) !== layer) continue;
+            if (excludeNode && (excludeNode(track, edge.from) || excludeNode(track, edge.to))) continue;
+            const start = track.nodes.get(edge.from), end = track.nodes.get(edge.to);
+            if (!start || !end) continue;
+            const projected = closestPointOnArcEdge(point, start, end, edge.bulge || 0);
+            if (Math.hypot(projected.x - start.x, projected.y - start.y) < 1e-6
+                || Math.hypot(projected.x - end.x, projected.y - end.y) < 1e-6) continue;
+            const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+            const sameNet = !!net && track.net === net;
+            if (distance > tolerance || (bestSameNet && !sameNet)) continue;
+            if (sameNet && !bestSameNet || distance < bestDistance) {
+                best = { track, edgeId, ...projected };
+                bestDistance = distance;
+                bestSameNet = sameNet;
+            }
+        }
+    }
+    return best;
 }
 
 /**
@@ -391,12 +440,12 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
     const layer = getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
     if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
-    const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
-    // A pour of another net is re-poured with clearance around the new track,
-    // so it is not copper the track connects to (matching collectNodeConnections).
+    const sourceNet = snap.pad?.net || snap.trackNode?.track.net || snap.trackSegment?.track.net || '';
+    // A named pour reserves clearance around a different-net or unassigned track.
+    // Coverage alone is not a connection (matching collectNodeConnections).
     const drawNet = String(options.net || sourceNet || getTrackToolNet(app) || '').trim();
     /** @param {any} shape Dynamic copper shape/fill records share only the fields checked here. */
-    const foreignFill = (shape) => shape?.type === 'fill' && !!drawNet
+    const foreignFill = (shape) => shape?.type === 'fill'
         && !!String(shape.net || '').trim() && String(shape.net).trim() !== drawNet;
     const boardShapes = /** @type {any[]} */ (app.boardShapes || []);
     const shapes = boardShapes.filter((shape) => shape.layer === layer && shape.visible !== false
@@ -408,7 +457,7 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
         ? (getComputedFill(shape) || []).some((polygon) => pointInPolygon(point, polygon.outer)
             && !(polygon.holes || []).some((hole) => pointInPolygon(point, hole)))
         : shapeCopperContains(/** @type {import('./track-connections.js').CopperContact} */ (geometry.get(shape)), point));
-    const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node';
+    const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node' || snap.snapType === 'track-segment';
     let target = { x: snap.x, y: snap.y };
     /** @type {Via|null} */
     let via = null;
@@ -454,7 +503,7 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
         ...(via ? { snapType: 'via', via } : {}),
         contactNets,
         copperShapes: contactShapes,
-        copperContact: contactShapes.length > 0 || vias.length > 0,
+        copperContact: !!snap.trackSegment || contactShapes.length > 0 || vias.length > 0,
     };
 }
 

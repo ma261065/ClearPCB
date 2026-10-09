@@ -87,7 +87,11 @@ on compatible copper layers (including nodes placed onto segment/arc interiors,
 pads, vias and copper shapes), preserving schematic-pad Net authority. It rejects
 incompatible named connections before committing. A segment merely crossing
 other copper does not trigger a Net-conflict popup or label that copper; physical
-short/clearance checking remains DRC's job. Drawing and dragging share the
+short/clearance checking remains DRC's job. Starting or bending a track over a named
+pour does not adopt its net: an unassigned track stays Net=None until it joins a
+pad, via, track or authored copper shape (or the user selects a net). A different-net
+or unassigned track reserves clearance in that pour when it is recomputed.
+Drawing and dragging share the
 node-to-copper target query in `collectNodeConnections`
 (`pcb/modules/track-connections.js`); the graph and Net commands apply the
 validated connection. `collectBondedCopper` has no
@@ -95,6 +99,15 @@ edit-specific crossing filter; physical-contact consumers, including
 ratsnest/DRC geometry, use their own physical-contact rules. Post-drop adoption
 uses the validated contacts rebound to the final graph, so node merges and
 collinear cleanup neither lose intended adoption nor rediscover remote crossings.
+
+Track drawing and single-node dragging snap to compatible segment interiors as well
+as existing nodes. The yellow target circle marks the projected connection point;
+straight edges and arcs use their actual centreline geometry. Segment targets must
+be visible, unlocked and on the same copper layer; two different named nets do not
+join. The target graph is unchanged during hover or drag. On drop, its edge splits
+at the projected point and the graphs merge into one junction, adopting the target
+net when the moving track is unassigned. Splitting, joining and net adoption undo
+as one action; Escape leaves both original tracks intact.
 
 A copper shape and the Track it converts to are the same copper, so they follow
 one set of rules. `test-copper-path-parity` converts rounded, bulged,

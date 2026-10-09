@@ -204,8 +204,8 @@ export function startTrackDraw(app, worldPos) {
     // track would have nothing to guide toward).
     let net = startPad?.net || String(getTrackToolNet(app) || '').trim();
     let startTrack = null;
-    if (snap.snapType === 'track-node' && snap.trackNode) {
-        startTrack = snap.trackNode.track;
+    if (snap.trackNode || snap.trackSegment) {
+        startTrack = snap.trackNode?.track || snap.trackSegment?.track || null;
         if (!net) net = startTrack.net || '';
     }
     if (trackContactConflict(net, snap.contactNets)) return null;

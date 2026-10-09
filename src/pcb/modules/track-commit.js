@@ -7,6 +7,7 @@ import { captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { Track } from '../../shapes/track.js';
 import { viaAtPoint } from './track-edits.js';
 import { NODE_MERGE_EPS } from './track-drop.js';
+import { findNearbyTrackSegment } from './track-snap.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/via.js').Via} Via */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
@@ -279,7 +280,16 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
             if (inc.length !== 1) continue;
             const layer = nt.getEdgeLayer(inc[0].edgeId) || nt.layer;
             const p = nt.nodes.get(nid);
-            const target = _findExistingMergeNode(app, p.x, p.y, nt.net, layer, drawnSet);
+            let target = _findExistingMergeNode(app, p.x, p.y, nt.net, layer, drawnSet);
+            if (!target) {
+                const segment = findNearbyTrackSegment({ tracks: (app.tracks || []).filter(/** @param {Track} track */ track => !drawnSet.has(track)) },
+                    p, NODE_MERGE_EPS, layer, null, nt.net);
+                if (segment) {
+                    ensureBefore(segment.track);
+                    const split = segment.track.splitEdge(segment.edgeId, segment);
+                    if (split) target = { track: segment.track, nodeId: split.newNodeId };
+                }
+            }
             if (target) conns.push({ nodeId: nid, target });
         }
         if (conns.length === 0) { independentAdds.push(nt); continue; }

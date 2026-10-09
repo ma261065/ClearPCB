@@ -84,6 +84,42 @@ for (const gap of [0.001, 0.025, 0.1, 0.5]) {
     }
 }
 
+{
+    const app = fixture();
+    const ground = new CopperFill({ layer: 'top-copper', net: 'GND' });
+    setComputedFill(ground, [{ outer: rectangle(-5, -5, 25, 5).points, holes: [] }]);
+    app.boardShapes.push(ground);
+    const draw = startTrackDraw(app, { x: 0, y: 0 });
+    assert.equal(draw.net, '', 'starting over a named pour keeps Net=None');
+    assert.equal(draw.snap.copperContact, false, 'background pour coverage is not a draw target');
+    addTrackWaypoint(app, { x: 5, y: 3 });
+    assert.equal(getTrackDraw(app), draw, 'a bend over the pour does not finish the draw');
+    assert.equal(draw.net, '', 'a bend over the pour does not adopt its net');
+    addTrackWaypoint(app, { x: 10, y: 3 });
+    addTrackWaypoint(app, { x: 10, y: 3 });
+    assert.equal(getTrackDraw(app), null);
+    assert.equal(app.tracks[0].net, '', 'dropping over the pour keeps Net=None');
+    assert.equal(ground.net, 'GND');
+    app.commands[0].undo();
+    assert.equal(app.tracks.length, 0);
+    app.commands[0].execute();
+    assert.equal(app.tracks[0].net, '');
+}
+
+{
+    const app = fixture();
+    const ground = new CopperFill({ layer: 'top-copper', net: 'GND' });
+    setComputedFill(ground, [{ outer: rectangle(-5, -5, 25, 5).points,
+        holes: [rectangle(19, -1, 21, 1).points] }]);
+    app.boardShapes.push(ground);
+    assert.equal(startTrackDraw(app, { x: 0, y: 0 }).net, '');
+    addTrackWaypoint(app, { x: 20, y: 0 });
+    assert.equal(getTrackDraw(app), null);
+    assert.equal(app.tracks[0].net, 'SIGNAL', 'joining a real pad still adopts its net over a pour');
+    assert.equal(ground.net, 'GND');
+    assert.equal(app.lastAlert, undefined);
+}
+
 await loadClipper();
 {
     // Starting on a SIGNAL pin and bending/finishing inside a GND pour reserves clearance;

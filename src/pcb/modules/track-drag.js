@@ -57,7 +57,7 @@ import { lockedJoinTarget, trackPointerCommands } from './track-drop.js';
  * @typedef {{nodeId: string, attrs: TrackEdge}} TrackDragBridge
  * @typedef {{tracks: Track[]}} TrackDragPreview
  * @typedef {{excludeTracks?: Set<Track>, ratlinePointKeys?: Set<string>}} TrackGuideExclude
- * @typedef {{original: Track, track: Track, layers: Set<string>, lastDx: number, lastDy: number, session: DragSession, before: TrackState, preview?: TrackDragPreview, topology?: boolean, preparingSplit?: boolean, splitNodeId?: string, bridges?: TrackDragBridge[], snapTargetNode?: TrackNodeTarget|null, snapTargetVia?: Via|Pad|null, snapTargetKind?: 'pad'|'via', translationPoints?: Point[], constraints?: PathDragConstraint[], neighborIds?: Set<string>, guideExclude?: TrackGuideExclude|null, userDragged?: boolean}} TrackDragCommon
+ * @typedef {{original: Track, track: Track, layers: Set<string>, lastDx: number, lastDy: number, session: DragSession, before: TrackState, preview?: TrackDragPreview, topology?: boolean, preparingSplit?: boolean, splitNodeId?: string, bridges?: TrackDragBridge[], snapTargetNode?: TrackNodeTarget|null, snapTargetSegment?: import('./track-snap.js').TrackSegmentTarget|null, snapTargetVia?: Via|Pad|null, snapTargetKind?: 'pad'|'via', translationPoints?: Point[], constraints?: PathDragConstraint[], neighborIds?: Set<string>, guideExclude?: TrackGuideExclude|null, userDragged?: boolean}} TrackDragCommon
  * @typedef {TrackDragCommon & {mode: 'node', grabX: number, grabY: number, nodes: TrackDragNode[]}} TrackNodeDrag
  * @typedef {TrackDragCommon & {mode: 'segment', grabX: number, grabY: number, edgeId: string, bridges: TrackDragBridge[], nodes: [TrackDragNode, TrackDragNode]}} TrackSegmentDrag
  * @typedef {TrackDragCommon & {mode: 'move', grabX: number, grabY: number, topology: true, nodes: TrackDragNode[]}} TrackMoveDrag
@@ -543,6 +543,7 @@ export function updateVertexDrag(app, worldPos) {
     const draggedId = nd.nodeId;
     const neighborIds = drag.neighborIds ||= new Set(/** @type {Array<{edgeId:string, otherNode:string}>} */ (drag.track.incidentEdges(draggedId)).map(edge => edge.otherNode));
     const snap = resolveTrackSnap(app, worldPos, {
+        net: drag.track.net,
         layer: drag.track.getEdgeLayer(drag.track.incidentEdges(draggedId)[0]?.edgeId) || drag.track.layer,
         excludeNode: (track, nid) =>
             canonicalTrack(app, track) === drag.original && (nid === draggedId || neighborIds.has(nid)),
@@ -550,10 +551,11 @@ export function updateVertexDrag(app, worldPos) {
     const current = drag.track.nodes.get(nd.nodeId);
     if (!current) return;
     const snapVia = app.viewport?.shiftHeld
-        || snap.snapType === 'pad' || snap.snapType === 'track-node'
+        || snap.snapType === 'pad' || snap.snapType === 'track-node' || snap.snapType === 'track-segment'
         ? null : findNearbyVia(app, worldPos);
     const n = { x: snapVia ? snapVia.x : snap.x, y: snapVia ? snapVia.y : snap.y };
-    const previousTarget = drag.snapTargetNode, previousVia = drag.snapTargetVia;
+    const previousTarget = drag.snapTargetNode, previousSegment = drag.snapTargetSegment, previousVia = drag.snapTargetVia;
+    drag.snapTargetSegment = snap.trackSegment || null;
     drag.snapTargetVia = snapVia || snap.pad?.standalonePad || null;
     drag.snapTargetKind = snap.pad?.standalonePad ? 'pad' : 'via';
 
@@ -570,7 +572,7 @@ export function updateVertexDrag(app, worldPos) {
     // the glow (no hysteresis gap). Pad / track-node snaps are hard
     // targets and take priority over axis alignment.
     if (!app.viewport?.shiftHeld && snap.snapType !== 'pad'
-        && snap.snapType !== 'track-node' && !snapVia) {
+        && snap.snapType !== 'track-node' && snap.snapType !== 'track-segment' && !snapVia) {
         const neighbours = [];
         for (const { otherNode } of drag.track.incidentEdges(nd.nodeId)) {
             const nb = drag.track.nodes.get(otherNode);
@@ -611,9 +613,10 @@ export function updateVertexDrag(app, worldPos) {
         || currentConnection?.componentId !== connection?.componentId
         || currentConnection?.pinNumber !== connection?.pinNumber;
     const targetChanged = previousTarget?.track !== drag.snapTargetNode?.track
-        || previousTarget?.nodeId !== drag.snapTargetNode?.nodeId || previousVia !== drag.snapTargetVia;
+        || previousTarget?.nodeId !== drag.snapTargetNode?.nodeId || previousVia !== drag.snapTargetVia
+        || previousSegment?.track !== drag.snapTargetSegment?.track || previousSegment?.edgeId !== drag.snapTargetSegment?.edgeId;
     if (!changed && !targetChanged) return;
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snapVia) showTrackSnapMarker(app, n);
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snap.snapType === 'track-segment' || snapVia) showTrackSnapMarker(app, n);
     else clearTrackSnapMarker(app);
     app.viewport?.setCrosshair(n);
     if (!changed) return;
@@ -894,7 +897,7 @@ export function finishVertexDrag(app) {
         clearTrackPointerGuides(app, drag);
         if (!isEditorActive(app) || drag.original.locked
             || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
-        if (!drag.preview && drag.snapTargetNode) beginTrackPointerPreview(app, drag);
+        if (!drag.preview && (drag.snapTargetNode || drag.snapTargetSegment)) beginTrackPointerPreview(app, drag);
         if (!drag.preview) return;
         const tracks = app.pcbDocument?.tracks || app.tracks;
         if (!tracks.includes(drag.original)
@@ -907,6 +910,13 @@ export function finishVertexDrag(app) {
             const originalTarget = canonicalTrack(app, target.track);
             if (!tracks.includes(originalTarget) || !originalTarget.nodes.has(target.nodeId)) {
                 throw new Error('Cannot finish a drag onto a missing track node.');
+            }
+            if (drag.snapTargetSegment) {
+                const segment = drag.snapTargetSegment;
+                const originalTarget = canonicalTrack(app, segment.track);
+                if (!tracks.includes(originalTarget) || !originalTarget.edges.has(segment.edgeId)) {
+                    throw new Error('Cannot finish a drag onto a missing track segment.');
+                }
             }
         }
         if (drag.snapTargetVia && !(drag.snapTargetKind === 'pad' ? app.pads : app.vias)?.includes(drag.snapTargetVia)) {

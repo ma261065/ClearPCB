@@ -416,7 +416,17 @@ function droppedNodeCommands(app, view, drag) {
     const n = track.nodes.get(nd.nodeId);
     if (!n) return null;
     let dropX = n.x, dropY = n.y;
-    const target = _droppedNodeTarget(view, drag);
+    let target = _droppedNodeTarget(view, drag);
+    let segmentOriginal = null;
+    if (!target && drag.snapTargetSegment) {
+        const segment = drag.snapTargetSegment;
+        segmentOriginal = canonicalTrack(app, segment.track);
+        if (lockedJoinTarget(app, segmentOriginal)) return [];
+        const targetTrack = segmentOriginal === drag.original ? track : segmentOriginal.clone();
+        const split = targetTrack.splitEdge(segment.edgeId, segment);
+        if (!split) throw new Error('Cannot split the target track segment.');
+        target = { track: targetTrack, nodeId: split.newNodeId };
+    }
     if (!target) return null;
     // Pull the dragged node exactly onto the target so the fused geometry is
     // bit-coincident regardless of the release position.
@@ -471,7 +481,7 @@ function droppedNodeCommands(app, view, drag) {
         if (absorbedNid) track.mergeNodes(nd.nodeId, absorbedNid);
         if (!track.net && netB) track.net = netB;
         const after = track.captureState();
-        cmds.push(new RemoveTrackCommand(app, canonicalTrack(app, target.track)));
+        cmds.push(new RemoveTrackCommand(app, segmentOriginal || canonicalTrack(app, target.track)));
         cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
     }
     return cmds;
@@ -490,9 +500,9 @@ export function trackPointerCommands(app, view, drag) {
         const n = drag.track.nodes.get(nd.nodeId);
         return n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6);
     });
-    if (!moved && (drag.topology || !drag.snapTargetNode)) return [];
+    if (!moved && (drag.topology || (!drag.snapTargetNode && !drag.snapTargetSegment))) return [];
     let netCommand = null;
-    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
+    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode || drag.snapTargetSegment)) {
         const nodeId = drag.nodes[0].nodeId;
         const target = _droppedNodeTarget(view, drag);
         let prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ (view));
@@ -552,7 +562,7 @@ export function trackPointerCommands(app, view, drag) {
     // that are already coincident (the visible "join") produce zero net
     // displacement when one is dragged onto the other, so a `moved`-only gate
     // would never fuse them.
-    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
+    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode || drag.snapTargetSegment)) {
         const merged = droppedNodeCommands(app, view, drag);
         if (merged) return withNet(merged);
     }
