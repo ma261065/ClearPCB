@@ -15,6 +15,7 @@ const { resolveTrackSnap, hasTrackSnapMarker } = await import('../../src/pcb/mod
 const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } =
     await import('../../src/pcb/modules/track-drag.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
+const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 
 function fixture(net = '', bulge = 0) {
     const target = new Track({ net: 'SIGNAL', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], width: 0.4 });
@@ -142,6 +143,51 @@ for (const restriction of ['locked', 'hidden', 'other-layer', 'other-net', 'shif
     if (restriction === 'shift') app.viewport.shiftHeld = true;
     const snap = resolveTrackSnap(app, { x: 5, y: 0 }, { net: restriction === 'other-net' ? 'OTHER' : '' });
     assert.notEqual(snap.snapType, 'track-segment', restriction);
+}
+
+{
+    const { app, moving, target } = fixture();
+    app.tracks.splice(app.tracks.indexOf(target), 1);
+    moving.applyState(new Track({ points: [
+        { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 },
+    ] }).captureState());
+    const before = moving.captureState();
+    const nodeId = [...moving.nodes.keys()][0];
+    startVertexDrag(app, moving, { x: 0, y: 0 }, { nodeId });
+    updateVertexDrag(app, { x: 5, y: 10 });
+    assert.ok(hasTrackSnapMarker(app), 'an endpoint can join a non-adjacent segment of its own track');
+    assert.deepEqual(moving.captureState(), before, 'self-join hover leaves the canonical graph intact');
+    finishVertexDrag(app);
+    assert.equal(app.tracks.length, 1);
+    assert.ok([...moving.nodes.keys()].some(id => moving.degree(id) === 3));
+    app.history.undo();
+    assert.deepEqual(moving.captureState(), before);
+    app.history.redo();
+    assert.ok([...moving.nodes.keys()].some(id => moving.degree(id) === 3));
+}
+
+for (const restriction of ['locked', 'hidden']) {
+    const { app, target } = fixture();
+    if (restriction === 'locked') target.locked = true;
+    else target.visible = false;
+    const snap = resolveTrackSnap(app, { x: 0, y: 0 });
+    assert.notEqual(snap.snapType, 'track-node', `${restriction} endpoints do not advertise a join`);
+}
+
+for (const restriction of ['locked', 'hidden']) {
+    const { app } = fixture();
+    const layer = PCB_LAYERS.find(item => item.id === 'top-copper');
+    const original = { visible: layer.visible, locked: layer.locked };
+    try {
+        if (restriction === 'locked') layer.locked = true;
+        else layer.visible = false;
+        assert.notEqual(resolveTrackSnap(app, { x: 0, y: 0 }).snapType, 'track-node',
+            `${restriction} layers do not advertise endpoint joins`);
+        assert.notEqual(resolveTrackSnap(app, { x: 5, y: 0 }).snapType, 'track-segment',
+            `${restriction} layers do not advertise segment joins`);
+    } finally {
+        Object.assign(layer, original);
+    }
 }
 
 console.log('PASS track segment joins: drawing, node drags, arcs, yellow markers, cancellation and atomic undo/redo');

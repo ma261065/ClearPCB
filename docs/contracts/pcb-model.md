@@ -108,6 +108,10 @@ join. The target graph is unchanged during hover or drag. On drop, its edge spli
 at the projected point and the graphs merge into one junction, adopting the target
 net when the moving track is unassigned. Splitting, joining and net adoption undo
 as one action; Escape leaves both original tracks intact.
+Existing-node targets also exclude hidden or locked tracks and nodes whose incident
+layers are all hidden or locked, so the yellow circle never advertises an unavailable
+join. An endpoint may join a non-adjacent segment of its own track; adjacent segments
+are excluded to avoid collapsing an edge to zero length.
 
 A copper shape and the Track it converts to are the same copper, so they follow
 one set of rules. `test-copper-path-parity` converts rounded, bulged,
