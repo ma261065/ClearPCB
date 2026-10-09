@@ -5,7 +5,7 @@ import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { Circle } from '../../src/shapes/circle.js';
 import { Polyline } from '../../src/shapes/polyline.js';
 import { ModifyShapeCommand, MoveShapesCommand } from '../../src/schematic/modules/commands.js';
-import { installFakeDom } from './helpers/fake-dom.mjs';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const listeners = new Map();
 const elements = new Map();
@@ -54,7 +54,7 @@ function fixture(shape = new Circle({ radius: 5 })) {
     bindKeyboardShortcuts(app);
     const invoke = (source, action) => source === 'ribbon' ? runSchematicHistoryAction(app, action)
         : listeners.get('keydown')({ key: action === 'undo' ? 'z' : 'y', ctrlKey: true,
-            target: { tagName: 'svg' }, preventDefault() {} });
+            target: fakeElement('svg'), preventDefault() {} });
     return { app, project, shape, invoke };
 }
 
@@ -208,7 +208,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
             app.previewElement = svgNode();
             app.drawStart = { x: 0, y: 0 };
         }
-        listeners.get('keydown')({ key: 'Escape', target: { tagName: 'svg' },
+        listeners.get('keydown')({ key: 'Escape', target: fakeElement('svg'),
             preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
         assert.equal(app.currentTool, 'select', `${tool}/${started}: one Escape returns to Select`);
         assert.equal(app.interactionState, 'idle');

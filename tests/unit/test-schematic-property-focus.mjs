@@ -39,6 +39,7 @@ function fixture(shapes, refinement = {}) {
     const { nodeFocus, segmentFocus, ...overrides } = refinement;
     document.body.innerHTML = '';
     const panel = element('div');
+    panel.id = 'propertiesPanel';
     document.body.appendChild(panel);
     const selection = new SelectionManager();
     selection.setShapes(shapes);
@@ -56,11 +57,19 @@ function fixture(shapes, refinement = {}) {
     const dispose = bindKeyboardShortcuts(app);
     const keydown = key => {
         const event = { key, target: document.activeElement, defaultPrevented: false,
-            preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+            preventDefault() { this.defaultPrevented = true; }, stopPropagation() {},
+            stopImmediatePropagation() { this.immediatePropagationStopped = true; } };
         hostListeners.get('keydown')(event);
         return event;
     };
-    return { app, dispose, keydown, rebuilds: () => rebuilds };
+    const focusedControlKeydown = key => {
+        const event = keydown(key);
+        const target = document.activeElement;
+        return !event.immediatePropagationStopped && target?.fire
+            ? target.fire('keydown', event)
+            : event;
+    };
+    return { app, dispose, keydown, focusedControlKeydown, rebuilds: () => rebuilds };
 }
 
 // A reference reads horizontally or vertically like every schematic text (no Rotation field).
@@ -111,6 +120,24 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize']) {
             assert.deepEqual(shapes.map(shape => shape.captureState()), after);
         } finally { dispose(); }
     }
+}
+
+{
+    const shape = new Circle({ radius: 5 });
+    const { app, dispose, focusedControlKeydown } = fixture([shape]);
+    try {
+        const input = document.getElementById('prop_diameter');
+        input.focus();
+        input.value = '14';
+        input.fire('input');
+        assert.equal(shape.diameter, 14, 'the live preview is visible before Escape');
+        const event = focusedControlKeydown('Escape');
+        assert.equal(event.defaultPrevented, true, 'the focused Properties control consumes Escape');
+        assert.equal(shape.diameter, 10, 'Escape cancels the live preview');
+        assert.equal(app.selection.count, 1, 'the canvas does not also clear selection');
+        assert.equal(document.activeElement, input, 'cancelling the preview keeps the field focused');
+        assert.equal(app.history.undoStack.length, 0, 'cancelling the preview adds no history');
+    } finally { dispose(); }
 }
 
 // A reference is oriented like any schematic text: H/V buttons, no free Rotation field.
