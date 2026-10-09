@@ -96,8 +96,14 @@ export const scenarios = [
             assert.equal(now[1].lineWidth, 0.6, 'the unlocked shape takes the edit');
 
             // The lock icon offers to unlock that object, as one undo step.
-            await page.keyboard.press('Escape');
+            // Escape after committing a Properties field belongs to that field;
+            // explicitly reset selection before copying a single locked object.
+            await clickAt(page, c.x + 100, c.y + 40);
+            assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.selection.count), 0,
+                'clicking empty canvas clears the prior multi-selection');
             await clickAt(page, c.x + 10, c.y);
+            assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.selection.count), 1,
+                'the locked rectangle alone is selected for the copy check');
             await page.locator('.lock-icon').first().click();
             const menu = page.locator('.anchor-context-menu');
             await menu.waitFor();
