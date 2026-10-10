@@ -228,7 +228,23 @@ export function loadVectorPdfLibs(app) {
  */
 export function cloneViewportSvgForExport(app) {
     const originalSvg = app.viewport.svg;
-    const svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
+    // Culling and low-detail blocks belong to the viewport, not the printed document.
+    const viewportClasses = Array.from(originalSvg.querySelectorAll('.culled, .lod-far'))
+        .map(element => ({ element, culled: element.classList.contains('culled'), lod: element.classList.contains('lod-far') }));
+    let svgNode;
+    try {
+        for (const { element } of viewportClasses) element.classList.remove('culled', 'lod-far');
+        svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
+        inlineSvgComputedStyles(originalSvg, svgNode);
+    } finally {
+        for (const { element, culled, lod } of viewportClasses) {
+            if (culled) element.classList.add('culled');
+            if (lod) element.classList.add('lod-far');
+        }
+    }
+    for (const element of svgNode.querySelectorAll('.cpcb-lod-rect, .shape-anchors, .component-highlight, .text-edit-overlay, .label-connection-guide, .wire-junction-highlight')) {
+        element.remove();
+    }
     const vb = app.viewport.viewBox;
     const width = Math.max(1, Math.round(app.viewport.width));
     const height = Math.max(1, Math.round(app.viewport.height));
@@ -257,8 +273,6 @@ export function cloneViewportSvgForExport(app) {
     svgNode.setAttribute('height', String(exportHeight));
     svgNode.setAttribute('viewBox', `${exportViewBox.x} ${exportViewBox.y} ${exportViewBox.width} ${exportViewBox.height}`);
     svgNode.setAttribute('style', 'background:#ffffff');
-
-    inlineSvgComputedStyles(originalSvg, svgNode);
 
     forceMonochromeSvg(svgNode);
 
@@ -302,7 +316,7 @@ export function forceMonochromeSvg(svgRoot) {
         const tag = el.tagName?.toLowerCase();
         if (!tag) return;
 
-        if (el.getAttribute('opacity')) {
+        if (el.getAttribute('opacity') && Number(el.getAttribute('opacity')) !== 0) {
             el.setAttribute('opacity', '1');
         }
 
@@ -315,7 +329,8 @@ export function forceMonochromeSvg(svgRoot) {
         const fill = el.getAttribute('fill');
         const stroke = el.getAttribute('stroke');
 
-        if (fill && fill !== 'none') {
+        if (fill && fill !== 'none' && fill !== 'transparent'
+            && !/^rgba\([^)]*,\s*0(?:\.0*)?\s*\)$/.test(fill)) {
             el.setAttribute('fill', '#000000');
         }
 
@@ -350,7 +365,11 @@ export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
         'fontStyle',
         'textAnchor',
         'dominantBaseline',
-        'opacity'
+        'opacity',
+        'fillOpacity',
+        'strokeOpacity',
+        'display',
+        'visibility',
     ];
 
     const origIter = document.createNodeIterator(originalSvg, NodeFilter.SHOW_ELEMENT);

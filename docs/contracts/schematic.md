@@ -114,6 +114,12 @@ shape or wire; detach explicitly before attaching it elsewhere.
 Text connection guides use the rendered stroke geometry for graph-based owners,
 including curved edges and rounded corners, rather than their invisible control chords.
 
+Print and PDF share `shared/ui/export.js`'s SVG clone. The clone preserves computed
+visibility, display and paint opacity, removes viewport-only component LOD placeholders
+and interaction overlays, and retains full component detail regardless of viewport
+culling. Monochrome conversion keeps transparent repaint bounds invisible rather than
+turning them into filled black rectangles; the live viewport state is restored after cloning.
+
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 
 - `draw-states.js` owns the mouse state table, draw snap result, pending
