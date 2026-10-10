@@ -148,7 +148,7 @@ const labelIcon = [
         E('path', { attrs: { d: 'M0.5 1.5 Q0.5 0.5 1.5 0.5 H6.5 L10.5 4 L6.5 7.5 H1.5 Q0.5 7.5 0.5 6.5 Z', fill: 'none', stroke: 'currentColor', 'stroke-width': 1 } }),
         E('circle', { attrs: { cx: 3, cy: 4, r: 0.8, fill: 'currentColor' } }),
     ]),
-    'Label',
+    'Text',
 ];
 
 const netMenuItems = [
@@ -396,7 +396,7 @@ export function createSchematicRibbonDescription(app) {
                             H([K('C'), ' Circle']),
                             H([K('A'), ' Arc']),
                             H([K('P'), ' Polygon']),
-                            H([K('L'), ' Label']),
+                            H([K('L'), ' Text']),
                             H([K('N'), ' Net']),
                             H([K('O'), ' Component']),
                             H([K('X'), ' No Connect']),

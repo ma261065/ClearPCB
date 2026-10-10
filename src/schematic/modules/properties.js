@@ -4,8 +4,7 @@ import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
-import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
-import { decomposeShapeCorners, appendArcToLineCommand } from './context-menu.js';
+import { appendArcToLineCommand } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
@@ -137,7 +136,7 @@ const descriptorOrderKey = desc => desc.orderKey || desc.key;
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
     /** @type {Record<string, string>} */
-    const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect', polyline: 'Line' };
+    const displayNames = { rect: 'Rectangle', text: 'Text', Net: 'Net', noconnect: 'No Connect', polyline: 'Line' };
     const types = selection.map(s => {
         if (isComponentItem(s)) return 'Component';
         if (isPolylineItem(s) && s.isRect) return 'rect';
@@ -346,6 +345,14 @@ function renderNewShapeProperties(app, tool, isCurrent) {
         const key = tool === 'text' ? 'fontSize' : 'netFontSize';
         fields.push({ ...numberDefault(key, 'prop_newShapeFontSize', 'Text Size (mm)',
             options[key] ?? (tool === 'text' ? 2 : 1.4), { min: 0.5, max: 50, step: 0.5 }), prop: 'fontSize' });
+        if (tool === 'text') {
+            fields.push({
+                key: 'orientation', id: 'prop_newTextOrientation', type: 'select', label: 'Orientation',
+                value: String(options.textRotation ?? 0),
+                options: [0, 90, 180, 270].map(rotation => ({ value: String(rotation), label: `${rotation}\u00b0` })),
+                commit: value => setOption('textRotation', Number(value)),
+            });
+        }
     } else if (tool !== 'noconnect') {
         fields.push({
             key: 'fill', id: 'prop_newShapeFill', type: 'checkbox', label: 'Fill', value: !!options.fill,
@@ -583,6 +590,18 @@ function describeFields(app, selection, context) {
         if (field) fields.push(field);
     }
     if (!netShown) appendNet();
+    const textShapes = selection.filter(isTextItem);
+    if (textShapes.length > 0 && textShapes.length === selection.length) {
+        const rotation = textShapes[0].rotation;
+        const mixed = textShapes.some(text => text.rotation !== rotation);
+        fields.push({
+            key: 'orientation', id: 'propTextOrientation', type: 'select', label: 'Orientation',
+            value: mixed ? '' : String(rotation),
+            mixed, disabled: allLocked,
+            options: [0, 90, 180, 270].map(angle => ({ value: String(angle), label: `${angle}\u00b0` })),
+            commit: value => { if (isCurrentSelection() && value !== '') applyProperty('rotation', Number(value)); },
+        });
+    }
     return sortByPropertyOrder(fields, field => field.prop || field.key);
 }
 
@@ -643,17 +662,6 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
         }
         groups.push({ title: 'Transform', actions });
     }
-    const textShapes = selection.filter(s => s.type === 'text');
-    if (textShapes.length > 0 && textShapes.length === selection.length
-        && !mergeDescriptors(selection).some(desc => desc.key === 'rotation')) {
-        groups.push({
-            title: 'Orientation',
-            actions: [
-                action('propTextHorizontal', 'H', 'Horizontal', () => applyProperty('rotation', 0), allLocked),
-                action('propTextVertical', 'V', 'Vertical (bottom to top)', () => applyProperty('rotation', 270), allLocked),
-            ],
-        });
-    }
     /** @type {PropertyAction[]} */
     const finalActions = [];
     const selectedComponent = selection.length === 1 && isComponentItem(selection[0]) ? selection[0] : null;
@@ -673,14 +681,6 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
                 console.error('Failed to open 3D pop-out:', err);
             }
         }));
-    }
-    if (selection.length === 1 && selection[0].type === 'polyline' && !allLocked && canDecomposeRoundedCorners(selection[0])) {
-        finalActions.push(action('propDecomposeCorners', '⌒ Decompose corners',
-            'Convert rounded corners into editable arc edges', () => {
-                if (!isCurrent()) return;
-                const sel = app.selection?.getSelection?.() || [];
-                if (sel.length === 1 && sel[0].type === 'polyline') decomposeShapeCorners(app, sel[0]);
-            }));
     }
     finalActions.push(action('ribbonDelete', '🗑 Delete', 'Delete (Del)', () => {
         if (isCurrent()) runSchematicDeleteAction(app);

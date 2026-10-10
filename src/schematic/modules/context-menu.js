@@ -10,7 +10,6 @@ import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeComman
 import { VERTEX_EPSILON } from './wire.js';
 import { applySplitLabelRules, applySplitNetRules } from './wire-labels.js';
 import { detachLabel } from './label-attachment.js';
-import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { deletePathSegment, setPathSegmentType, collapseCollinearPath, splitPathAtNode } from '../../shapes/path-operations.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
@@ -804,13 +803,6 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
         items.push({ text: `Delete ${label}`, onClick: () => deleteSchematicItem(app, segmentShape) });
     }
 
-    if (canDecomposeRoundedCorners(segmentShape)) {
-        items.push({
-            text: 'Decompose corners',
-            onClick: () => decomposeShapeCorners(app, segmentShape)
-        });
-    }
-
     if (items.length > 0) {
         createContextMenu(items, clientX, clientY);
     }
@@ -929,29 +921,6 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.fileManager?.setDirty?.(true);
     }
     app.selection.notifyChanged();
-    return true;
-}
-
-/**
- * Replace a rounded-corner polygon with its decomposed equivalent (straight
- * edges + real arc edges) as one undoable batch, then select the result.
- * Shared by the segment context menu and the properties-panel action button.
- * @param {SchematicEditor} app
- * @param {SchematicDrawable} shape - The rounded-corner polygon to decompose.
- * @returns {boolean} Whether a decomposition was applied.
- */
-export function decomposeShapeCorners(app, shape) {
-    const result = decomposeRoundedCorners(shape);
-    if (!result) return false;
-
-    const batch = new BatchCommand('Decompose corners');
-    batch.add(new DeleteShapesCommand(app, [shape]));
-    batch.add(new AddShapeCommand(app, result));
-    app.history.execute(batch);
-
-    app.selection?.select?.(result, false);
-    app.renderShapes(true);
-    app.fileManager?.setDirty?.(true);
     return true;
 }
 

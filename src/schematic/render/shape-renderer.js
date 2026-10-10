@@ -52,14 +52,20 @@ export function effectiveStrokeWidth(shape, scale) {
 setTextMeasurer((shape) => {
     const element = viewOf(shape)?.element;
     if (!element) return null;
-    return /** @type {SVGGraphicsElement} */ (element).getBBox();
+    const measured = shape.border ? element : element.children[1];
+    return /** @type {SVGGraphicsElement} */ (measured).getBBox();
 });
 
 setTextEditElementProvider(/** @param {SchematicDrawable} shape */ (shape) => viewOf(shape)?.element || null);
 
 /** @param {SchematicDrawable} shape */
 function createShapeElement(shape) {
-    if (shape instanceof Circle) return document.createElementNS(NS, 'circle');
+    if (shape instanceof Circle) {
+        const group = document.createElementNS(NS, 'g');
+        group.appendChild(document.createElementNS(NS, 'circle'));
+        group.appendChild(document.createElementNS(NS, 'circle'));
+        return group;
+    }
     if (shape instanceof Text) return createTextElement();
     return document.createElementNS(NS, 'g');
 }
@@ -537,17 +543,20 @@ export function updateTextElement(shape, el, _strokeColor, fillColor, scale, vie
     textEl.setAttribute('stroke', 'none');
     textEl.removeAttribute('stroke-width');
 
-    if (shape.border) {
-        // Rendered text supplies measurable geometry when the border is drawn.
-        const box = /** @type {NonNullable<ReturnType<typeof getTextEditBoxGeometry>>} */ (getTextEditBoxGeometry(shape, textEl));
+    // Edge can leave descender trails when dragging upward unless the glyph group
+    // includes its padded ink area. Keep that rectangle transparent when unbordered.
+    const box = getTextEditBoxGeometry(shape, textEl);
+    if (box) {
         const borderWidth = Math.max(shape.lineWidth, 1 / scale);
         borderEl.setAttribute('x', String(box.x + box.originX));
         borderEl.setAttribute('y', String(box.y + box.originY));
         borderEl.setAttribute('width', String(box.width));
         borderEl.setAttribute('height', String(box.height));
-        borderEl.setAttribute('fill', 'none');
-        borderEl.setAttribute('stroke', fillColor);
-        borderEl.setAttribute('stroke-width', String(borderWidth));
+        borderEl.setAttribute('fill', shape.border ? 'none' : 'transparent');
+        borderEl.setAttribute('stroke', shape.border ? fillColor : 'none');
+        if (shape.border) borderEl.setAttribute('stroke-width', String(borderWidth));
+        else borderEl.removeAttribute('stroke-width');
+        borderEl.setAttribute('pointer-events', 'none');
         borderEl.removeAttribute('display');
     } else {
         borderEl.setAttribute('display', 'none');
@@ -655,19 +664,27 @@ export function updateArcElement(shape, el, strokeColor, fillColor, scale) {
  * @param {number} scale
  */
 export function updateCircleElement(shape, el, strokeColor, fillColor, scale) {
-    el.setAttribute('cx', shape.x);
-    el.setAttribute('cy', shape.y);
-    const width = Math.min(effectiveStrokeWidth(shape, scale), circleOuterRadius(shape));
-    el.setAttribute('r', circleOuterRadius(shape) - width / 2);
-    el.setAttribute('stroke', strokeColor);
-    el.setAttribute('stroke-width', width);
+    const fill = /** @type {SvgRenderElement} */ (el.children[0]);
+    const stroke = /** @type {SvgRenderElement} */ (el.children[1]);
+    const radius = circleOuterRadius(shape);
+    const width = Math.min(effectiveStrokeWidth(shape, scale), radius);
+    for (const circle of [fill, stroke]) {
+        circle.setAttribute('cx', shape.x);
+        circle.setAttribute('cy', shape.y);
+    }
+    stroke.setAttribute('r', radius - width / 2);
+    stroke.setAttribute('stroke', strokeColor);
+    stroke.setAttribute('stroke-width', width);
+    stroke.setAttribute('fill', 'none');
+    fill.setAttribute('r', Math.max(0, radius - width));
+    fill.setAttribute('stroke', 'none');
 
     if (shape.fill) {
-        el.setAttribute('fill', fillColor);
-        el.setAttribute('fill-opacity', String(shape.fillAlpha));
+        fill.setAttribute('fill', fillColor);
+        fill.setAttribute('fill-opacity', String(shape.fillAlpha));
     } else {
-        el.setAttribute('fill', 'none');
-        el.removeAttribute('fill-opacity');
+        fill.setAttribute('fill', 'none');
+        fill.removeAttribute('fill-opacity');
     }
 }
 

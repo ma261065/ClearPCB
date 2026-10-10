@@ -80,6 +80,20 @@ document.createElement = tagName => {
     assert.equal(emptyBox.height, editBox.height);
     assert.equal(text.toJSON().bd, true);
     assert.equal(createShape(text.toJSON()).border, true);
+    text.text = 'gy';
+    text.border = false;
+    updateTextElement(text, element, '#123456', '#123456', 10);
+    const plainBox = getTextEditBoxGeometry(text, glyphs);
+    assert.equal(border.getAttribute('display'), null, 'unbordered text retains its repaint bounds');
+    assert.equal(border.getAttribute('fill'), 'transparent', 'repaint bounds are invisible');
+    assert.equal(border.getAttribute('stroke'), 'none');
+    assert.equal(border.getAttribute('pointer-events'), 'none');
+    assert.equal(border.getAttribute('x'), String(plainBox.x + plainBox.originX));
+    assert.equal(border.getAttribute('y'), String(plainBox.y + plainBox.originY));
+    assert.equal(border.getAttribute('height'), String(plainBox.height),
+        'repaint rectangle includes padded descenders');
+    assert.equal(text.toJSON().bd, undefined, 'repaint bounds do not author a border');
+    text.border = true;
     assert.ok(text.getPropertyDescriptors().some(item => item.key === 'border'));
 
     text.fieldKey = 'reference';

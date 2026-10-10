@@ -24,7 +24,7 @@ import { resolvePinSnapPlacement } from './component-snap.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { isPlacingComponent } from './components.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {{fontSize?: number, textColor?: string|number, netStyle?: string, netOrientation?: string, [key: string]: unknown}} ToolOptions */
+/** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions} ToolOptions */
 
 /** @typedef {{screenPos: {x: number, y: number}, worldPos: {x: number, y: number}, snapped: {x: number, y: number}}} Positions */
 /**
@@ -194,7 +194,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
     shapeTool('line', 'Line', '╱ Line', 'i'),
     shapeTool('polygon', 'Polygon', '⬠ Polygon', 'p'),
     {
-        id: 'text', name: 'Label', key: 'l', newShapeDefaults: true,
+        id: 'text', name: 'Text', key: 'l', newShapeDefaults: true,
         /** @param {SchematicEditor} app */
         press(app, event, { worldPos, snapped }) {
             const attach = resolveLabelAttachTarget(app, worldPos);
@@ -205,6 +205,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
                 y: placePos.y,
                 text: '',
                 fontSize: toolOptions.fontSize || 2.0,
+                rotation: toolOptions.textRotation || 0,
                 color: toolOptions.textColor,
                 fillColor: toolOptions.textColor
             });

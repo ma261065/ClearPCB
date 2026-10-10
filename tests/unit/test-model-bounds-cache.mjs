@@ -96,7 +96,7 @@ class Element {
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     removeAttribute(name) { this.attributes.delete(name); }
     getBBox() {
-        const text = this.children[1];
+        const text = this.children[1] || this;
         return { x: Number(text.attributes.get('x')), y: Number(text.attributes.get('y')) - 2,
             width: text.textContent.length * 1.7, height: 2 };
     }
@@ -124,5 +124,6 @@ circle.move(5, 0);
 circle.getBounds();
 assert.equal(circle._dirty, true);
 renderShape(circle, 10);
-assert.equal(viewOf(circle).element.attributes.get('cx'), '105', 'Geometry queries never suppress a required SVG update');
+assert.ok(viewOf(circle).element.children.every(child => child.attributes.get('cx') === '105'),
+    'Geometry queries never suppress required SVG fill and stroke updates');
 console.log('PASS renderer-independent bounds reuse, mutation/history, selection and text measurement refresh');

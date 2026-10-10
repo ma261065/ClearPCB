@@ -4,6 +4,7 @@
  */
 import { distanceToSegment, pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint } from './wire-snap.js';
+import { gridSnapTolerance } from '../../core/grid-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /**
  * @typedef {{x: number, y: number}} Point
@@ -114,12 +115,12 @@ export function bridgeCollinearPinEndpoints(wire, chain) {
  * @param {{ x: number, y: number }} snapped  - grid-snapped position (mutated)
  * @param {Array<{ x: number, y: number }>} neighbors - points to snap to
  * @param {number} gridSize - current grid size in world units
+ * @param {number} [tolerance] - magnetic pull distance; drawing retains its orthogonal routing default
  */
-export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
-    const halfGrid = gridSize * 0.5;
+export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize, tolerance = gridSize * 0.5) {
     for (const nb of neighbors) {
-        if (Math.abs(raw.x - nb.x) <= halfGrid) snapped.x = nb.x;
-        if (Math.abs(raw.y - nb.y) <= halfGrid) snapped.y = nb.y;
+        if (Math.abs(raw.x - nb.x) <= tolerance) snapped.x = nb.x;
+        if (Math.abs(raw.y - nb.y) <= tolerance) snapped.y = nb.y;
     }
 }
 
@@ -262,7 +263,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal
 export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
     if (!wire.nodes.has(anchorId)) return { anchorPos, guides: [] };
 
-    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    const threshold = gridSnapTolerance(app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1), app.viewport.scale);
     /** @type {SnapEdge[]} */
     const edges = [];
     const neighbors = wire.incidentEdges(anchorId);
@@ -334,7 +335,7 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
  */
 export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, dragSegAxis, excludeWires = null) {
     const snappedTarget = app.viewport.getSnappedPosition(target);
-    const gridSize = app.viewport.gridSize || 1.0;
+    const gridSize = app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1.0);
     const origEdge = origState.edges[dragEdgeId];
     const origA = origState.nodes[origEdge.from];
     const origB = origState.nodes[origEdge.to];
@@ -368,7 +369,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // precedence doesn't fit the single-position scalar primitive, so the
     // loop is kept inline intentionally.
     {
-        const halfGrid = gridSize * 0.5;
+        const halfGrid = gridSnapTolerance(gridSize, app.viewport.scale);
         const rawBx = target.x + segOffX, rawBy = target.y + segOffY;
         for (const { pos: nb } of fixedNeighbors) {
             if (Math.abs(target.x - nb.x) <= halfGrid) snappedTarget.x = nb.x;
@@ -456,7 +457,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         const beyondPt = (movingNodeId === origEdge.from) ? futureB : futureA;
         snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt });
     }
-    const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    const threshold = gridSnapTolerance(gridSize, app.viewport.scale);
     const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis || undefined, { diagonal: true });
     snappedTarget.x += snapResult.adjustX;
     snappedTarget.y += snapResult.adjustY;
@@ -475,9 +476,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
  * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number}, b:{x:number,y:number}, collinear?:boolean, axisKind?:string}> }}
  */
 export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy) {
-    const screenThreshold = SNAP_SCREEN_PX / app.viewport.scale;
-    const halfGrid = (app.viewport.gridSize || 1.0) * 0.5;
-    const threshold = Math.max(screenThreshold, halfGrid);
+    const threshold = gridSnapTolerance(app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1), app.viewport.scale);
     /** @type {SnapEdge[]} */
     const edges = [];
 

@@ -325,7 +325,8 @@ export function createShapeFromDrawing(app) {
                 text: '',
                 color: opts.textColor,
                 fillColor: opts.textColor,
-                fontSize: opts.fontSize || 2.0
+                fontSize: opts.fontSize || 2.0,
+                rotation: opts.textRotation || 0
             });
         }
 

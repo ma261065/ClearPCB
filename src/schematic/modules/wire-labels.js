@@ -143,7 +143,7 @@ function _setWireLabelPosition(wire, position) {
     if (target) {
         target.x = position.x;
         target.y = position.y;
-        target.rotation = /** @type {0|270} */ (rotation);
+        target.rotation = /** @type {0|90|180|270} */ (rotation);
         target.invalidate();
         return;
     }
@@ -162,7 +162,7 @@ function _resetWireLabelPositionToDefault(wire) {
     if (target) {
         target.x = pos.x;
         target.y = pos.y;
-        target.rotation = /** @type {0|270} */ (rotation);
+        target.rotation = /** @type {0|90|180|270} */ (rotation);
         target.invalidate();
         return;
     }

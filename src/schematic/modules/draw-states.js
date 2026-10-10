@@ -22,6 +22,7 @@ import { updateStickyWires } from './wire-reconcile.js';
 import { updateSnapHighlight, VERTEX_EPSILON } from './wire.js';
 import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
 import { computeAnchorCollinearSnap, computeSegmentDragSnap, applyOffGridNeighborSnap } from './wire-drag-snap.js';
+import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { clearPendingAnchorDrag, getPendingAnchorDrag, getSchematicDrag, setSchematicDrag, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
@@ -1107,7 +1108,9 @@ export const anchorDragState = {
                 } else if (!getSchematicDrag(app).shape.isRect) {
                     const neighbors = /** @type {string[]} */ (getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId))
                         .map(nid => getSchematicDrag(app).shape.nodes.get(nid)).filter(Boolean);
-                    applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
+                    const gridSize = app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1.0);
+                    applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, gridSize,
+                        gridSnapTolerance(gridSize, app.viewport.scale));
                     const collinearSnap = computeAnchorCollinearSnap(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, anchorPos);
                     anchorPos = collinearSnap.anchorPos;
                     anchorGuides = collinearSnap.guides;

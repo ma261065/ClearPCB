@@ -232,7 +232,7 @@ and reference text, which is why only PCB uses a selection registry.
   refinement notification, restoring whole-shape Properties and the selection
   tip together. Conversions establish their final refinement and interaction
   state before notifying selection subscribers. Replacement selection,
-  in-place conversion and corner decomposition each rebuild Properties through
+  and in-place conversion each rebuild Properties through
   that notification, without a second direct panel refresh; floating curvature
   edits retain their gesture and history ownership.
   Standalone arc menus support conversion and deletion. Shape splits retain

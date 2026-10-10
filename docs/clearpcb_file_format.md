@@ -265,6 +265,12 @@ A persisted `points` array or `type: "rect"` is still invalid.
 Derived text for a `net` shape is not persisted. It is recreated from the net
 shape when the document loads.
 
+Schematic Text uses the existing `rot` field for all four quarter-turn orientations:
+0, 90, 180 and 270 degrees. Other angles are normalized to the nearest quarter
+turn on load. This does not change the record structure or file-format version.
+Older editor versions that support only horizontal/bottom-to-top text may normalize
+90 or 180 degrees differently when opening these files.
+
 ### Net and No-Connect
 
 A `net` stores `x`, `y`, and its name in `n`. Optional fields are:
@@ -521,6 +527,10 @@ changes or removal leave it untouched. The `noteCreated: true` flag prevents
 creating another set of notes for a panel that already created independent text.
 Panels without either ownership or that flag create owned notes on Apply.
 Export instructions are always derived from current panel settings, not edited note text.
+`noteTexts` is optional panel metadata added without changing the format version.
+Editor versions whose strict validator does not recognize `nt`/`noteTexts` may
+reject projects that contain it; existing projects without ownership records remain
+valid and their document-layer text stays independent.
 Panel Gerber export follows the inspected EasyEDA approach: copper, mask,
 paste, silk, component drills, vias and source-board NPTH holes describe ONE
 source board, without aperture blocks or step-and-repeat. Enabled rail fiducials

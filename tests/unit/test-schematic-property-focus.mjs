@@ -140,18 +140,23 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize']) {
     } finally { dispose(); }
 }
 
-// A reference is oriented like any schematic text: H/V buttons, no free Rotation field.
+// References and free text share quarter-turn controls, with no free Rotation field.
 {
     const text = new Text({ text: 'Label', rotation: 37 });
     text.fieldKey = 'reference';
-    assert.equal(text.rotation, 0, 'a stored free angle snaps to horizontal or vertical');
+    assert.equal(text.rotation, 0, 'a stored free angle snaps to the nearest quarter turn');
     const { dispose } = fixture([text]);
     try {
         assert.equal(document.getElementById('prop_rotation'), null, 'no free-angle Rotation field');
-        document.getElementById('propTextVertical').fire('click');
-        assert.equal(text.rotation, 270);
-        document.getElementById('propTextHorizontal').fire('click');
-        assert.equal(text.rotation, 0);
+        assert.equal(document.getElementById('propTextRotateLeft'), null);
+        assert.equal(document.getElementById('propTextRotateRight'), null);
+        for (const rotation of [90, 180, 270, 0]) {
+            const input = document.getElementById('propTextOrientation');
+            input.value = String(rotation);
+            input.fire('change');
+            assert.equal(text.rotation, rotation);
+            assert.equal(new Text({ rotation: text.toJSON().rot }).rotation, rotation);
+        }
     } finally { dispose(); }
 }
 
@@ -243,10 +248,6 @@ for (const refinement of ['whole', 'node', 'segment']) {
             input.value = value; input.fire('input'); input.fire('change');
             flushSettledChanges();
             assert.ok(document.activeElement === input, `${refinement}: repeated edits retain focus`);
-            if (refinement !== 'segment') {
-                assert.equal(!!document.getElementById('propDecomposeCorners'), value !== '0',
-                    'Decompose action availability follows corner changes through re-description');
-            }
         }
         if (refinement === 'segment') {
             input.value = '0'; input.fire('input'); input.fire('change');

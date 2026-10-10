@@ -76,7 +76,7 @@ import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interact
  * @typedef {import('../core/geometry.js').Point} Point
  * @typedef {import('../schematic/modules/draw-states.js').InteractionState} InteractionState
  * @typedef {{key: string, fileName: string, timestamp: number}} AutoSaveEntry
- * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: unknown}} SchematicToolOptions
+ * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, textRotation?: number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: unknown}} SchematicToolOptions
  * @typedef {{cursorPos: HTMLElement|null, gridSnap: HTMLElement|null, zoomPercent: HTMLElement|null, viewportInfo: HTMLElement|null, docTitle: HTMLElement|null, propertiesPanel?: HTMLElement|null}} SchematicUiElements
  * @typedef {{shape: SchematicDrawable, index: number, parentWire?: SchematicDrawable|null}} ShapeRestoreData
  */

@@ -21,7 +21,7 @@ assert.deepEqual(Object.keys(SCHEMATIC_TOOLS).sort(),
 assert.deepEqual(SCHEMATIC_TOOL_KEYS, { v: 'select', w: 'wire', r: 'rect', c: 'circle', a: 'arc', i: 'line',
     p: 'polygon', l: 'text', n: 'net', x: 'noconnect', o: 'component' }, 'one shortcut per tool');
 assert.equal(schematicToolTitle('wire'), 'Wire (W)', 'the tooltip names the shortcut');
-assert.equal(schematicToolTitle('text'), 'Label (L)');
+assert.equal(schematicToolTitle('text'), 'Text (L)');
 const multiClick = Object.values(SCHEMATIC_TOOLS).filter(tool => tool.multiClick).map(tool => tool.id).sort();
 assert.deepEqual(multiClick, ['arc', 'circle', 'line', 'polygon', 'rect', 'wire'], 'releasing the button finishes only single-click draws');
 assert.deepEqual(Object.values(SCHEMATIC_TOOLS).filter(tool => tool.placesComponents).map(tool => tool.id), ['component']);

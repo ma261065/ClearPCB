@@ -15,7 +15,7 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 /** @typedef {import('../core/SchematicDocument.js').SchematicItem} TextParent */
 /** @typedef {any} TextAttachment Label/wire attachment payloads are built incrementally by legacy modules. */
 /** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
-/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: 0|270, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: 0|90|180|270, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
 /** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: TextAttachment}} TextJSON */
 
 /** @type {null | ((text: Text) => TextBBox|null|undefined)} */
@@ -27,14 +27,13 @@ export function setTextMeasurer(fn) {
 }
 
 /**
- * Schematic text reads horizontally (0) or vertically, bottom to top (270), like every
- * other schematic object; any other stored angle snaps to the nearer of the two.
+ * Schematic text uses quarter-turn orientations, like components.
  * @param {number} [rotation]
- * @returns {0|270}
+ * @returns {0|90|180|270}
  */
 export function textOrientation(rotation = 0) {
-    const angle = ((Number(rotation) || 0) % 180 + 180) % 180;
-    return angle > 45 && angle < 135 ? 270 : 0;
+    const angle = ((Number(rotation) || 0) % 360 + 360) % 360;
+    return /** @type {0|90|180|270} */ ((Math.round(angle / 90) * 90) % 360);
 }
 
 export class Text extends Shape {
@@ -66,7 +65,7 @@ export class Text extends Shape {
         this.fontFamily = options.fontFamily || 'Arial';
         /** @type {string} */
         this.textAnchor = options.textAnchor || 'start';
-        /** @type {0|270} */
+        /** @type {0|90|180|270} */
         this.rotation = textOrientation(options.rotation);
         /** @type {boolean} */
         this.border = !!options.border;
@@ -280,7 +279,7 @@ export class Text extends Shape {
             // Component/wire field text — show text content as editable, plus size
             const label = this.fieldKey === 'reference' ? 'Reference'
                         : this.fieldKey === 'wireLabel' ? 'Name'
-                        : this.fieldKey === 'label' ? 'Label'
+                        : this.fieldKey === 'label' ? 'Text'
                         : 'Value';
             /** @type {ReturnType<import('./shape.js').Shape['getPropertyDescriptors']>} */
             const descriptors = [
@@ -296,7 +295,7 @@ export class Text extends Shape {
         }
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
-            { key: 'text',     label: 'Label',      type: 'text' },
+            { key: 'text',     label: 'Text',      type: 'text' },
             { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
         ];

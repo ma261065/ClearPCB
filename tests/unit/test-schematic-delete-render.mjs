@@ -35,8 +35,8 @@ const {
 } = await import('../../src/schematic/modules/shape-management.js');
 const { getShapeSegmentSelectionElement, renderShapes } = await import('../../src/schematic/modules/schematic-view.js');
 const { runSchematicDeleteAction } = await import('../../src/schematic/modules/editor-actions.js');
-const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType,
-    decomposeShapeCorners } = await import('../../src/schematic/modules/context-menu.js');
+const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType } =
+    await import('../../src/schematic/modules/context-menu.js');
 const { bindKeyboardShortcuts } = await import('../../src/schematic/modules/keyboard.js');
 const { bindPropertiesPanel, updatePropertiesPanel } = await import('../../src/schematic/modules/properties.js');
 const { bindRibbon } = await import('../../src/schematic/modules/ribbon.js');
@@ -278,19 +278,18 @@ for (const split of [false, true]) {
 }
 
 for (const kind of ['arc-to-line', 'line-to-arc', 'floating-line-to-arc',
-    'segment-to-arc', 'floating-segment-to-arc', 'segment-to-line', 'collapsed-segment-to-line', 'decompose']) {
+    'segment-to-arc', 'floating-segment-to-arc', 'segment-to-line', 'collapsed-segment-to-line']) {
     const shape = kind === 'arc-to-line'
         ? new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 2 } })
         : kind === 'collapsed-segment-to-line'
             ? createLine({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }] })
         : kind.includes('line-to-arc') ? createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] })
-            : createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: kind === 'decompose' ? 1 : 0 });
+            : createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: 0 });
     const edgeId = shape.type === 'arc' ? null : kind === 'collapsed-segment-to-line' ? 'e1' : 'e0';
     if (shape.type === 'polyline' && kind.endsWith('to-line')) shape.setEdgeAttr(edgeId, 'bulge', 0.25);
     const app = fixture(shape);
     const floating = kind.startsWith('floating');
-    const changed = kind === 'decompose' ? decomposeShapeCorners(app, shape)
-        : setSchematicShapeSegmentType(app, shape, edgeId, kind.endsWith('to-line') ? 'line' : 'arc', { floating });
+    const changed = setSchematicShapeSegmentType(app, shape, edgeId, kind.endsWith('to-line') ? 'line' : 'arc', { floating });
     assert.equal(changed, true);
     assert.equal(app.selectionNotifications.length, 1, `${kind}: one completed selection notification`);
     assert.ok(document.getElementById('ribbonDelete'), `${kind}: Properties reflects the completed refinement`);

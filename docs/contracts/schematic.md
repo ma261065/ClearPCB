@@ -85,6 +85,17 @@ Delete remove it. An unshifted arrow collapses the selection to that end, and
 clicking places the caret and clears selection. Enter commits the entire edit as
 one undoable change; Escape restores the original text.
 PCB inline text uses the native input selection shortcuts and the same highlight.
+Unbordered schematic text retains a transparent, non-interactive padded rectangle
+inside its SVG group so Edge invalidates the full ink area during upward dragging,
+including descenders. This rectangle does not affect authored border state or
+selection bounds; unbordered text bounds are measured from its glyph element.
+Filled circles render separate fill and stroke circles. The fill ends at the
+inner edge of the stroke, so translucent hover highlighting does not double-paint
+the inner half of the line. Outer dimensions and authored radius remain unchanged.
+Existing wire-node/segment alignment and sticky wires on moved components use
+the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
+effective grid spacing. They do not force alignment from half a grid cell away.
+New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 
@@ -199,11 +210,13 @@ equals the search text, ignoring case (`components/picker/ui-state.js`
 
 ## Text Orientation and Field Guides
 
-Every schematic text reads horizontally (rotation 0) or vertically, bottom to top
-(270), like every other schematic object; a component's reference and value are no
-exception. Properties offers the H and V buttons (no free-angle Rotation field), R
-toggles between the two, and `textOrientation` (`shapes/text.js`) snaps any other
-stored angle to the nearer one when a document loads. PCB references keep free
+Schematic Text, including component reference and value text, supports all four
+quarter-turn orientations (0, 90, 180 and 270 degrees).
+New Text and selected Text Properties provide matching Orientation dropdowns
+with these four angles. New Text sets the placement default; selected Text changes
+the selected objects in one undoable action. R rotates right by 90 degrees.
+`textOrientation` (`shapes/text.js`) snaps other stored angles to the nearest
+quarter turn when a document loads. PCB references keep free
 rotation.
 
 While a component's reference or value text is selected or edited, a dotted guide

@@ -1,5 +1,10 @@
 export const GRID_SNAP_PX = 8;
 
+/** @param {number} gridSize @param {number|undefined} scale */
+export function gridSnapTolerance(gridSize, scale) {
+    return Math.min(GRID_SNAP_PX / Math.max(0.01, scale || 1), gridSize * 0.4);
+}
+
 /** @typedef {{x:number, y:number}} Point */
 /** @typedef {{snapToGrid?:boolean, shiftHeld?:boolean, gridVisible?:boolean, gridSize:number, scale?:number, getEffectiveGridSize?:() => number}} GridViewport */
 
@@ -26,10 +31,7 @@ export function snapToViewportGrid(point, viewport) {
  */
 export function snapToGridLines(point, gridSize, scale) {
     if (!(gridSize > 0)) return { x: point.x, y: point.y, snappedX: false, snappedY: false };
-    const tolerance = Math.min(
-        GRID_SNAP_PX / Math.max(0.01, scale || 1),
-        gridSize * 0.4,
-    );
+    const tolerance = gridSnapTolerance(gridSize, scale);
     const gridX = Math.round(point.x / gridSize) * gridSize;
     const gridY = Math.round(point.y / gridSize) * gridSize;
     const snappedX = Math.abs(gridX - point.x) <= tolerance;
