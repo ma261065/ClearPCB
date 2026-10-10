@@ -105,7 +105,7 @@ const PANEL = {
     vo: 'verticalTabOffset', ho: 'horizontalTabOffset',
     vph: 'verticalPositioningHoles', hf: 'horizontalFiducials',
     hph: 'horizontalPositioningHoles', vf: 'verticalFiducials',
-    tw: 'tabWidth', hd: 'holeDiameter', hp: 'holePitch', nc: 'noteCreated',
+    tw: 'tabWidth', hd: 'holeDiameter', hp: 'holePitch', nc: 'noteCreated', nt: 'noteTexts',
 };
 
 /** @param {unknown} left @param {unknown} right @returns {boolean} */

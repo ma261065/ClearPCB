@@ -12,6 +12,11 @@ function requireText(document, id) {
     return text;
 }
 
+/** @param {PcbDocument} document @param {string} id */
+function panelNote(document, id) {
+    return document.panelization?.noteTexts?.find(note => note.id === id);
+}
+
 /** Data-only commands; rendering and selection belong to the editor adapters. */
 export class AddTextCommand {
     /** @param {PcbDocument} document @param {PcbText} text */
@@ -53,10 +58,22 @@ export class MoveTextCommand {
         this.id = textId;
         this.x0 = x0; this.y0 = y0;
         this.x1 = x1; this.y1 = y1;
+        this.wasDetached = !!panelNote(document, textId)?.detached;
     }
     lockTargets() { return [{ kind: 'text', object: this.document.texts.get(this.id) }]; }
-    execute() { this._set(this.x1, this.y1); }
-    undo() { this._set(this.x0, this.y0); }
+    execute() {
+        this._set(this.x1, this.y1);
+        const note = panelNote(this.document, this.id);
+        if (note && (this.x0 !== this.x1 || this.y0 !== this.y1)) note.detached = true;
+    }
+    undo() {
+        this._set(this.x0, this.y0);
+        const note = panelNote(this.document, this.id);
+        if (note) {
+            if (this.wasDetached) note.detached = true;
+            else delete note.detached;
+        }
+    }
     /** @param {number} x @param {number} y */
     _set(x, y) {
         const text = requireText(this.document, this.id);
@@ -66,11 +83,13 @@ export class MoveTextCommand {
 }
 
 export class EditTextCommand {
-    /** @param {PcbDocument} document @param {string} textId @param {PcbTextPatch} after */
-    constructor(document, textId, after) {
+    /** @param {PcbDocument} document @param {string} textId @param {PcbTextPatch} after @param {boolean} [preservePanelOwnership] */
+    constructor(document, textId, after, preservePanelOwnership = false) {
         /** @type {PcbDocument} */
         this.document = document;
         this.id = textId;
+        this.preservePanelOwnership = preservePanelOwnership;
+        this.wasDetached = !!panelNote(document, textId)?.detached;
         const text = requireText(document, textId);
         /** @type {PcbTextPatch} */
         this.before = {};
@@ -83,8 +102,20 @@ export class EditTextCommand {
         }
     }
     lockTargets() { return editTargets('text', this.document.texts.get(this.id), this.before, this.after); }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
+    execute() {
+        this._apply(this.after);
+        const note = panelNote(this.document, this.id);
+        if (note && !this.preservePanelOwnership
+            && Object.keys(this.after).some(key => this.before[key] !== this.after[key])) note.detached = true;
+    }
+    undo() {
+        this._apply(this.before);
+        const note = panelNote(this.document, this.id);
+        if (note && !this.preservePanelOwnership) {
+            if (this.wasDetached) note.detached = true;
+            else delete note.detached;
+        }
+    }
     /** @param {PcbTextPatch} patch */
     _apply(patch) { Object.assign(requireText(this.document, this.id), patch); }
     get description() { return 'Edit text'; }

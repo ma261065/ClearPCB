@@ -281,9 +281,9 @@ export class MoveTextCommand extends ModelMoveTextCommand {
  * pre-edit values are captured at construction time.
  */
 export class EditTextCommand extends ModelEditTextCommand {
-    /** @param {PcbEditor} app @param {string} textId @param {PcbTextPatch} after */
-    constructor(app, textId, after) {
-        super(app.pcbDocument, textId, after);
+    /** @param {PcbEditor} app @param {string} textId @param {PcbTextPatch} after @param {boolean} [preservePanelOwnership] */
+    constructor(app, textId, after, preservePanelOwnership = false) {
+        super(app.pcbDocument, textId, after, preservePanelOwnership);
         this.app = app;
     }
     /** @param {PcbTextPatch} patch */

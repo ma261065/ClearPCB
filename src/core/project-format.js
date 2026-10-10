@@ -51,7 +51,7 @@ const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side'
 const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 'separation',
     'railTop', 'railBottom', 'railLeft', 'railRight', 'verticalTabsPerEdge', 'horizontalTabsPerEdge',
     'verticalTabOffset', 'horizontalTabOffset', 'horizontalPositioningHoles', 'horizontalFiducials',
-    'verticalPositioningHoles', 'verticalFiducials', 'tabWidth', 'holeDiameter', 'holePitch', 'noteCreated');
+    'verticalPositioningHoles', 'verticalFiducials', 'tabWidth', 'holeDiameter', 'holePitch', 'noteCreated', 'noteTexts');
 const COPPER_MODES = new Set(['add', 'remove-copper', 'remove-solder-mask', 'remove-copper-mask']);
 /** @type {Record<string, Set<string>>} */
 const ARTWORK_FIELDS = {
@@ -283,7 +283,16 @@ function validatePcb(pcb) {
     if (pcb.panelization != null) {
         requireRecord(pcb.panelization, 'pcb.panelization');
         rejectUnknownFields(pcb.panelization, PANEL_FIELDS, 'pcb.panelization');
-        requireFields(pcb.panelization, [...PANEL_FIELDS].filter(key => key !== 'noteCreated'), 'pcb.panelization');
+        requireFields(pcb.panelization, [...PANEL_FIELDS].filter(key => key !== 'noteCreated' && key !== 'noteTexts'), 'pcb.panelization');
+        if (pcb.panelization.noteTexts !== undefined) {
+            if (!Array.isArray(pcb.panelization.noteTexts)) invalid('pcb.panelization.noteTexts', 'Expected an array.', {});
+            for (const [index, note] of pcb.panelization.noteTexts.entries()) {
+                const path = `pcb.panelization.noteTexts[${index}]`;
+                requireRecord(note, path);
+                rejectUnknownFields(note, fields('id', 'generatedContent', 'detached'), path);
+                requireFields(note, ['id', 'generatedContent'], path);
+            }
+        }
     }
     for (const [field, validator] of /** @type {Array<[string, (item: JsonRecord, index: number) => void]>} */ ([
         ['tracks', (item, index) => {

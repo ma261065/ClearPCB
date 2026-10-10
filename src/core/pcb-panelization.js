@@ -1,3 +1,4 @@
+/** @typedef {{id: string, generatedContent: string, detached?: boolean}} PanelNoteText */
 /**
  * @typedef {object} PanelSettings
  * @property {number} rows @property {number} columns @property {number} rowSpacing @property {number} columnSpacing
@@ -9,6 +10,7 @@
  * @property {boolean} horizontalPositioningHoles @property {boolean} horizontalFiducials
  * @property {boolean} verticalPositioningHoles @property {boolean} verticalFiducials
  * @property {boolean} [noteCreated] the panel note text has been added to the board
+ * @property {PanelNoteText[]} [noteTexts] owned text IDs and last generated wording, including deleted notes
  */
 
 /** @type {Readonly<PanelSettings>} */
@@ -69,5 +71,24 @@ export function panelSettings(value) {
     }
     if (settings.holePitch <= settings.holeDiameter) throw new Error('Hole pitch must exceed hole diameter.');
     if (settings.tabWidth < settings.holePitch * 2) throw new Error('Tabs must be at least two hole pitches wide.');
-    return source.noteCreated === true ? { ...settings, noteCreated: true } : settings;
+    if (source.noteCreated === true) settings.noteCreated = true;
+    if (source.noteTexts !== undefined) {
+        if (!Array.isArray(source.noteTexts) || source.noteTexts.length > 4) {
+            throw new Error('Panel note ownership must contain at most four text records.');
+        }
+        const ids = new Set();
+        settings.noteTexts = source.noteTexts.map(note => {
+            if (!note || typeof note.id !== 'string' || !note.id.trim()
+                || typeof note.generatedContent !== 'string' || ids.has(note.id)) {
+                throw new Error('Invalid panel note text ownership.');
+            }
+            ids.add(note.id);
+            if (note.detached !== undefined && typeof note.detached !== 'boolean') {
+                throw new Error('Invalid panel note detachment flag.');
+            }
+            return { id: note.id, generatedContent: note.generatedContent,
+                ...(note.detached ? { detached: true } : {}) };
+        });
+    }
+    return settings;
 }

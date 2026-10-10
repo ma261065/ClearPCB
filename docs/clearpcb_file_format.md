@@ -505,12 +505,22 @@ power-of-two steps, capped at 2048 pixels per side. Rails and separation marks
 remain vector geometry, and fabrication output is unaffected. Ghosts are not
 stored as duplicate authored objects. Applying a panel initially creates its
 note lines as ordinary `pcb.texts` objects on `top-document`, with normal
-selection, editing, movement, deletion and undo. Panel settings without
-`noteCreated: true` create these texts on their next Apply. The optional `noteCreated: true`
-panel setting records this conversion, so subsequent panel edits and redraws
-do not overwrite edits or regenerate deleted notes. Removing panel settings
-leaves these independent text objects untouched. The note is a snapshot at
-creation; export instructions are always derived from current panel settings.
+selection, editing, movement, deletion and undo. The panel owns these texts
+through optional `noteTexts` (`nt`) records, each containing `id` and
+`generatedContent` (the last generated wording). Parameter changes update a note's
+content in place only if it still matches that wording, preserving its ID, position,
+layer and styling. Any manual text edit (including position, styling or layer) sets
+the ownership record's optional `detached: true` flag, making that text independent:
+panel changes and removal leave it untouched. Undoing that edit restores the prior
+ownership. Missing IDs represent
+deleted notes that must not be regenerated. Removing the panel removes its remaining
+owned, non-detached texts; undo restores the settings and notes together.
+Existing document-layer text without explicit ownership remains independent:
+it is never associated with a panel by matching its wording or position, and panel
+changes or removal leave it untouched. The `noteCreated: true` flag prevents
+creating another set of notes for a panel that already created independent text.
+Panels without either ownership or that flag create owned notes on Apply.
+Export instructions are always derived from current panel settings, not edited note text.
 Panel Gerber export follows the inspected EasyEDA approach: copper, mask,
 paste, silk, component drills, vias and source-board NPTH holes describe ONE
 source board, without aperture blocks or step-and-repeat. Enabled rail fiducials
@@ -1097,7 +1107,7 @@ keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 | PCB text | `t`, `s`, `rot`, `l`, `lw`, `bd`, `lk` | `content`, `size`, `rotation`, `layer`, `strokeWidth`, `border`, `locked` |
 | Placement | `rot`, `lk`, `mir`, `sd`, `rv`, `rdx`, `rdy`, `rr`, `rs`, `rw` | `rotation`, `locked`, `mirror`, `side`, `refVisible`, `refDx`, `refDy`, `refRot`, `refSize`, `refStrokeWidth` |
 | Panelization | `r`, `c`, `rs`, `cs`, `sp`, `rt`, `rb`, `rl`, `rr`, `vt`, `ht`, `vo`, `ho` | `rows`, `columns`, `rowSpacing`, `columnSpacing`, `separation`, `railTop`, `railBottom`, `railLeft`, `railRight`, `verticalTabsPerEdge`, `horizontalTabsPerEdge`, `verticalTabOffset`, `horizontalTabOffset` |
-| Panelization features | `vph`, `hf`, `hph`, `vf`, `tw`, `hd`, `hp`, `nc` | `verticalPositioningHoles`, `horizontalFiducials`, `horizontalPositioningHoles`, `verticalFiducials`, `tabWidth`, `holeDiameter`, `holePitch`, `noteCreated` |
+| Panelization features | `vph`, `hf`, `hph`, `vf`, `tw`, `hd`, `hp`, `nc`, `nt` | `verticalPositioningHoles`, `horizontalFiducials`, `horizontalPositioningHoles`, `verticalFiducials`, `tabWidth`, `holeDiameter`, `holePitch`, `noteCreated`, `noteTexts` |
 
 Unknown fields remain invalid. A record containing both aliases is accepted
 only when their values are structurally equal; otherwise ClearPCB reports the

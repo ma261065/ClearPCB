@@ -2,8 +2,8 @@ import { errorMessage } from '../../core/errors.js';
 import { PANEL_DEFAULTS, panelSettings, buildPanelLayout } from './panelization.js';
 import { PCB_LAYERS } from './layers.js';
 import { createPcbText } from '../../core/pcb-text.js';
-import { renderPcbText } from './pcb-text.js';
-import { AddTextCommand } from './text-commands.js';
+import { renderPcbText, pcbTextBounds } from './pcb-text.js';
+import { AddTextCommand, EditTextCommand, RemoveTextCommand } from './text-commands.js';
 import { getBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
 import { boardShapeRemovalPathD } from '../../shared/pcb/board-shape-geometry.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';
@@ -16,12 +16,14 @@ import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 /** @typedef {import('../../core/pcb-panelization.js').PanelSettingKey} PanelSettingKey */
 /** @typedef {[PanelSettingKey, string, number, number, number]} PanelFieldDef */
 /** @typedef {[PanelSettingKey, string, string]} PanelToggleDef */
-/** @typedef {{group: SVGElement, note?: SVGElement, layout?: PanelLayout, key?: string|null, viewport?: PcbEditor['viewport'], layers?: Array<[string, SVGGElement]>, dispose?: () => void}} PanelPreviewState */
+/** @typedef {{group: SVGElement, note?: SVGElement, layout?: PanelLayout, key?: string|null, viewport?: PcbEditor['viewport'], layers?: Array<[string, SVGGElement]>, dispose?: () => void, image?: SVGElement, rasterKey?: string, sourceLayers?: Array<[string, SVGGElement]>, disposeRaster?: () => void}} PanelPreviewState */
 
 const NS = 'http://www.w3.org/2000/svg';
 /** @type {WeakMap<PcbEditor, PanelPreviewState>} */
 const previewState = new WeakMap();
 const dialogs = new WeakMap();
+/** @type {WeakMap<PcbEditor, PanelSettings>} */
+const draftSettings = new WeakMap();
 let previewId = 0;
 
 /**
@@ -41,6 +43,22 @@ function svg(tag, attributes = {}) {
  */
 function outlinePath(contours) {
     return contours.map(points => `M${points.map(point => `${point.x},${point.y}`).join('L')}Z`).join('');
+}
+
+/**
+ * Keep the note block above a growing panel, translating all surviving lines together.
+ * @param {import('../../core/pcb-text.js').PcbText[]} texts
+ * @param {PanelLayout} layout
+ */
+function clearPanelNoteOverlap(texts, layout) {
+    const panel = layout.bounds;
+    const boxes = texts.map(pcbTextBounds);
+    const overlaps = boxes.some(box => box.maxX > panel.x && box.minX < panel.x + panel.w
+        && box.maxY > panel.y && box.minY < panel.y + panel.h);
+    if (!overlaps) return;
+    const bottom = Math.max(...boxes.map(box => box.maxY));
+    const dy = panel.y - 3 - bottom;
+    for (const text of texts) text.y += dy;
 }
 
 /**
@@ -105,10 +123,15 @@ export function panelPreviewOutlinePath(contours, source) {
     return paths.join('');
 }
 
-/** @param {PcbEditor} app */
-export function renderPanelPreview(app, settings = app.panelization) {
+/** @param {PcbEditor} app @param {PanelSettings|null} [settings] @param {boolean} [previewNotes] */
+export function renderPanelPreview(app, settings = app.panelization, previewNotes = false) {
+    const draft = draftSettings.get(app);
+    if (draft && arguments.length < 2) {
+        settings = draft;
+        previewNotes = true;
+    }
     const previous = previewState.get(app);
-    const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app)]) : null;
+    const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app), previewNotes]) : null;
     if (previous?.layout && previous.key === key && previous.viewport === app.viewport
         && previous.layers
         && previous.group.parentNode
@@ -120,10 +143,14 @@ export function renderPanelPreview(app, settings = app.panelization) {
     previous?.group.remove();
     previous?.note?.remove();
     previewState.delete(app);
-    if (!settings || !app.viewport) return null;
+    if (!settings || !app.viewport) {
+        previous?.disposeRaster?.();
+        return null;
+    }
     let layout;
     try { layout = buildPanelLayout(app, settings); }
     catch (error) {
+        previous?.disposeRaster?.();
         const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${errorMessage(error)}`,
             x: 0, y: -boardDimensions(app).height - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
         note.style.pointerEvents = 'none';
@@ -140,23 +167,30 @@ export function renderPanelPreview(app, settings = app.panelization) {
     group.appendChild(defs);
     const sourceLayers = /** @type {Array<[string, SVGGElement]>} */ ([...app.existingLayerGroups()]).filter(([id]) =>
         !id.includes('document') && !id.includes('overlay') && id !== 'ratlines' && id !== 'fp-lod');
-    const artworkId = `pcb-panel-artwork-${++previewId}`;
     const bounds = layout.sourceBounds;
-    const image = svg('image', { id: artworkId, x: bounds.x, y: bounds.y,
-        width: bounds.w, height: bounds.h, preserveAspectRatio: 'none', opacity: 0.18 });
+    const rasterKey = JSON.stringify(bounds);
+    const reuseRaster = previous?.image && previous.viewport === app.viewport
+        && previous.rasterKey === rasterKey && previous.sourceLayers?.length === sourceLayers.length
+        && previous.sourceLayers.every(([id, layer], index) => sourceLayers[index][0] === id && sourceLayers[index][1] === layer);
+    if (!reuseRaster) previous?.disposeRaster?.();
+    const image = reuseRaster ? /** @type {SVGElement} */ (previous.image)
+        : svg('image', { id: `pcb-panel-artwork-${++previewId}`, x: bounds.x, y: bounds.y,
+            width: bounds.w, height: bounds.h, preserveAspectRatio: 'none', opacity: 0.18 });
+    const artworkId = image.id;
     defs.appendChild(image);
     const holeLayer = app.existingLayerGroups().get('hole');
     const previousHoleClip = holeLayer?.getAttribute('clip-path');
     const holeDefs = svg('defs');
+    holeDefs.setAttribute('data-panel-preview-defs', 'true');
     const holeClipId = `${artworkId}-holes`;
     const holeClip = svg('clipPath', { id: holeClipId, clipPathUnits: 'userSpaceOnUse' });
     holeClip.appendChild(svg('path', { d: outlinePath([bounds.points]) }));
     holeDefs.appendChild(holeClip);
     app.viewport.svg.appendChild(holeDefs);
     holeLayer?.setAttribute('clip-path', `url(#${holeClipId})`);
-    const disposeRaster = createPanelArtworkRaster(app, sourceLayers, image, bounds);
+    const disposeRaster = reuseRaster ? previous.disposeRaster
+        : createPanelArtworkRaster(app, sourceLayers, image, bounds);
     const dispose = () => {
-        disposeRaster();
         if (previousHoleClip) holeLayer?.setAttribute('clip-path', previousHoleClip);
         else holeLayer?.removeAttribute('clip-path');
         holeDefs.remove();
@@ -218,7 +252,52 @@ export function renderPanelPreview(app, settings = app.panelization) {
     const overlay = app.getLayerGroup('clearance-overlay') || app.getLayerGroup('selection-overlay');
     if (overlay?.parentNode) overlay.parentNode.insertBefore(group, overlay);
     else app.viewport.addContent(group);
-    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app.existingLayerGroups()], dispose });
+    /** @type {Array<() => void>} */
+    const noteCleanup = [];
+    if (previewNotes) {
+        const owned = app.panelization?.noteTexts;
+        const notes = layout.note.flatMap((content, index) => {
+            const owner = owned?.[index];
+            if (owner?.detached) return [];
+            const original = owner ? app.texts.get(owner.id) : null;
+            if (owned && !original || !owned && app.panelization?.noteCreated) return [];
+            return [original ? { ...original,
+                content: original.content === owner?.generatedContent ? content : original.content,
+            } : createPcbText({
+                content, x: layout.bounds.x,
+                y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
+                size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
+            })];
+        });
+        clearPanelNoteOverlap(notes, layout);
+        layout.note.forEach((content, index) => {
+            const owner = owned?.[index];
+            if (owner?.detached) return;
+            const original = owner ? app.texts.get(owner.id) : null;
+            if (owned && !original) return;
+            if (!owned && app.panelization?.noteCreated) return;
+            const text = original ? notes.find(note => note.id === original.id) : notes[index];
+            if (!text) return;
+            const layer = app.getLayerGroup(text.layer);
+            if (!layer) return;
+            const authored = original ? /** @type {SVGElement|undefined} */ (Array.from(layer.querySelectorAll('[data-text-id]'))
+                .find(element => element.getAttribute('data-text-id') === original.id)) : null;
+            if (authored) {
+                const display = authored.style.display;
+                authored.style.display = 'none';
+                noteCleanup.push(() => { authored.style.display = display; });
+            }
+            const note = renderPcbText(text);
+            note.classList.add('pcb-panel-note-preview');
+            note.setAttribute('aria-label', text.content);
+            note.style.pointerEvents = 'none';
+            layer.appendChild(note);
+            noteCleanup.push(() => note.remove());
+        });
+    }
+    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app.existingLayerGroups()],
+        image, rasterKey, sourceLayers, disposeRaster,
+        dispose: () => { dispose(); for (const cleanup of noteCleanup) cleanup(); } });
     return layout;
 }
 
@@ -231,18 +310,47 @@ export class SetPanelizationCommand {
         /** @type {PcbEditor} */
         this.app = app;
         /** @type {PanelSettings|null} */
-        this.before = app.panelization ? { ...app.panelization } : null;
+        this.before = app.panelization ? panelSettings(app.panelization) : null;
         /** @type {PanelSettings|null} */
         this.after = settings ? panelSettings(settings) : null;
-        /** @type {AddTextCommand[]} */
+        /** @type {Array<AddTextCommand|EditTextCommand|RemoveTextCommand>} */
         this.noteCommands = [];
-        if (this.after && !this.before?.noteCreated) {
+        const owned = this.before?.noteTexts;
+        if (!this.after) {
+            for (const note of owned || []) {
+                if (!note.detached && app.texts.has(note.id)) this.noteCommands.push(new RemoveTextCommand(app, note.id));
+            }
+        } else if (owned) {
             const layout = buildPanelLayout(app, this.after);
-            this.noteCommands = layout.note.map((content, index) => new AddTextCommand(app, createPcbText({
-                content, x: layout.bounds.x,
-                y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
-                size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
-            })));
+            const notes = owned.flatMap((note, index) => {
+                if (note.detached) return [];
+                const text = app.texts.get(note.id);
+                return text ? [{ ...text,
+                    content: text.content === note.generatedContent ? layout.note[index] : text.content,
+                }] : [];
+            });
+            clearPanelNoteOverlap(notes, layout);
+            this.after.noteTexts = owned.map((note, index) => {
+                if (note.detached) return { ...note };
+                const content = layout.note[index];
+                const text = app.texts.get(note.id);
+                const next = notes.find(text => text.id === note.id);
+                if (text && next && (text.content !== next.content || text.y !== next.y)) {
+                    this.noteCommands.push(new EditTextCommand(app, note.id, { content: next.content, y: next.y }, true));
+                }
+                return { id: note.id, generatedContent: content };
+            });
+        } else if (this.after && !this.before?.noteCreated) {
+            const layout = buildPanelLayout(app, this.after);
+            this.after.noteTexts = layout.note.map((content, index) => {
+                const text = createPcbText({
+                    content, x: layout.bounds.x,
+                    y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
+                    size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
+                });
+                this.noteCommands.push(new AddTextCommand(app, text));
+                return { id: text.id, generatedContent: content };
+            });
         }
         if (this.after) this.after.noteCreated = true;
         this.description = settings ? 'Panelize board' : 'Remove panel';
@@ -255,9 +363,12 @@ export class SetPanelizationCommand {
         for (const command of [...this.noteCommands].reverse()) command.undo();
         this.apply(this.before);
     }
+    lockTargets() {
+        return this.noteCommands.flatMap(command => command.lockTargets());
+    }
     /** @param {PanelSettings|null} settings */
     apply(settings) {
-        this.app.panelization = settings ? { ...settings } : null;
+        this.app.panelization = settings ? panelSettings(settings) : null;
         renderPanelPreview(this.app);
     }
 }
@@ -407,7 +518,8 @@ export function openPanelizeDialog(app) {
             error.textContent = '';
             summary.textContent = `${layout.instances.length} boards; ${layout.bounds.w.toFixed(2)} x ${layout.bounds.h.toFixed(2)} mm`;
             apply.disabled = false;
-            renderPanelPreview(app, layout.settings);
+            draftSettings.set(app, layout.settings);
+            renderPanelPreview(app, layout.settings, true);
         } catch (reason) {
             error.textContent = errorMessage(reason);
             summary.textContent = '';
@@ -417,6 +529,7 @@ export function openPanelizeDialog(app) {
     const close = () => {
         overlay.remove();
         dialogs.delete(app);
+        draftSettings.delete(app);
         renderPanelPreview(app);
         priorFocus?.focus();
     };
@@ -453,6 +566,10 @@ export function openPanelizeDialog(app) {
             error.textContent = errorMessage(reason);
             apply.disabled = true;
         }
+    });
+    overlay.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        event.stopPropagation();
     });
     overlay.addEventListener('keydown', event => {
         event.stopPropagation();

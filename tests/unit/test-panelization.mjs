@@ -9,9 +9,10 @@ const document = installFakeDom();
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { PANEL_DEFAULTS, panelSettings, buildPanelLayout } = await import('../../src/pcb/modules/panelization.js');
 const { SetPanelizationCommand, renderPanelPreview, resetPanelPreview, panelPreviewOutlinePath, panelPreviewSupportContours, updatePanelRailConstraints } = await import('../../src/pcb/modules/panelization-ui.js');
-const { EditTextCommand, RemoveTextCommand } = await import('../../src/pcb/modules/text-commands.js');
+const { EditTextCommand, RemoveTextCommand, MoveTextCommand } = await import('../../src/pcb/modules/text-commands.js');
 const { panelRasterSize } = await import('../../src/pcb/modules/panelization-raster.js');
 const { rectangleBoardOutline } = await import('../../src/shared/pcb/board-outline.js');
+const { pcbTextBounds } = await import('../../src/pcb/modules/pcb-text.js');
 const { preparePcb, serializePcb } = await import('../../src/pcb/modules/project-state.js');
 const { prepareFabricationSnapshot } = await import('../../src/pcb/modules/fabrication-snapshot.js');
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
@@ -216,13 +217,17 @@ assert.ok(buildPanelLayout({ ...app, boardShapes: [{ id: 'circle', kind: 'circle
     layer: 'board-outline', x: 10, y: -10, radius: 10 }] }, PANEL_DEFAULTS).drills.length > 0);
 
 const command = new SetPanelizationCommand(app, PANEL_DEFAULTS);
-const appliedSettings = { ...PANEL_DEFAULTS, noteCreated: true };
 command.execute();
+const appliedSettings = panelSettings(app.panelization);
+assert.deepEqual({ ...appliedSettings, noteTexts: undefined },
+    { ...PANEL_DEFAULTS, noteCreated: true, noteTexts: undefined });
+assert.deepEqual(appliedSettings.noteTexts.map(note => note.generatedContent), layout.note);
 assert.deepEqual(app.panelization, appliedSettings);
 assert.deepEqual(pcbDocument.panelization, appliedSettings, 'Panel commands update project-owned settings');
 assert.equal(app.texts.size, layout.note.length, 'panel note lines are ordinary authored texts');
 assert.ok([...app.texts.values()].every(text => text.layer === 'top-document'));
 const noteIds = [...app.texts.keys()];
+assert.deepEqual(appliedSettings.noteTexts.map(note => note.id), noteIds);
 command.undo();
 assert.equal(app.panelization, null);
 assert.equal(pcbDocument.panelization, null);
@@ -243,7 +248,9 @@ edit.undo();
 assert.equal(app.panelization.columns, 2);
 const saved = serializePcb(app);
 const restored = preparePcb(JSON.parse(JSON.stringify(saved)));
-assert.deepEqual(restored.panelization, appliedSettings, 'settings survive project round trip');
+assert.deepEqual(restored.panelization, { ...appliedSettings,
+    noteTexts: appliedSettings.noteTexts.map((note, index) => index === 0 ? { ...note, detached: true } : note),
+}, 'settings and manual-edit detachment survive project round trip');
 assert.equal(restored.texts.find(text => text.id === noteIds[0]).content, 'Custom panel note');
 assert.equal(restored.texts.some(text => text.id === noteIds[1]), false, 'deleted notes remain deleted after load');
 const reapply = new SetPanelizationCommand({ ...app, panelization: restored.panelization }, restored.panelization);
@@ -253,8 +260,14 @@ noteEdit.undo();
 const tabEdit = new SetPanelizationCommand(app, { ...app.panelization, verticalTabsPerEdge: 1, horizontalTabsPerEdge: 2,
     verticalTabOffset: -0.5, horizontalTabOffset: 0.75 });
 tabEdit.execute();
+assert.deepEqual(new Set(app.texts.keys()), new Set(noteIds), 'parameter edits update notes without replacing their IDs');
+assert.equal(app.texts.get(noteIds[3]).content, buildPanelLayout(app, app.panelization).note[3],
+    'untouched generated wording follows changed parameters');
 assert.deepEqual(preparePcb(JSON.parse(JSON.stringify(serializePcb(app)))).panelization,
-    { ...appliedSettings, verticalTabsPerEdge: 1, horizontalTabsPerEdge: 2, verticalTabOffset: -0.5, horizontalTabOffset: 0.75 },
+    { ...appliedSettings, verticalTabsPerEdge: 1, horizontalTabsPerEdge: 2, verticalTabOffset: -0.5, horizontalTabOffset: 0.75,
+        noteTexts: appliedSettings.noteTexts.map((note, index) => ({
+            ...note, generatedContent: buildPanelLayout(app, app.panelization).note[index],
+        })) },
     'independent tab counts and offsets survive project round trip');
 const tabSnapshot = await prepareFabricationSnapshot(app);
 assert.equal(tabSnapshot.panelization.verticalTabsPerEdge, 1);
@@ -268,13 +281,114 @@ assert.equal(preparePcb(null).panelization, null, 'old/new documents have no pan
 const remove = new SetPanelizationCommand(app, null);
 remove.execute();
 assert.equal('panelization' in serializePcb(app), false);
-assert.equal(app.texts.size, layout.note.length, 'removing panel settings leaves ordinary text untouched');
+assert.equal(app.texts.size, 0, 'removing the panel removes its owned notes');
 remove.undo();
 assert.deepEqual(app.panelization, appliedSettings);
+assert.deepEqual(new Set(app.texts.keys()), new Set(noteIds), 'undo panel removal restores owned note IDs');
 const legacyDocument = new PcbDocument();
 const legacyApp = { ...pcbEditorStubs(), ...app, pcbDocument: legacyDocument, panelization: { ...PANEL_DEFAULTS }, texts: legacyDocument.texts };
 new SetPanelizationCommand(legacyApp, legacyApp.panelization).execute();
 assert.equal(legacyApp.texts.size, layout.note.length, 'applying a legacy panel creates editable notes');
+
+{
+    const notes = [...app.texts.values()].map(text => structuredClone(text));
+    const noteApp = { ...app, texts: new Map(notes.map(text => [text.id, text])),
+        panelization: panelSettings(appliedSettings) };
+    noteApp.pcbDocument = Object.assign(new PcbDocument(), { texts: noteApp.texts, panelization: noteApp.panelization });
+    const unrelated = { ...notes[0], id: 'unrelated-note', content: 'User document note' };
+    noteApp.texts.set(unrelated.id, unrelated);
+    const moved = noteApp.texts.get(noteIds[2]);
+    new EditTextCommand(noteApp, moved.id,
+        { x: 123, y: -45, size: 2.4, rotation: 90, strokeWidth: 0.3, layer: 'bottom-document' }).execute();
+    const custom = noteApp.texts.get(noteIds[0]);
+    new EditTextCommand(noteApp, custom.id, { content: 'Custom panel note' }).execute();
+    noteApp.texts.delete(noteIds[1]);
+    const update = new SetPanelizationCommand(noteApp, { ...PANEL_DEFAULTS, rows: 3, railTop: 6 });
+    update.execute();
+    assert.equal(noteApp.texts.get(noteIds[0]).content, 'Custom panel note');
+    assert.equal(noteApp.texts.has(noteIds[1]), false);
+    assert.equal(noteApp.texts.get(noteIds[2]), moved, 'updates keep the existing text object');
+    assert.equal(moved.content, layout.note[2], 'manual style edits detach generated wording too');
+    assert.deepEqual([moved.x, moved.y, moved.size, moved.rotation, moved.strokeWidth, moved.layer],
+        [123, -45, 2.4, 90, 0.3, 'bottom-document'], 'manual pose and style are preserved');
+    const baseline = structuredClone(noteApp.panelization.noteTexts);
+    const detached = panelSettings(noteApp.panelization);
+    detached.noteTexts[0].generatedContent = 'Changed clone';
+    assert.deepEqual(noteApp.panelization.noteTexts, baseline, 'ownership snapshots are detached');
+    const deletePanel = new SetPanelizationCommand(noteApp, null);
+    deletePanel.execute();
+    assert.deepEqual(new Set(noteApp.texts.keys()), new Set([unrelated.id, moved.id, custom.id]),
+        'panel removal preserves every manually edited note');
+    deletePanel.undo();
+    assert.equal(noteApp.texts.get(noteIds[0]).content, 'Custom panel note');
+    assert.equal(noteApp.texts.has(noteIds[1]), false, 'removal undo does not resurrect manually deleted notes');
+    assert.equal(noteApp.texts.get(noteIds[2]).x, 123);
+    deletePanel.execute();
+    assert.deepEqual(new Set(noteApp.texts.keys()), new Set([unrelated.id, moved.id, custom.id]),
+        'removal redo still keeps detached and unrelated text');
+}
+
+{
+    const legacyNotes = new Map([...app.texts].map(([id, text]) => [id, { ...text }]));
+    const legacy = { ...app, texts: legacyNotes, panelization: { ...PANEL_DEFAULTS, noteCreated: true } };
+    legacy.pcbDocument = Object.assign(new PcbDocument(), { texts: legacyNotes });
+    const existingIds = new Set(legacyNotes.keys());
+    const update = new SetPanelizationCommand(legacy, { ...PANEL_DEFAULTS, columns: 3 });
+    update.execute();
+    assert.deepEqual(new Set(legacy.texts.keys()), existingIds, 'existing document text stays independent');
+    assert.equal(legacy.texts.get(noteIds[0]).content, layout.note[0],
+        'panel changes do not update text without explicit ownership');
+    assert.equal(legacy.panelization.noteTexts, undefined, 'existing text is never adopted by matching its wording');
+    new SetPanelizationCommand(legacy, null).execute();
+    assert.deepEqual(new Set(legacy.texts.keys()), existingIds,
+        'removing a panel leaves unowned document text untouched');
+}
+
+assert.throws(() => panelSettings({ noteTexts: [{ id: 'same', generatedContent: 'A' },
+    { id: 'same', generatedContent: 'B' }] }), /ownership/);
+assert.throws(() => panelSettings({ noteTexts: [{ id: '', generatedContent: 'A' }] }), /ownership/);
+assert.throws(() => panelSettings({ noteTexts: Array.from({ length: 5 }, (_, index) =>
+    ({ id: String(index), generatedContent: 'A' })) }), /four/);
+
+{
+    const notes = new Map([...app.texts].map(([id, text]) => [id, { ...text }]));
+    const noteApp = { ...app, texts: notes, panelization: panelSettings(appliedSettings) };
+    noteApp.pcbDocument = Object.assign(new PcbDocument(), { texts: notes });
+    const originalY = [...notes.values()].map(text => text.y);
+    const grow = new SetPanelizationCommand(noteApp, { ...PANEL_DEFAULTS, railTop: 30, railBottom: 30 });
+    grow.execute();
+    const panel = buildPanelLayout(noteApp, noteApp.panelization);
+    assert.ok([...notes.values()].every(text => pcbTextBounds(text).maxY <= panel.bounds.y - 3 + 1e-9),
+        'a large rail moves the entire note block outside the panel with clearance');
+    const shifts = [...notes.values()].map((text, index) => text.y - originalY[index]);
+    assert.ok(shifts.every(dy => Math.abs(dy - shifts[0]) < 1e-9), 'note spacing is preserved');
+    const outsideY = [...notes.values()].map(text => text.y);
+    new SetPanelizationCommand(noteApp, { ...noteApp.panelization, columns: 3 }).execute();
+    assert.deepEqual([...notes.values()].map(text => text.y), outsideY, 'non-overlapping notes do not move again');
+    grow.undo();
+    assert.deepEqual([...notes.values()].map(text => text.y), originalY, 'undo restores original note positions');
+    grow.execute();
+    assert.deepEqual([...notes.values()].map(text => text.y), outsideY, 'redo restores the cleared positions');
+}
+
+{
+    const notes = new Map([...app.texts].map(([id, text]) => [id, { ...text }]));
+    const noteApp = { ...app, texts: notes, panelization: panelSettings(appliedSettings) };
+    noteApp.pcbDocument = Object.assign(new PcbDocument(), { texts: notes });
+    noteApp.pcbDocument.panelization = noteApp.panelization;
+    const text = notes.get(noteIds[0]);
+    const move = new MoveTextCommand(noteApp, text.id, text.x, text.y, text.x + 5, text.y);
+    move.execute();
+    assert.equal(noteApp.panelization.noteTexts[0].detached, true, 'a manual move detaches the note');
+    move.undo();
+    assert.equal(noteApp.panelization.noteTexts[0].detached, undefined, 'undo restores panel ownership');
+    move.execute();
+    const remove = new SetPanelizationCommand(noteApp, null);
+    remove.execute();
+    assert.equal(notes.get(text.id), text);
+    remove.undo();
+    assert.equal(noteApp.panelization.noteTexts[0].detached, true);
+}
 
 app.vias.push(new Via({ id: 'via', x: 5, y: -5, diameter: 1, drill: 0.3, net: '' }));
 app.placements.set('U1', { x: 8, y: -5, rotation: 90, mirror: true,
@@ -654,10 +768,18 @@ try {
     assert.equal(observers[0].disconnected, true, 'rebuild disconnects the old observer');
     assert.equal(changed.sourceBounds.w, 22);
     preview = changed;
+    const imageBeforeSettings = root.children.at(-1).children[1].children[0];
+    const imageUrlBeforeSettings = imageBeforeSettings.getAttribute('href');
+    const observerCountBeforeSettings = observers.length;
     previewApp.panelization.columns = 3;
     changed = renderPanelPreview(previewApp);
     assert.notEqual(changed, preview, 'in-place settings edits invalidate layout');
     assert.equal(changed.instances.length, 6);
+    assert.equal(root.children.at(-1).children[1].children[0], imageBeforeSettings,
+        'panel settings reuse the existing source image');
+    assert.equal(imageBeforeSettings.getAttribute('href'), imageUrlBeforeSettings,
+        'panel settings never blank the bitmap while changing ghosts');
+    assert.equal(observers.length, observerCountBeforeSettings, 'panel settings do not recreate raster observers');
     preview = changed;
     layers.get('top-copper').remove();
     layers.set('top-copper', root.appendChild(createNode()));

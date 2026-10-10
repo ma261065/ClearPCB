@@ -323,7 +323,23 @@ data-only helpers in `core/pcb-panelization.js`; the geometry module re-exports
 them for compatibility. Preparation validates saved settings before
 live content is replaced. `loadPanelization()` and `serializePanelization()`
 produce detached normalized settings without additional rounding, preserving
-`noteCreated`. Clearing resets panelization, but `loadContent()` does not
+`noteCreated` and the detached `noteTexts` ownership records. Panel-owned notes remain
+ordinary selectable PCB text. Apply updates untouched generated wording in place,
+keeps deleted notes deleted. Any manual wording, pose, styling or layer edit detaches
+the note, so subsequent panel changes and removal leave that independent text alone.
+Undoing the manual edit restores its prior ownership. Automatic updates and clearance
+movement do not detach notes. The preview
+and Apply move the surviving note block upward with a 3 mm gap when a growing panel overlaps
+its text bounds, preserving relative spacing and styling; non-overlapping notes stay put.
+The panel dialog
+previews these notes on their document layers while parameters change, without modifying
+authored text. The dialog owns its draft settings until Apply or Cancel; board edits
+refresh that draft rather than replacing it with committed settings. Parameter-only
+changes reuse the existing source-artwork bitmap and its observers, rebuilding only
+panel geometry and notes. Actual board artwork changes refresh the bitmap asynchronously
+while retaining the previous image until the replacement is ready.
+Cancel removes the preview and restores the originals. Remove Panel
+removes only its non-detached owned text, with exact note restoration on undo. Clearing resets panelization, but `loadContent()` does not
 install prepared panel settings: the adapter installs them after artwork and
 pours are restored, before the final active preview. Hidden loads install the
 settings without rendering; a headless `load()` performs both phases without

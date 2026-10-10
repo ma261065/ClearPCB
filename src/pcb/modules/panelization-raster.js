@@ -27,6 +27,9 @@ export function panelRasterSize(bounds, scale, pixelRatio = 1) {
  * @returns {() => void}
  */
 export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
+    const layers = [...sourceLayers];
+    sourceLayers = layers;
+    const holeLayer = layers.find(([id]) => id === 'hole')?.[1];
     const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
     let disposed = false;
     let revision = 0;
@@ -54,7 +57,8 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             root.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
             for (const child of viewport.svg?.children || []) {
                 // Not the editor's <defs>: its copper-cut clips are sized to the on-screen view.
-                if (child.localName === 'defs' && !child.hasAttribute?.('data-pcb-defs')) root.appendChild(child.cloneNode(true));
+                if (child.localName === 'defs' && !child.hasAttribute?.('data-pcb-defs')
+                    && !child.hasAttribute?.('data-panel-preview-defs')) root.appendChild(child.cloneNode(true));
             }
             const defs = document.createElementNS(NS, 'defs');
             const clip = document.createElementNS(NS, 'clipPath');
@@ -115,6 +119,8 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const observer = new MutationObserver(records => {
         /** @param {string|null} value */
         const withoutCulling = value => (value || '').split(/\s+/).filter(name => name && name !== 'culled').sort().join(' ');
+        records = records.filter(record => !(record.type === 'attributes'
+            && record.attributeName === 'clip-path' && record.target === holeLayer));
         if (records.every(record => record.type === 'attributes' && record.attributeName === 'class'
             && withoutCulling(record.oldValue) === withoutCulling(/** @type {Element} */ (record.target).getAttribute('class')))) return;
         schedule();
@@ -126,7 +132,8 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const observeDefinitions = () => {
         let added = false;
         for (const child of viewport.svg?.children || []) {
-            if (child.localName !== 'defs' || child.hasAttribute?.('data-pcb-defs') || observedDefs.has(child)) continue;
+            if (child.localName !== 'defs' || child.hasAttribute?.('data-pcb-defs')
+                || child.hasAttribute?.('data-panel-preview-defs') || observedDefs.has(child)) continue;
             observedDefs.add(child);
             observer.observe(child, { subtree: true, childList: true, attributes: true, characterData: true });
             added = true;
