@@ -370,6 +370,9 @@ function pressNewTarget(app, press) {
  */
 export function selectToolTip(app) {
     const selection = getPcbSelection(app);
+    if (selection.length > 0 && getPcbSelection(app, 'component').length === selection.length) {
+        return 'Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip';
+    }
     if (selection.length === 1 && getPcbSelection(app, 'reftext').length === 1) return 'Tip: Use SPACE to rotate text';
     if (getPcbSelection(app, 'pad').length === 1) return PAD_TIP;
     if (hoverOverlapHitCount(app) > 1) return 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection';

@@ -90,6 +90,7 @@ const backgroundPasses = [];
 const clears = [];
 const renderContext = {
     ...context,
+    drawImage() {},
     clearRect(...bounds) {
         clears.push({ ...structuredClone(renderStates.at(-1)), bounds });
     },
@@ -109,6 +110,13 @@ const renderContext = {
 };
 let holesDrawn = false;
 const renderViewer = {
+    _cancelPanFrame() {},
+    _cancelZoomTimer() {},
+    _paintBoard: Board2D.prototype._paintBoard,
+    _capturePanRaster() {
+        this._paintBoard(this.ctx);
+        return { canvas: {}, x: 0, y: 0 };
+    },
     canvas: { clientWidth: 200, clientHeight: 100, width: 200, height: 100 },
     ctx: renderContext,
     data: { boardShapes: [{ kind: 'circle', layer: 'hole', x: 10, y: 0, radius: 5 }] },
@@ -130,7 +138,7 @@ Board2D.prototype.render.call(renderViewer);
 assert.equal(holesDrawn, true);
 assert.deepEqual(clipStates, [false]);
 assert.deepEqual(backgroundPasses, [
-    { composite: 'destination-over', transform: [1, 0, 0, 1, 0, 0], bounds: [0, 0, 200, 100],
+    { composite: 'source-over', transform: [1, 0, 0, 1, 0, 0], bounds: [0, 0, 200, 100],
         clipped: false, holesDrawn: true },
 ], 'One screen-space background pass fills the entire canvas behind the board and cutouts');
 assert.deepEqual(clears, [

@@ -462,7 +462,7 @@ export function drawPicture(context, shape) {
         context.restore();
         return;
     }
-    for (const contour of pictureContours(shape)) {
+    for (const contour of pictureOutlineRings(shape) ?? pictureContours(shape)) {
         contour.forEach((point, index) => {
             if (index === 0) context.moveTo(point.x, point.y);
             else context.lineTo(point.x, point.y);

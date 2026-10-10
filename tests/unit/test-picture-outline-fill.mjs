@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import Clipper from '../../assets/vendor/clipper.esm.js';
-import { pictureShape, pictureRegions, pictureOutlineRings } from '../../src/shared/pcb/picture-raster.js';
+import { pictureShape, pictureRegions, pictureOutlineRings, drawPicture } from '../../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
@@ -54,6 +54,11 @@ try {
     const fresh = { ...base, artwork: { ...base.artwork, invert: true } };
     const d = boardShapeFillPathD(fresh);
     assert.equal((d.match(/M /g) || []).length, contours.length + 1, 'one subpath per traced ring plus the frame');
+    let subpaths = 0, fillRule;
+    drawPicture({ beginPath() {}, moveTo() { subpaths++; }, lineTo() {}, closePath() {},
+        fill(rule) { fillRule = rule; } }, fresh);
+    assert.equal(subpaths, contours.length + 1, 'Canvas2D draws traced rings without a polygon merge');
+    assert.equal(fillRule, 'evenodd', 'Canvas2D uses the same raw-ring parity as SVG');
 } finally {
     Clipper.Clipper.prototype.Execute = originalExecute;
 }

@@ -682,6 +682,8 @@ export default class SchematicApp {
             && selected.length === 1
             && selectedText?.fieldKey === 'reference';
         const showOverlapTip = this.currentTool === 'select' && getOverlapHitCount(this) > 1;
+        const showComponentTip = this.currentTool === 'select' && selected.length > 0
+            && selected.every(item => item.type === 'component');
         const textAttached = selected.length === 1 && !!selectedText?.parentComponent;
         const showAttachTip = !textAttached && (this.currentTool === 'text' || (this.currentTool === 'select'
             && selected.length === 1 && selectedText && (!selectedText.fieldKey || selectedText.fieldKey === 'label')));
@@ -690,8 +692,9 @@ export default class SchematicApp {
             && selected[0]?.type === 'polyline'
             && !getShapeSegmentFocus(this)
             && !getShapeNodeFocus(this);
-        tip.hidden = !show && !showReferenceTip && !showOverlapTip && !showAttachTip;
-        tip.textContent = showAttachTip ? 'Tip: Attach text to a shape or wire by hovering over it'
+        tip.hidden = !show && !showReferenceTip && !showOverlapTip && !showAttachTip && !showComponentTip;
+        tip.textContent = showComponentTip ? 'Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip'
+            : showAttachTip ? 'Tip: Attach text to a shape or wire by hovering over it'
             : showReferenceTip ? 'Tip: Use SPACE to rotate text'
             : showOverlapTip ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
             : show ? 'Tip: Click again to select a segment or node' : '';

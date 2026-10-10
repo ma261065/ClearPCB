@@ -89,6 +89,8 @@ const CPCB3D_CSS = `
     z-index:11;background:rgba(21,24,28,.55);color:#cfd6de;font-size:13px;
     pointer-events:none}
   .cpcb3d-spinner.show{display:flex}
+  .cpcb3d-host.cpcb3d-mode2d .cpcb3d-spinner3d,
+  .cpcb3d-host:not(.cpcb3d-mode2d) .cpcb3d-spinner2d{display:none}
   .cpcb3d-spinner .cpcb3d-ring{width:38px;height:38px;border-radius:50%;
     border:3px solid #3a414a;border-top-color:#5aa9ff;
     animation:cpcb-spin .8s linear infinite}
@@ -128,7 +130,7 @@ export function ensure3DStyles(doc) {
  * pop-up window, so it is a self-contained element tree, not a whole document.
  * @param {Document} doc
  * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, canvas2d:HTMLCanvasElement, status:HTMLElement,
- *   spinner:HTMLElement, btnParts:HTMLElement,
+ *   spinner3d:HTMLElement, spinner2d:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
  *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
  *   btn3dSave:HTMLElement, btnPop:HTMLElement, btnClose:HTMLElement, styleBtn:HTMLElement,
@@ -162,7 +164,8 @@ export function build3DHost(doc) {
   </div>
   <canvas class="cpcb3d-cv"></canvas>
   <canvas class="cpcb3d-cv2d"></canvas>
-  <div class="cpcb3d-spinner"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
+  <div class="cpcb3d-spinner cpcb3d-spinner3d"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
+  <div class="cpcb3d-spinner cpcb3d-spinner2d"><div class="cpcb3d-ring"></div><div>Loading…</div></div>
   <div class="cpcb3d-hint">Drag to orbit · Right-drag to pan · Wheel to zoom</div>
     <div class="cpcb3d-stylewin hide">
         <div class="cpcb3d-stylehead">
@@ -200,7 +203,8 @@ export function build3DHost(doc) {
         canvas: q('.cpcb3d-cv'),
         canvas2d: q('.cpcb3d-cv2d'),
         status: q('.cpcb3d-status'),
-        spinner: q('.cpcb3d-spinner'),
+        spinner3d: q('.cpcb3d-spinner3d'),
+        spinner2d: q('.cpcb3d-spinner2d'),
         btnParts: q('[data-act="parts"]'),
         btnTop: q('[data-act="top"]'),
         btnIso: q('[data-act="iso"]'),

@@ -359,6 +359,14 @@ export class Board2D {
         this._onPointerUp = this._onPointerUp.bind(this);
         this._onWheel = this._onWheel.bind(this);
         this._drag = null;
+        /** @type {{canvas: HTMLCanvasElement, x: number, y: number, tx: number, ty: number, scale: number, dpr: number, clipped: boolean}|null} */
+        this._panRaster = null;
+        /** @type {number|null} */
+        this._panFrame = null;
+        /** @type {number|null} */
+        this._zoomTimer = null;
+        /** @type {number|null} */
+        this._zoomMinScale = null;
         canvas.addEventListener('pointerdown', this._onPointerDown);
         canvas.addEventListener('wheel', this._onWheel, { passive: false });
         // Re-render when the canvas CSS box changes (window resize, split-divider
@@ -369,14 +377,23 @@ export class Board2D {
         // 2D mode, so it can't cover this.)
         try {
             this._ro = new ResizeObserver(() => {
-                if (this.canvas.clientWidth && this.canvas.clientHeight) this.render();
+                const dpr = this.canvas.ownerDocument.defaultView?.devicePixelRatio || 1;
+                if (this.canvas.clientWidth && this.canvas.clientHeight &&
+                    (this.canvas.width !== Math.round(this.canvas.clientWidth * dpr) ||
+                    this.canvas.height !== Math.round(this.canvas.clientHeight * dpr))) this.render();
             });
             this._ro.observe(canvas);
         } catch { this._ro = null; }
     }
 
-    /** @param {Board2DData} data Same fields passed to exportGerbers. */
-    setData(data) {
+    /** @param {Board2DData} data Same fields passed to exportGerbers.
+     * @param {'top'|'bottom'} [side]
+     */
+    setData(data, side = this.side) {
+        if (side !== this.side) {
+            this.side = side;
+            this._needFit = true;
+        }
         this.data = data;
         this.render();
     }
@@ -402,6 +419,10 @@ export class Board2D {
     }
 
     dispose() {
+        this._cancelPanFrame();
+        this._cancelZoomTimer();
+        this._panRaster = null;
+        this._drag = null;
         try { this._ro?.disconnect(); } catch { /* ignore */ }
         this._ro = null;
         this.canvas.removeEventListener('pointerdown', this._onPointerDown);
@@ -409,6 +430,7 @@ export class Board2D {
         const w = this._dragWin;
         w?.removeEventListener('pointermove', this._onPointerMove);
         w?.removeEventListener('pointerup', this._onPointerUp);
+        w?.removeEventListener('pointercancel', this._onPointerUp);
     }
 
     /** Reframe so the whole board fits with a margin, then render. */
@@ -473,11 +495,14 @@ export class Board2D {
 
     /** @param {PointerEvent} e */
     _onPointerDown(e) {
+        if (e.button !== 0 || this._drag) return;
+        this._panRaster ||= this._capturePanRaster();
         this._drag = { x: e.clientX, y: e.clientY };
         this._dragWin = this.canvas.ownerDocument?.defaultView || window;
         this.canvas.setPointerCapture?.(e.pointerId);
         this._dragWin.addEventListener('pointermove', this._onPointerMove);
         this._dragWin.addEventListener('pointerup', this._onPointerUp);
+        this._dragWin.addEventListener('pointercancel', this._onPointerUp);
     }
 
     /** @param {PointerEvent} e */
@@ -486,16 +511,95 @@ export class Board2D {
         this.tx += e.clientX - this._drag.x;
         this.ty += e.clientY - this._drag.y;
         this._drag = { x: e.clientX, y: e.clientY };
-        this.render();
+        this._scheduleRasterPaint();
+    }
+
+    _scheduleRasterPaint() {
+        if (this._panFrame === null) {
+            const owner = this.canvas.ownerDocument?.defaultView || window;
+            this._panFrame = owner.requestAnimationFrame(() => {
+                this._panFrame = null;
+                if (this._drag || this._zoomTimer !== null) this._paintPanRaster();
+            });
+        }
     }
 
     /** @param {PointerEvent} e */
     _onPointerUp(e) {
+        if (!this._drag) return;
+        this._cancelPanFrame();
         this._drag = null;
         this.canvas.releasePointerCapture?.(e.pointerId);
         const w = this._dragWin || window;
         w.removeEventListener('pointermove', this._onPointerMove);
         w.removeEventListener('pointerup', this._onPointerUp);
+        w.removeEventListener('pointercancel', this._onPointerUp);
+        this.render();
+    }
+
+    _cancelPanFrame() {
+        if (this._panFrame === null) return;
+        (this.canvas.ownerDocument?.defaultView || window).cancelAnimationFrame(this._panFrame);
+        this._panFrame = null;
+    }
+
+    _cancelZoomTimer() {
+        if (this._zoomTimer !== null) {
+            (this.canvas.ownerDocument?.defaultView || window).clearTimeout(this._zoomTimer);
+        }
+        this._zoomTimer = null;
+        this._zoomMinScale = null;
+    }
+
+    /** Capture full board artwork at this zoom, with bounded overscan for exceptionally large views. */
+    _capturePanRaster() {
+        const owner = this.canvas.ownerDocument || document;
+        const dpr = owner.defaultView?.devicePixelRatio || 1;
+        const board = this._boardRect();
+        const margin = 4 * dpr;
+        let y = Math.floor((this.ty + this.scale * board.y) * dpr) - margin;
+        const left = this.tx + this.mirror * this.scale * board.x;
+        const right = this.tx + this.mirror * this.scale * (board.x + board.w);
+        let x = Math.floor(Math.min(left, right) * dpr) - margin;
+        let width = Math.ceil(board.w * this.scale * dpr) + margin * 2;
+        let height = Math.ceil(board.h * this.scale * dpr) + margin * 2;
+        // At extreme zoom, bound the capture to an overscanned viewport.
+        const clipped = width > 4096 || height > 4096;
+        if (clipped) {
+            width = Math.max(this.canvas.width, Math.min(4096, this.canvas.width * 2));
+            height = Math.max(this.canvas.height, Math.min(4096, this.canvas.height * 2));
+            x = Math.floor((this.canvas.width - width) / 2);
+            y = Math.floor((this.canvas.height - height) / 2);
+        }
+        const canvas = owner.createElement('canvas');
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Board view navigation requires a 2D canvas.');
+        context.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
+            this.tx * dpr - x, this.ty * dpr - y);
+        if (this.data) this._paintBoard(context);
+        return { canvas, x, y, tx: this.tx, ty: this.ty, scale: this.scale, dpr, clipped };
+    }
+
+    _paintPanRaster() {
+        let raster = this._panRaster ||= this._capturePanRaster();
+        let k = this.scale / raster.scale;
+        let x = k * raster.x + (this.tx - k * raster.tx) * raster.dpr;
+        let y = k * raster.y + (this.ty - k * raster.ty) * raster.dpr;
+        if (raster.clipped && (x > 0 || y > 0 ||
+            x + k * raster.canvas.width < this.canvas.width ||
+            y + k * raster.canvas.height < this.canvas.height)) {
+            raster = this._panRaster = this._capturePanRaster();
+            k = 1;
+            x = raster.x;
+            y = raster.y;
+        }
+        const ctx = this.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        paintViewerBackground(ctx, this.canvas.width, this.canvas.height);
+        ctx.drawImage(raster.canvas, x, y, k * raster.canvas.width, k * raster.canvas.height);
     }
 
     /** @param {WheelEvent} e */
@@ -507,19 +611,31 @@ export class Board2D {
         const factor = Math.pow(1.0015, -e.deltaY);
         // Floor the zoom-out so the board can't shrink to a few pixels: never
         // smaller than half the scale at which it just fits the viewport.
-        const minScale = this._minScale(rect.width || 1, rect.height || 1);
+        const minScale = this._zoomMinScale ?? this._minScale(rect.width || 1, rect.height || 1);
         const next = Math.max(minScale, Math.min(2000, this.scale * factor));
+        if (next === this.scale) return;
+        this._panRaster ||= this._capturePanRaster();
         const k = next / this.scale;
         // Keep the world point under the cursor fixed while zooming.
         this.tx = px - k * (px - this.tx);
         this.ty = py - k * (py - this.ty);
         this.scale = next;
-        this.render();
+        this._cancelZoomTimer();
+        this._zoomMinScale = minScale;
+        const owner = this.canvas.ownerDocument?.defaultView || window;
+        this._zoomTimer = owner.setTimeout(() => {
+            this._zoomTimer = null;
+            this.render();
+        }, 300);
+        this._scheduleRasterPaint();
     }
 
     /* ── rendering ────────────────────────────────────────────────────── */
 
     render() {
+        this._cancelPanFrame();
+        this._cancelZoomTimer();
+        this._panRaster = null;
         const cv = this.canvas;
         const cssW = cv.clientWidth || 1;
         const cssH = cv.clientHeight || 1;
@@ -542,11 +658,28 @@ export class Board2D {
             return;
         }
 
-        // World→device: fold the device-pixel-ratio and the left↔right mirror
-        // into the transform so all geometry can be drawn in millimetres.
-        ctx.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
-            this.tx * dpr, this.ty * dpr);
+        if (this._exportScale) {
+            ctx.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
+                this.tx * dpr, this.ty * dpr);
+            this._paintBoard(ctx);
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalCompositeOperation = 'destination-over';
+            paintViewerBackground(ctx, cv.width, cv.height);
+            ctx.restore();
+            return;
+        }
+        // Keep the transparent artwork from this render: starting navigation
+        // must not rebuild the board before its first frame can be displayed.
+        this._panRaster = this._capturePanRaster();
+        paintViewerBackground(ctx, cv.width, cv.height);
+        ctx.drawImage(this._panRaster.canvas, this._panRaster.x, this._panRaster.y);
+    }
 
+    /** Paint transparent board artwork, independent of the screen-space background.
+     * @param {CanvasRenderingContext2D} ctx
+     */
+    _paintBoard(ctx) {
         this._drawBoard(ctx);
         // Clip artwork to the board outline so copper/silk that
         // spill past the edge (e.g. pads on the rim) are cropped to the board.
@@ -562,11 +695,6 @@ export class Board2D {
         // Holes paint last so a bore/cutout reads as open through every layer —
         // including silk, which is never printed over a drilled hole.
         this._drawHoles(ctx);
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalCompositeOperation = 'destination-over';
-        paintViewerBackground(ctx, cv.width, cv.height);
-        ctx.restore();
     }
 
     /**

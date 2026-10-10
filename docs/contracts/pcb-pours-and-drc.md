@@ -57,6 +57,14 @@ in that order and hands each one its predecessors' results (`ctx.poured`). The l
 refresh, the fill worker and fabrication snapshots all use it; a pour computed
 alone avoids its predecessors' outlines (`test-copper-review`).
 
+Stroke clearance capsules from each track, curved board shape or copper text
+are unioned in batches of at most 32 before the board-wide pour difference.
+This preserves the authored stroke widths and clearance margins while avoiding
+hundreds of thousands of overlapping clip vertices on boards with dense copper
+text or sampled curves. Text clearance halos use the same batching helper.
+`test-fill-stroke-batching` checks the clip workload reduction and compares the
+poured region against the original individual-capsule calculation.
+
 A pour voids other-net pads with their clearance. A pad on the pour's own net gets a
 thermal relief: its clearance ring is voided too, except for four spokes along the
 pad's own axes. The spokes follow its width, height and rotation, so each one reaches

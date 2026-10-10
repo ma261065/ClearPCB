@@ -37,7 +37,7 @@ import { getComponentLibrary } from '../../components/index.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { Board2D } from './board2d.js';
 import { loadClipper, isClipperReady } from './copper-fill-geom.js';
-import { VIEWER_BACKGROUND } from './viewer-background.js';
+import { VIEWER_BACKGROUND, paintViewerBackground } from './viewer-background.js';
 import { areDragOverlaysDeferred, clearBoardViewPanel, getBoardViewPanel, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshScheduled, isFillRefreshSuspended, setBoardViewPanel, setLastBoard2DSide } from './refresh-state.js';
 import { projectBaseName, savePcbBlob } from './pcb-export.js';
 import { hsvToRgb, getLayerStylesAppearance, setLayerStylesAppearance } from './board3d-params.js';
@@ -175,9 +175,6 @@ export async function openBoard3DViewer(app, opts = {}) {
         slideTimer = window.setTimeout(finish, 420);
     };
 
-    // Slide the panel in.
-    slideIn();
-
     /** @type {any} Panel is augmented below with lifecycle methods and optional popout state. */
     const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null, view: initialView };
     setBoardViewPanel(app, panel);
@@ -224,18 +221,17 @@ export async function openBoard3DViewer(app, opts = {}) {
     let startedAt = 0;
     let spinnerShown = false;
     let lastYieldAt = 0;
-    let spinnerTimer = 0;
     const nextFrame = () =>
         new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
     const revealSpinner = () => {
         if (!panel.closed && !spinnerShown) {
-            dom.spinner?.classList.add('show');
+            dom.spinner3d.classList.add('show');
             spinnerShown = true;
         }
     };
     const hideSpinner = () => {
-        window.clearTimeout(spinnerTimer);
-        if (!panel.closed) dom.spinner?.classList.remove('show');
+        dom.spinner3d.classList.remove('show');
+        spinnerShown = false;
     };
     const checkpoint = async () => {
         if (panel.closed) return;
@@ -283,6 +279,15 @@ export async function openBoard3DViewer(app, opts = {}) {
     const ensureBoard2D = () => {
         if (!board2d) board2d = new Board2D(dom.canvas2d);
         return board2d;
+    };
+    const paint2DBackground = () => {
+        const canvas = dom.canvas2d;
+        const dpr = canvas.ownerDocument.defaultView?.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
+        canvas.height = Math.max(1, Math.round(canvas.clientHeight * dpr));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Board preview requires a 2D canvas.');
+        paintViewerBackground(context, canvas.width, canvas.height);
     };
 
     const applySceneLayerOpacity = () => {
@@ -399,18 +404,35 @@ export async function openBoard3DViewer(app, opts = {}) {
         refresh2D: () => { board2d?.setData(boardData()); },
         on3DSettled: ({ dirty }) => { if (dirty) syncScheduler.schedulePending(); },
     });
+    let viewRevision = 0;
     const applyView = (/** @type {'3d'|'top'|'bottom'} */ view) => {
+        const revision = ++viewRevision;
+        /** @type {Promise<void>|undefined} */
+        let loading;
         panel.view = view;
         if (view === 'top' || view === 'bottom') {
             host.classList.add('cpcb3d-mode2d');
-            hideSpinner();
-            const b2 = ensureBoard2D();
-            b2.setSide(view);
-            b2.setData(boardData());
-            b2.resize();
             dom.btn2dTop?.classList.toggle('active', view === 'top');
             dom.btn2dBottom?.classList.toggle('active', view === 'bottom');
             if (dom.hint) dom.hint.textContent = 'Drag to pan · Wheel to zoom';
+            if (board2d) {
+                board2d.setData(boardData(), view);
+                dom.spinner2d.classList.remove('show');
+            } else {
+                paint2DBackground();
+                dom.spinner2d.classList.add('show');
+                loading = (async () => {
+                    await nextFrame();
+                    await nextFrame();
+                    if (revision !== viewRevision || panel.closed || panel.hidden) return;
+                    ensureBoard2D().setData(boardData(), view);
+                    dom.spinner2d.classList.remove('show');
+                })().catch(error => {
+                    console.error('Failed to load 2D board preview:', error);
+                    setStatus(`Failed to load 2D board preview: ${error instanceof Error ? error.message : String(error)}`);
+                    dom.spinner2d.classList.remove('show');
+                });
+            }
         } else {
             host.classList.remove('cpcb3d-mode2d');
             const alreadyStarted = build3DStarted;
@@ -426,6 +448,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             try { panel.popWin.document.title = popTitle(); } catch { /* ignore */ }
         }
         app.refreshPcbRibbon?.();
+        return loading;
     };
     panel.setView = applyView;
 
@@ -435,6 +458,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     const ensure3D = () => {
         if (build3DStarted) return;
         build3DStarted = true;
+        revealSpinner();
 
         // The render loop schedules its frames on whichever window currently
         // hosts the canvas (see ThreeScene._raf), so tearing the view into a
@@ -858,6 +882,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         window.removeEventListener('pointermove', onSplitMove);
         window.removeEventListener('pointerup', onSplitUp);
         hideSpinner();
+        dom.spinner2d.classList.remove('show');
         scene?.dispose();
         board2d?.dispose();
         if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
@@ -904,7 +929,19 @@ export async function openBoard3DViewer(app, opts = {}) {
     dom.btnPop?.addEventListener('click', () => (panel.mode === 'popped' ? dock() : popOut()));
     dom.btnClose?.addEventListener('click', hidePanel);
 
-    // Honour the initial view. Opening into 2D never builds 3D (instant); the
-    // 3D scene + STEP models are built lazily by ensure3D when 3D is first shown.
-    applyView(initialView);
+    // Let the panel become visible before synchronous canvas/scene preparation.
+    host.classList.toggle('cpcb3d-mode2d', initialView !== '3d');
+    host.style.backgroundColor = VIEWER_BACKGROUND.edge;
+    if (initialView !== '3d') paint2DBackground();
+    if (dom.hint && initialView !== '3d') dom.hint.textContent = 'Drag to pan · Wheel to zoom';
+    if (initialView === '3d') revealSpinner();
+    else dom.spinner2d.classList.add('show');
+    await new Promise(resolve => slideIn(() => resolve(undefined)));
+    if (!panel.closed && !panel.hidden) {
+        // transitionend runs before paint; yield again so the loading state
+        // is actually on screen before the first expensive artwork build.
+        await nextFrame();
+        await nextFrame();
+        if (!panel.closed && !panel.hidden) await applyView(panel.view);
+    }
 }

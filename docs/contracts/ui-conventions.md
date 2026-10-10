@@ -1,5 +1,38 @@
 # UI Conventions
 
+When only components are selected, both editors show:
+“Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip”.
+The hint clears or changes when selection changes to other object types.
+
+The flat 2D board viewer pans and zooms a cached transparent board image, leaving
+its background fixed. Pointer moves and wheel events coalesce to one
+animation-frame bitmap draw and do not rebuild copper, mask, silk or hole
+geometry. Zoom keeps the world point under the cursor fixed and scales the
+cached image during the gesture. A normal redraw on pan release or after 300 ms
+without a zoom change restores full detail. Board/display/resize changes
+invalidate the navigation image and cancel pending zoom settlement.
+Normal renders retain the transparent artwork, so the first pan or wheel event
+does not build a new image. Opening the viewer slides the panel and loading
+indicator into view before preparing the initial artwork; selecting a 2D side
+updates side and board data in a single render.
+The opaque panel backdrop and initial 2D canvas background are painted before
+the opening slide, preventing the underlying editor from showing through
+behind the loading spinner.
+The 2D and 3D views have independent loading overlays. Loading 2D must not
+suppress the first 3D build's spinner; switching views hides the other view's
+overlay without clearing its pending loading state.
+The first switch from 3D to 2D paints the background and shows the 2D spinner
+immediately, yielding through two animation frames before building artwork.
+Switching away or closing/hiding the panel cancels that pending first render.
+Canvas2D draws traced silkscreen pictures directly from their raw even-odd
+rings, just like SVG fill-only rendering. Opening or sharpening the 2D preview
+must not trigger the strictly-simple polygon merge used by physical geometry
+and fabrication consumers.
+At extreme zoom an overscanned viewport is captured instead of allocating an
+unbounded board-sized canvas. Overscan is capped at 4096 pixels per side (or the
+viewport size if larger), and refreshed when a long pan exhausts its coverage
+so newly revealed artwork does not disappear.
+
 Part of the [module contracts](../module-contracts.md). Conventions both editors
 share: grids, units, the light palette, ribbon height, and the order and labels
 of Properties controls.

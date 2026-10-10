@@ -261,12 +261,15 @@ function collectObstacles(C, fill, ctx, clearance) {
         if (!track || !track.edges) continue;
         const tnet = track.net || '';
         if (sameNet(tnet)) continue; // solid connection: keep same-net copper
+        /** @type {ClipperPaths} */
+        const strokes = [];
         for (const { start: a, end: b, layer, width: w } of resolveTrackSegments(track)) {
             if (layer !== fill.layer) continue;
             const delta = w / 2 + clearance;
             const caps = offsetOpenSegment(C, a, b, delta);
-            for (const path of caps) out.push(path);
+            for (const path of caps) strokes.push(path);
         }
+        out.push(...mergeStrokeObstacles(C, strokes));
     }
 
     // ── Vias (all layers, other net) ──
@@ -299,9 +302,12 @@ function collectObstacles(C, fill, ctx, clearance) {
     for (const text of (ctx.texts || [])) {
         if (!text || text.layer !== fill.layer) continue;
         const width = Math.max(0.05, Number(text.strokeWidth) || 0.15);
+        /** @type {ClipperPaths} */
+        const strokes = [];
         for (const [start, end] of pcbTextSegments(text)) {
-            out.push(...offsetOpenSegment(C, start, end, width / 2 + clearance));
+            strokes.push(...offsetOpenSegment(C, start, end, width / 2 + clearance));
         }
+        out.push(...mergeStrokeObstacles(C, strokes));
     }
 
     // Pours of another net (or none) never share copper: the earlier pour (document
@@ -376,7 +382,8 @@ export function pcbTextClearanceOutlines(text, clearance) {
     if (!['top-copper', 'bottom-copper'].includes(text.layer)) return [];
     const paths = pcbTextSegments(text).flatMap(([start, end]) =>
         offsetOpenSegment(ClipperLib, start, end, text.strokeWidth / 2 + clearance));
-    return mergeClearancePaths(paths);
+    return mergeStrokeObstacles(ClipperLib, paths).map(path =>
+        path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
 /** @param {ClipperPaths} paths @returns {Point[][]} */
@@ -427,7 +434,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
             paths.push(...offsetOpenSegment(
                 C, segment.start, segment.end, segment.lineWidth / 2 + clearance));
         }
-        return paths;
+        return mergeStrokeObstacles(C, paths);
     }
     /** @type {ClipperPaths} */
     const paths = [];
@@ -441,7 +448,7 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
             geometry.lineWidth / 2 + clearance,
         ));
     }
-    return paths;
+    return mergeStrokeObstacles(C, paths);
 }
 
 /** Does a pad's layer ('top'|'bottom'|'both') belong to the fill copper layer? */
@@ -463,6 +470,26 @@ function offsetOpenSegment(C, a, b, delta) {
     const sol = new C.Paths();
     co.Execute(sol, (delta + OFFSET_MARGIN) * SCALE);
     return sol;
+}
+
+/** Merge overlapping stroke capsules in small batches before the board-wide difference.
+ * @param {ClipperNamespace} C @param {ClipperPaths} paths @returns {ClipperPaths}
+ */
+function mergeStrokeObstacles(C, paths) {
+    if (paths.length < 2) return paths;
+    /** @param {ClipperPaths} batch */
+    const merge = batch => {
+        const clip = new C.Clipper();
+        clip.AddPaths(batch, C.PolyType.ptSubject, true);
+        const result = new C.Paths();
+        clip.Execute(C.ClipType.ctUnion, result, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+        return result;
+    };
+    const batches = [];
+    for (let index = 0; index < paths.length; index += 32) {
+        batches.push(...merge(paths.slice(index, index + 32)));
+    }
+    return merge(batches);
 }
 
 /** @param {ClipperNamespace} C @param {Point[]} points @param {number} delta @returns {ClipperPaths} */
