@@ -161,7 +161,10 @@ rendering remain main-thread work, so offloading is not a zero-latency guarantee
 
 `pcb/modules/drc-state.js` owns the editor-scoped DRC presentation, ratline
 cache and disposal flag. The editor creates the `DrcPresentation` once, in
-`initDrc`, and the module supplies its capabilities; refresh, status and
+`initDrc`, and the module supplies its capabilities. The presentation owns the
+DRC button's live label, icon and expanded state: ordinary ribbon refreshes must
+not restore its initial Checking text or collapse its accessibility state.
+Refresh, status and
 marker paths use it only if it exists (`peekDrcPresentation`), so code that
 never set DRC up (fixtures, hidden loads) has no DRC to update. `pcb/modules/drc-presentation.js` owns the DRC panel, grouped
 list, selected violation identity, collapsed groups, pending/error display and

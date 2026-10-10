@@ -389,7 +389,15 @@ export function createPcbRibbonDescription(app) {
                                 options: [{ value: 'mm', label: 'mm', selected: true }, { value: 'inch', label: 'inch' }] }),
                         ],
                     },
-                    { title: 'Design Rules', items: [E('div', { id: 'pcbDrcControl', className: 'drc-control' }, [B('pcbDrcStatus', [E('span', { id: 'pcbDrcIcon', className: 'drc-status-icon' }, '…'), E('span', { id: 'pcbDrcLabel', className: 'drc-status-label' }, 'Checking…')], 'Design Rule Check — click to view problems', { className: 'drc-status drc-status-pending', attrs: { 'aria-haspopup': 'true', 'aria-expanded': 'false' } })])] },
+                    { title: 'Design Rules', items: [E('div', { id: 'pcbDrcControl', className: 'drc-control' }, [
+                        // DrcPresentation owns the live contents, not the ribbon's button-content refresh.
+                        E('button', { id: 'pcbDrcStatus', className: 'drc-status drc-status-pending',
+                            title: 'Design Rule Check — click to view problems',
+                            attrs: { type: 'button', 'aria-haspopup': 'true' } }, [
+                            E('span', { id: 'pcbDrcIcon', className: 'drc-status-icon' }, '…'),
+                            E('span', { id: 'pcbDrcLabel', className: 'drc-status-label' }, 'Checking…'),
+                        ]),
+                    ])] },
                     { title: 'Auto Router', itemsClassName: 'ribbon-group-items auto-router-controls', items: [
                         B('pcbAutoRoute', '⚡ Auto Route', 'Auto-route all connections', { run: () => runAutoRoute(app) }),
                         { kind: 'select', id: 'pcbRouterMode', className: 'auto-router-mode', title: 'Router algorithm', attrs: { 'aria-label': 'Router algorithm' },

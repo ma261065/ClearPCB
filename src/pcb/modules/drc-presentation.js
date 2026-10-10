@@ -168,6 +168,7 @@ export class DrcPresentation {
         this.collapsedGroups = new Set();
 
         const statusBtn = this.dom.getElementById('pcbDrcStatus');
+        statusBtn?.setAttribute('aria-expanded', 'false');
         const closeBtn = this.dom.getElementById('pcbDrcSlideClose');
         this.listen(statusBtn, 'click', (e) => {
             e.stopPropagation();
