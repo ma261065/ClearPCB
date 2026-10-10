@@ -302,7 +302,7 @@ Schematic editor only:
 | `Ctrl+P` / `Ctrl+Shift+P` | Print / Export PDF |
 | `Enter` | Finish the shape or wire being drawn |
 | `F` / `Home` | Fit to content / reset the view |
-| `V` `W` `O` `N` `I` `R` `C` `A` `P` `L` | Tools: Select, Wire, Component, Net Label, Line, Rectangle, Circle, Arc, Polygon, Text |
+| `V` `W` `O` `N` `I` `R` `C` `A` `P` `T` | Tools: Select, Wire, Component, Net Label, Line, Rectangle, Circle, Arc, Polygon, Text |
 | `X` (nothing selected) | No Connect tool |
 
 While drawing a PCB track, `Enter` finishes it and `Space` inserts a via.

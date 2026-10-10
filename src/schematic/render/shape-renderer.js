@@ -11,7 +11,7 @@ import { arcEdgeContinuation, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { roundedPathData, roundedCornerContinuation } from '../../shapes/rounded-path.js';
 import { primitiveShapePath } from '../../shapes/shape-drawing.js';
 import { circleOuterRadius } from '../../shapes/path-geometry.js';
-import { getTextEditBoxGeometry, setTextEditElementProvider } from '../../core/text-edit-geometry.js';
+import { getTextEditBoxGeometry, measureTextGlyphBBox, setTextEditElementProvider } from '../../core/text-edit-geometry.js';
 import { createLockIcon, buildPointAnchorsGroup } from '../../core/ui-helpers.js';
 import { ensureView, viewOf } from './shape-view-state.js';
 import { schematicLockPosition } from './lock-placement.js';
@@ -52,8 +52,16 @@ export function effectiveStrokeWidth(shape, scale) {
 setTextMeasurer((shape) => {
     const element = viewOf(shape)?.element;
     if (!element) return null;
-    const measured = shape.border ? element : element.children[1];
-    return /** @type {SVGGraphicsElement} */ (measured).getBBox();
+    const glyphs = element.children[1];
+    if (shape.border) {
+        const border = element.children[0];
+        const x = Number(border.getAttribute('x')), y = Number(border.getAttribute('y'));
+        const width = Number(border.getAttribute('width')), height = Number(border.getAttribute('height'));
+        if ([x, y, width, height].every(Number.isFinite) && width >= 0 && height > 0) {
+            return { x, y, width, height };
+        }
+    }
+    return measureTextGlyphBBox(shape, /** @type {SVGGraphicsElement} */ (glyphs));
 });
 
 setTextEditElementProvider(/** @param {SchematicDrawable} shape */ (shape) => viewOf(shape)?.element || null);

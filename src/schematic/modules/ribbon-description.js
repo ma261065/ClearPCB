@@ -396,7 +396,7 @@ export function createSchematicRibbonDescription(app) {
                             H([K('C'), ' Circle']),
                             H([K('A'), ' Arc']),
                             H([K('P'), ' Polygon']),
-                            H([K('L'), ' Text']),
+                            H([K('T'), ' Text']),
                             H([K('N'), ' Net']),
                             H([K('O'), ' Component']),
                             H([K('X'), ' No Connect']),

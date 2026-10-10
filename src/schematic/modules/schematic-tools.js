@@ -194,7 +194,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
     shapeTool('line', 'Line', '╱ Line', 'i'),
     shapeTool('polygon', 'Polygon', '⬠ Polygon', 'p'),
     {
-        id: 'text', name: 'Text', key: 'l', newShapeDefaults: true,
+        id: 'text', name: 'Text', key: 't', newShapeDefaults: true,
         /** @param {SchematicEditor} app */
         press(app, event, { worldPos, snapped }) {
             const attach = resolveLabelAttachTarget(app, worldPos);
@@ -221,6 +221,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
         hover(app, _event, { worldPos }) {
             const attach = resolveLabelAttachTarget(app, worldPos);
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
+            app.updateShapeSelectionTip();
         },
     },
     pinMarkerTool('net', 'Net', 'n', app => {

@@ -5,6 +5,7 @@ import { bulgeRatio } from '../../core/geometry.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
 import { appendArcToLineCommand } from './context-menu.js';
+import { TextAttachmentCommand } from './label-attachment.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
@@ -665,6 +666,16 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
     /** @type {PropertyAction[]} */
     const finalActions = [];
     const selectedComponent = selection.length === 1 && isComponentItem(selection[0]) ? selection[0] : null;
+    const attachedText = selection.length === 1 && isTextItem(selection[0])
+        && selection[0].fieldKey === 'label' && selection[0].parentComponent?.type === 'wire'
+        ? selection[0] : null;
+    if (attachedText) {
+        finalActions.push(action('propDetachText', 'Detach from wire', 'Detach this text from its wire', () => {
+            if (!isCurrent()) return;
+            app.history.execute(new TextAttachmentCommand(app, attachedText, null));
+            app.updatePropertiesPanel(selection);
+        }, allLocked));
+    }
     if (selectedComponent && hasAny3DModel(selectedComponent.definition)) {
         finalActions.push(action('propShow3D', '🧊 Show 3D', 'Show 3D model', async () => {
             if (!isCurrent()) return;

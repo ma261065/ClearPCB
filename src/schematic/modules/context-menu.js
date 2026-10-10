@@ -9,7 +9,7 @@
 import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from './commands.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { applySplitLabelRules, applySplitNetRules } from './wire-labels.js';
-import { detachLabel } from './label-attachment.js';
+import { TextAttachmentCommand } from './label-attachment.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { deletePathSegment, setPathSegmentType, collapseCollinearPath, splitPathAtNode } from '../../shapes/path-operations.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
@@ -937,42 +937,20 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
     /** @type {ContextMenuItem[]} */
     if (label.locked) return;
     const items = [];
-    const isAttached = !!label.parentComponent;
+    const isAttached = label.fieldKey === 'label' && label.parentComponent?.type === 'wire';
 
     if (isAttached) {
         items.push({
-            text: 'Detach Label',
+            text: 'Detach from wire',
             onClick: () => {
-                detachLabel(label);
+                app.history.execute(new TextAttachmentCommand(app, label, null));
                 app.selection.select(label, false);
-
-                const rect = app.viewport._getCachedRect();
-                const screenPos = {
-                    x: clientX - rect.left,
-                    y: clientY - rect.top
-                };
-                const worldPos = app.viewport.screenToWorld(screenPos);
-
-                setSchematicDrag(app, {
-                    mode: 'move',
-                    objectStartPos: { x: label.x, y: label.y },
-                    lastSnapped: { x: label.x, y: label.y },
-                    startWorldPos: { x: worldPos.x, y: worldPos.y },
-                    totalDx: 0,
-                    totalDy: 0
-                });
-                app.interactionState = 'moveDrag';
-                setDidSchematicDrag(app, false);
-                if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
-
-                app.renderShapes(true);
-                app.fileManager.setDirty(true);
             }
         });
     }
 
     items.push({
-        text: 'Delete Label',
+        text: 'Delete Text',
         onClick: () => {
             app.history.execute(new DeleteShapesCommand(app, [label]));
             app.renderShapes(true);

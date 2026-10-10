@@ -156,6 +156,9 @@ export class Text extends Shape {
      * @param {Point} point @param {number} [tolerance]
      */
     hitTest(point, tolerance = 0.5) {
+        // Text already has an area target; the thin-line screen tolerance should
+        // not make small labels selectable far outside their displayed bounds.
+        tolerance = Math.min(tolerance, this.fontSize * 0.1);
         if (!this.rotation) {
             const bounds = this.getBounds();
             return (
@@ -205,6 +208,14 @@ export class Text extends Shape {
         return [
             { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
+    }
+    /** Text moves by its body; the hidden origin is not a separate grab handle.
+     * @override
+     * @param {Point} _point
+     * @param {number} _scale
+     */
+    hitTestAnchor(_point, _scale) {
+        return null;
     }
     /**
      * @override

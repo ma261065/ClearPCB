@@ -89,6 +89,10 @@ Unbordered schematic text retains a transparent, non-interactive padded rectangl
 inside its SVG group so Edge invalidates the full ink area during upward dragging,
 including descenders. This rectangle does not affect authored border state or
 selection bounds; unbordered text bounds are measured from its glyph element.
+Text hit testing adds at most 10% of its font size outside its measured bounds,
+instead of inheriting the full thin-wire screen-pixel allowance at low zoom.
+Its hidden origin anchor is not hit-testable; selected text is dragged by its body,
+without an extra circular grab area extending left or below the baseline.
 Filled circles render separate fill and stroke circles. The fill ends at the
 inner edge of the stroke, so translucent hover highlighting does not double-paint
 the inner half of the line. Outer dimensions and authored radius remain unchanged.
@@ -96,6 +100,13 @@ Existing wire-node/segment alignment and sticky wires on moved components use
 the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
 effective grid spacing. They do not force alignment from half a grid cell away.
 New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
+Text uses shortcut T. With the Text tool active or standalone Text selected,
+the status tip reads “Tip: Snap this text to a wire by hovering over it”. Dragging a
+standalone Text over a wire shows the same yellow attachment target as placement;
+dropping attaches it. Movement and attachment undo together. Attached text offers
+“Detach from wire” in Properties (with an explanatory tooltip) and its context menu;
+detachment is undoable. Component reference/value fields are not reattached this way.
+The attachment tip is hidden for text already attached to a wire and returns after detachment.
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 

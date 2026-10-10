@@ -10,6 +10,7 @@ import {
 } from '../../core/geometry.js';
 import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
+import { editTargets } from '../../core/edit-guard.js';
 import { getSchematicDrag } from './drag.js';
 import { getSchematicTextEdit } from './text-edit.js';
 import { isTextItem as isTextShape, isWireItem as isWireShape, isComponentItem as isComponentShape, isCircleItem as isCircleShape, isArcItem as isArcShape } from '../../core/schematic-items.js';
@@ -29,6 +30,39 @@ import { isTextItem as isTextShape, isWireItem as isWireShape, isComponentItem a
 /** @typedef {SchematicItem & {getPosition: () => Point}} PositionReadable */
 /** @typedef {SchematicItem & {closestEdge: (point: Point) => ClosestEdge|null|undefined}} EdgeQueryable */
 /** @typedef {{x: number, y: number, rotation?: number, refText?: Text|null, valueText?: Text|null, _getLocalBounds: () => Bounds}} ComponentGuideTarget */
+
+/** Undoable attachment change; text geometry and the owner's attachment registry stay paired. */
+export class TextAttachmentCommand {
+    /** @param {SchematicEditor} app @param {Text} text @param {SchematicItem|null} target @param {Point|null} [point] */
+    constructor(app, text, target, point = null) {
+        this.app = app;
+        this.text = text;
+        this.before = text.captureState();
+        this.beforeParent = text.parentComponent;
+        this.afterParent = target;
+        if (target) attachLabelToTarget(text, target, point);
+        else detachLabel(text);
+        this.after = text.captureState();
+        this.apply(this.before, this.beforeParent, false);
+        this.description = target ? 'Attach text' : 'Detach from wire';
+    }
+    lockTargets() { return editTargets('text', this.text, this.before, this.after); }
+    execute() { this.apply(this.after, this.afterParent); }
+    undo() { this.apply(this.before, this.beforeParent); }
+    /** @param {import('../../shapes/text.js').TextState} state @param {SchematicItem|null} parent @param {boolean} [render] */
+    apply(state, parent, render = true) {
+        if (this.text.parentComponent) removeAttachedLabel(this.text.parentComponent, this.text);
+        this.text.parentComponent = parent;
+        this.text.applyState(state);
+        if (parent) addAttachedLabel(parent, this.text);
+        if (render) {
+            this.app.renderShapes(true);
+            this.app.fileManager.setDirty(true);
+            this.app.updateShapeSelectionTip();
+            this.app.updatePropertiesPanel(this.app.selection.getSelection());
+        }
+    }
+}
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;

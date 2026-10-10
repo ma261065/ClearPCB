@@ -27,7 +27,8 @@ import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { clearPendingAnchorDrag, getPendingAnchorDrag, getSchematicDrag, setSchematicDrag, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
-import { attachLabelToTarget, refreshLabelAttachmentOffset, getLabelDropHotspot } from './label-attachment.js';
+import { refreshLabelAttachmentOffset, TextAttachmentCommand } from './label-attachment.js';
+import { BatchCommand } from './commands.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
 import { refreshComponentPose, removeShapeSegmentSelectionElement } from './schematic-view.js';
@@ -899,11 +900,9 @@ export const moveDragState = {
 
         const selNow = movableSelection(app);
         const labelShape = selNow.length === 1 && isTextItem(selNow[0]) ? selNow[0] : null;
-        const isGenericLabel = labelShape?.fieldKey === 'label';
+        const isGenericLabel = labelShape && (!labelShape.fieldKey || labelShape.fieldKey === 'label');
         if (isGenericLabel && labelShape) {
-            const hotspot = (/** @type {(labelShape: SchematicItem, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
-                (labelShape, worldPos);
-            const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
+            const attach = resolveLabelAttachTarget(app, worldPos, labelShape);
             (/** @type {(app: SchematicEditor, target: unknown) => void} */ (updateSnapHighlight))
                 (app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
             // Track hover target for invalidation
@@ -1011,15 +1010,13 @@ export const moveDragState = {
 
         const sel = movableSelection(app);
         const labelShape = sel.length === 1 && isTextItem(sel[0]) ? sel[0] : null;
-        const isGenericLabel = labelShape?.fieldKey === 'label';
+        const isGenericLabel = labelShape && (!labelShape.fieldKey || labelShape.fieldKey === 'label');
+        const attachment = isGenericLabel && labelShape
+            ? resolveLabelAttachTarget(app, worldPos, labelShape) : null;
+        const previousCommand = attachment ? app.history.undoStack.at(-1) : null;
         if (isGenericLabel && labelShape) {
             const oldParent = labelShape.parentComponent;
-            const hotspot = (/** @type {(labelShape: SchematicItem, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
-                (labelShape, worldPos);
-            const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
-            if (attach?.target) {
-                attachLabelToTarget(labelShape, attach.target, attach.snapPos || null, { isNewLabel: false });
-            } else if (labelShape.parentComponent) {
+            if (!attachment?.target && labelShape.parentComponent) {
                 // Dropped in empty space — keep attached, update offset
                 refreshLabelAttachmentOffset(labelShape);
             }
@@ -1034,6 +1031,18 @@ export const moveDragState = {
         }
 
         handleDragEnd(app);
+        if (attachment && labelShape) {
+            const moveCommand = app.history.undoStack.at(-1);
+            const command = new TextAttachmentCommand(app, labelShape, attachment.target, attachment.snapPos);
+            app.history.execute(command);
+            if (moveCommand && moveCommand !== previousCommand) {
+                app.history.popUndo(2);
+                const batch = new BatchCommand('Move and attach text');
+                batch.add(moveCommand);
+                batch.add(command);
+                app.history.record(batch);
+            }
+        }
     }
 };
 
