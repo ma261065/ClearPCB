@@ -101,12 +101,18 @@ the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
 effective grid spacing. They do not force alignment from half a grid cell away.
 New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
-the status tip reads “Tip: Snap this text to a wire by hovering over it”. Dragging a
+the status tip reads “Tip: Attach text to a shape or wire by hovering over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
 dropping attaches it. Movement and attachment undo together. Attached text offers
-“Detach from wire” in Properties (with an explanatory tooltip) and its context menu;
+“Detach from wire” or “Detach from shape” according to its owner, in Properties
+(with an explanatory tooltip) and its context menu;
 detachment is undoable. Component reference/value fields are not reattached this way.
-The attachment tip is hidden for text already attached to a wire and returns after detachment.
+The attachment tip is hidden for text already attached to a shape or wire and returns after detachment.
+Hover attachment targets are available only for unattached text. Dragging attached
+text changes its offset from its existing owner without offering or adopting another
+shape or wire; detach explicitly before attaching it elsewhere.
+Text connection guides use the rendered stroke geometry for graph-based owners,
+including curved edges and rounded corners, rather than their invisible control chords.
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 

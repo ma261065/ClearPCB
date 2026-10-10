@@ -937,11 +937,11 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
     /** @type {ContextMenuItem[]} */
     if (label.locked) return;
     const items = [];
-    const isAttached = label.fieldKey === 'label' && label.parentComponent?.type === 'wire';
+    const isAttached = label.fieldKey === 'label' && !!label.parentComponent;
 
     if (isAttached) {
         items.push({
-            text: 'Detach from wire',
+            text: label.parentComponent?.type === 'wire' ? 'Detach from wire' : 'Detach from shape',
             onClick: () => {
                 app.history.execute(new TextAttachmentCommand(app, label, null));
                 app.selection.select(label, false);

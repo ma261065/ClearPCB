@@ -44,7 +44,8 @@ export class TextAttachmentCommand {
         else detachLabel(text);
         this.after = text.captureState();
         this.apply(this.before, this.beforeParent, false);
-        this.description = target ? 'Attach text' : 'Detach from wire';
+        this.description = target ? 'Attach text'
+            : this.beforeParent?.type === 'wire' ? 'Detach from wire' : 'Detach from shape';
     }
     lockTargets() { return editTargets('text', this.text, this.before, this.after); }
     execute() { this.apply(this.after, this.afterParent); }
@@ -187,6 +188,19 @@ function closestPointOnShapeGeometry(target, pt) {
 
     // Graph-based shapes (polyline, line, polygon, wire) — use closestEdge API
     if (hasClosestEdge(target)) {
+        if ('_strokeSegments' in target && typeof target._strokeSegments === 'function') {
+            let nearest = null;
+            let nearestDistance = Infinity;
+            for (const segment of target._strokeSegments()) {
+                const point = closestPointOnSegment(pt, segment.start, segment.end);
+                const separation = distance(pt, point);
+                if (separation < nearestDistance) {
+                    nearest = point;
+                    nearestDistance = separation;
+                }
+            }
+            return nearest;
+        }
         const result = target.closestEdge(pt);
         return result?.point || null;
     }
@@ -342,8 +356,8 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
 
     if (isWireShape(target)) {
         if (referencePoint) {
-            const closest = target.closestEdge?.(referencePoint);
-            if (closest?.point) return { x: closest.point.x, y: closest.point.y };
+            const closest = closestPointOnShapeGeometry(target, referencePoint);
+            if (closest) return closest;
         }
         if (!att) return null;
         return getWireAnchorFromAttachment(target, att);

@@ -900,7 +900,8 @@ export const moveDragState = {
 
         const selNow = movableSelection(app);
         const labelShape = selNow.length === 1 && isTextItem(selNow[0]) ? selNow[0] : null;
-        const isGenericLabel = labelShape && (!labelShape.fieldKey || labelShape.fieldKey === 'label');
+        const isGenericLabel = labelShape && !labelShape.parentComponent
+            && (!labelShape.fieldKey || labelShape.fieldKey === 'label');
         if (isGenericLabel && labelShape) {
             const attach = resolveLabelAttachTarget(app, worldPos, labelShape);
             (/** @type {(app: SchematicEditor, target: unknown) => void} */ (updateSnapHighlight))
@@ -1011,7 +1012,7 @@ export const moveDragState = {
         const sel = movableSelection(app);
         const labelShape = sel.length === 1 && isTextItem(sel[0]) ? sel[0] : null;
         const isGenericLabel = labelShape && (!labelShape.fieldKey || labelShape.fieldKey === 'label');
-        const attachment = isGenericLabel && labelShape
+        const attachment = isGenericLabel && labelShape && !labelShape.parentComponent
             ? resolveLabelAttachTarget(app, worldPos, labelShape) : null;
         const previousCommand = attachment ? app.history.undoStack.at(-1) : null;
         if (isGenericLabel && labelShape) {

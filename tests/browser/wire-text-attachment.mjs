@@ -50,7 +50,7 @@ export const scenarios = [{
             app.updatePropertiesPanel(app.selection.getSelection());
         }, centre);
         assert.equal(await page.locator('#schematicStatusTip').textContent(),
-            'Tip: Snap this text to a wire by hovering over it');
+            'Tip: Attach text to a shape or wire by hovering over it');
         const start = await screenPoint(page, 'schematic', centre.x + 4, centre.y + 14);
         const end = await screenPoint(page, 'schematic', centre.x + 4, centre.y);
         await page.mouse.move(start.x, start.y);
@@ -65,7 +65,7 @@ export const scenarios = [{
         });
         assert.equal(await attached(), true);
         assert.notEqual(await page.locator('#schematicStatusTip').textContent(),
-            'Tip: Snap this text to a wire by hovering over it',
+            'Tip: Attach text to a shape or wire by hovering over it',
             'already attached text does not show the attachment tip');
         const followed = await page.evaluate(() => {
             const app = window.bootstrap.schematicApp;
@@ -88,7 +88,7 @@ export const scenarios = [{
         await page.locator('#propDetachText').click();
         assert.equal(await attached(), false);
         assert.equal(await page.locator('#schematicStatusTip').textContent(),
-            'Tip: Snap this text to a wire by hovering over it',
+            'Tip: Attach text to a shape or wire by hovering over it',
             'detaching restores the relevant attachment tip');
         await page.keyboard.press('Control+z');
         assert.equal(await attached(), true, 'detaching is undoable');
@@ -96,5 +96,68 @@ export const scenarios = [{
         assert.equal(await attached(), false);
         await page.keyboard.press('t');
         assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.currentTool), 'text');
+    },
+}, {
+    name: 'shape-attached-text-offers-detachment',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const centre = await viewCentre(page);
+        const textPosition = { x: centre.x + 15, y: centre.y + 15 };
+        await page.evaluate(async ({ centre, textPosition }) => {
+            const { Circle } = await import('/src/shapes/circle.js');
+            const { Text } = await import('/src/shapes/text.js');
+            const { attachLabelToTarget } = await import('/src/schematic/modules/label-attachment.js');
+            const app = window.bootstrap.schematicApp;
+            const shape = new Circle({ ...centre, radius: 10 });
+            const text = new Text({ ...textPosition, text: 'Shape annotation', fontSize: 3 });
+            app.addShape(shape);
+            attachLabelToTarget(text, shape);
+            app.addShape(text);
+            app.selection.select(text);
+            app.renderShapes(true);
+            app.updatePropertiesPanel(app.selection.getSelection());
+        }, { centre, textPosition });
+        assert.equal(await page.locator('#propDetachText').textContent(), 'Detach from shape');
+        assert.notEqual(await page.locator('#schematicStatusTip').textContent(),
+            'Tip: Attach text to a shape or wire by hovering over it');
+        await page.evaluate(async textPosition => {
+            const { Wire } = await import('/src/shapes/wire.js');
+            const app = window.bootstrap.schematicApp;
+            app.addShape(new Wire({ points: [
+                { x: textPosition.x - 10, y: textPosition.y + 15 },
+                { x: textPosition.x + 30, y: textPosition.y + 15 },
+            ] }));
+        }, textPosition);
+        const start = await screenPoint(page, 'schematic', textPosition.x + 3, textPosition.y - 1);
+        const end = await screenPoint(page, 'schematic', textPosition.x + 3, textPosition.y + 15);
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(end.x, end.y, { steps: 8 });
+        assert.equal(await page.locator('.wire-junction-highlight').count(), 0,
+            'already attached text does not offer another attachment target');
+        assert.notEqual(await page.locator('#schematicStatusTip').textContent(),
+            'Tip: Attach text to a shape or wire by hovering over it');
+        await page.mouse.up();
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes
+            .find(shape => shape.type === 'text').parentComponent?.type), 'circle',
+        'dropping over another wire preserves the original shape owner');
+        await page.keyboard.press('Control+z');
+        const currentText = await page.evaluate(() => {
+            const text = window.bootstrap.schematicApp.shapes.find(shape => shape.type === 'text');
+            return { x: text.x, y: text.y };
+        });
+        await clickWorld(page, 'schematic', currentText.x + 3, currentText.y - 1, { button: 'right' });
+        const detach = page.locator('.anchor-context-menu', { hasText: 'Detach from shape' });
+        await detach.waitFor();
+        assert.equal(await detach.getByText('Detach from wire', { exact: true }).count(), 0);
+        await detach.getByText('Detach from shape', { exact: true }).click();
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes
+            .find(shape => shape.type === 'text').parentComponent), null);
+        assert.equal(await page.locator('#schematicStatusTip').textContent(),
+            'Tip: Attach text to a shape or wire by hovering over it');
+        await page.keyboard.press('Control+z');
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes
+            .find(shape => shape.type === 'text').parentComponent?.type), 'circle');
+        assert.equal(await page.locator('#propDetachText').textContent(), 'Detach from shape');
     },
 }];

@@ -667,10 +667,11 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
     const finalActions = [];
     const selectedComponent = selection.length === 1 && isComponentItem(selection[0]) ? selection[0] : null;
     const attachedText = selection.length === 1 && isTextItem(selection[0])
-        && selection[0].fieldKey === 'label' && selection[0].parentComponent?.type === 'wire'
+        && selection[0].fieldKey === 'label' && selection[0].parentComponent
         ? selection[0] : null;
     if (attachedText) {
-        finalActions.push(action('propDetachText', 'Detach from wire', 'Detach this text from its wire', () => {
+        const ownerKind = attachedText.parentComponent?.type === 'wire' ? 'wire' : 'shape';
+        finalActions.push(action('propDetachText', `Detach from ${ownerKind}`, `Detach this text from its ${ownerKind}`, () => {
             if (!isCurrent()) return;
             app.history.execute(new TextAttachmentCommand(app, attachedText, null));
             app.updatePropertiesPanel(selection);
