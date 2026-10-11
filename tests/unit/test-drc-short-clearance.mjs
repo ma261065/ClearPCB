@@ -80,10 +80,11 @@ for (const clearance of [0.025, 0.3, 0.5]) {
     app.tracks.push(track('cross-a', 'A', [[30, 0], [40, 0]]),
         track('cross-b', 'B', [[35, -5], [35, 5]]));
     const result = check(app);
-    assert.equal(byRule(result, 'short').length, 1);
-    assert.equal(byRule(result, 'clearance').length, 1,
-        'an independent overlap not covered by the terminal-based short detector is never hidden');
-    assert.match(byRule(result, 'clearance')[0].id, /cross-a.*cross-b/);
+    assert.equal(byRule(result, 'short').length, 2, 'independent crossing contacts also report shorts');
+    assert.equal(byRule(result, 'clearance').length, 0, 'named-net overlaps are not zero-clearance errors');
+    assert.equal(new Set(result.violations.map(item => item.id)).size, result.violations.length,
+        'disconnected shorts on the same net names have distinct selection identities');
+    assert.ok(byRule(result, 'short').some(item => item.marker.pair.every(ref => /cross-/.test(ref.key))));
 }
 
 {
@@ -94,9 +95,10 @@ for (const clearance of [0.025, 0.3, 0.5]) {
     ];
     for (const wire of app.tracks) wire.edges.delete(1);
     const result = check(app);
-    assert.equal(byRule(result, 'short').length, 1);
-    assert.equal(byRule(result, 'clearance').length, 1,
-        'disconnected sections of the same Track objects are not treated as part of the short');
+    assert.equal(byRule(result, 'short').length, 2,
+        'disconnected overlapping sections of the same Track objects form separate shorts');
+    assert.equal(byRule(result, 'clearance').length, 0);
+    assert.equal(new Set(result.violations.map(item => item.id)).size, 2);
 }
 
 {
@@ -123,8 +125,8 @@ for (const clearance of [0.025, 0.3, 0.5]) {
     });
     const result = check(app, 0.15);
     assert.equal(byRule(result, 'short').length, 1);
-    assert.ok(result.violations.some(v => v.id === 'drc:clearance|shape:foreign~via:via'),
-        'a remote Via/shape overlap is not hidden by a different short in the same connected group');
+    assert.equal(byRule(result, 'clearance').length, 0,
+        'additional named-net contacts in the same shorted copper group are not misclassified as clearance');
     assert.equal(result.violations.some(v => v.id === 'drc:clearance|trk:a~trk:b'), false,
         'the pair actually represented by the short still has no duplicate clearance report');
 }

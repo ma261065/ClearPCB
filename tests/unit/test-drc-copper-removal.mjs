@@ -118,9 +118,10 @@ console.log('PASS: pad, via, pour, shape, image-hole, overlapping-cut, per-edge-
         start: { x: 1, y: 0 }, bulge: { x: 0, y: 1 }, end: { x: -1, y: 0 }, filled: false };
     target.boardShapes.push(arc);
     target.tracks.push(track('probe', 'VCC', [[0, 0.7], [0, 1.3]]));
-    assert.ok(clearanceErrors(target).length);
+    assert.ok(shortErrors(target).length, 'track touching arc copper is a short');
     target.boardShapes.push(cut(rectangle(-0.5, 0.5, 0.5, 1.5)));
     assert.equal(clearanceErrors(target).length, 0, 'arc copper is clipped');
+    assert.equal(shortErrors(target).length, 0, 'removing arc contact clears the short');
     target.boardShapes = [{ ...arc, id: 'arc-cut', lineWidth: 1, copperMode: 'remove-copper' }];
     target.tracks.push(track('cross', 'GND', [[-0.3, 1], [0.3, 1]]));
     assert.equal(clearanceErrors(target).length, 0, 'analytic arc removal cuts its swept stroke');

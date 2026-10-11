@@ -80,7 +80,7 @@ for (const clipped of [false, true]) {
             copperMode: 'remove-copper', lineWidth: 0.1, points: rectangle(99, 99, 100, 101) });
     }
     const result = runDRC(board, { clearance: 0.15 });
-    const contacts = result.violations.filter(v => v.rule === (clipped ? 'short' : 'clearance'));
+    const contacts = result.violations.filter(v => v.rule === 'short');
     assert.equal(contacts.length, 1, 'one reported Via/polygon contact');
     const marker = contacts[0];
     assert.ok(onCopper(copper.vias[0], marker), 'reported marker is outside the drill and inside the annulus');

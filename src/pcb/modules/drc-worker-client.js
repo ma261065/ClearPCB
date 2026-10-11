@@ -11,6 +11,7 @@ function validMarker(marker) {
     if (marker === null) return true;
     if (!marker) return false;
     if (marker.type === 'short') return true;
+    if (marker.type === 'size') return point(marker);
     if (marker.type === 'ring') return point(marker) && Number.isFinite(marker.r);
     return ['clearance', 'ratline'].includes(marker.type) && point(marker.a) && point(marker.b)
         && (marker.type !== 'ratline' || typeof marker.net === 'string');

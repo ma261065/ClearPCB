@@ -160,6 +160,48 @@ const nativeCases = [];
     nativeCases.push({ inputs, expected });
 }
 
+// Segment-interior contacts must be shorts through the native worker path too.
+{
+    const { app, model } = fixture();
+    model.tracks.length = model.vias.length = model.pads.length = model.boardShapes.length = 0;
+    model.texts.clear();
+    app.placements.clear();
+    app.netlist = [];
+    model.tracks.push(new Track({ id: 'pad-crossing', net: 'TRACK_NET', width: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] }));
+    model.pads.push(new Pad({ id: 'interior-pad', x: 10, y: 0, shape: 'square',
+        size: 2, drill: 0, layers: 'top-copper', net: 'PAD_NET' }));
+    const expected = runDRC(app, { clearance: 0.2 });
+    assert.deepEqual(expected.violations.map(item => item.rule), ['short']);
+    nativeCases.push({ inputs: captureDrcInputs(app, { clearance: 0.2 }), expected });
+}
+
+{
+    const { app, model } = fixture();
+    model.tracks.length = model.vias.length = model.pads.length = model.boardShapes.length = 0;
+    model.texts.clear();
+    app.placements.clear();
+    app.netlist = [];
+    const track = new Track({ id: 'narrow-curve', width: 0.3, points: [
+        { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 },
+    ] });
+    const edgeId = [...track.edges.keys()][1];
+    track.setEdgeAttr(edgeId, 'width', 0.15);
+    track.setEdgeAttr(edgeId, 'bulge', 0.5);
+    model.tracks.push(track);
+    model.vias.push(new Via({ id: 'small-via', x: 30, y: 0, diameter: 0.5, drill: 0.25 }));
+    app.getRoutingParams = () => ({ clearance: 0.2, trackWidth: 0.200123456789,
+        viaDiameter: 0.600123456789, viaDrill: 0.300123456789 });
+    const rules = { ...app.getRoutingParams(), minAnnularRing: 0.05, ratlines: [] };
+    const expected = runDRC(app, rules), inputs = captureDrcInputs(app, rules);
+    assert.deepEqual(expected.violations.map(item => item.rule), ['track-width', 'via-diameter', 'via-drill']);
+    assert.deepEqual(inputs.rules, rules, 'Worker retains all full-precision routing minimums');
+    assert.deepEqual(runDrcInputs(inputs), expected);
+    runDrcNow(app);
+    assert.deepEqual(app.lastResult, expected, 'Direct editor checks use all Design routing values');
+    nativeCases.push({ inputs, expected });
+}
+
 // A real module worker: reject storage/network/file/UI imports and accesses, not merely fake math.
 {
     const { app, model, rules } = fixture();
@@ -266,6 +308,19 @@ class FakeWorker {
 }
 globalThis.Worker = FakeWorker;
 try {
+    {
+        const client = createDrcWorker(() => new FakeWorker());
+        const request = client.build({});
+        const rejected = assert.rejects(request, /Incomplete DRC worker response/);
+        const worker = workers.at(-1);
+        worker.finish(worker.jobs[0], { ok: false, violations: [
+            { id: 'bad-size', rule: 'track-width', severity: 'error', message: 'Bad size marker',
+                x: 0, y: 0, marker: { type: 'size' } },
+        ], counts: { errors: 1, warnings: 0 } });
+        await rejected;
+        assert.ok(worker.terminated, 'Invalid size markers are rejected, not adopted as successful worker output');
+        client.dispose();
+    }
     {
         const { app, model, counts, drc } = fixture();
         const saved = model.serialize();

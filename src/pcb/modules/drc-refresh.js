@@ -27,7 +27,7 @@ const deferred = app => {
         || app.isSectionEditing();
 };
 /** @param {PcbEditor} app */
-const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
+const rulesFor = app => ({ ...app.getRoutingParams(), minAnnularRing: 0.05,
     ratlines: collectDrcRatlines(app) });
 /** @param {DrcRefreshState} state */
 const stopWaiting = state => { state.waiting = false; };

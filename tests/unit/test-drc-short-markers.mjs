@@ -32,7 +32,8 @@ app.netlist = [
 app.tracks.push(track('long-track', 'U1.52', [[0, 0], [100, 0]]));
 const [violation] = shorts(app);
 assert.equal(shorts(app).length, 1);
-assert.equal(violation.x, 100, 'marker belongs at the mismatched pad junction, not halfway along the net');
+assert.ok(violation.x >= 99.5 && violation.x <= 100,
+    'marker belongs on copper touching the mismatched pad, not halfway along the net');
 assert.equal(violation.y, 0);
 assert.equal(violation.message, 'Shorted nets: U1.52 and U1.53');
 assert.equal(violation.id, 'drc:short|U1.52~U1.53', 'selection identity is preserved');
@@ -113,12 +114,12 @@ ui.viewport = {
 let navigation;
 drc.ensurePointVisible = (x, y) => { navigation = { x, y }; };
 drc.selectViolation(violation.id);
-assert.deepEqual(navigation, { x: 100, y: 0 }, 'navigation targets the physical junction');
+assert.deepEqual(navigation, { x: violation.x, y: violation.y }, 'navigation targets the physical junction');
 assert.deepEqual(overlay.children.map(el => el.tag), ['circle'], 'exactly one ring, without a red sample line');
-assert.equal(overlay.children[0].getAttribute('cx'), '100');
+assert.equal(overlay.children[0].getAttribute('cx'), String(violation.x));
 assert.equal(overlay.children[0].getAttribute('cy'), '0');
 const leader = drc.connectorLine.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
-assert.ok(Math.abs(Math.hypot(leader[1][0] - 600, leader[1][1] - 100) - 3) < 1e-7,
+assert.ok(Math.abs(Math.hypot(leader[1][0] - (violation.x * 5 + 100), leader[1][1] - 100) - 3) < 1e-7,
     'panel leader ends at the contact ring');
 drc.selectViolation(violation.id);
 assert.equal(overlay.children.length, 1, 'reselecting does not accumulate rings');

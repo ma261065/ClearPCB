@@ -23,6 +23,14 @@
  * @typedef {{id: string, handle: number}} MarkerFrame
  */
 
+/** @param {DrcViolation|null|undefined} violation */
+function groupOf(violation) {
+    if (violation?.rule === 'short') return 'Shorted Nets';
+    if (violation?.rule === 'unrouted') return 'Incomplete Connections';
+    if (['track-width', 'via-diameter', 'via-drill'].includes(violation?.rule || '')) return 'Minimum Sizes';
+    return 'Clearance';
+}
+
 /** DRC UI ownership. Computation, worker revisions and refresh debt stay in drc-refresh. */
 export class DrcPresentation {
     /** @param {DrcPresentationCapabilities} capabilities @param {Document} [dom] */
@@ -85,8 +93,7 @@ export class DrcPresentation {
 
     refreshSelectedMarker() {
         const selected = this.selectedMarker();
-        const group = selected?.rule === 'short' ? 'Shorted Nets'
-            : selected?.rule === 'unrouted' ? 'Incomplete Connections' : 'Clearance';
+        const group = groupOf(selected);
         if (this.disposed || this.suspended || !selected || this.collapsedGroups.has(group)) {
             this.clearMarker();
             return;
@@ -109,7 +116,7 @@ export class DrcPresentation {
 
     scheduleMarkerRefresh() {
         const selected = this.violations.find(v => v.id === this.selectedId);
-        const group = selected?.rule === 'short' ? 'Shorted Nets' : 'Clearance';
+        const group = groupOf(selected);
         const resolvePairMarker = this.capabilities.resolvePairMarker;
         if (this.disposed || this.suspended || !selected?.marker?.pair
             || this.collapsedGroups.has(group) || !resolvePairMarker || this.markerFrame) return;
@@ -344,14 +351,8 @@ export class DrcPresentation {
         // Group violations under section headings. Sections appear only when
         // they have at least one violation (built from the data below), so an
         // empty category never shows a header. Shorted nets are listed first
-        // (highest severity), then clearance, then incomplete connections.
-        /** @param {DrcViolation} v */
-        const groupOf = (v) => {
-            if (v.rule === 'short') return 'Shorted Nets';
-            if (v.rule === 'unrouted') return 'Incomplete Connections';
-            return 'Clearance';
-        };
-        const ORDER = ['Shorted Nets', 'Clearance', 'Incomplete Connections'];
+        // (highest severity), then clearance, minimum sizes and incomplete connections.
+        const ORDER = ['Shorted Nets', 'Clearance', 'Minimum Sizes', 'Incomplete Connections'];
 
         // Cap the rendered rows so a pathological board (thousands of
         // violations) can't bloat the DOM and stall the UI. Prioritize first:
@@ -626,8 +627,7 @@ export class DrcPresentation {
         const panel = this.dom.getElementById('pcbDrcSlidePanel');
         const v = id ? this.selectedMarker() : null;
         // Only show while the panel is open and a violation is selected.
-        const group = v?.rule === 'short' ? 'Shorted Nets'
-            : v?.rule === 'unrouted' ? 'Incomplete Connections' : 'Clearance';
+        const group = groupOf(v);
         if (this.disposed || this.suspended || this.collapsedGroups.has(group)
             || !v || !panel || !panel.classList.contains('open')) {
             this.hideConnector();

@@ -153,6 +153,34 @@ the sweep visits candidates spatially. Short connectivity is skipped only when
 fewer than two named nets exist; clearance, unassigned copper, ring validity and
 unrouted checks still run.
 
+Short detection uses physical copper contact for every feature family, whether
+or not copper-removal artwork is present. Track segment interiors and stroke
+edges touching a different named net report a short, not zero clearance.
+The same distance checker covers pads, Via annuli, curves, shapes, pictures and
+computed pours; opposite copper sides do not connect without a plated bond.
+One short report represents each physically connected group of distinct named
+nets. Disconnected groups with the same net names have distinct result IDs;
+clipped islands sharing primitive IDs retain their identities when unchanged
+tracks or removal shapes are reordered.
+Named-net contacts in a shorted group are not repeated as zero-clearance
+errors, but positive-gap violations and unassigned-copper clearance remain.
+No Net copper can bridge named nets without being assigned a new net.
+Full and live pair markers share physical-witness selection and prefer the
+contact nearest the selected short when an entity pair has multiple contacts.
+
+The Design tab's Track Width, Via Diameter and Via Drill values also define
+minimum sizes for DRC. An undersized authored track edge produces one error,
+including curved edges with many sampled segments; its actual per-edge width
+takes precedence over the track-wide default. Via diameter and drill are checked
+independently, alongside the existing annular-ring checks. Equal-to-minimum sizes
+pass within the shared 0.0001 mm numerical tolerance. These checks inspect
+authored dimensions, not copper-removal fragments, and do not resize the objects.
+The problem list groups these errors under Minimum Sizes with location markers.
+Direct callers may omit size rules to run only the existing checks; a supplied
+size rule must be a positive finite number. Scheduled and direct editor checks
+always use all routing values in millimetres, regardless of display units, and
+worker snapshots retain their full precision.
+
 Scheduled live DRC uses `drc-refresh.js` and a module worker. The
 `drc-worker-inputs.js` capture supplies detached, full-precision physical geometry
 and neutral ratline data; the worker imports no editor, storage or network code.

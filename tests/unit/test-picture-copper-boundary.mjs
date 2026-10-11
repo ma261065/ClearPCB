@@ -76,7 +76,7 @@ for (const source of artwork) for (const degrees of [0, 37, 90]) {
 
     inside.net = 'SIGNAL';
     app.vias = [inside];
-    assert.ok(runDRC(app, { clearance: 0.2 }).violations.some(v => v.rule === 'clearance'),
+    assert.ok(runDRC(app, { clearance: 0.2 }).violations.some(v => v.rule === 'short'),
         'foreign copper inside a pixel gap conflicts with the logical rectangle');
     inside.net = '';
     assert.equal(runDRC(app, { clearance: 0.2 }).ok, false, 'No Net copper also respects the boundary');

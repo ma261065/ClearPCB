@@ -18,16 +18,18 @@
  *   3. Incomplete connections — every remaining ratsnest line (an air wire
  *      between copper that should be joined but isn't yet) is a violation.
  *   4. Shorted nets — two or more distinct named nets electrically bonded by
- *      coincident copper (a track/via/pad junction tying nets together).
+ *      touching copper, including segment-interior and stroked-edge overlaps.
  *      Each bonded component reports one detected contact for its marker.
+ *   5. Minimum sizes — track edge width, Via diameter and Via drill below
+ *      the corresponding routing design rules.
  *
  * Distances are edge-to-edge in millimetres. Pads use posed physical outlines;
  * copper-removal artwork is subtracted per layer before clearance and shorts.
  * Contact markers account for stroke widths and the empty bores of vias.
  * Additive copper pictures are checked as solid transformed rectangles,
  * independent of the pixels used to render and manufacture the artwork.
- * The object pair represented by a short is not repeated as a zero-clearance
- * error. Other offending pairs remain reportable, even in the same copper group.
+ * Contacts between named nets in a shorted copper group are not repeated as
+ * zero-clearance errors. Positive gaps and unassigned copper remain reportable.
  */
 
 import { resolveCopperPads } from './copper-model.js';
@@ -48,7 +50,7 @@ import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 /** @typedef {{dist:number,x:number,y:number}} DistanceResult */
 /** @typedef {Record<string, any>} CopperFeature */
 /** @typedef {{pads:CopperFeature[],segments:CopperFeature[],vias:CopperFeature[],areas:CopperFeature[],circles:CopperFeature[],arcs:CopperFeature[]}} CopperCollection */
-/** @typedef {{clearance?: number, minAnnularRing?: number, ratlines?: import('./drc-state.js').Ratline[]}} DrcRules */
+/** @typedef {{clearance?: number, minAnnularRing?: number, trackWidth?: number, viaDiameter?: number, viaDrill?: number, ratlines?: import('./drc-state.js').Ratline[]}} DrcRules */
 /** @typedef {{type?: string, r?: number, a?: Point, b?: Point, net?: string, pair?: unknown}|any} DrcMarker */
 /** @typedef {{id:string,rule:string,severity:string,message:string,x:number,y:number,marker:DrcMarker}} DrcViolation */
 /** @typedef {{ok: boolean, violations: DrcViolation[], counts: {errors: number, warnings: number}}} DrcResult */
@@ -126,12 +128,6 @@ function segmentSegmentDistance(ax, ay, bx, by, cx, cy, dx, dy, firstWidth = 0, 
     return { dist: best, x: bx2, y: by2 };
 }
 
-/** Quantised coordinate key (0.1 µm grid) — coincident points share a key. */
-/** @param {number} x @param {number} y */
-function coincKey(x, y) {
-    return `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
-}
-
 /* ───────────────────── Copper primitive collection ───────────────── */
 
 /** Normalize a track edge layer ('top-copper') to 'top' / 'bottom'. */
@@ -176,20 +172,23 @@ export function collectCopper(app) {
 
     for (const pad of resolveCopperPads(app, { physical: true })) {
         pads.push({ ...pad, kind: 'pad', pin: pad.number,
+            layer: pad.layer === 'both' ? 'both' : normLayer(pad.layer),
             uid: `pad:${pad.componentId}.${pad.padId}`, label: `${pad.reference}.${pad.number}` });
     }
 
     // Track segments (per edge — each edge carries its own layer/width).
-    for (const track of (app.tracks || [])) {
+    for (const [trackIndex, track] of (app.tracks || []).entries()) {
         if (!track?.edges || !track?.nodes) continue;
+        const keyId = `trk:${track.id || `?${trackIndex}`}`;
         for (const [index, segment] of resolveTrackSegments(track).entries()) {
             const { edgeId, start: a, end: b, width } = segment;
             const layer = normLayer(segment.layer);
             segments.push({
                 kind: 'track',
-                uid: `trk:${track.id || '?'}:${edgeId}:${index}`,
-                keyId: `trk:${track.id || '?'}`,
+                uid: `${keyId}:${edgeId}:${index}`,
+                keyId,
                 trackId: track.id || track,
+                edgeId,
                 label: track.net ? `Track ${track.net}` : 'Track',
                 ax: a.x, ay: a.y, bx: b.x, by: b.y,
                 hw: width / 2,
@@ -201,7 +200,7 @@ export function collectCopper(app) {
 
     // Standalone vias (through-hole — present on both copper layers).
     for (const via of (app.vias || [])) {
-        const dia = via.diameter || via.size || 0.6;
+        const dia = via.diameter ?? via.size ?? 0.6;
         vias.push({
             uid: `via:${via.id || `${via.x},${via.y}`}`,
             kind: 'via',
@@ -273,75 +272,6 @@ function shortConnectivity(features) {
     return { union, shorts };
 }
 
-/**
- * Detect shorted nets: two or more distinct named nets electrically bonded by
- * coincident copper. Net-agnostic union-find over pad/via/track-segment
- * terminals (mirrors the ratsnest connectivity model, but unions ACROSS nets
- * so cross-net bonds surface instead of being hidden). Distinct nets are taken
- * from any copper (pad/track/via net) within each bonded component.
- * @param {{pads:CopperFeature[], segments:CopperFeature[], vias:CopperFeature[]}} copper
- * @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance
- * @returns {ShortResult[]}
- */
-function detectShorts({ pads, segments, vias }, distance) {
-    /** @param {unknown} l @returns {string} */
-    const normL = (l) => (l === 'both' ? 'all' : String(l || ''));
-
-    /** @type {Array<{x:number,y:number,layer:string,net:string,isPad:boolean,feature:CopperFeature}>} */
-    const terms = [];
-    for (const p of pads) {
-        terms.push({ x: p.x, y: p.y, layer: normL(p.layer), net: p.net || '', isPad: true, feature: p });
-    }
-    for (const v of vias) {
-        terms.push({ x: v.x, y: v.y, layer: 'all', net: v.net || '', isPad: false, feature: v });
-    }
-    // Each track segment contributes two endpoints, bonded to each other.
-    /** @type {Array<[number,number]>} */
-    const segPairs = [];
-    for (const s of segments) {
-        const i = terms.length;
-        terms.push({ x: s.ax, y: s.ay, layer: normL(s.layer), net: s.net || '', isPad: false, feature: s });
-        terms.push({ x: s.bx, y: s.by, layer: normL(s.layer), net: s.net || '', isPad: false, feature: s });
-        segPairs.push([i, i + 1]);
-    }
-
-    const connectivity = shortConnectivity(terms);
-
-    // 1) Bond the two endpoints of each track segment.
-    for (const [i, j] of segPairs) connectivity.union(terms[i], terms[j]);
-
-    // 2) Bond coincident, layer-compatible terminals.
-    /** @param {string} a @param {string} b */
-    const compat = (a, b) => a === b || a === 'all' || b === 'all';
-    /** @type {Map<string, number[]>} */
-    const buckets = new Map();
-    for (let i = 0; i < terms.length; i++) {
-        const k = coincKey(terms[i].x, terms[i].y);
-        let arr = buckets.get(k);
-        if (!arr) { arr = []; buckets.set(k, arr); }
-        arr.push(i);
-    }
-    for (const arr of buckets.values()) {
-        if (arr.length < 2) continue;
-        for (let a = 0; a < arr.length; a++) {
-            for (let b = a + 1; b < arr.length; b++) {
-                const first = terms[arr[a]], second = terms[arr[b]];
-                if (compat(first.layer, second.layer)) {
-                    if (first.feature.kind === 'via' || second.feature.kind === 'via') {
-                        const contact = distance(first.feature, second.feature);
-                        if (contact.dist <= EPS) connectivity.union(first, second, { x: contact.x, y: contact.y });
-                    } else connectivity.union(first, second, { x: first.x, y: first.y });
-                }
-            }
-        }
-    }
-
-    return connectivity.shorts().map(short => ({
-        ...short, features: new Set([...short.features].map(term => term.feature)),
-        contactFeatures: new Set([...short.contactFeatures].map(term => term.feature)),
-    }));
-}
-
 /* ──────────────────────────── DRC runner ──────────────────────────── */
 
 let _vid = 0;
@@ -390,20 +320,32 @@ export function resolveDrcPairMarker(app, violation, rules = {}) {
     const ruleClearance = rules.clearance;
     const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
     const distance = createCopperDistanceChecker(clearance);
+    const closest = closestCopperPair(first, second, clearance, distance, violation.rule === 'short', violation);
+    return closest ? { ...violation, x: closest.x, y: closest.y } : null;
+}
+
+/** Use the same physical witness for full reports and selected-pair live markers.
+ * @param {CopperFeature[]} first @param {CopperFeature[]} second @param {number} clearance
+ * @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance
+ * @param {boolean} short @param {Point} anchor @returns {DistanceResult|null}
+ */
+function closestCopperPair(first, second, clearance, distance, short, anchor) {
     /** @type {DistanceResult|null} */
     let closest = null;
     for (const [a, b] of spatialCrossPairsPrepared(
         prepareSpatialOrder(first, featureBounds), prepareSpatialOrder(second, featureBounds), clearance)) {
         if (!layersOverlap(a.layer, b.layer)) continue;
         // A short's joining pair can be an unassigned bridge between named groups.
-        if (sameNet(a.net, b.net) && !(violation.rule === 'short' && !a.net && !b.net)) continue;
-        if ((a.originalKind || a.kind) === 'pad' && (b.originalKind || b.kind) === 'pad'
+        if (sameNet(a.net, b.net) && !(short && !a.net && !b.net)) continue;
+        if (!short && (a.originalKind || a.kind) === 'pad' && (b.originalKind || b.kind) === 'pad'
             && a.componentId === b.componentId) continue;
         if (a.trackId && a.trackId === b.trackId) continue;
         const gap = distance(a, b);
-        if (gap.dist < clearance - EPS && (!closest || gap.dist < closest.dist)) closest = gap;
+        if (gap.dist < clearance - EPS && (!closest || gap.dist < closest.dist
+            || gap.dist === closest.dist && Math.hypot(gap.x - anchor.x, gap.y - anchor.y)
+                < Math.hypot(closest.x - anchor.x, closest.y - anchor.y))) closest = gap;
     }
-    return closest ? { ...violation, x: closest.x, y: closest.y } : null;
+    return closest;
 }
 
 /** @param {CopperFeature[]} features */
@@ -433,7 +375,7 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
 /**
  * Run all design-rule checks against the board.
  * @param {PcbBoard} app
- * @param {DrcRules} rules - { clearance, minAnnularRing, ratlines }. `ratlines`
+ * @param {DrcRules} rules - Routing minimum sizes, clearance and minAnnularRing. `ratlines`
  *   is an array of { net, x1, y1, x2, y2 } air wires (remaining ratsnest),
  *   each reported as an incomplete-connection violation.
  * @returns {{ok:boolean, violations:DrcViolation[], counts:{errors:number, warnings:number}}}
@@ -467,6 +409,12 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
     const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
     const minRing = typeof ruleMinRing === 'number' && Number.isFinite(ruleMinRing) && ruleMinRing > 0
         ? ruleMinRing : DEFAULT_MIN_ANNULAR_RING;
+    for (const key of /** @type {const} */ (['trackWidth', 'viaDiameter', 'viaDrill'])) {
+        const value = rules[key];
+        if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+            throw new Error(`DRC ${key} must be a positive finite value in millimetres.`);
+        }
+    }
 
     const { pads, segments, vias, areas, circles, arcs } = copper;
     /** @type {DrcViolation[]} */
@@ -521,8 +469,7 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
     /** @type {ShortResult[]} */
     let shorts = [];
     if (hasMultipleNamedNets(remainingCopper)) {
-        shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias }, copperDistance)
-            : detectRemainingShorts(remainingCopper, copperDistance);
+        shorts = detectRemainingShorts(remainingCopper, copperDistance);
     }
     const shortByFeature = new Map();
     for (const short of shorts) {
@@ -536,12 +483,48 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
             && first.componentId === second.componentId) continue;
         if (first.trackId && first.trackId === second.trackId) continue;
         const distance = copperDistance(first, second);
-        // Match both the reported pair and its connected component.
+        // Named-net contacts belong to the shorted group; keep positive gaps
+        // and unassigned-copper concerns distinct from its representative marker.
         const short = shortByFeature.get(first);
         if (distance.dist <= EPS && short && short === shortByFeature.get(second)
-            && short.pairKey === copperPairKey(first, second)) continue;
+            && (first.net && second.net || short.pairKey === copperPairKey(first, second))) continue;
         if (distance.dist < clearance - EPS) {
             addClearance(distance.dist, distance.x, distance.y, first.label, second.label, first, second);
+        }
+    }
+
+    /* ---- Minimum authored track/Via sizes ---- */
+
+    if (rules.trackWidth !== undefined) {
+        /** @type {Map<string, CopperFeature[]>} */
+        const narrowEdges = new Map();
+        for (const segment of segments) {
+            if (segment.edgeId == null || segment.hw * 2 >= rules.trackWidth - EPS) continue;
+            const key = `track-width|${segment.keyId}:${segment.edgeId}`;
+            if (!narrowEdges.has(key)) narrowEdges.set(key, []);
+            /** @type {CopperFeature[]} */ (narrowEdges.get(key)).push(segment);
+        }
+        for (const [key, edge] of narrowEdges) {
+            const segment = edge[Math.floor(edge.length / 2)];
+            const point = featureAnchor(segment);
+            violations.push(makeViolation(
+                'track-width', 'error',
+                `${segment.label}: width ${fmt(segment.hw * 2)} < ${fmt(rules.trackWidth)}`,
+                point.x, point.y, { type: 'size', x: point.x, y: point.y }, key,
+            ));
+        }
+    }
+
+    for (const via of vias) {
+        for (const [rule, dimension, minimum, label] of /** @type {Array<[string, number, number|undefined, string]>} */ ([
+            ['via-diameter', via.diameter, rules.viaDiameter, 'diameter'],
+            ['via-drill', via.drill, rules.viaDrill, 'drill'],
+        ])) {
+            if (minimum === undefined || dimension >= minimum - EPS) continue;
+            violations.push(makeViolation(
+                rule, 'error', `${via.label}: ${label} ${fmt(dimension)} < ${fmt(minimum)}`,
+                via.x, via.y, { type: 'ring', x: via.x, y: via.y, r: via.r }, `${rule}|${via.uid}`,
+            ));
         }
     }
 
@@ -592,17 +575,50 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
         ));
     }
 
-    /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
+    /* ---- Shorted nets (distinct nets bonded by physical copper contact) ---- */
 
+    const featuresByKey = new Map();
+    for (const feature of remainingCopper) {
+        const key = feature.keyId || feature.uid || feature.label;
+        if (!featuresByKey.has(key)) featuresByKey.set(key, []);
+        featuresByKey.get(key).push(feature);
+    }
+    const shortKeyCounts = new Map();
+    for (const sh of shorts) {
+        const key = sh.nets.join('~');
+        shortKeyCounts.set(key, (shortKeyCounts.get(key) || 0) + 1);
+    }
+    /** @type {Map<string, ShortResult[]>} */
+    const shortsByKey = new Map();
+    for (const sh of shorts) {
+        let key = `short|${sh.nets.join('~')}`;
+        if (shortKeyCounts.get(sh.nets.join('~')) > 1) {
+            key += `|${[...sh.features].map(feature => feature.uid).sort().join('~')}`;
+        }
+        if (!shortsByKey.has(key)) shortsByKey.set(key, []);
+        /** @type {ShortResult[]} */ (shortsByKey.get(key)).push(sh);
+    }
+    /** @type {Map<ShortResult, string>} */
+    const keysByShort = new Map();
+    for (const [key, groups] of shortsByKey) {
+        // Clipped islands share primitive IDs. Order by geometry, not sweep contact
+        // or collection order, so selection survives an unchanged board recheck.
+        const ordered = groups.map(sh => ({ sh, geometry: groups.length > 1 ? shortGeometryKey(sh) : '' }))
+            .sort((a, b) => a.geometry < b.geometry ? -1 : a.geometry > b.geometry ? 1 : 0);
+        ordered.forEach(({ sh }, index) => keysByShort.set(sh, groups.length > 1 ? `${key}|island:${index}` : key));
+    }
     for (const sh of shorts) {
         const [first, second] = sh.contactFeatures;
+        const pair = markerPair(first, second);
+        const witness = closestCopperPair(featuresByKey.get(pair[0].key), featuresByKey.get(pair[1].key),
+            clearance, copperDistance, true, sh.point);
         const msg = sh.nets.length > 2
             ? `Shorted nets: ${sh.nets.join(', ')}`
             : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
         violations.push(makeViolation(
-            'short', 'error', msg, sh.point.x, sh.point.y,
-            { type: 'short', pair: markerPair(first, second) },
-            `short|${sh.nets.join('~')}`,
+            'short', 'error', msg, witness?.x ?? sh.point.x, witness?.y ?? sh.point.y,
+            { type: 'short', pair },
+            keysByShort.get(sh),
         ));
     }
 
@@ -614,7 +630,18 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
     return { ok: violations.length === 0, violations, counts: { errors, warnings } };
 }
 
-/** @param {CopperFeature[]} features @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance @returns {ShortResult[]} */
+/** @param {ShortResult} short */
+function shortGeometryKey(short) {
+    return [...short.features].map(feature => {
+        const bounds = featureBounds(feature);
+        const outline = (feature.outer || feature.outline || []).map(/** @param {Point} point */ point => `${point.x},${point.y}`).sort();
+        return JSON.stringify([feature.uid, feature.layer, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, outline]);
+    }).sort().join('~');
+}
+
+/** Detect shorts over all surviving physical copper, with or without removal artwork.
+ * @param {CopperFeature[]} features @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance @returns {ShortResult[]}
+ */
 function detectRemainingShorts(features, distance) {
     const connectivity = shortConnectivity(features);
     for (const [first, second] of spatialPairs(features, featureBounds, EPS)) {

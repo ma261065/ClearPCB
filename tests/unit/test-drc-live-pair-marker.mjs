@@ -40,12 +40,13 @@ const firstViolation = (app, designRules = rules) => {
     const result = pairViolations(app, designRules);
     assert.ok(result.length, 'fixture must start with a copper conflict');
     assert.equal(result[0].marker.pair.length, 2, 'full DRC supplies a persistent entity pair');
-    return result[0];
+    return result.find(item => item.rule === 'short') || result[0];
 };
 const near = (actual, expected, message) =>
     assert.ok(Math.abs(actual - expected) < 1e-8, `${message}: ${actual} != ${expected}`);
 function assertParity(app, violation, message, designRules = rules) {
-    const expected = pairViolations(app, designRules).find(item => pairKey(item) === pairKey(violation));
+    const matches = pairViolations(app, designRules).filter(item => pairKey(item) === pairKey(violation));
+    const expected = matches.find(item => item.rule === violation.rule) || matches[0];
     const before = structuredClone(violation);
     const actual = resolveDrcPairMarker(app, violation, designRules);
     assert.equal(!!actual, !!expected, `${message}: live conflict matches full DRC`);
@@ -94,8 +95,8 @@ function assertParity(app, violation, message, designRules = rules) {
     const violation = pairViolations(app).find(item => item.rule === 'short');
     assert.ok(violation, 'unassigned bridge joins differently named roots');
     assert.deepEqual(new Set(violation.marker.pair.map(item => item.key)),
-        new Set(['trk:left-bridge', 'trk:right-bridge']),
-        'selected physical contact may consist of two unassigned entities');
+        new Set(['trk:right-bridge', 'trk:right-net']),
+        'short marker targets the physical bridge contact joining the named groups');
     assert.ok(assertParity(app, violation, 'unassigned short contact'));
     const before = structuredClone(violation);
     for (const y of [0.25, 1, 0.25, 0]) {
@@ -106,7 +107,7 @@ function assertParity(app, violation, message, designRules = rules) {
             assert.ok(marker, 'short contact remains visible through a sub-clearance gap');
             assert.equal(marker.id, violation.id, 'short selection retains its rule identity');
             assert.equal(marker.rule, 'short');
-            near(marker.x, 2, 'bridge witness x');
+            near(marker.x, 4, 'bridge witness x');
             near(marker.y, y / 2, 'bridge witness follows the copper gap');
         }
         if (y > 0) assert.equal(pairViolations(app).some(item => item.rule === 'short'), false,
