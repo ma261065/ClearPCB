@@ -5,6 +5,7 @@
 import { distanceToSegment, pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint } from './wire-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
+import { snapNodeToMixedAxes } from '../../shapes/path-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /**
  * @typedef {{x: number, y: number}} Point
@@ -138,7 +139,7 @@ export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize, tole
  * @param {SnapEdge[]} edges
  * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
  * @param {{ diagonal?: boolean }} [options] - `diagonal` also snaps and guides 45° segments
- *   (when no collinear or H/V snap applies)
+ *   (including nearby intersections with an H/V constraint)
  * @returns {{ adjustX: number, adjustY: number, guides: SnapGuide[] }}
  */
 export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal = false } = {}) {
@@ -162,7 +163,17 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal
 
     // ── H/V snap (skipped if collinear already adjusted) ──
     let axisSnapped = false;
-    if (!collinearSnapped) {
+    if (!collinearSnapped && diagonal && !axisLock) {
+        const intersection = snapNodeToMixedAxes({ x: 0, y: 0 }, edges.map(({ moving, fixed }) => ({
+            x: fixed.x - moving.x, y: fixed.y - moving.y,
+        })), threshold);
+        if (intersection) {
+            adjustX = intersection.x;
+            adjustY = intersection.y;
+            axisSnapped = true;
+        }
+    }
+    if (!collinearSnapped && !axisSnapped) {
         let bestAbsX = Infinity, bestAbsY = Infinity;
         let bestAdjX = 0, bestAdjY = 0;
         for (const { moving, fixed } of edges) {

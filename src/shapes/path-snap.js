@@ -62,9 +62,9 @@ export function pathSegmentConstraints(points, closed, segment, bulges = []) {
  * exactly aligned. Each neighbour offers three candidate axes (horizontal,
  * vertical, 45°); a candidate qualifies when the node sits within
  * `threshold` of the aligned line, and across all neighbours/axes the one
- * needing the smallest nudge wins. The band is a perpendicular *distance*
- * (so the pull feels the same regardless of segment length), matching the
- * collinear snap band.
+ * needing the smallest nudge wins. Compatible H/V and diagonal constraints
+ * from different neighbours snap together when their intersection is within
+ * the pull distance, rather than letting one alignment displace the other.
  *
  * @param {{x:number,y:number}} point current dragged-node position
  * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
@@ -87,12 +87,49 @@ export function snapNodeToAxis(point, neighbours, threshold = Infinity, fallback
         if (distance <= threshold && (!bestDiagonal || distance < bestDiagonal.distance)) bestDiagonal = { ...diagonal, distance };
     }
     if (bestX && bestY && bestX.index !== bestY.index) return { x: bestX.value, y: bestY.value };
+    const intersection = snapNodeToMixedAxes(point, neighbours, threshold);
+    if (intersection) return intersection;
     let best = fallback;
     let distance = Infinity;
     if (bestX && bestX.distance < distance) { distance = bestX.distance; best = { x: bestX.value, y: fallback.y }; }
     if (bestY && bestY.distance < distance) { distance = bestY.distance; best = { x: fallback.x, y: bestY.value }; }
     if (bestDiagonal && bestDiagonal.distance < distance) best = { x: bestDiagonal.x, y: bestDiagonal.y };
     return best;
+}
+
+/** Find a nearby non-degenerate H/V-45 intersection from different neighbours.
+ * @param {Point} point @param {Point[]} neighbours @param {number} threshold @returns {Point|null}
+ */
+export function snapNodeToMixedAxes(point, neighbours, threshold) {
+    const tolerance = threshold + 1e-9;
+    let intersection = null;
+    let intersectionDistance = Infinity;
+    for (const [index, axisNeighbour] of neighbours.entries()) {
+        for (const [otherIndex, diagonalNeighbour] of neighbours.entries()) {
+            if (index === otherIndex) continue;
+            for (const slope of [-1, 1]) {
+                const intercept = diagonalNeighbour.y - slope * diagonalNeighbour.x;
+                // Use the same diagonal band as the single-axis snap.
+                if (Math.abs(point.y - slope * point.x - intercept) > tolerance) continue;
+                const candidates = [];
+                if (Math.abs(point.x - axisNeighbour.x) <= tolerance) {
+                    candidates.push({ x: axisNeighbour.x, y: slope * axisNeighbour.x + intercept });
+                }
+                if (Math.abs(point.y - axisNeighbour.y) <= tolerance) {
+                    candidates.push({ x: (axisNeighbour.y - intercept) / slope, y: axisNeighbour.y });
+                }
+                for (const candidate of candidates) {
+                    const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
+                    if (distance > tolerance || distance >= intersectionDistance
+                        || Math.hypot(candidate.x - axisNeighbour.x, candidate.y - axisNeighbour.y) < 1e-6
+                        || Math.hypot(candidate.x - diagonalNeighbour.x, candidate.y - diagonalNeighbour.y) < 1e-6) continue;
+                    intersection = candidate;
+                    intersectionDistance = distance;
+                }
+            }
+        }
+    }
+    return intersection;
 }
 
 /**

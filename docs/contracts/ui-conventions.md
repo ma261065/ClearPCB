@@ -18,8 +18,16 @@ In the schematic, one blank-canvas click clears the selected shape even after
 refining its node or segment. Suppression of a refinement's native click is
 limited to that gesture, including when rerendering removes the clicked SVG node.
 
+Node dragging can snap both adjoining segments at once: H/V–H/V intersections
+and nearby H/V–45° intersections from different neighbours are supported. A mixed
+intersection must be within the normal snap distance, so distant intersections
+do not pull the node away. Hard connection targets and collinear snapping retain
+priority; Shift bypasses alignment snapping.
+
 The flat 2D board viewer pans and zooms a cached transparent board image, leaving
-its background fixed. Pointer moves and wheel events coalesce to one
+its background fixed. Dragging with either the left or right mouse button pans
+the view; the right button does not open a browser context menu.
+Pointer moves and wheel events coalesce to one
 animation-frame bitmap draw and do not rebuild copper, mask, silk or hole
 geometry. Zoom keeps the world point under the cursor fixed and scales the
 cached image during the gesture. A normal redraw on pan release or after 300 ms

@@ -86,6 +86,33 @@ expect('horizontal snap shows the Track halo and solid centerline', hasTrackStyl
 expect('vertical snap shows the Track halo and solid centerline', hasTrackStyleGlow({ x: 10.1, y: 5 }, false));
 expect('diagonal snap shows the Track halo and dashed centerline', hasTrackStyleGlow({ x: 5, y: 5.1 }, true));
 
+for (const vertical of [false, true]) {
+    const transform = ({ x, y }) => vertical ? { x: y, y: x } : { x, y };
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 10, y: 10 }].map(transform);
+    const pointer = transform({ x: 20.15, y: 0.1 });
+    const overlay = element('g');
+    const shape = { id: 'mixed-axis', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
+        points: points.map(point => ({ ...point })) };
+    const app = { ...pcbEditorStubs(), boardShapes: [shape],
+        viewport: { scale: 20, gridSize: 1, snapToGrid: true, setCrosshair() {} },
+        getLayerGroup: () => overlay, _shapeElements: new Map() };
+    startBoardShapeDrag(app, shape, points[1], 1);
+    handleBoardShapeDrag(app, pointer);
+    const indicators = axisGlowState(app).resolved.map(({ segment }) => segment.axisKind).sort();
+    expect(`PCB node drag lights ${vertical ? 'V' : 'H'} and 45 together`,
+        indicators.join(',') === ['d', vertical ? 'v' : 'h'].sort().join(','));
+    endBoardShapeDrag(app, false);
+    const line = createLine({ points: points.map(point => ({ ...point })) });
+    const schematic = { components: [], shapes: [line],
+        viewport: { scale: 20, gridSize: 1, gridVisible: true, contentLayer: element('g') } };
+    const snapped = snapShapePoint(schematic, pointer, [points[0], points[2]]);
+    line.moveAnchor('n1', snapped.x, snapped.y);
+    renderShapeAlignment(schematic, line, ['n1']);
+    expect(`schematic node drag lights ${vertical ? 'V' : 'H'} and 45 together`,
+        axisGlowState(schematic).resolved.map(({ segment }) => segment.axisKind).sort().join(',')
+        === ['d', vertical ? 'v' : 'h'].sort().join(','));
+}
+
 {
     const app = { ...pcbEditorStubs(), viewport: { scale: 20, gridSize: 1, snapToGrid: true } };
     const pointer = { x: 4.05, y: 4.08 };

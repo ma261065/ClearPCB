@@ -263,4 +263,42 @@ export const scenarios = [{
         });
         assert.ok(result.elapsed < 1000, `Dense traced silk first render took ${result.elapsed} ms`);
     },
+}, {
+    name: '2d-board-pans-with-either-mouse-button',
+    async run(page, url) {
+        await openPcb(page, url);
+        const position = await page.evaluate(async () => {
+            const { Board2D } = await import('/src/pcb/modules/board2d.js');
+            const canvas = document.createElement('canvas');
+            canvas.id = 'pan-button-probe';
+            canvas.style.cssText = 'position:fixed;left:100px;top:150px;width:600px;height:400px;z-index:20000';
+            canvas.addEventListener('contextmenu', event => event.preventDefault());
+            document.body.appendChild(canvas);
+            const viewer = new Board2D(canvas);
+            viewer.setData({ boardWidth: 40, boardHeight: 20, placements: new Map(),
+                tracks: [], vias: [], pads: [], boardShapes: [], texts: [] });
+            const startX = viewer.tx, startY = viewer.ty;
+            canvas.addEventListener('pointerup', () => {
+                canvas.dataset.dx = String(viewer.tx - startX);
+                canvas.dataset.dy = String(viewer.ty - startY);
+            });
+            canvas.addEventListener('probe-cleanup', () => { viewer.dispose(); canvas.remove(); });
+            return { x: 250, y: 300 };
+        });
+        try {
+            for (const [index, button] of ['left', 'right'].entries()) {
+                await page.mouse.move(position.x, position.y);
+                await page.mouse.down({ button });
+                await page.mouse.move(position.x + 50, position.y + 30, { steps: 5 });
+                await page.mouse.up({ button });
+                const delta = await page.locator('#pan-button-probe').evaluate(canvas => ({
+                    x: Number(canvas.dataset.dx), y: Number(canvas.dataset.dy),
+                }));
+                assert.deepEqual(delta, { x: (index + 1) * 50, y: (index + 1) * 30 },
+                    `${button}-button drag translates the view`);
+            }
+        } finally {
+            await page.locator('#pan-button-probe').evaluate(canvas => canvas.dispatchEvent(new Event('probe-cleanup')));
+        }
+    },
 }];

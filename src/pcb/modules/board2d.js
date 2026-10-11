@@ -495,7 +495,7 @@ export class Board2D {
 
     /** @param {PointerEvent} e */
     _onPointerDown(e) {
-        if (e.button !== 0 || this._drag) return;
+        if ((e.button !== 0 && e.button !== 2) || this._drag) return;
         this._panRaster ||= this._capturePanRaster();
         this._drag = { x: e.clientX, y: e.clientY };
         this._dragWin = this.canvas.ownerDocument?.defaultView || window;
