@@ -4,8 +4,7 @@ import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { adaptShortcutText } from './platform-keys.js';
-import { appendArcToLineCommand } from './context-menu.js';
-import { TextAttachmentCommand } from './label-attachment.js';
+import { appendArcToLineCommand, detectTJunction, schematicAnchorActions, schematicSegmentActions, schematicTextActions } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
@@ -665,17 +664,40 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
     }
     /** @type {PropertyAction[]} */
     const finalActions = [];
+    const selectedShape = selection.length === 1 ? selection[0] : null;
+    if (selectedShape && (isPolylineItem(selectedShape) || isWireItem(selectedShape) || selectedShape.type === 'arc')) {
+        const node = getShapeNodeFocus(app), segment = getShapeSegmentFocus(app);
+        const nodeId = node?.shapeId === selectedShape.id ? node.nodeId : null;
+        const edgeId = segment?.shapeId === selectedShape.id ? segment.edgeId : null;
+        const canRun = () => {
+            const currentNode = getShapeNodeFocus(app), currentSegment = getShapeSegmentFocus(app);
+            return isCurrent() && !isSchematicLocked(selectedShape)
+                && (currentNode?.shapeId === selectedShape.id ? currentNode.nodeId : null) === nodeId
+                && (currentSegment?.shapeId === selectedShape.id ? currentSegment.edgeId : null) === edgeId
+                && propertyStates.get(app)?.binding.prepare() !== false;
+        };
+        let items;
+        if (selectedShape.type !== 'arc' && nodeId && selectedShape.nodes.has(nodeId)) {
+            const junction = detectTJunction(app, selectedShape, nodeId);
+            items = schematicAnchorActions(app, selectedShape, nodeId,
+                isPolylineItem(selectedShape) || selectedShape.edges.size > 1 && !junction, junction);
+        } else {
+            items = schematicSegmentActions(app, selectedShape, edgeId || null);
+        }
+        items.forEach((item, index) => finalActions.push(action(
+            /^Delete (shape|line|arc|Wire)$/.test(item.text) ? 'ribbonDelete' : `propShapeAction${index}`, item.text, item.text,
+            () => { if (canRun()) item.onClick(); }, allLocked)));
+    }
     const selectedComponent = selection.length === 1 && isComponentItem(selection[0]) ? selection[0] : null;
-    const attachedText = selection.length === 1 && isTextItem(selection[0])
-        && selection[0].fieldKey === 'label' && selection[0].parentComponent
-        ? selection[0] : null;
-    if (attachedText) {
-        const ownerKind = attachedText.parentComponent?.type === 'wire' ? 'wire' : 'shape';
-        finalActions.push(action('propDetachText', `Detach from ${ownerKind}`, `Detach this text from its ${ownerKind}`, () => {
-            if (!isCurrent()) return;
-            app.history.execute(new TextAttachmentCommand(app, attachedText, null));
-            app.updatePropertiesPanel(selection);
-        }, allLocked));
+    if (selectedShape && isTextItem(selectedShape)) {
+        for (const item of schematicTextActions(app, selectedShape)) {
+            finalActions.push(action(item.text.startsWith('Detach') ? 'propDetachText' : 'ribbonDelete', item.text, item.text,
+                () => {
+                    if (!isCurrent() || isSchematicLocked(selectedShape)) return;
+                    item.onClick();
+                    app.updatePropertiesPanel(app.selection.getSelection());
+                }, allLocked));
+        }
     }
     if (selectedComponent && hasAny3DModel(selectedComponent.definition)) {
         finalActions.push(action('propShow3D', '🧊 Show 3D', 'Show 3D model', async () => {
@@ -694,7 +716,7 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
             }
         }));
     }
-    finalActions.push(action('ribbonDelete', '🗑 Delete', 'Delete (Del)', () => {
+    if (!selectedShape || !['polyline', 'wire', 'arc', 'text'].includes(selectedShape.type)) finalActions.push(action('ribbonDelete', '🗑 Delete', 'Delete (Del)', () => {
         if (isCurrent()) runSchematicDeleteAction(app);
     }, allLocked));
     groups.push({ title: 'Actions', actions: finalActions });

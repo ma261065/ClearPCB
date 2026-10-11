@@ -23,7 +23,8 @@ import { getLastPointerWorld } from './cursor-state.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { clearTrackSelection, getTrackEdit, selectTrackOrVia } from './track-select.js';
+import { clearTrackSelection, getTrackEdit, selectTrackOrVia, trackContextActions } from './track-select.js';
+import { pathPropertyActions } from './path-edit.js';
 import { refreshTrackSelectionHalo } from './copper-halos.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
@@ -270,6 +271,7 @@ export function showTrackNodeProperties(app, track, nodeId) {
         const current = track.nodes.get(nodeId);
         return {
             title: 'Track Node',
+            actions: pathPropertyActions(trackContextActions(app, track, nodeId), 'pcbTrackAction', () => binding.prepare()),
             fields: [
                 { key: 'x', id: 'pcbPropTrackNodeX', type: 'readout', label: 'X (mm)',
                     value: current ? formatNumberInputValue(current.x) : '' },
@@ -409,7 +411,7 @@ export function showTrackProperties(app, track) {
             bindTrackCornerRadius(binding),
         ]);
         for (const field of fields) if (field.key !== 'locked') field.disabled ||= readOnly;
-        return { title: 'Track', fields };
+        return { title: 'Track', fields, actions: pathPropertyActions(trackContextActions(app, track), 'pcbTrackAction', () => binding.prepare()) };
     };
     const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
     binding = createTrackPropertyBinding(app, track, {}, refresh);
@@ -489,7 +491,8 @@ export function showTrackSegmentProperties(app, track, edgeId) {
             bindTrackWidth(binding, edgeId),
         ]);
         if (track.edges.get(edgeId)?.bulge) fields.push(bulgeField());
-        return { title: track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment', fields };
+        return { title: track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment', fields,
+            actions: pathPropertyActions(trackContextActions(app, track, null, edgeId), 'pcbTrackAction', () => binding.prepare()) };
     };
     const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
     binding = createTrackPropertyBinding(app, track, { edgeId }, refresh);

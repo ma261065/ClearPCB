@@ -13,6 +13,7 @@ import { getPcbSelection } from './selection-registry.js';
 import { setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { refreshTrackSelectionHalo } from './copper-halos.js';
+import { deleteSelectedTrack } from './track-select.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
@@ -219,6 +220,8 @@ export function showViaProperties(app, via) {
         const readOnly = lock.readOnly;
         return {
             title: 'Via',
+            actions: [{ title: 'Actions', actions: [{ id: 'pcbViaDelete', label: 'Delete via', title: 'Delete via',
+                disabled: !editable(), run: () => { if (editable() && binding.prepare()) deleteSelectedTrack(app); } }] }],
             fields: /** @type {PropertyField[]} */ ([
                 lock.field,
                 { key: 'net', id: 'pcbPropViaNet', type: 'net', label: 'Net',

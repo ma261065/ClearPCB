@@ -1276,27 +1276,38 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
         : polygonSegmentIndexAt(shape, worldPos, 8 / Math.max(0.01, app.viewport?.scale || 1));
     setBoardShapeNodeFocus(app, node ? { shapeId: shape.id, index: vertexIndex } : null);
     setBoardShapeSegmentFocus(app, segmentIndex != null ? { shapeId: shape.id, segment: segmentIndex } : null);
+    const items = boardShapeContextActions(app, shape, typeof vertexIndex === 'number' ? vertexIndex : null,
+        typeof segmentIndex === 'number' ? segmentIndex : null, true);
+    showBoardShapeProperties(app, shape);
+    renderBoardShape(app, shape);
+    renderBoardShapeHandles(app, shape);
+    renderBoardShapeSegmentSelection(app);
+    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app.refreshSelectionHighlights());
+}
+
+/** @param {PcbEditor} app @param {BoardShape} shape @param {number|null} vertexIndex
+ * @param {number|null} segmentIndex @param {boolean} [floating]
+ * @returns {import('../../shared/ui/context-menu.js').MenuItem[]}
+ */
+export function boardShapeContextActions(app, shape, vertexIndex = null, segmentIndex = null, floating = false) {
+    if (boardShapeLocked(shape) || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind)) return [];
+    const node = vertexIndex != null;
     const curved = shape.kind === 'arc' || !!boardShapeSegmentBulge(shape, /** @type {number} */ (segmentIndex));
     const remove = () => {
         setPcbSelection(app, []);
         app.history.execute(new RemoveBoardShapeCommand(app, shape));
         finishBoardShapeRemoval(app);
     };
-    const items = /** @type {any} */ (pathContextActions({ node, segment: segmentIndex != null, curved,
+    return pathContextActions({ node, segment: segmentIndex != null, curved,
         standalone: shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2),
         split: shape.layer !== 'board-outline' && node && (shape.kind !== 'line' || vertexIndex > 0 && vertexIndex < /** @type {BoardPathShape} */ (shape).points.length - 1)
             ? () => openBoardShape(app, shape, vertexIndex) : null,
         deleteNode: shape.layer === 'board-outline' && /** @type {BoardPathShape} */ (shape).points.length <= 3 ? null : () => deleteBoardShapeVertex(app, shape, /** @type {number} */ (/** @type {unknown} */ (vertexIndex))),
-        convert: () => setBoardShapeSegmentType(app, shape, /** @type {number} */ (segmentIndex), curved ? 'line' : 'arc', { floating: !curved }),
+        convert: () => setBoardShapeSegmentType(app, shape, /** @type {number} */ (segmentIndex), curved ? 'line' : 'arc', { floating: floating && !curved }),
         deleteSegment: shape.layer === 'board-outline' && /** @type {BoardPathShape} */ (shape).points.length <= 3 ? null
             : shape.kind === 'arc' ? remove : () => deleteBoardShapeSegment(app, shape, /** @type {number} */ (segmentIndex)),
         deleteObject: shape.layer === 'board-outline' ? null : remove, label: shapeKindLabel(shape.kind).toLowerCase(),
-    }));
-    showBoardShapeProperties(app, shape);
-    renderBoardShape(app, shape);
-    renderBoardShapeHandles(app, shape);
-    renderBoardShapeSegmentSelection(app);
-    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app.refreshSelectionHighlights());
+    }).filter(Boolean);
 }
 
 // â”€â”€ Copper cuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

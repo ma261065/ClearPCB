@@ -11,7 +11,7 @@
  *   contextmenu         -> just preventDefault (suppress browser menu)
  */
 
-import { STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions, getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState } from './draw-states.js';
+import { STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions, getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState, setSkipClickSelection } from './draw-states.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { snapShapeDrawingPoint } from './shape-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -60,6 +60,9 @@ export function bindMouseEvents(app) {
         app.viewport.onInteractionStart?.('pointer');
         if (e.button === 0) {
             segmentClickHandled = false;
+            // Refinement may replace the pressed SVG node before a native click
+            // is emitted. Its click suppression must not leak into a new gesture.
+            setSkipClickSelection(app, false);
             clearPendingShapeSegmentToggle(app);
         }
         if (e.button === 2) {

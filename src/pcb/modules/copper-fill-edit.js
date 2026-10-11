@@ -10,7 +10,7 @@ import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selecti
 import { getPcbSelection, isPcbSelected, setPcbSelection } from './selection-registry.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, pcbLayerOption } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
-import { pathContextActions, showPathContextMenu } from './path-edit.js';
+import { pathContextActions, pathPropertyActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { addFillWaypoint, fillToolDefaults, getFillDraw, setFillToolDefaults, startFillDraw } from './copper-fill-draw.js';
@@ -373,9 +373,20 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
     const segment = node == null ? fillSegmentAt(fill, point, tolerance) : null;
     setBoardShapeNodeFocus(app, node != null ? { shapeId: fill.id, index: node } : null);
     setBoardShapeSegmentFocus(app, segment != null ? { shapeId: fill.id, segment } : null);
+    const items = fillContextActions(app, fill, node ?? null, segment);
+    showFillProperties(app, fill);
+    renderPcbSelectionAnchors(app);
+    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY);
+}
+
+/** @param {PcbEditor} app @param {CopperFill} fill @param {number|null} node @param {number|null} segment
+ * @returns {import('../../shared/ui/context-menu.js').MenuItem[]}
+ */
+export function fillContextActions(app, fill, node = null, segment = null) {
+    if (!canEditFill(fill)) return [];
     const activeSegment = segment;
     const curved = activeSegment != null && !!fill.segmentBulges[activeSegment];
-    const items = pathContextActions({ node: node != null, segment: segment != null, curved,
+    return pathContextActions({ node: node != null, segment: segment != null, curved,
         deleteNode: fill.outline.length > 3 && node != null ? () => deleteFillNode(app, fill, node) : null,
         deleteSegment: fill.outline.length > 3 && activeSegment != null ? () => deleteFillNode(app, fill, (activeSegment + 1) % fill.outline.length) : null,
         convert: activeSegment != null ? () => commitFillEdit(app, fill, fill => {
@@ -385,10 +396,7 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
             normalizeCopperFillKind(fill);
         }) : null,
         deleteObject: () => app.history.execute(new RemoveFillCommand(app, fill)), label: 'copper fill',
-    });
-    showFillProperties(app, fill);
-    renderPcbSelectionAnchors(app);
-    return showPathContextMenu('pcbBoardShapeContextMenu', /** @type {import('../../shared/ui/context-menu.js').MenuItem[]} */ (items.filter(Boolean)), clientX, clientY);
+    }).filter(Boolean);
 }
 
 /**
@@ -447,7 +455,15 @@ export function showFillProperties(app, fill) {
     const describe = () => {
         // Read on every description: locking the pour from this panel changes it.
         const lock = lockedProperty(app, lockEntries);
-        return { title: 'Copper Fill', fields: [
+        const node = getBoardShapeNodeFocus(app), segment = getBoardShapeSegmentFocus(app);
+        return { title: 'Copper Fill', actions: pathPropertyActions(fillContextActions(app, fill,
+            node?.shapeId === fill.id ? node.index : null,
+            segment?.shapeId === fill.id ? segment.segment : null), 'pcbFillAction',
+            () => {
+                if (!isPcbSelected(app, 'fill', fill) || !canEditFill(fill)) return false;
+                settleFillGeometryPreview(app);
+                return true;
+            }), fields: [
             { ...lock.field, commit: value => { /** @type {(value: boolean) => void} */ (lock.field.commit)(value); refresh(); } },
             { key: 'layer', id: 'pcbPropFillLayer', type: 'select', label: 'Layer', value: fill.layer,
                 disabled: lock.readOnly, options: [

@@ -4,6 +4,20 @@ When only components are selected, both editors show:
 “Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip”.
 The hint clears or changes when selection changes to other object types.
 
+Object actions offered by a context menu must also be available in Properties
+for the same object or focused node/segment, with the same eligibility and lock
+restrictions. The two surfaces reuse action builders and command handlers.
+This includes splitting nodes/junctions, disconnecting wire pins, converting
+segments, deleting a part or the whole object, detaching text and viewing a
+component's 3D model. Properties conversions commit the new segment geometry
+without picking up its bulge handle; context-menu conversions retain their
+existing floating-handle interaction. Split actions retain their drag workflow
+from either surface.
+
+In the schematic, one blank-canvas click clears the selected shape even after
+refining its node or segment. Suppression of a refinement's native click is
+limited to that gesture, including when rerendering removes the clicked SVG node.
+
 The flat 2D board viewer pans and zooms a cached transparent board image, leaving
 its background fixed. Pointer moves and wheel events coalesce to one
 animation-frame bitmap draw and do not rebuild copper, mask, silk or hole

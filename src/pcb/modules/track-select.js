@@ -618,12 +618,22 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
     const edgeId = !nodeId && worldPos ? hitTestTrackEdge(app, track, worldPos)?.edgeId : null;
     if (nodeId) selectTrackNode(app, track, nodeId);
     else if (edgeId) selectTrackSegment(app, track, edgeId);
-    const items = pathContextActions({ node: nodeId != null, segment: edgeId != null,
-        curved: !!track.edges.get(edgeId)?.bulge,
+    const items = trackContextActions(app, track, nodeId, edgeId, true);
+    return showPathContextMenu('pcbTrackContextMenu', items, clientX, clientY, () => refreshTrackSelectionHalo(app));
+}
+
+/** @param {PcbEditor} app @param {Track} track @param {string|null} nodeId
+ * @param {string|null} edgeId @param {boolean} [floating]
+ * @returns {import('../../shared/ui/context-menu.js').MenuItem[]}
+ */
+export function trackContextActions(app, track, nodeId = null, edgeId = null, floating = false) {
+    if (isPcbObjectLocked(app, 'track', track)) return [];
+    return pathContextActions({ node: nodeId != null, segment: edgeId != null,
+        curved: edgeId != null && !!track.edges.get(edgeId)?.bulge,
         split: nodeId && track.degree(nodeId) >= 2 ? () => splitTrackNodeAndDrag(app, track, nodeId) : null,
         deleteNode: nodeId && track.degree(nodeId) <= 2 ? () => deleteSelectedTrack(app) : null,
-        deleteSegment: () => deleteTrackSegmentAt(app, track, edgeId),
-        convert: () => {
+        deleteSegment: edgeId != null ? () => deleteTrackSegmentAt(app, track, edgeId) : null,
+        convert: edgeId != null ? () => {
             const before = track.captureState();
             const edge = track.edges.get(edgeId);
             const curved = !!edge.bulge;
@@ -632,14 +642,13 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
             track.applyState(before);
             app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
             selectTrackSegment(app, track, edgeId);
-            if (!curved) {
+            if (!curved && floating) {
                 const adapter = /** @type {import('./selection-registry.js').SelectionAdapter} */ (createTrackSelectionAdapter(app, track, track.id));
                 const anchor = adapter.getAnchors?.().find(item => item.id === `bulge:${edgeId}`);
                 if (anchor) beginPcbAnchorInteraction(app, adapter, anchor, anchor, true);
             }
-        },
+        } : null,
         deleteObject: () => { clearTrackSelection(app); app.history.execute(new RemoveTrackCommand(app, track)); },
         label: 'track',
-    });
-    return showPathContextMenu('pcbTrackContextMenu', /** @type {import('../../shared/ui/context-menu.js').MenuItem[]} */ (items.filter(Boolean)), clientX, clientY, () => refreshTrackSelectionHalo(app));
+    }).filter(Boolean);
 }

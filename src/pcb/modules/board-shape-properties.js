@@ -11,7 +11,7 @@ import { displayRotationDegrees, formatNumberInputValue } from '../../core/numbe
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
 import { isLayerLocked, PCB_LAYERS, pcbLayerOption, setPcbLayerLocked } from './layers.js';
-import { lockedProperty } from './object-locks.js';
+import { boardShapeLocked, lockedProperty } from './object-locks.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { CompoundCommand } from './track-commands.js';
 import { getPcbSelection, getPcbSelectionEntries, isPcbSelected, syncPcbSelection } from './selection-registry.js';
@@ -24,7 +24,8 @@ import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor } from './property-editors.js';
 import { normalizeShapeCopperMode, isMaskLayer, rectCornerRadius, polygonCornerRadius, boardShapeNodeCornerRadius, circleFilledRadius, boardShapeSegmentBulge, shapeOutline, boardShapeLineWidthMinimum, normalizedBoardShapeLineWidth, boardShapeSegmentWidth } from '../../shared/pcb/board-shape-geometry.js';
 import { copperPathReplacementCommands, selectReplacementTracks } from './track-shape-conversion.js';
-import { canonicalBoardShape, collapseCollinearPolylinePoints, copyBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, editableShapeBulge, normalizeStraightArc, setBoardShapeNodeCornerRadius, shapeKindLabel } from './board-shapes.js';
+import { boardShapeContextActions, canonicalBoardShape, collapseCollinearPolylinePoints, copyBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, editableShapeBulge, normalizeStraightArc, setBoardShapeNodeCornerRadius, shapeKindLabel } from './board-shapes.js';
+import { pathPropertyActions } from './path-edit.js';
 import { getBoardShapeDrag } from './board-shape-drag.js';
 import { getShapeDraw, resolveShapeDrawLayer, updateShapeDrawPreview } from './board-shape-draw.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
@@ -741,7 +742,15 @@ export function showBoardShapeProperties(app, shape) {
                 hold, format: formatNumberInputValue, normalize: value => Math.max(-1, Math.min(1, value)),
                 disabled: readOnly, preview: previewBulge, commit: commitBulge, cancel: () => cancelPreview(bulgePreview) });
         }
-        return { title: panelTitle(), fields };
+        const node = getBoardShapeNodeFocus(app), segment = getBoardShapeSegmentFocus(app);
+        return { title: panelTitle(), fields, actions: pathPropertyActions(targets.length === 1 ? boardShapeContextActions(app, shape,
+            node?.shapeId === shape.id ? node.index : null,
+            segment?.shapeId === shape.id ? segment.segment : shape.kind === 'arc' ? 0 : null) : [], 'pcbShapeAction',
+            () => {
+                if (!binding || binding.disposed || boardShapeLocked(shape)) return false;
+                binding.commit();
+                return true;
+            }) };
     };
     if (!app.openPropertyPanel(describe(), shape)) return;
     openShapePanels.set(app, { id: shape.id, refresh, live: () => !binding?.disposed });

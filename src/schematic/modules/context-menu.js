@@ -501,10 +501,8 @@ export function deleteFocusedSchematicShape(app) {
  * @param {SchematicEditor} app
  * @param {WireShape|PolylineShape} shape
  * @param {string} anchorId
- * @param {number} clientX
- * @param {number} clientY
  */
-export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
+export function splitAnchorAndDrag(app, shape, anchorId) {
     if (shape?.locked) return;
     if (!shape?.nodes?.has(anchorId)) return;
     const pos = shape.nodes.get(anchorId);
@@ -690,6 +688,18 @@ export function createContextMenu(items, clientX, clientY) {
  * @param {TJunctionInfo|null} [junctionInfo]
  */
 export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
+    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: anchorId });
+    setShapeSegmentFocus(app, null);
+    app.updatePropertiesPanel(app.selection.getSelection());
+    createContextMenu(schematicAnchorActions(app, shape, anchorId, canDeletePoint, junctionInfo), clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {WireShape|PolylineShape} shape @param {string} anchorId
+ * @param {boolean} [canDeletePoint] @param {TJunctionInfo|null} [junctionInfo]
+ * @returns {ContextMenuItem[]}
+ */
+export function schematicAnchorActions(app, shape, anchorId, canDeletePoint = true, junctionInfo = null) {
+    if (shape.locked) return [];
     /** @type {ContextMenuItem[]} */
     const items = [];
     const canDisconnectPin = isWireShape(shape) && shape.pinConnections.has(anchorId);
@@ -698,7 +708,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
     if (canSplit) {
         items.push({
             text: 'Split',
-            onClick: () => splitAnchorAndDrag(app, shape, anchorId, clientX, clientY)
+            onClick: () => splitAnchorAndDrag(app, shape, anchorId)
         });
     }
 
@@ -741,7 +751,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
         });
     }
 
-    createContextMenu(items, clientX, clientY);
+    return items;
 }
 
 /**
@@ -762,27 +772,38 @@ export function dismissAnchorContextMenu() {
  */
 export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
     if (shape.locked) return;
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
+    setShapeNodeFocus(app, null);
+    app.updatePropertiesPanel(app.selection.getSelection());
+    const items = schematicSegmentActions(app, shape, edgeId, true);
+    if (items.length) createContextMenu(items, clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {SchematicDrawable} shape @param {string|null} edgeId
+ * @param {boolean} [floating] @returns {ContextMenuItem[]}
+ */
+export function schematicSegmentActions(app, shape, edgeId, floating = false) {
+    if (shape.locked) return [];
     if (isArcShape(shape)) {
-        createContextMenu([
+        return [
             { text: 'Convert to Line', onClick: () => setSchematicShapeSegmentType(app, shape, null, 'line') },
             { text: 'Delete arc', onClick: () => deleteSchematicItem(app, shape) },
-        ], clientX, clientY);
-        return;
+        ];
     }
     // Segment menus are only opened for graph segment hits.
     const segmentShape = /** @type {WireShape|PolylineShape} */ (shape);
     /** @type {ContextMenuItem[]} */
     const items = [];
 
-    if (isPolylineShape(segmentShape) && !segmentShape.locked && segmentShape.edges.has(edgeId)) {
+    if (isPolylineShape(segmentShape) && !segmentShape.locked && edgeId != null && segmentShape.edges.has(edgeId)) {
         const curved = Math.abs(segmentShape.edges.get(edgeId).bulge || 0) >= BULGE_EPS;
         items.push({
             text: `Convert to ${curved ? 'Line' : 'Arc'}${segmentShape.edges.size === 1 ? '' : ' Segment'}`,
-            onClick: () => setSchematicShapeSegmentType(app, segmentShape, edgeId, curved ? 'line' : 'arc', { floating: !curved }),
+            onClick: () => setSchematicShapeSegmentType(app, segmentShape, edgeId, curved ? 'line' : 'arc', { floating: floating && !curved }),
         });
     }
 
-    if (segmentShape.edges.size > 1) {
+    if (edgeId != null && segmentShape.edges.size > 1) {
         items.push({
             text: 'Delete Segment',
             onClick: () => deleteWireSegment(app, segmentShape, edgeId)
@@ -803,9 +824,7 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
         items.push({ text: `Delete ${label}`, onClick: () => deleteSchematicItem(app, segmentShape) });
     }
 
-    if (items.length > 0) {
-        createContextMenu(items, clientX, clientY);
-    }
+    return items;
 }
 
 /**
@@ -934,8 +953,13 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
 export function showLabelContextMenu(app, labelShape, clientX, clientY) {
     // Label context menus are opened only from Text label hits.
     const label = /** @type {TextShape} */ (labelShape);
+    createContextMenu(schematicTextActions(app, label), clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {TextShape} label @returns {ContextMenuItem[]} */
+export function schematicTextActions(app, label) {
     /** @type {ContextMenuItem[]} */
-    if (label.locked) return;
+    if (label.locked) return [];
     const items = [];
     const isAttached = label.fieldKey === 'label' && !!label.parentComponent;
 
@@ -958,7 +982,7 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
         }
     });
 
-    createContextMenu(items, clientX, clientY);
+    return items;
 }
 
 /**

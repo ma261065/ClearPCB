@@ -704,7 +704,7 @@ export const idleState = {
             return;
         }
         clearPendingAnchorDrag(app);
-        if (pendingNode?.shape?.type === 'polyline'
+        if ((pendingNode?.shape?.type === 'polyline' || pendingNode?.shape?.type === 'wire')
             && pendingNode.shape.nodes?.has(pendingNode.anchorId)
             && app.selection.getSelection().length === 1
             && app.selection.getSelection()[0] === pendingNode.shape) {

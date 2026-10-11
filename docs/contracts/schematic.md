@@ -101,7 +101,7 @@ the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
 effective grid spacing. They do not force alignment from half a grid cell away.
 New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
-the status tip reads “Tip: Attach text to a shape or wire by hovering over it”. Dragging a
+the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
 dropping attaches it. Movement and attachment undo together. Attached text offers
 “Detach from wire” or “Detach from shape” according to its owner, in Properties

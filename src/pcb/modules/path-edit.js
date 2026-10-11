@@ -77,12 +77,22 @@ export function pathContextActions({ node, segment, curved, standalone = false, 
     if (node) return [
         split && { text: 'Split', onClick: split },
         deleteNode && { text: 'Delete node', onClick: deleteNode },
-    ].filter(Boolean);
+    ].filter(item => !!item);
     return [
         segment && convert && { text: `Convert to ${curved ? 'Line' : 'Arc'}${standalone ? '' : ' Segment'}`, onClick: convert },
         segment && !standalone && deleteSegment && { text: 'Delete segment', onClick: deleteSegment },
         deleteObject && { text: `Delete ${label}`, onClick: deleteObject },
-    ].filter(Boolean);
+    ].filter(item => !!item);
+}
+
+/** @param {MenuItem[]} items @param {string} prefix @param {() => boolean} prepare
+ * @returns {import('../../shared/ui/property-fields.js').PropertyActionGroup[]}
+ */
+export function pathPropertyActions(items, prefix, prepare) {
+    return items.length ? [{ title: 'Actions', actions: items.map((item, index) => ({
+        id: `${prefix}${index}`, label: item.text, title: item.text,
+        run: () => { if (prepare()) item.onClick(); },
+    })) }] : [];
 }
 
 /** @param {string} id */

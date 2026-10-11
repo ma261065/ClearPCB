@@ -780,11 +780,14 @@ for (const position of [0, 3]) {
             const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
             const app = appFor(shape);
             app.currentTool = 'select';
+            app.selection = new SelectionManager({ getScale: () => app.viewport.scale });
+            app.selection.setShapes([shape]);
             app.selection.select(shape);
             app.renderShapes = () => {};
             app.hideCrosshair = () => {};
             app.removeBoxSelectElement = () => {};
             app.viewport.svg.addEventListener = (type, handler) => svgListeners.set(type, handler);
+            app.viewport.contentLayer = element('g');
             app.viewport._getCachedRect = () => ({ left: 0, top: 0 });
             app.viewport.screenToWorld = point => ({ x: point.x / 100, y: point.y / 100 });
             let updates = 0;
@@ -811,6 +814,12 @@ for (const position of [0, 3]) {
                 expect('hover after release cannot start a node drag', !getSchematicDrag(app)
                     && JSON.stringify(shape.captureState()) === JSON.stringify(before));
             }
+            const blank = { button: 0, clientX: 3000, clientY: 3000, preventDefault() {} };
+            svgListeners.get('mousedown')(blank);
+            windowListeners.get('mouseup')(blank);
+            svgListeners.get('click')(blank);
+            expect('one blank-canvas click deselects after refinement with or without a native refinement click',
+                app.selection.getSelection().length === 0);
         } finally {
             window.addEventListener = originalWindowListener;
             document.querySelector = originalQuery;
