@@ -43,7 +43,7 @@ const fields = new Map(Object.entries({ layer: 'top-silk', width: '30', resoluti
     dotSize: '0.8',
 }).map(([name, value]) => [name, Object.assign(element(), { value })]));
 fields.get('preserveCorners').checked = true;
-fields.get('layer').options = [{ value: 'top-silk' }];
+fields.get('layer').options = [Object.assign(element('option'), { value: 'top-silk', textContent: 'Top Silk' })];
 fields.get('file').files = [{ name: 'trial.png', size: 64,
     slice() { return { async arrayBuffer() { return Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]).buffer; } }; } }];
 const form = Object.assign(element(), { elements: { namedItem(name) { return fields.get(name); } } });

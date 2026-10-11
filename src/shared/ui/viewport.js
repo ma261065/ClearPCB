@@ -8,6 +8,8 @@
 /** @typedef {{gridSize?: HTMLSelectElement, gridStyle?: HTMLSelectElement, units?: HTMLSelectElement, showGrid?: HTMLInputElement, snapToGrid?: HTMLInputElement}} ViewportUiControls */
 /** @typedef {{viewport: Viewport|null, ui?: unknown, fileManager?: DirtyFileManager, _ribbonRefresh?: () => void, refreshPcbRibbon?: () => void, updateGridDropdown?: () => void, fitToContent?: () => void, shapes?: BoundShape[], components?: BoundComponent[]}} SharedViewportApp */
 
+const CONTENT_FIT_MARGIN = 10;
+
 /** Grid preferences to save with a document, or undefined without a viewport. */
 /** @param {Viewport|null|undefined} viewport */
 export function serializeGridSettings(viewport) {
@@ -64,7 +66,7 @@ export function syncGridSettings(app) {
 
 /**
  * Binds change listeners for grid size, grid style, units, show-grid,
- * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
+ * snap-to-grid dropdowns/checkboxes, and zoom/fit buttons.
  * @param {SharedViewportApp & {viewport: Viewport, ui: Required<ViewportUiControls>, fileManager: DirtyFileManager, updateGridDropdown: () => void, fitToContent: () => void}} app - Application state.
  */
 export function bindViewportControls(app) {
@@ -118,9 +120,6 @@ export function bindViewportControls(app) {
         app.viewport.zoomOut();
     });
 
-    /** @type {HTMLElement} */ (document.getElementById('resetView')).addEventListener('click', () => {
-        app.viewport.resetView();
-    });
 }
 
 /**
@@ -168,7 +167,7 @@ export function updateGridDropdown(app) {
 
 /**
  * Computes the bounding box of all shapes and components and calls
- * `viewport.fitToBounds` to zoom/pan to fit them with padding.
+ * `fitContentBounds` to zoom/pan with the editors' shared framing.
  * @param {object} app - Application state.
  */
 export function fitToContent(app) {
@@ -176,7 +175,7 @@ export function fitToContent(app) {
     const target = /** @type {SharedViewportApp & {viewport: Viewport, shapes: BoundShape[], components: BoundComponent[]}} */ (app);
     // Always fit to content (shapes + components), paper is just a guide
     if (target.shapes.length === 0 && target.components.length === 0) {
-        target.viewport.resetView();
+        target.viewport.resetView({ leftMargin: CONTENT_FIT_MARGIN, bottomMargin: CONTENT_FIT_MARGIN });
         return;
     }
 
@@ -200,5 +199,18 @@ export function fitToContent(app) {
         maxY = Math.max(maxY, b.maxY);
     }
 
-    target.viewport.fitToBounds(minX, minY, maxX, maxY, 10);
+    fitContentBounds(target.viewport, { minX, minY, maxX, maxY });
+}
+
+/** Fit content and the origin with a 10 mm margin inside the left ruler and above the bottom edge.
+ * @param {Viewport} viewport @param {Bounds} bounds
+ */
+export function fitContentBounds(viewport, bounds) {
+    viewport.fitToBounds(
+        Math.min(0, bounds.minX) - CONTENT_FIT_MARGIN,
+        Math.min(0, bounds.minY),
+        Math.max(0, bounds.maxX),
+        Math.max(0, bounds.maxY) + CONTENT_FIT_MARGIN,
+        0, 'bottom-left',
+    );
 }

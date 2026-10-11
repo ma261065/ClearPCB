@@ -2,7 +2,7 @@
  * Owns the PCB clipboard payload and copy/cut/paste entry points.
  */
 import { serializePcbText } from '../../core/pcb-text.js';
-import { getPcbSelection } from './selection-registry.js';
+import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { isPcbObjectLocked } from './object-locks.js';
 import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from './pcb-paste.js';
 import { deleteBoxSelection } from './box-select.js';
@@ -43,12 +43,19 @@ export function hasPcbClipboardData(app) {
 
 /** @param {PcbEditor} app */
 export function canCopyCutPcbSelection(app) {
-    return getPcbSelection(app, 'track').length > 0
-        || getPcbSelection(app, 'via').length > 0
-        || getPcbSelection(app, 'pad').length > 0
-        || getPcbSelection(app, 'shape').some(/** @param {any} shape */ (shape) => shape.layer !== 'board-outline')
-        || getPcbSelection(app, 'text').length > 0
-        || getPcbSelection(app, 'fill').length > 0;
+    return getPcbSelectionEntries(app).some(copyableEntry);
+}
+
+/** @param {import('./selection-registry.js').PcbSelectionEntry} entry */
+function copyableEntry({ kind, object }) {
+    return kind !== 'component' && kind !== 'reftext' && (kind !== 'shape' || object.layer !== 'board-outline');
+}
+
+/** Cut leaves locked members of mixed selections untouched; Copy still accepts them.
+ * @param {PcbEditor} app
+ */
+export function canCutPcbSelection(app) {
+    return getPcbSelectionEntries(app).some(entry => copyableEntry(entry) && !isPcbObjectLocked(app, entry.kind, entry.object));
 }
 
 /**

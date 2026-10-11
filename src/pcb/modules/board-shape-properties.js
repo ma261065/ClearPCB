@@ -381,7 +381,6 @@ export function showBoardShapeProperties(app, shape) {
     const lockEntries = selectedNode == null && selectedSegment == null && !hasOutline
         ? propertyOriginals.map(object => ({ kind: 'shape', object })) : [];
     const lock = lockEntries.length ? lockedProperty(app, lockEntries) : null;
-    const readOnly = !!lock?.readOnly;
     const hold = pictureRefreshHold(app);
     /** @type {ShapePropertyBinding|null} */
     let binding = null;
@@ -580,6 +579,7 @@ export function showBoardShapeProperties(app, shape) {
     /** @returns {PropertyPanel} */
     const describe = () => {
         const targets = propertyTargets();
+        const readOnly = propertyOriginals.some(boardShapeLocked);
         const lineWidthMinimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
         const initialLineWidth = selectedSegment == null
             ? normalizedBoardShapeLineWidth(targets[0], targets[0].lineWidth)
@@ -742,6 +742,7 @@ export function showBoardShapeProperties(app, shape) {
                 hold, format: formatNumberInputValue, normalize: value => Math.max(-1, Math.min(1, value)),
                 disabled: readOnly, preview: previewBulge, commit: commitBulge, cancel: () => cancelPreview(bulgePreview) });
         }
+        for (const field of fields) if (field.key !== 'locked' && field.type !== 'readout') field.disabled ||= readOnly;
         const node = getBoardShapeNodeFocus(app), segment = getBoardShapeSegmentFocus(app);
         return { title: panelTitle(), fields, actions: pathPropertyActions(targets.length === 1 ? boardShapeContextActions(app, shape,
             node?.shapeId === shape.id ? node.index : null,

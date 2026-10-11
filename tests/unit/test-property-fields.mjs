@@ -267,13 +267,40 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     assert.equal(group.dataset.group, 'Transform');
     const [title, items] = group.children;
     assert.equal(title.textContent, 'Transform');
-    const [flipH, flipV] = items.children;
+    const [flipH, disabledWrapper] = items.children;
+    const flipV = disabledWrapper.querySelector('button');
     assert.equal(flipV.disabled, true);
     fire(flipH, 'click');
+    fire(flipV, 'click');
     assert.deepEqual(ran, ['flipH']);
     const other = container.appendChild(document.createElement('div'));
     renderPropertyActions(container, []);
     assert.deepEqual(container.children, [other], 'replacing groups leaves other children alone');
+}
+
+// Disabled feedback belongs to the current description, without enabling the native control.
+{
+    const container = panel(), seen = [];
+    const describe = disabled => [{ key: 'size', type: 'number', label: 'Size', value: 1, disabled }];
+    const first = renderPropertyFields(container, describe(true), {
+        onDisabledClick: point => seen.push(['old', point]),
+    }).get('size');
+    const row = container.children[0];
+    assert.ok(row.classList.contains('prop-row-disabled'));
+    assert.equal(first.disabled, true);
+    fire(row, 'pointerdown', { button: 0, clientX: 100, clientY: 60 });
+    renderPropertyFields(container, describe(true), { onDisabledClick: point => seen.push(['new', point]) });
+    fire(row, 'pointerdown', { button: 0, clientX: 120, clientY: 65 });
+    renderPropertyFields(container, describe(false), { onDisabledClick: point => seen.push(['enabled', point]) });
+    fire(row, 'pointerdown', { button: 0, clientX: 120, clientY: 65 });
+    assert.deepEqual(seen, [['old', { x: 100, y: 60 }], ['new', { x: 120, y: 65 }]]);
+    assert.equal(first.disabled, false);
+    assert.equal(row.classList.contains('prop-row-disabled'), false);
+    renderPropertyActions(container, [{ title: 'Actions', actions: [
+        { id: 'blocked', label: 'Blocked', disabled: true, run() { throw new Error('Disabled action ran'); } },
+    ] }], { onDisabledClick: point => seen.push(['action', point]) });
+    fire(container.querySelector('.prop-action-disabled'), 'pointerdown', { button: 0, clientX: 150, clientY: 50 });
+    assert.deepEqual(seen.at(-1), ['action', { x: 150, y: 50 }]);
 }
 
 // A held spinner (pointer or Arrow key) brackets its run with hold.begin()/end(); the

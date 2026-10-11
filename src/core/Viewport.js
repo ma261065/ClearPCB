@@ -490,8 +490,10 @@ export class Viewport {
         this.zoomToLevel(this.zoomIndex - 1, worldPoint);
     }
     
-    /** Reset zoom to 100% and position the origin 3 mm from the ruler edges. */
-    resetView() {
+    /** Reset zoom to 100%, with optional world-unit margins from the drawable edges.
+     * @param {{leftMargin?: number, bottomMargin?: number}} [margins]
+     */
+    resetView({ leftMargin, bottomMargin } = {}) {
         // Bail out if the viewport has no size yet; the ruler/aspect math below
         // divides by width and would set viewBox.x/y to Infinity/NaN.
         if (!this._hasValidSize()) return;
@@ -511,12 +513,12 @@ export class Viewport {
         
         // Left edge of viewbox (x) needs to be shifted left by (margin + rulerOffset)
         // so that x=0 appears at (margin + rulerOffset) from the left edge of the viewport
-        this.viewBox.x = -(margin + rulerOffset);
+        this.viewBox.x = -((leftMargin ?? margin) + rulerOffset);
         
         // Bottom edge of viewbox needs to be shifted down by margin from the content bottom
         // But rulers are typically top/left.
         // If there is no bottom ruler, we just want 3mm from the bottom edge.
-        this.viewBox.y = margin - this.viewBox.height;
+        this.viewBox.y = (bottomMargin ?? margin) - this.viewBox.height;
         
         this._updateViewBox();
         this._notifyViewChanged();
@@ -525,6 +527,7 @@ export class Viewport {
     /**
      * Zoom and centre the view to fit the given bounding box.
      * Selects the tightest discrete zoom level that contains the bounds.
+     * Bottom-left alignment measures from the drawable area inside the rulers.
      * @param {number} minX - Left edge in mm.
      * @param {number} minY - Top edge in mm.
      * @param {number} maxX - Right edge in mm.
@@ -552,9 +555,10 @@ export class Viewport {
         // Zoom is a fixed scale (px/mm). A level fits when its visible area
         // (pixelSize / scale) covers the required mm in BOTH dimensions, i.e.
         // scale <= width/requiredWidth and scale <= height/requiredHeight.
+        const rulerInset = alignment === 'bottom-left' && this.showRulers ? this.rulerSize : 0;
         const maxScale = Math.min(
-            this.width / requiredWidth,
-            this.height / requiredHeight
+            (this.width - rulerInset) / requiredWidth,
+            (this.height - rulerInset) / requiredHeight
         );
         // Pick the most zoomed-in discrete level whose scale still fits.
         let bestIndex = this.minZoomIndex;
@@ -579,7 +583,7 @@ export class Viewport {
         this.viewBox.x = cx - viewWidth / 2;
         this.viewBox.y = cy - viewHeight / 2;
         if (alignment === 'bottom-left') {
-            this.viewBox.x = minX - contentWidth * paddingPercent / 100;
+            this.viewBox.x = minX - contentWidth * paddingPercent / 100 - rulerInset / scale;
             this.viewBox.y = maxY + contentHeight * paddingPercent / 100 - viewHeight;
         }
         
@@ -1757,7 +1761,7 @@ export class Viewport {
         window.addEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver = new ResizeObserver(() => this._onResize());
         this.resizeObserver.observe(this.container);
-        // Keys (Home resets the view, F fits it) belong to each editor's keyboard handler, which
+        // View keys belong to each editor's keyboard handler, which
         // acts only while that editor is active: a window listener here reset both editors' views.
     }
     

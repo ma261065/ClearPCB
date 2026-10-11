@@ -64,6 +64,7 @@ export const MIXED_LABEL = 'Mixed';
  *
  * @typedef {{id: string, label: string, title?: string, disabled?: boolean, run: () => void}} PropertyAction
  * @typedef {{title: string, actions: PropertyAction[]}} PropertyActionGroup
+ * @typedef {(anchor: {x: number, y: number}) => void} DisabledPropertyClick
  *
  * @typedef {object} PropertyPanel
  * @property {string} title
@@ -125,9 +126,10 @@ const setAttr = (node, name, value) => {
  * the current one, so hooks always belong to the latest description.
  */
 class Row {
-    /** @param {PropertyField} field */
-    constructor(field) {
+    /** @param {PropertyField} field @param {DisabledPropertyClick} [onDisabledClick] */
+    constructor(field, onDisabledClick) {
         this.field = field;
+        this.onDisabledClick = onDisabledClick;
         /** @type {HTMLElement} */
         this.row = element('div', 'prop-row');
         this.label = element('label');
@@ -150,6 +152,10 @@ class Row {
         /** The last number value committed. */
         this.committed = NaN;
         this.build();
+        this.row.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || !this.field.disabled) return;
+            this.onDisabledClick?.({ x: event.clientX, y: event.clientY });
+        });
         this.update(field, true);
     }
 
@@ -339,8 +345,10 @@ class Row {
         }
         if (field.id) control.id = field.id;
         setAttr(control, 'title', field.error || field.warning || field.title);
-        const classes = this.row.className.split(/\s+/).filter(name => name && name !== 'prop-row-warning');
+        const classes = this.row.className.split(/\s+/).filter(name =>
+            name && name !== 'prop-row-warning' && name !== 'prop-row-disabled');
         if (field.warning) classes.push('prop-row-warning');
+        if (field.disabled && field.type !== 'readout') classes.push('prop-row-disabled');
         this.row.className = classes.join(' ');
         if (field.type === 'readout') {
             control.textContent = field.mixed ? MIXED_LABEL : String(field.value ?? '');
@@ -453,10 +461,10 @@ const rendered = new WeakMap();
  * (for hosts and tests; panel logic should not need it).
  * @param {HTMLElement} container
  * @param {PropertyField[]} fields
- * @param {{placeholder?: string}} [options]
+ * @param {{placeholder?: string, onDisabledClick?: DisabledPropertyClick}} [options]
  * @returns {Map<string, HTMLElement>}
  */
-export function renderPropertyFields(container, fields, { placeholder = '' } = {}) {
+export function renderPropertyFields(container, fields, { placeholder = '', onDisabledClick } = {}) {
     const previous = rendered.get(container) || new Map();
     const rows = new Map();
     // Every panel shows its rows in the one canonical order (shared/ui/property-order.js).
@@ -464,9 +472,10 @@ export function renderPropertyFields(container, fields, { placeholder = '' } = {
         if (rows.has(field.key)) throw new Error(`Duplicate property field: ${field.key}`);
         const reused = previous.get(field.key);
         if (reused?.fits(field) && reused.row.parentNode === container) {
+            reused.onDisabledClick = onDisabledClick;
             reused.update(field);
             rows.set(field.key, reused);
-        } else rows.set(field.key, new Row(field));
+        } else rows.set(field.key, new Row(field, onDisabledClick));
     }
     const keep = new Set([...rows.values()].map(row => row.row));
     for (const child of [...container.children]) if (!keep.has(child)) container.removeChild(child);
@@ -493,8 +502,9 @@ const renderedActions = new WeakMap();
  * the groups shown there before; the container's other children are left alone.
  * @param {HTMLElement} container
  * @param {PropertyActionGroup[]} groups
+ * @param {{onDisabledClick?: DisabledPropertyClick}} [options]
  */
-export function renderPropertyActions(container, groups = []) {
+export function renderPropertyActions(container, groups = [], { onDisabledClick } = {}) {
     for (const old of renderedActions.get(container) || []) old.parentNode?.removeChild(old);
     const shown = groups.map(group => {
         const section = element('div', 'ribbon-group prop-action-group');
@@ -509,8 +519,15 @@ export function renderPropertyActions(container, groups = []) {
             button.textContent = action.label;
             if (action.title) button.title = action.title;
             button.disabled = !!action.disabled;
-            button.addEventListener('click', () => action.run());
-            items.appendChild(button);
+            button.addEventListener('click', () => { if (!action.disabled) action.run(); });
+            if (action.disabled) {
+                const wrapper = element('span', 'prop-action-disabled');
+                wrapper.addEventListener('pointerdown', event => {
+                    if (event.button === 0) onDisabledClick?.({ x: event.clientX, y: event.clientY });
+                });
+                wrapper.appendChild(button);
+                items.appendChild(wrapper);
+            } else items.appendChild(button);
         }
         section.append(title, items);
         container.appendChild(section);

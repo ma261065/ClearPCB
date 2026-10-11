@@ -64,6 +64,7 @@ function cancelStrandedGestures(app, layerId, affectsGroup) {
  * @param {boolean} visible
  */
 export function onLayerVisibilityChanged(app, layerId, visible) {
+    refreshPcbLayerOptions(layerId);
     if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (!visible) {
         if (layerId === 'board-outline') getPropertyEditor(app, 'boardDimension')?.dispose();
@@ -211,6 +212,7 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
  * @param {boolean} locked
  */
 export function onCopperFillLockChanged(app, copperLayerId, locked) {
+    refreshPcbLayerOptions(copperLayerId);
     if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (locked && groupDragsPourOn(app, copperLayerId)) cancelPcbPosePreviews(app);
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));

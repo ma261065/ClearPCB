@@ -289,7 +289,7 @@ Both editors:
 | `Ctrl+Tab` | Switch between schematic and PCB |
 | `Delete` / `Backspace` | Delete selected |
 | `Escape` | Cancel the current operation |
-| `Space` | Rotate the selected component; fit to content when nothing is selected |
+| `Space` | Rotate the selected component |
 | `X` / `Y` | Flip the selected component horizontally / vertically |
 | Arrow keys | Nudge the selection |
 | `+` / `-` | Zoom in / out |
@@ -301,7 +301,7 @@ Schematic editor only:
 | `Ctrl+N` / `Ctrl+O` | New / Open |
 | `Ctrl+P` / `Ctrl+Shift+P` | Print / Export PDF |
 | `Enter` | Finish the shape or wire being drawn |
-| `F` / `Home` | Fit to content / reset the view |
+| `F` / `Home` | Fit to content / activate Select, switch to Home tab and fit the view |
 | `V` `W` `O` `N` `I` `R` `C` `A` `P` `T` | Tools: Select, Wire, Component, Net Label, Line, Rectangle, Circle, Arc, Polygon, Text |
 | `X` (nothing selected) | No Connect tool |
 

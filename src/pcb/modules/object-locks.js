@@ -12,9 +12,10 @@ import { SetObjectLockedCommand as ModelSetObjectLockedCommand } from '../../cor
 import { CommandHistory } from '../../core/CommandHistory.js';
 import { createLockGuard } from '../../core/edit-guard.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
-import { PCB_COPPER_FILLS, isCopperFillLocked, isLayerLocked, isLayerVisible, unlockPcbCopperFill, unlockPcbLayer } from './layers.js';
+import { PCB_COPPER_FILLS, isCopperFillLocked, isLayerLocked, isLayerVisible, placementBlockName, showLayerBubble, unlockPcbCopperFill, unlockPcbLayer } from './layers.js';
 import { showPathContextMenu } from './path-edit.js';
-import { isPcbSelected } from './selection-registry.js';
+import { getPcbSelectionEntries, isPcbSelected } from './selection-registry.js';
+import { getTrackEdit } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { CompoundCommand, SetPlacementLockedCommand } from './track-commands.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
@@ -252,6 +253,36 @@ export function unlockMenuItems(app, kind, object) {
  */
 export function showUnlockMenu(app, kind, object, clientX, clientY) {
     return showPathContextMenu('pcbUnlockMenu', unlockMenuItems(app, kind, object), clientX, clientY);
+}
+
+/** The layer blocking the current Properties selection, including scoped track edits.
+ * @param {PcbEditor} app @returns {LayerLock|null}
+ */
+export function propertyLayerLock(app) {
+    for (const { kind, object } of getPcbSelectionEntries(app)) {
+        if (kind === 'track') {
+            const edit = getTrackEdit(app);
+            const layers = [...object.edges].filter(([id, edge]) =>
+                !edit || edit.track !== object ? true : edit.edgeId != null ? id === edit.edgeId
+                    : edit.nodeId == null || edge.from === edit.nodeId || edge.to === edit.nodeId)
+                .map(([id]) => object.getEdgeLayer(id));
+            const id = layers.find(isLayerLocked);
+            if (id) return { id };
+        } else {
+            const [lock] = pcbLockState(app, kind, object).layers;
+            if (lock) return lock;
+        }
+    }
+    return null;
+}
+
+/** @param {PcbEditor} app @param {{x: number, y: number}} anchor */
+export function showPropertyLayerLock(app, anchor) {
+    const lock = propertyLayerLock(app);
+    if (lock) {
+        const block = { ...lock, reason: /** @type {const} */ ('locked') };
+        showLayerBubble(app, block, anchor, { message: `${placementBlockName(block)} layer locked` });
+    }
 }
 
 const LOCK_INPUT_ID = 'pcbPropObjectLocked';

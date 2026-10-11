@@ -10,7 +10,7 @@
 import { noteEditSettled } from './refresh-state.js';
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
-import { isLayerVisible } from './layers.js';
+import { isLayerLocked, isLayerVisible, pcbLayerOption } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
 import { ModifyPadCommand, beginPadPropertyPreview, canonicalPad, finishPadPropertyPreview } from './pad-commands.js';
 import { padLayers, renderPad } from './pad.js';
@@ -98,7 +98,14 @@ export function showPadEditor(app, pad, tool) {
                     if (!disposed) showPadEditor(app, pad, tool);
                 } },
             { key: 'layer', id: 'pcbPropPadLayers', type: 'select', label: 'Layer', value: current.layers, mixed: mixed('layers'),
-                disabled: readOnly, warning: notice?.warning, options: LAYERS, commit: /** @param {string} value */ value => apply('layers', value) },
+                disabled: readOnly, warning: notice?.warning,
+                options: LAYERS.map(option => pcbLayerOption(option.value, option.label,
+                    { layers: option.value === 'both' ? ['top-copper', 'bottom-copper'] : [option.value] })),
+                commit: /** @param {string} value */ value => {
+                    const layers = value === 'both' ? ['top-copper', 'bottom-copper'] : [value];
+                    if (layers.some(isLayerLocked)) { refresh(); return; }
+                    apply('layers', value);
+                } },
             { key: 'net', id: 'pcbPropPadNet', type: 'net', label: 'Net', value: current.net || '', mixed: mixed('net'),
                 disabled: readOnly, nets: app.netNames(), commit: /** @param {string} value */ value => apply('net', value) },
             number('size', 'pcbPropPadSize', 'Size (mm)', { min: 0.05, step: 0.05 }),

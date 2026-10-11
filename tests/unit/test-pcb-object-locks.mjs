@@ -16,14 +16,15 @@ import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 
-const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, lockedProperty } =
+const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, lockedProperty, propertyLayerLock } =
     await import('../../src/pcb/modules/object-locks.js');
 const { deleteBoxSelection, selectEnclosed, beginGroupDrag, updateGroupDrag, endGroupDrag } =
     await import('../../src/pcb/modules/box-select.js');
 const { preparePcbPaste } = await import('../../src/pcb/modules/pcb-paste.js');
-const { capturePcbClipboardSelection } = await import('../../src/pcb/modules/pcb-clipboard.js');
+const { capturePcbClipboardSelection, canCopyCutPcbSelection, canCutPcbSelection } = await import('../../src/pcb/modules/pcb-clipboard.js');
 const { getPcbSelection, setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { multiPropertyCapabilities } = await import('../../src/pcb/modules/multi-selection-properties.js');
+const { setTrackEdit } = await import('../../src/pcb/modules/track-select.js');
 
 const layer = id => PCB_LAYERS.find(item => item.id === id);
 const withLayerLocks = (ids, run) => {
@@ -87,6 +88,57 @@ const textData = (id, extra = {}) => ({ id, content: 'Label', x: 1, y: 1, size: 
 function fixture() {
     return pcbEditorFixture({ _shapeElements: new Map(), refreshText() {},
         clearProperties() {}, setActiveRibbonTab() {}, syncClipboardButtons() {} });
+}
+
+// Properties feedback reports the layer for the selected object/focused copper, not an unrelated layer.
+{
+    const app = fixture();
+    const shape = line('locked-property');
+    app.boardShapes.push(shape);
+    setPcbSelection(app, [{ kind: 'shape', object: shape }]);
+    assert.equal(canCutPcbSelection(app), true);
+    assert.equal(propertyLayerLock(app), null);
+    withLayerLocks(['top-silk'], () => {
+        assert.deepEqual(propertyLayerLock(app), { id: 'top-silk' });
+        assert.equal(canCopyCutPcbSelection(app), true, 'Layer locks do not prevent Copy');
+        assert.equal(canCutPcbSelection(app), false, 'Cut is disabled for layer-locked shapes');
+    });
+    shape.locked = true;
+    assert.equal(canCutPcbSelection(app), false, 'Cut is disabled for object-locked shapes');
+    assert.equal(canCopyCutPcbSelection(app), true);
+    const unlocked = line('unlocked-property');
+    app.boardShapes.push(unlocked);
+    setPcbSelection(app, [{ kind: 'shape', object: shape }, { kind: 'shape', object: unlocked }]);
+    assert.equal(canCutPcbSelection(app), true, 'Mixed selections retain Cut for their unlocked members');
+    setPcbSelection(app, [{ kind: 'shape', object: shape }]);
+    assert.equal(propertyLayerLock(app), null, 'An own-object lock must not be called a layer lock');
+    const track = new Track({ layer: 'top-copper' });
+    const a = track.addNode(0, 0), b = track.addNode(1, 0), c = track.addNode(2, 0);
+    const top = track.addEdge(a, b), bottom = track.addEdge(b, c, { layer: 'bottom-copper' });
+    app.tracks.push(track);
+    setPcbSelection(app, [{ kind: 'track', object: track }]);
+    withLayerLocks(['bottom-copper'], () => {
+        assert.equal(isPcbObjectLocked(app, 'track', track), false);
+        setTrackEdit(app, { track, edgeId: top });
+        assert.equal(propertyLayerLock(app), null, 'An unlocked segment does not report another segment layer');
+        setTrackEdit(app, { track, edgeId: bottom });
+        assert.deepEqual(propertyLayerLock(app), { id: 'bottom-copper' });
+        setTrackEdit(app, { track, nodeId: b });
+        assert.deepEqual(propertyLayerLock(app), { id: 'bottom-copper' }, 'Shared nodes report an incident layer lock');
+    });
+    setTrackEdit(app, null);
+    setPcbSelection(app, []);
+    assert.equal(canCutPcbSelection(app), false);
+    assert.equal(canCopyCutPcbSelection(app), false);
+    const fill = new CopperFill({ id: 'property-fill', layer: 'top-copper',
+        outline: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }] });
+    app.boardShapes.push(fill);
+    setPcbSelection(app, [{ kind: 'fill', object: fill }]);
+    const row = PCB_COPPER_FILLS.find(item => item.id === 'top-copper'), saved = row.locked;
+    try {
+        row.locked = true;
+        assert.deepEqual(propertyLayerLock(app), { id: 'top-copper', fill: true });
+    } finally { row.locked = saved; }
 }
 
 // Lock state: the object's own lock, the layers holding it, and the unlock menu choices.

@@ -17,7 +17,7 @@ import { refreshBoxSelectionHighlights } from './box-select.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { canEditFill } from './copper-fill-edit.js';
 import { PCB_LAYERS, isLayerLocked, pcbLayerOption, showLockedLayerBubble } from './layers.js';
-import { isPcbObjectLocked, objectLockCommand } from './object-locks.js';
+import { isPcbObjectLocked, objectLockCommand, showPropertyLayerLock } from './object-locks.js';
 import { ModifyPadCommand } from './pad-commands.js';
 import { isRefTextLocked } from './ref-text-selection.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
@@ -400,7 +400,8 @@ export function showMultiSelectionProperties(app, entries) {
         }
         fields.push(field);
     }
-    renderPropertyFields(items, fields, { placeholder: 'No shared editable properties' });
+    renderPropertyFields(items, fields, { placeholder: 'No shared editable properties',
+        onDisabledClick: anchor => showPropertyLayerLock(app, anchor) });
     app.showPropertiesTab();
     app.syncClipboardButtons();
 }

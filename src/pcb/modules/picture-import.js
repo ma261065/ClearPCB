@@ -1,5 +1,5 @@
 import { ModalManager } from '../../core/ModalManager.js';
-import { isLayerLocked, isLayerVisible } from './layers.js';
+import { isLayerLocked, isLayerVisible, pcbLayerOption } from './layers.js';
 import { beginPcbPaste, preparePcbPaste } from './pcb-paste.js';
 import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from '../../shared/pcb/picture-raster.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
@@ -214,7 +214,10 @@ export function showPictureImport(app) {
     window.addEventListener('resize', refreshFullPreview);
     field('layer').value = 'top-silk';
     for (const option of /** @type {HTMLSelectElement} */ (form.elements.namedItem('layer')).options) {
-        option.disabled = isLayerLocked(option.value) || !isLayerVisible(option.value);
+        const layer = pcbLayerOption(option.value, option.textContent || '', { visibleOnly: true });
+        Object.assign(option.dataset, layer.dataset);
+        option.textContent = layer.label;
+        option.disabled = !!layer.disabled;
     }
     const close = () => {
         if (closed) return;

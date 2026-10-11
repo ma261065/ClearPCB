@@ -5,12 +5,13 @@ import { showPictureImport } from './picture-import.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 import { commitDesignInput } from './design-settings.js';
 import { PCB_DESIGN_MAX_MM } from '../../core/PcbDesignSettings.js';
-import { pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
-import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool } from './pcb-tools.js';
-import { placementBlockMessage } from './layers.js';
+import { preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool, pcbToolAllLayersLocked, showPcbToolLayerLocks } from './pcb-tools.js';
 import { peekDrcPresentation } from './drc-state.js';
 import { clearRoutes, loadTestBoard, runAutoRoute } from './autorouter-actions.js';
 import { exportBOM, exportDSN, exportGerber, exportPickAndPlace, importSES, openPanelize } from './fabrication-actions.js';
+import { canCutPcbSelection } from './pcb-clipboard.js';
+import { showPropertyLayerLock } from './object-locks.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {Record<string, any>} RibbonNode Ribbon description nodes are declarative UI records with heterogeneous child/content shapes. */
 
@@ -142,35 +143,34 @@ export function createPcbRibbonDescription(app) {
     const setTool = tool => selectPcbTool(app, tool);
     const project = () => app.project;
     const canCopyCut = () => app.canCopyCutPcbSelection() || false;
-    const canPaste = () => app.hasPcbClipboardData() || false;
-    // A placement tool's button carries a lock or hidden badge while its layer is blocked.
-    /** @param {string} tool */
-    const blockBadge = tool => ({
-        'tool-layer-locked': () => pcbToolBlock(app, tool)?.reason === 'locked',
-        'tool-layer-hidden': () => pcbToolBlock(app, tool)?.reason === 'hidden',
+    /** @param {string} id */
+    const cutButton = id => B(id, '✂ Cut', 'Cut (Ctrl+X)', {
+        disabled: () => !canCutPcbSelection(app), run: () => app.cutSelection(),
+        /** @param {PointerEvent} event */
+        onDisabledClick: event => showPropertyLayerLock(app, { x: event.clientX, y: event.clientY }),
     });
-    /** @param {string} title @param {string} tool */
-    const blockTitle = (title, tool) => () => {
-        const block = pcbToolBlock(app, tool);
-        return block ? `${title} (${placementBlockMessage(block)})` : title;
-    };
+    const canPaste = () => app.hasPcbClipboardData() || false;
     const shapeTool = () => (SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape);
-    // A tool's ribbon button, from its entry in pcb-tools.js; placement tools carry block badges.
+    /** @param {string} tool @param {PointerEvent} event */
+    const explainToolLocks = (tool, event) => showPcbToolLayerLocks(app, tool, { x: event.clientX, y: event.clientY });
+    // A tool's ribbon button, from its entry in pcb-tools.js.
     /** @param {string} id */
     const toolButton = id => {
         const { button, targets } = /** @type {import('./pcb-tools.js').PcbTool} */ (PCB_TOOLS[id]);
         return {
             kind: 'toolButton', id: button.id, content: button.content,
-            title: targets ? blockTitle(button.title, id) : button.title, ...(targets ? { classes: blockBadge(id) } : {}),
+            title: button.title, disabled: () => !!targets && pcbToolAllLayersLocked(app, id),
+            onDisabledClick: /** @param {PointerEvent} event */ event => explainToolLocks(id, event),
             active: () => normalizePcbTool(app.currentTool) === id, run: () => setTool(id),
         };
     };
     /** @param {string} id */
     const presetButton = id => {
-        const { button, tool, layer } = /** @type {{button: import('./pcb-tools.js').PcbToolButton, tool: string, layer: string}} */ (PCB_TOOL_PRESETS[id]);
+        const { button } = PCB_TOOL_PRESETS[id];
         return {
-            kind: 'toolButton', id: button.id, content: button.content, title: blockTitle(button.title, id),
-            classes: blockBadge(id), run: () => { app.activeLayer = layer; setTool(tool); },
+            kind: 'toolButton', id: button.id, content: button.content, title: button.title,
+            disabled: () => pcbToolAllLayersLocked(app, id), run: () => setTool(id),
+            onDisabledClick: /** @param {PointerEvent} event */ event => explainToolLocks(id, event),
         };
     };
     /** @param {boolean} checked */
@@ -286,11 +286,9 @@ export function createPcbRibbonDescription(app) {
                                     kind: 'splitTool',
                                     id: 'pcbToolShapesWrap',
                                     active: () => SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)),
-                                    classes: {
-                                        'tool-layer-locked': () => pcbToolBlock(app, shapeTool())?.reason === 'locked',
-                                        'tool-layer-hidden': () => pcbToolBlock(app, shapeTool())?.reason === 'hidden',
-                                    },
                                     main: { id: 'pcbToolShapes', title: 'Draw current shape',
+                                        disabled: () => pcbToolAllLayersLocked(app, shapeTool()),
+                                        onDisabledClick: /** @param {PointerEvent} event */ event => explainToolLocks(shapeTool(), event),
                                         content: () => `${PCB_TOOLS[shapeTool()].button.icon} Shapes`,
                                         run: () => {
                                             const tool = normalizePcbTool(app.currentTool);
@@ -298,7 +296,10 @@ export function createPcbRibbonDescription(app) {
                                         } },
                                     arrow: { id: 'pcbToolShapesArrow', title: 'Choose shape', attrs: { 'aria-label': 'Choose shape', 'aria-expanded': 'false' }, content: '▼' },
                                     menuId: 'pcbToolShapesMenu',
-                                    items: shapeItems.map(item => ({ ...item, run: () => { lastShape = item.dataset.shape; setTool(lastShape); } })),
+                                    items: shapeItems.map(item => ({ ...item,
+                                        disabled: () => pcbToolAllLayersLocked(app, item.dataset.shape),
+                                        onDisabledClick: /** @param {PointerEvent} event */ event => explainToolLocks(item.dataset.shape, event),
+                                        run: () => { lastShape = item.dataset.shape; setTool(lastShape); } })),
                                 },
                                 toolButton('text'),
                                 toolButton('fill'),
@@ -310,7 +311,7 @@ export function createPcbRibbonDescription(app) {
                         B('pcbRedoBtn', '↷ Redo', 'Redo (Ctrl+Y)', { disabled: () => !app.history?.canRedo?.(), run: () => runPcbHistoryAction(app, 'redo') }),
                     ] },
                     { title: 'Clipboard', itemsClassName: 'ribbon-group-items prop-actions', items: [
-                        B('pcbCutHome', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection() }),
+                        cutButton('pcbCutHome'),
                         B('pcbCopyHome', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection() }),
                         B('pcbPasteHome', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection() }),
                     ] },
@@ -335,7 +336,6 @@ export function createPcbRibbonDescription(app) {
                         B('pcbZoomOut', '−', 'Zoom Out', { run: () => ensureViewport(app)?.zoomOut() }),
                         B('pcbZoomIn', '+', 'Zoom In', { run: () => ensureViewport(app)?.zoomIn() }),
                         B('pcbZoomFit', 'Fit', 'Fit to Board Area', { run: () => app.fitToContent() }),
-                        B('pcbResetView', 'Default', 'Default View', { run: () => ensureViewport(app)?.resetView() }),
                         B('pcbThemeToggle', () => getThemeIcon(getSavedTheme()), 'Toggle Dark/Light Mode', { className: 'theme-toggle', run: () => { toggleSharedTheme(); app.refreshPcbRibbon?.(); } }),
                     ] },
                     { title: 'Fabrication', items: [
@@ -352,7 +352,7 @@ export function createPcbRibbonDescription(app) {
                 groups: [
                     { id: 'pcbPropsContent', title: 'Properties', itemsId: 'pcbPropsItems', items: [{ kind: 'propertyPlaceholder', text: 'Click an object to see its properties' }] },
                     { id: 'pcbPropsClipboard', title: 'Clipboard', itemsClassName: 'ribbon-group-items prop-actions', items: [
-                        B('pcbCutProps', '✂ Cut', 'Cut (Ctrl+X)', { disabled: () => !canCopyCut(), run: () => app.cutSelection() }),
+                        cutButton('pcbCutProps'),
                         B('pcbCopyProps', '⧉ Copy', 'Copy (Ctrl+C)', { disabled: () => !canCopyCut(), run: () => app.copySelection() }),
                         B('pcbPasteProps', '📋 Paste', 'Paste (Ctrl+V)', { disabled: () => !canPaste(), run: () => app.pasteSelection() }),
                     ] },
@@ -435,7 +435,7 @@ export function createPcbRibbonDescription(app) {
                             H([K('Ctrl+X'), ' Cut selected']),
                             H([K('Ctrl+V'), ' Paste']),
                             H([K('Space'), ' Rotate component / reference']),
-                            H([K('Space'), ' Fit (nothing selected)']),
+                            H([K('Home'), ' Select tool, Home tab and fit view']),
                             H([K('X'), ' Flip H (component)']),
                             H([K('Y'), ' Flip V (component)']),
                             H([K('Space'), ' Switch layer while routing']),

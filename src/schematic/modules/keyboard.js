@@ -6,7 +6,7 @@ import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { flipComponentH, flipComponentV, isPlacingComponent, rotateComponentRight } from './components.js';
 import { handleTextEditKey, hasSchematicTextEdit } from './text-edit.js';
-import { beginPastePreview, cutSelection, isPastingClipboard } from './clipboard.js';
+import { beginPastePreview, cutSelection } from './clipboard.js';
 import {
     canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
 } from './editor-actions.js';
@@ -268,12 +268,6 @@ export function bindKeyboardShortcuts(app) {
                 case ' ':
                     if (target?.isContentEditable) break;
                     handleSpaceRotate(app, e);
-                    if (!e.defaultPrevented && !e.altKey && !hasSchematicTextEdit(app) && !isPlacingComponent(app)
-                        && !isSchematicDrawingActive(app) && !isPastingClipboard(app) && !app.selection.getSelection().length
-                        && !['INPUT', 'BUTTON'].includes(target?.tagName || '')) {
-                        e.preventDefault();
-                        app.fitToContent();
-                    }
                     break;
                 case 'f':
                 case 'F':
@@ -281,7 +275,9 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'Home':
                     e.preventDefault();
-                    app.viewport.resetView();
+                    app.selectTool('select');
+                    app.setActiveRibbonTab('home');
+                    app.fitToContent();
                     break;
                 case '+':
                 case '=':

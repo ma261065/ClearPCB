@@ -10,7 +10,7 @@ import { PcbDocument } from '../core/PcbDocument.js';
 import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { showAlert } from '../shared/ui/modal.js';
-import { updateGridDropdown, serializeGridSettings } from '../shared/ui/viewport.js';
+import { updateGridDropdown, serializeGridSettings, fitContentBounds } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
 import { isLayerVisible, pcbLayerName } from '../pcb/modules/layers.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
@@ -36,7 +36,7 @@ import { AddTrackCommand, FlipPlacementCommand, RotatePlacementCommand } from '.
 import { RemoveTextCommand, EditTextCommand } from '../pcb/modules/text-commands.js';
 import { cancelShapeDraw } from '../pcb/modules/board-shape-draw.js';
 import { renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
-import { boardShapeLocked, createPcbHistory } from '../pcb/modules/object-locks.js';
+import { boardShapeLocked, createPcbHistory, showPropertyLayerLock } from '../pcb/modules/object-locks.js';
 import { renderPropertyActions, renderPropertyFields } from '../shared/ui/property-fields.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -653,13 +653,12 @@ export default class PCBApp {
 
         const panel = this.panelization ? renderPanelPreview(this) : null;
         const bounds = panel?.bounds || boardBoundary(this);
-        viewport.fitToBounds(
-            Math.min(0, bounds.x) - 10,
-            Math.min(0, bounds.y - (panel ? 12 : 0)),
-            Math.max(0, bounds.x + bounds.w),
-            Math.max(0, bounds.y + bounds.h) + 10,
-            0, 'bottom-left',
-        );
+        fitContentBounds(viewport, {
+            minX: bounds.x,
+            minY: bounds.y - (panel ? 12 : 0),
+            maxX: bounds.x + bounds.w,
+            maxY: bounds.y + bounds.h,
+        });
     }
 
     // ── Board Outline ─────────────────────────────────────────────
@@ -736,10 +735,11 @@ export default class PCBApp {
      * @param {import('../shared/ui/property-fields.js').PropertyPanel} panel
      */
     refreshPropertyPanel(panel) {
+        const feedback = { onDisabledClick: /** @param {{x: number, y: number}} anchor */ anchor => showPropertyLayerLock(this, anchor) };
         const items = document.getElementById('pcbPropsItems');
-        if (items) renderPropertyFields(items, panel.fields, { placeholder: panel.placeholder });
+        if (items) renderPropertyFields(items, panel.fields, { placeholder: panel.placeholder, ...feedback });
         const host = document.getElementById('pcbPropertiesPanel');
-        if (host) renderPropertyActions(host, panel.actions);
+        if (host) renderPropertyActions(host, panel.actions, feedback);
     }
 
     /**

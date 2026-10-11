@@ -174,19 +174,23 @@ nor on a hidden one (the object would be invisible); for pours, that side's
 Copper Fill row counts too. `pcbToolTargets(app, tool)` (`pcb-tools.js`)
 names the rows each placement tool would draw on, from its own settings: Via,
 the pad tool's copper sides, the text, track, fill and shape tools' layers, and
-the Hole preset (the Circle tool on the Hole layer). Everything that reports a blocked tool reads it, so they agree:
-- the ribbon tool button carries a lock (or ⊘) badge and its tooltip names the
-  layer; the badges refresh when the blocked set changes (`syncPcbToolBlocks`,
-  from `setPcbStatus` and every layer lock or eye change);
-- over the canvas, before any press, the cursor is not-allowed, the tool's
-  preview and crosshair are dimmed and a badge names the layer
-  (`syncToolBlockIndicator`);
-- the tool's Properties flags its layer field and shows an action group that
-  unlocks or shows the layer;
-- a press is refused with a bubble at the pointer saying why, with an Unlock or
-  Show button (`refuseBlockedPlacement`, `layers.js`).
-Unlock and Show go through the layer panel's own buttons, so every view follows.
-Shape tools keep a locked or hidden layer rather than drawing on another one
+the Hole preset (the Circle tool on the Hole layer). Home buttons are disabled
+only when every supported placement layer is locked (`pcbToolAllLayersLocked`).
+Clicking a disabled drawing button shows a brief non-actionable bubble listing
+its relevant layer locks, including Copper Fill row locks without duplicating
+shared pad layers. The Shapes split button and its menu use the same feedback.
+Selecting a tool uses the active layer when supported and unlocked, otherwise
+the first unlocked choice in that tool's layer dropdown (`preparePcbToolLayer`).
+Pours consider both the copper layer and its Copper Fill row; Both-side pads
+require both copper layers unlocked. Via and Hole remain single-layer tools.
+Locked dropdown choices are disabled with a muted monochrome lock icon, and
+stay current when layer locks change. Tool Properties may warn that its chosen
+layer is blocked but has no Unlock/Show section. There is no cursor-following
+blocked-layer badge or actionable popup; a refused placement reports its reason
+in the status bar (`refuseBlockedPlacement`). Hidden layers remain protected
+against invisible placement without disabling Home buttons; attempting to draw
+on one also shows a brief cursor popup naming the hidden layer, without a Show
+or Unlock action.
 (`test-placement-blocks`, `placing-on-a-locked-or-hidden-layer-says-why`).
 
 The editor checks above give feedback; the **lock gate** guarantees the rule.
@@ -224,7 +228,7 @@ Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching live
 in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. The app's
 window-capture dispatcher gives keys to this handler only while the PCB editor is
 active, and the schematic's handler stands aside then (`pcbApp.isActive()`), so each
-editor's view keys (Home resets its view, +/- zoom it) act on the active editor alone
+editor's view keys (Home activates Select, opens the Home tab and fits its view, +/- zoom it) act on the active editor alone
 (`schematic-shortcuts-stand-aside-while-the-pcb-is-active`). Drawing tools
 handle their own keys through `handleTrackDrawKey`, `handleFillDrawKey` and
 `handleShapeDrawKey` before the shared actions run. History requests use the
@@ -237,6 +241,12 @@ request consumption, not whether an undo/redo entry existed.
 Save requests resolve `app.project` at invocation, never a global bootstrap.
 The project still owns snapshot readiness, I/O and ordinary failure reporting;
 the shared action shows the saved toast only after a successful result.
+
+Space-to-Via routing transitions check the Via layer and the destination copper
+layer before adding a waypoint or changing the drawing layer. Locked or hidden
+targets show a brief popup at the cursor and preserve the complete drawing and
+history. Direct layer toggles and active-route Properties layer changes enforce
+the same checks; the route can continue on its original unlocked copper layer.
 
 The same action boundary owns staged Escape after drawing-mode keys have been
 handled. It cancels an active property preview or pointer gesture before

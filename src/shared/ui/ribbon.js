@@ -44,6 +44,7 @@ const svgTags = new Set(['svg', 'path', 'circle', 'line', 'rect', 'polyline', 'p
  * @property {RibbonValue<boolean>} [checked]
  * @property {RibbonAttributeValue} [value]
  * @property {RibbonAction} [run]
+ * @property {(event: PointerEvent) => void} [onDisabledClick]
  * @property {RibbonValueAction} [onInput]
  * @property {RibbonValueAction} [onChange]
  * @property {boolean} [refreshOnRun]
@@ -364,6 +365,7 @@ function renderSplitDropdown(desc, context) {
 function renderSplitTool(desc, context) {
     const wrapper = element('div', { id: desc.id, className: desc.className || 'ribbon-tool-dropdown ribbon-split-btn' });
     const main = renderButton(desc.main || {}, context, desc.main?.className || 'ribbon-tool-btn ribbon-split-main');
+    register(context, desc.main || {}, main);
     const arrow = renderButton({ ...(desc.arrow || {}), run: undefined }, context, desc.arrow?.className || 'ribbon-tool-btn ribbon-split-arrow');
     const menu = element('div', {
         id: desc.menuId,
@@ -372,7 +374,7 @@ function renderSplitTool(desc, context) {
     });
     const binding = bindMenu(context, desc, wrapper, menu, [arrow]);
     renderMenuItems(menu, desc.items, context, binding.close);
-    wrapper.append(main, arrow, menu);
+    wrapper.append(wrapDisabledButton(main, desc.main || {}, context), arrow, menu);
     register(context, desc, wrapper);
     if (desc.menuId) context.controls.set(desc.menuId, /** @type {HTMLElement} */ (menu));
     return { node: wrapper, controls: [main, arrow, menu] };
@@ -403,7 +405,25 @@ function renderRibbonItem(desc, context) {
     else if (desc.kind === 'element') rendered = { node: renderElement(desc, context), control: null };
     else rendered = { node: renderElement(desc, context), control: null };
     register(context, desc, /** @type {RibbonElement} */ (rendered.node), rendered.control || /** @type {RibbonElement} */ (rendered.node));
+    if (desc.onDisabledClick && (desc.kind === 'button' || desc.kind === 'toolButton')) {
+        const button = /** @type {HTMLButtonElement} */ (rendered.node);
+        return { ...rendered, node: wrapDisabledButton(button, desc, context), control: button };
+    }
     return rendered;
+}
+
+/** @param {HTMLButtonElement} button @param {RibbonElementDescription} desc
+ * @param {RibbonRenderContext} context @returns {HTMLElement}
+ */
+function wrapDisabledButton(button, desc, context) {
+    if (!desc.onDisabledClick) return button;
+    const wrapper = document.createElement('span');
+    wrapper.appendChild(button);
+    wrapper.addEventListener('pointerdown', event => {
+        if (event.button === 0 && button.disabled) desc.onDisabledClick?.(event);
+    });
+    register(context, { classes: { 'prop-action-disabled': () => button.disabled } }, wrapper);
+    return wrapper;
 }
 
 /** @param {RibbonItemDescription|RibbonElementDescription} desc @param {RibbonElement} node @param {RibbonElement} control @param {RibbonRenderContext} context */

@@ -1,10 +1,10 @@
 import { isEditorActive } from './pcb-editor-api.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from './editor-actions.js';
 import { getPcbSelection } from './selection-registry.js';
-import { hasPcbGesture } from './pcb-interactions.js';
 import { handleTrackDrawKey } from './track-draw.js';
 import { handleFillDrawKey } from './copper-fill-draw.js';
 import { handleShapeDrawKey } from './board-shape-draw.js';
+import { selectPcbTool } from './tool-lifecycle.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
@@ -52,7 +52,9 @@ export function handlePcbKeyDown(app, e) {
             return true;
         }
         if (e.key === 'Home') {
-            app.viewport?.resetView();
+            selectPcbTool(app, 'select');
+            app.setActiveRibbonTab('pcb-home');
+            app.fitToContent();
             return true;
         }
     }
@@ -138,11 +140,6 @@ export function handlePcbKeyDown(app, e) {
             e.preventDefault();
             return true;
         }
-    }
-    if ((e.code === 'Space' || e.key === ' ') && !ctrl && !e.altKey
-        && !getPcbSelection(app).length && !hasPcbGesture(app) && tgt?.tagName !== 'BUTTON') {
-        app.fitToContent();
-        return true;
     }
     return false;
 }

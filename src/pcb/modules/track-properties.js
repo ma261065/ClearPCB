@@ -482,12 +482,14 @@ export function showTrackSegmentProperties(app, track, edgeId) {
     };
     /** @returns {PropertyPanel} */
     const describe = () => {
+        const readOnly = track.locked || isLayerLocked(track.getEdgeLayer(edgeId))
+            || !isLayerVisible(track.getEdgeLayer(edgeId));
         const fields = /** @type {PropertyField[]} */ ([
             { key: 'layer', id: 'pcbPropSegLayer', type: 'select', label: 'Layer',
-                value: track.getEdgeLayer(edgeId) || 'top-copper', disabled: !binding.affectsLayer(currentLayer),
+                value: track.getEdgeLayer(edgeId) || 'top-copper', disabled: readOnly || !binding.affectsLayer(currentLayer),
                 options: COPPER_LAYERS.map((l) => pcbLayerOption(l.id, l.name)), commit: applyLayer },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
-                nets: app.netNames(), commit: applyNet },
+                disabled: readOnly, nets: app.netNames(), commit: applyNet },
             bindTrackWidth(binding, edgeId),
         ]);
         if (track.edges.get(edgeId)?.bulge) fields.push(bulgeField());

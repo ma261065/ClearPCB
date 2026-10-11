@@ -23,7 +23,7 @@ import { showAlert } from '../../shared/ui/modal.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { commitDesignValue, renderDesignSettings } from './design-settings.js';
 import { commitDrawnTracks } from './track-commit.js';
-import { isLayerLocked } from './layers.js';
+import { isLayerLocked, pcbLayerOption, placementBlock, placementBlockName, showLayerBubble } from './layers.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -139,6 +139,10 @@ export function showTrackDrawProperties(app) {
     /** @param {string} value */
     const setLayer = value => {
         const next = value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+        if (ctx && next !== ctx.currentLayer && refuseTrackLayerTransition(app, ctx, next)) {
+            refresh();
+            return;
+        }
         if (isLayerLocked(next)) {
             refresh();
             return;
@@ -173,8 +177,8 @@ export function showTrackDrawProperties(app) {
         fields: [
             { key: 'layer', id: 'pcbPropTrackToolLayer', type: 'select', label: 'Layer', value: currentLayer(), warning: notice.warning,
                 options: [
-                    { value: 'top-copper', label: 'Top Copper', disabled: isLayerLocked('top-copper') },
-                    { value: 'bottom-copper', label: 'Bottom Copper', disabled: isLayerLocked('bottom-copper') },
+                    pcbLayerOption('top-copper', 'Top Copper'),
+                    pcbLayerOption('bottom-copper', 'Bottom Copper'),
                 ], commit: setLayer },
             { key: 'net', id: 'pcbPropTrackToolNet', type: 'net', label: 'Net', value: currentNet(),
                 nets: app.netNames(), commit: setNet },
@@ -369,6 +373,36 @@ export function addTrackWaypoint(app, worldPos) {
 }
 
 /**
+ * A layer transition requires both its destination copper and the Via layer.
+ * Check before adding a waypoint so a refused Space leaves the whole draw intact.
+ * @param {PcbEditor} app @param {TrackDrawContext} ctx @param {string} nextLayer
+ */
+function refuseTrackLayerTransition(app, ctx, nextLayer) {
+    const blocks = [{ id: 'vias' }, { id: nextLayer }]
+        .flatMap(target => {
+            const block = placementBlock([target]);
+            return block ? [block] : [];
+        });
+    if (!blocks.length) return false;
+    const sameReason = blocks.every(block => block.reason === blocks[0].reason);
+    const message = sameReason
+        ? `${blocks.map(placementBlockName).join(', ')} ${blocks.length === 1 ? 'layer' : 'layers'} ${blocks[0].reason}`
+        : blocks.map(block => `${placementBlockName(block)} layer ${block.reason}`).join('; ');
+    const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
+    const screen = viewport.worldToScreen(viewport.currentMouseWorld || ctx.points[ctx.points.length - 1]);
+    const rect = viewport.svg.getBoundingClientRect();
+    app.setStatus(message);
+    showLayerBubble(app, blocks[0], { x: rect.left + screen.x, y: rect.top + screen.y }, { message });
+    return true;
+}
+
+/** @param {TrackDrawContext} ctx */
+function nextTrackLayer(ctx) {
+    const index = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
+    return TOGGLE_LAYERS[(index + 1) % TOGGLE_LAYERS.length];
+}
+
+/**
  * Toggle the layer used by the *next* segment. The current anchor
  * becomes a layer-change node; on finish, the draw is split into
  * separate single-layer Track objects with a standalone `Via` at that
@@ -378,8 +412,9 @@ export function addTrackWaypoint(app, worldPos) {
 export function toggleTrackLayer(app) {
     const ctx = getTrackDraw(app);
     if (!ctx) return;
-    const idx = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
-    ctx.currentLayer = TOGGLE_LAYERS[(idx + 1) % TOGGLE_LAYERS.length];
+    const next = nextTrackLayer(ctx);
+    if (refuseTrackLayerTransition(app, ctx, next)) return;
+    ctx.currentLayer = next;
     app.setPcbStatus();
     // Re-render preview so the trailing rubber-band uses the new layer's
     // colour and an implicit-via marker appears at the toggle anchor.
@@ -807,6 +842,7 @@ export function handleTrackDrawKey(app, e) {
         return true;
     }
     if (e.code === 'Space' || e.key === ' ') {
+        if (refuseTrackLayerTransition(app, draw, nextTrackLayer(draw))) return true;
         const snap = draw.snap;
         if (snap) addTrackWaypoint(app, { x: snap.x, y: snap.y });
         if (getTrackDraw(app)) toggleTrackLayer(app);

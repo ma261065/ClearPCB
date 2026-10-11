@@ -34,8 +34,8 @@ const NS = 'http://www.w3.org/2000/svg';
 
 /**
  * The layer a shape tool draws on: the active layer, with display-only layers (paste,
- * mask, outline, Via) mapped to a drawable one. A locked or hidden layer is kept, not
- * swapped for another: the tool refuses to draw there and says why (tool-lifecycle.js).
+ * mask, outline, Via) mapped to a drawable one. Tool selection chooses an unlocked
+ * supported layer before drawing starts (pcb-tools.js).
  * @param {PcbEditor} app
  * @param {string|null|undefined} layerId
  * @returns {string}

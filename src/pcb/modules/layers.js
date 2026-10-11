@@ -276,20 +276,25 @@ const LOCK_OPTION_SUFFIX = ' \u{1F512}\uFE0E';
  * is disabled and marked, and refreshPcbLayerOptions keeps it current.
  * @param {string} layerId
  * @param {string} label
+ * @param {{layers?: string[], fill?: boolean, visibleOnly?: boolean}} [options]
  * @returns {import('../../shared/ui/property-fields.js').PropertyOption}
  */
-export function pcbLayerOption(layerId, label) {
-    const locked = isLayerLocked(layerId);
-    return { value: layerId, label: `${label}${locked ? LOCK_OPTION_SUFFIX : ''}`, disabled: locked,
-        dataset: { pcbLayerLabel: label } };
+export function pcbLayerOption(layerId, label, { layers = [layerId], fill = false, visibleOnly = false } = {}) {
+    const locked = layers.some(isLayerLocked) || fill && isCopperFillLocked(layerId);
+    return { value: layerId, label: `${label}${locked ? LOCK_OPTION_SUFFIX : ''}`,
+        disabled: locked || visibleOnly && layers.some(id => !isLayerVisible(id)),
+        dataset: { pcbLayerLabel: label, pcbLayerIds: layers.join(','), pcbFillLayer: fill ? layerId : '',
+            pcbLayerVisibleOnly: visibleOnly ? 'true' : '' } };
 }
 
 /** @param {string} layerId */
 export function refreshPcbLayerOptions(layerId) {
-    const locked = isLayerLocked(layerId);
-    for (const option of document.querySelectorAll(`option[value="${layerId}"][data-pcb-layer-label]`)) {
+    for (const option of document.querySelectorAll('option[data-pcb-layer-label]')) {
         const element = /** @type {HTMLOptionElement} */ (option);
-        element.disabled = locked;
+        const layers = element.dataset.pcbLayerIds?.split(',') || [element.value];
+        if (!layers.includes(layerId) && element.dataset.pcbFillLayer !== layerId) continue;
+        const locked = layers.some(isLayerLocked) || !!element.dataset.pcbFillLayer && isCopperFillLocked(element.dataset.pcbFillLayer);
+        element.disabled = locked || element.dataset.pcbLayerVisibleOnly === 'true' && layers.some(id => !isLayerVisible(id));
         element.textContent = `${element.dataset.pcbLayerLabel}${locked ? LOCK_OPTION_SUFFIX : ''}`;
     }
 }
@@ -830,28 +835,9 @@ export function placementBlockMessage(block) {
     return `“${placementBlockName(block)}” is ${block.reason}`;
 }
 
-/** The button label that lifts a block: Unlock or Show.
- * @param {PlacementBlock} block
- */
-export const placementBlockAction = block => (block.reason === 'locked' ? 'Unlock' : 'Show');
-
 /**
- * Lift a block through the layer panel's own control, so every view of the layer follows.
- * @param {PcbEditor} app
- * @param {PlacementBlock} block
- */
-export function clearPlacementBlock(app, block) {
-    if (block.reason === 'locked') {
-        if (block.fill) unlockPcbCopperFill(app, block.id);
-        else unlockPcbLayer(app, block.id);
-    } else if (block.fill) setPcbCopperFillVisible(app, block.id, true);
-    else setPcbLayerVisible(app, block.id, true);
-}
-
-/**
- * Refuse a placement onto a locked or hidden row, saying why at the pointer with a
- * button that lifts the block. Placement tools keep their preview there, so a silent
- * refusal would look like a dead click.
+ * Refuse placement onto a locked or hidden row and report why in the status bar.
+ * A hidden-layer refusal also shows a non-actionable popup at the press.
  * @param {PcbEditor} app
  * @param {PlacementLayer[]} targets every row the placed object would occupy
  * @param {{clientX: number, clientY: number}} [event] the press, to anchor the bubble
@@ -860,7 +846,11 @@ export function clearPlacementBlock(app, block) {
 export function refuseBlockedPlacement(app, targets, event) {
     const block = placementBlock(targets);
     if (!block) return false;
-    showLayerBubble(app, block, event ? { x: event.clientX, y: event.clientY } : undefined, { action: true });
+    app.setStatus(placementBlockMessage(block));
+    if (block.reason === 'hidden') {
+        showLayerBubble(app, block, event ? { x: event.clientX, y: event.clientY } : undefined,
+            { message: `${placementBlockName(block)} layer hidden` });
+    }
     return true;
 }
 
@@ -879,14 +869,12 @@ export function showLockedLayerBubble(app, layerId, anchor) {
 
 /**
  * Speech bubble saying a row is locked or hidden, beside `anchor` or the row itself.
- * With `action`, it carries the button that unlocks or shows the row, and stays up
- * longer (and while the pointer is on it) so the button can be reached.
  * @param {PcbEditor} app
  * @param {PlacementBlock} block
  * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
- * @param {{action?: boolean}} [options]
+ * @param {{message?: string}} [options]
  */
-export function showLayerBubble(app, block, anchor, { action = false } = {}) {
+export function showLayerBubble(app, block, anchor, { message = placementBlockMessage(block) } = {}) {
     const panel = document.getElementById('pcbLayerPanel');
     const row = panel
         ? panel.querySelector(block.fill ? `.pcb-layer-row[data-fill-id="${block.id}"]`
@@ -907,21 +895,11 @@ export function showLayerBubble(app, block, anchor, { action = false } = {}) {
         bubble.style.display = 'none';
     };
     const icon = block.reason === 'locked' ? LOCK_CLOSED_SVG : EYE_CLOSED_SVG;
-    bubble.innerHTML = `<span class="pcb-locked-bubble-icon">${icon}</span>`
-        + `<span class="pcb-locked-bubble-text">${placementBlockMessage(block)}</span>`;
-    bubble.classList.toggle('pcb-locked-bubble-actionable', action);
-    if (action) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'pcb-locked-bubble-action';
-        button.textContent = placementBlockAction(block);
-        button.addEventListener('click', event => {
-            event.stopPropagation();
-            hide();
-            clearPlacementBlock(app, block);
-        });
-        bubble.appendChild(button);
-    }
+    bubble.innerHTML = `<span class="pcb-locked-bubble-icon">${icon}</span>`;
+    const text = document.createElement('span');
+    text.className = 'pcb-locked-bubble-text';
+    text.textContent = message;
+    bubble.appendChild(text);
 
     // Resolve the anchor point (client space). Default to the row's left edge.
     let anchorX, anchorY;
@@ -954,7 +932,10 @@ export function showLayerBubble(app, block, anchor, { action = false } = {}) {
         window.innerHeight - margin - height / 2
     );
     bubble.style.top = `${top}px`;
-    bubble.style.left = `${flip ? anchorX + 10 : anchorX - 10}px`;
+    const left = flip
+        ? Math.max(margin, Math.min(anchorX + 10, window.innerWidth - margin - width))
+        : Math.max(margin + width, Math.min(anchorX - 10, window.innerWidth - margin));
+    bubble.style.left = `${left}px`;
 
     // Restart the pop-in animation each time it's triggered.
     bubble.classList.remove('pcb-locked-bubble-show');
@@ -962,12 +943,10 @@ export function showLayerBubble(app, block, anchor, { action = false } = {}) {
     void bubble.offsetWidth;
     bubble.classList.add('pcb-locked-bubble-show');
 
-    const linger = action ? 5000 : 2400;
+    const linger = 2400;
     const schedule = () => {
         clearTimeout(lockedBubbleTimers.get(app));
         lockedBubbleTimers.set(app, setTimeout(hide, linger));
     };
-    bubble.onmouseenter = action ? () => clearTimeout(lockedBubbleTimers.get(app)) : null;
-    bubble.onmouseleave = action ? schedule : null;
     schedule();
 }

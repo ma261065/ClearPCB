@@ -64,6 +64,9 @@ try {
     PCB_LAYERS.find(layer => layer.id === 'top-silk').visible = false;
     pressPcbTool(app, event, null, null, tools);
     assert.equal(presses.length, 0, 'starting to place on a hidden layer is refused');
+    const bubble = document.getElementById('pcbLockedLayerBubble');
+    assert.equal(bubble.querySelector('.pcb-locked-bubble-text').textContent, 'Top Silk layer hidden');
+    assert.equal(bubble.querySelector('button'), null, 'Hidden-layer feedback does not offer to change layer visibility');
 
     app.currentTool = 'measure';
     assert.equal(pressPcbTool(app, event, null, null, tools), false, 'an unknown tool takes no press');

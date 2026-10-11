@@ -164,77 +164,57 @@ export const scenarios = [
                 await page.mouse.click(point.x, point.y);
             };
             const bubble = page.locator('#pcbLockedLayerBubble');
-            const badge = page.locator('.pcb-tool-blocked-badge');
             const viaButton = page.locator('#pcbToolVia');
 
-            // A locked Via layer: the ribbon says so before the tool is chosen.
+            // A single-layer tool is disabled until its layer is unlocked in Layers.
             await toggle('vias', 'lock-btn');
-            assert.match(await viaButton.getAttribute('class'), /tool-layer-locked/, 'the Via button carries a lock badge');
-            assert.match(await viaButton.getAttribute('title'), /Place Via \(“Via” is locked\)/);
+            assert.equal(await viaButton.isDisabled(), true);
+            await toggle('vias', 'lock-btn');
+            assert.equal(await viaButton.isDisabled(), false);
             await choose('#pcbToolVia');
-            // Properties says so with a way out.
-            assert.equal(await page.locator('#pcbToolUnblockLayer').textContent(), 'Unlock Via');
-            // So does the pointer, before any press.
-            await hover(20, -20);
-            assert.equal(await badge.isVisible(), true, 'a badge follows the pointer');
-            assert.match(await badge.textContent(), /Via locked/);
-            assert.equal(await app(() => window.bootstrap.pcbApp.viewport.svg.style.cursor), 'not-allowed');
-            assert.equal(await app(() => window.bootstrap.pcbApp.viewport.svg.classList.contains('pcb-placement-blocked')), true,
-                'the via preview is dimmed');
-            // And the press is refused with the reason and an Unlock button beside it.
-            await press(20, -20);
-            assert.deepEqual(await counts(), { vias: 0, pads: 0, shapes: 0 }, 'a locked Via layer refuses the via');
-            assert.equal(await bubble.isVisible(), true);
-            assert.match(await bubble.textContent(), /“Via” is locked/);
-            await bubble.locator('.pcb-locked-bubble-action').click();
-            assert.equal(await app(() => document.querySelector('.pcb-layer-row[data-layer-id="vias"] .lock-btn').classList.contains('active')), false,
-                'the bubble button unlocks the layer through the layer panel');
-            assert.doesNotMatch(await viaButton.getAttribute('class'), /tool-layer-locked/, 'the badge goes with the lock');
-            assert.equal(await page.locator('#pcbToolUnblockLayer').count(), 0, 'and so does the Properties notice');
-            await hover(20, -20);
-            assert.equal(await badge.isVisible(), false);
-            assert.notEqual(await app(() => window.bootstrap.pcbApp.viewport.svg.style.cursor), 'not-allowed');
             await press(20, -20);
             assert.deepEqual(await counts(), { vias: 1, pads: 0, shapes: 0 }, 'the unlocked layer takes the via');
 
-            // A pad on a locked copper layer, unlocked from Properties.
+            // Multi-layer tools remain available and choose the first unlocked layer.
             await toggle('top-copper', 'lock-btn');
             await choose('#pcbToolPad');
-            assert.match(await page.locator('#pcbPropPadLayers').evaluate(el => el.closest('.prop-row').className), /prop-row-warning/,
-                'the pad layer field is flagged');
+            assert.equal(await page.locator('#pcbPropPadLayers').inputValue(), 'bottom-copper');
+            for (const value of ['top-copper', 'both']) {
+                assert.equal(await page.locator(`#pcbPropPadLayers option[value="${value}"]`).isDisabled(), true);
+                assert.match(await page.locator(`#pcbPropPadLayers option[value="${value}"]`).textContent(), /🔒/);
+            }
+            assert.equal(await page.locator('#pcbToolUnblockLayer').count(), 0);
             await press(30, -20);
-            assert.deepEqual(await counts(), { vias: 1, pads: 0, shapes: 0 }, 'a pad on a locked copper layer is refused');
-            assert.match(await bubble.textContent(), /“Top Copper” is locked/);
-            await page.locator('#pcbToolUnblockLayer').click();
-            await press(30, -20);
-            assert.deepEqual(await counts(), { vias: 1, pads: 1, shapes: 0 }, 'unlocking from Properties lets the pad through');
+            assert.deepEqual(await counts(), { vias: 1, pads: 1, shapes: 0 });
+            assert.equal(await app(() => window.bootstrap.pcbApp.pads[0].layers), 'bottom-copper');
+            assert.equal(await page.locator('.pcb-tool-blocked-badge').count(), 0);
 
-            // A hidden layer refuses too: the object would be invisible. Show lifts it.
+            // Hidden-layer safety explains the refusal at the cursor without an unlock action.
+            await app(() => { window.bootstrap.pcbApp.activeLayer = 'top-silk'; });
             await toggle('top-silk', 'vis-btn');
             await choose('#pcbToolText');
-            assert.equal(await page.locator('#pcbToolUnblockLayer').textContent(), 'Show Top Silk');
-            assert.match(await page.locator('#pcbToolText').getAttribute('class'), /tool-layer-hidden/);
+            assert.equal(await page.locator('#pcbToolText').isDisabled(), false);
             await press(40, -30);
-            assert.match(await bubble.textContent(), /“Top Silk” is hidden/);
-            assert.equal(await bubble.locator('.pcb-locked-bubble-action').textContent(), 'Show');
+            assert.equal(await bubble.isVisible(), true, 'Hidden-layer refusal shows a cursor popup');
+            assert.equal(await bubble.locator('.pcb-locked-bubble-text').textContent(), 'Top Silk layer hidden');
+            assert.equal(await bubble.locator('button').count(), 0, 'The hidden-layer popup has no Show/Unlock action');
             assert.equal(await app(() => window.bootstrap.pcbApp.texts.size), 0, 'no invisible text is placed');
-            await bubble.locator('.pcb-locked-bubble-action').click();
-            assert.equal(await app(() => document.querySelector('.pcb-layer-row[data-layer-id="top-silk"] .vis-btn').classList.contains('active')), true,
-                'Show turns the layer eye back on');
+            await toggle('top-silk', 'vis-btn');
 
-            // A shape on a locked layer is refused there, not drawn on another layer.
+            // Active layer is used when unlocked; otherwise fall back without lifting its lock.
             await page.keyboard.press('Escape');
+            await toggle('top-silk', 'lock-btn');
             await page.locator('[data-tab="pcb-home"]').click();
             await page.locator('#pcbToolShapesArrow').click();
             await page.locator('#pcbToolShapesMenu [data-shape="rect"]').click();
-            await page.selectOption('#pcbToolShapeLayer', 'top-silk');
-            await toggle('top-silk', 'lock-btn');
-            assert.equal(await page.locator('#pcbToolShapeLayer').inputValue(), 'top-silk', 'the tool keeps the chosen layer');
-            assert.match(await page.locator('#pcbToolShapesWrap').getAttribute('class'), /tool-layer-locked/);
+            assert.equal(await page.locator('#pcbToolShapeLayer').inputValue(), 'bottom-copper');
+            assert.equal(await page.locator('#pcbToolShapeLayer option[value="top-silk"]').isDisabled(), true);
+            await page.locator('#pcbToolShapeFilled').check();
             await press(10, -40);
             await press(20, -50);
-            assert.deepEqual(await counts(), { vias: 1, pads: 1, shapes: 0 }, 'no shape lands on another layer');
-            assert.match(await bubble.textContent(), /“Top Silk” is locked/);
+            assert.deepEqual(await counts(), { vias: 1, pads: 1, shapes: 1 });
+            assert.equal(await app(() => window.bootstrap.pcbApp.boardShapes.find(shape => shape.layer !== 'board-outline').layer), 'bottom-copper');
+            assert.equal(await page.locator('.pcb-locked-bubble-action').count(), 0);
         },
     },
 ];

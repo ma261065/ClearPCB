@@ -502,9 +502,9 @@ export function showFillToolProperties(app) {
         const notice = pcbToolBlockNotice(app, 'fill');
         return { title: 'New Fill', actions: notice.actions, fields: [
             { key: 'layer', id: 'pcbPropFillToolLayer', type: 'select', label: 'Layer', value: defaults.layer, warning: notice.warning,
-                options: [pcbLayerOption('top-copper', 'Top Copper'), pcbLayerOption('bottom-copper', 'Bottom Copper')],
+                options: [pcbLayerOption('top-copper', 'Top Copper', { fill: true }), pcbLayerOption('bottom-copper', 'Bottom Copper', { fill: true })],
                 commit: value => {
-                    if (value !== 'top-copper' && value !== 'bottom-copper' || isLayerLocked(value)) { refresh(); return; }
+                    if (value !== 'top-copper' && value !== 'bottom-copper' || isLayerLocked(value) || isCopperFillLocked(value)) { refresh(); return; }
                     setFillToolDefaults(app, { layer: value });
                     app.setPcbStatus();
                     refresh();

@@ -58,7 +58,7 @@ try {
         assert.equal(select.value, 'top-copper', `${kind}: a locked default stays the tool's layer, not swapped for another`);
         assert.equal(app.activeLayer, select.value, 'The dropdown and drawing default agree');
         assert.match(select.warning, /“Top Copper” is locked/, 'The layer field says why nothing can be drawn');
-        assert.equal(unlockAction()?.label, 'Unlock Top Copper', 'Properties offers the way out');
+        assert.equal(unlockAction(), null, 'Drawing Properties has no unlock section');
         assert.ok(app.status.modeStatus.textContent.endsWith(' | Top Copper'));
         shapeDrawClick(app, kind, { x: 1, y: -1 });
         assert.equal(getShapeDraw(app), null, `${kind}: nothing is drawn on the locked layer`);
@@ -128,4 +128,4 @@ try {
 } finally {
     PCB_LAYERS.forEach((layer, index) => { layer.locked = locks[index]; });
 }
-console.log('PASS shape tools keep a locked layer and refuse it with a warning, live recovery and completed shape/history layer parity');
+console.log('PASS explicit shape defaults enforce locked layers without unlock actions, live recovery and completed shape/history layer parity');

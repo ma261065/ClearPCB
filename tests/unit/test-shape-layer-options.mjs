@@ -170,7 +170,7 @@ try {
     const option = { value: 'hole', dataset: { pcbLayerLabel: 'Hole' }, textContent: 'Hole',
         disabled: false, selected: true };
     document.querySelectorAll = selector => {
-        assert.equal(selector, 'option[value="hole"][data-pcb-layer-label]');
+        assert.equal(selector, 'option[data-pcb-layer-label]');
         return [option];
     };
     globalThis.requestAnimationFrame = callback => { callback(); return 1; };

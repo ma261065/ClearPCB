@@ -1,5 +1,19 @@
 # UI Conventions
 
+Both editors offer only Fit, not a separate Default view action. Outside text
+and Properties inputs, Home activates Select, opens the active editor's Home tab and fits its
+content using the same operation as the Fit button. Native Home-key cursor
+movement and inline text selection remain unchanged.
+Help lists Home for Select, Home-tab navigation and Fit. Space does not fit the
+view when nothing is selected; its object rotation and routing Via shortcuts
+remain unchanged.
+Schematic and PCB Fit use the same bottom-left alignment: the left margin is
+10 mm from the left ruler's inner edge, and the bottom margin is 10 mm above
+the viewport bottom. The origin is included in the fitted bounds, and zoom
+selection excludes the ruler area so content remains visible. PCB panels retain
+their extra top clearance. An empty schematic retains its 100% initial zoom
+with those same margins. With rulers hidden, margins start at the viewport edges.
+
 When only components are selected, both editors show:
 “Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip”.
 The hint clears or changes when selection changes to other object types.
@@ -190,7 +204,48 @@ The renderer owns the edit protocol, the same in every panel:
   both editors.
 - **Locked or layer-locked objects** use the native `disabled` attribute. The
   PCB's `lockedProperty(app, entries)` gives each panel its Locked field and
-  read-only state.
+  read-only state. Unavailable fields have a muted label, tinted control,
+  reduced opacity and a not-allowed cursor; disabled net controls retain a
+  muted dropdown indicator. Clicking a layer-disabled field or action shows a
+  short-lived "<layer name> layer locked" bubble beside the pointer, including
+  copper-fill row locks and focused track-node/segment locks. The own-object
+  Locked checkbox stays usable; clicking it never reports a layer lock.
+  Cut is disabled when every copyable selected object is locked, in both Home
+  and Properties; Copy remains available. Mixed selections can still cut their
+  unlocked members without modifying locked objects.
+
+Home drawing buttons are disabled only when all layers supported by that tool
+are locked. Clicking a disabled drawing button shows a brief popup listing its
+blocking layer locks (including Copper Fill rows), without an unlock action.
+The popup grows to fit its text, wrapping only at the window-width limit, and
+stays inside the window edges.
+Tool selection defaults to the active supported unlocked layer, or
+the first unlocked layer in dropdown order. Locked layer choices are disabled
+and display a grey monochrome lock icon; Both-side pads require both copper
+layers, and fills require the copper layer and its Copper Fill row unlocked.
+Drawing Properties has no Unlock/Show section or button, and there is no
+cursor-following unlock popup or blocked-tool badge. Refused placement reports
+the reason in the status bar; existing object/property lock feedback is unchanged.
+Attempting to draw on a hidden layer also shows a brief cursor popup naming
+the hidden layer (including a hidden Copper Fill row), without a Show/Unlock
+action or placing an invisible object.
+Locked drawing-layer assignments do not add a yellow outline or warning-label
+highlight to the dropdown; normal focus styling and the grey lock indicator remain.
+The Import Picture dialog uses the same grey monochrome lock marker for locked
+layer options. Locked and hidden layers remain unavailable as import destinations.
+Across Properties and dialogs, the closed dropdown also shows an unavailable
+selected value in grey, while remaining usable to choose an available value.
+Available entries retain their normal colour in the open list. Image-dialog
+layer choices update when layer locks or visibility change.
+While a PCB drawing tool is active, moving the pointer back onto the canvas
+releases focus from a Properties dropdown so Escape can cancel the tool or
+drawing. Text and number fields retain their native editing focus and key handling.
+
+While routing, Space can insert a Via and switch copper sides only when both
+the Via layer and destination copper layer are unlocked and visible. A blocked
+transition shows a brief non-actionable popup at the cursor naming the blocking
+layers, without adding a waypoint, Via or locked-layer preview. Changing the
+layer dropdown during an active route enforces the same transition checks.
 
 Labels use Title Case with units on measured values, and a property has the
 same label everywhere: Line Width (mm), Corner Radius (mm), Text Size (mm),
