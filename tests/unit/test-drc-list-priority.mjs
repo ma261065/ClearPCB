@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function element() {
@@ -11,6 +12,7 @@ document.getElementById = id => ({ pcbDrcList: list, pcbDrcEmpty: empty, pcbDrcS
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { getDrcPresentation } = await import('../../src/pcb/modules/drc-state.js');
 const app = Object.create(PCBApp.prototype);
+app.pcbDocument = new PcbDocument();
 const violation = (id, rule) => ({ id, rule, severity: 'error', message: id, x: 0, y: 0 });
 const drc = getDrcPresentation(app);
 drc.violations = [

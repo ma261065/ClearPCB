@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
+import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { bindPcbControls } from '../../src/pcb/modules/controls.js';
 import { preparePcbRibbonTransition, selectPcbTool, cancelPcbDrawingMode } from '../../src/pcb/modules/tool-lifecycle.js';
 import { PCB_SHAPE_TOOLS, normalizePcbTool } from '../../src/pcb/modules/pcb-tools.js';
@@ -46,6 +47,7 @@ function fixture() {
             ? tabs.find(tab => tab.classList.contains('active')) : null,
     };
     const app = { ...pcbEditorStubs(),
+        pcbDocument: new PcbDocument(),
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper',
         placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
             elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),

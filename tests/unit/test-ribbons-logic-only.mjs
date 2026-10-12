@@ -114,4 +114,25 @@ for (const path of LOOKUP_SOURCES) {
 }
 assert.deepEqual(lookupOffenders, [], 'Ribbon control behavior/state uses description handlers and renderer refresh; only host/slot lookups are allowed');
 
+{
+    const host = document.createElement('div');
+    let maximum = 1, checked = false;
+    const api = renderRibbon(host, { panels: [{ id: 'attributes-only', groups: [{ items: [
+        { kind: 'element', tag: 'input', id: 'live-number', value: () => '0.2',
+            attrs: { type: 'number', max: () => maximum } },
+        { kind: 'checkbox', id: 'live-check', label: 'Live checkbox', checked: () => checked },
+    ] }] }] });
+    const input = api.controls.get('live-number'), checkbox = api.controls.get('live-check');
+    input.value = '0.23456789';
+    checked = true;
+    maximum = 0.7;
+    api.refreshAttributes();
+    assert.equal(input.getAttribute('max'), '0.7', 'Dependent bounds refresh through the renderer');
+    assert.equal(input.value, '0.23456789', 'Attribute-only refresh preserves an in-progress numeric entry');
+    assert.equal(checkbox.checked, false, 'Attribute-only refresh does not rewrite unrelated control state');
+    api.refresh();
+    assert.equal(input.value, '0.2', 'Full refresh retains existing state synchronization');
+    assert.equal(checkbox.checked, true);
+}
+
 console.log(`PASS Ribbons are logic only (${DESCRIPTIONS.length} descriptions; controls built by shared/ui/ribbon.js)`);

@@ -102,7 +102,8 @@ authored.boardShapes.push(pictureArt, boardHole,
 const data = {
     ...authored.serialize(),
     stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
-    design: { trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'pathfinder' },
+    design: { trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'pathfinder',
+        excludeSameFootprintPadClearance: false },
     board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
     placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
 const prepared = PcbDocument.prepare(data);

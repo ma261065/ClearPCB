@@ -4,7 +4,7 @@ import { getSavedTheme, getThemeIcon, toggleTheme as toggleSharedTheme } from '.
 import { showPictureImport } from './picture-import.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 import { commitDesignInput } from './design-settings.js';
-import { PCB_DESIGN_MAX_MM } from '../../core/PcbDesignSettings.js';
+import { PCB_DESIGN_MAX_MM, PCB_MIN_VIA_ANNULAR_RING } from '../../core/PcbDesignSettings.js';
 import { preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
 import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, PCB_TOOLS, PCB_TOOL_PRESETS, normalizePcbTool, pcbToolAllLayersLocked, showPcbToolLayerLocks } from './pcb-tools.js';
 import { peekDrcPresentation } from './drc-state.js';
@@ -371,15 +371,24 @@ export function createPcbRibbonDescription(app) {
                                 value: () => designDisplay(app, key),
                                 attrs: {
                                     type: 'number',
-                                    min: () => String(MINIMUM_MM[key] * designFactor(app)),
-                                    max: () => String(Number((PCB_DESIGN_MAX_MM[key] * designFactor(app)).toFixed(designDigits(app)))),
+                                    min: () => String((key === 'viaDiameter'
+                                        ? Math.max(MINIMUM_MM[key], app.designSettings.values.viaDrill + 2 * PCB_MIN_VIA_ANNULAR_RING)
+                                        : MINIMUM_MM[key]) * designFactor(app)),
+                                    max: () => String(Number(((key === 'viaDrill'
+                                        ? Math.min(PCB_DESIGN_MAX_MM[key], app.designSettings.values.viaDiameter - 2 * PCB_MIN_VIA_ANNULAR_RING)
+                                        : PCB_DESIGN_MAX_MM[key]) * designFactor(app)).toFixed(designDigits(app)))),
                                     step: () => app.designSettings.values.units === 'inch' ? '0.001' : step,
                                     'data-number-format': 'precise',
                                 },
-                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e */
-                                onInput: (_value, e) => commitDesignInput(app, key, e.target, app.designSettings.values.units),
-                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e */
-                                onChange: (_value, e) => { if (!commitDesignInput(app, key, e.target, app.designSettings.values.units)) e.target.reportValidity?.(); },
+                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e @param {import('../../shared/ui/ribbon.js').RibbonApi} api */
+                                onInput: (_value, e, api) => {
+                                    if (commitDesignInput(app, key, e.target, app.designSettings.values.units)) api.refreshAttributes();
+                                },
+                                /** @param {string} _value @param {InputEvent & {target: HTMLInputElement}} e @param {import('../../shared/ui/ribbon.js').RibbonApi} api */
+                                onChange: (_value, e, api) => {
+                                    if (commitDesignInput(app, key, e.target, app.designSettings.values.units)) api.refreshAttributes();
+                                    else e.target.reportValidity?.();
+                                },
                                 refreshOnInput: false,
                                 refreshOnChange: false,
                             }))),

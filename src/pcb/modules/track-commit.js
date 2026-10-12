@@ -5,11 +5,13 @@ import { ModifyFillCommand } from './copper-fill-commands.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { Track } from '../../shapes/track.js';
+import { Via } from '../../shapes/via.js';
+import { isLayerLocked, isLayerVisible, placementBlock, placementBlockName, showLayerBubble } from './layers.js';
+import { viaDimensionError } from '../../core/PcbDesignSettings.js';
 import { viaAtPoint } from './track-edits.js';
 import { NODE_MERGE_EPS } from './track-drop.js';
 import { findNearbyTrackSegment } from './track-snap.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {import('../../shapes/via.js').Via} Via */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 /** @typedef {import('../../core/netlist.js').NetShape} NetShape */
 /** @typedef {import('./track-connections.js').BondedCopper} BondedCopper */
@@ -224,6 +226,8 @@ export function commitDrawnTracks(app, tracks, vias = [], destinationShapes = []
  *
  * Cross-layer coincidences are deliberately NOT fused here — those remain
  * distinct single-layer nodes bonded by a via (the via/transition model).
+ * Drawn endpoints on opposite-layer nodes create a Via before Net validation,
+ * unless one already exists; the Via commits and undoes with the drawing.
  *
  * @param {PcbEditor} app
  * @param {Track|Track[]} newTracks freshly built (uncommitted) tracks
@@ -233,8 +237,46 @@ export function commitDrawnTracks(app, tracks, vias = [], destinationShapes = []
  */
 export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinationShapes = []) {
     const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
-    const vias = newVias || [];
+    const vias = [...newVias];
     const drawnSet = new Set(drawn);
+    for (const track of drawn) {
+        for (const [nodeId, point] of track.nodes) {
+            if (track.degree(nodeId) !== 1) continue;
+            const layers = _incidentLayers(track, nodeId);
+            const target = (app.tracks || []).some((/** @type {Track} */ other) => {
+                if (drawnSet.has(other) || lockedJoinTarget(app, other) || other.visible === false) return false;
+                return [...other.nodes].some(([id, position]) => {
+                    if (Math.abs(position.x - point.x) >= NODE_MERGE_EPS
+                        || Math.abs(position.y - point.y) >= NODE_MERGE_EPS) return false;
+                    const otherLayers = _incidentLayers(other, id);
+                    return ![...layers].some(layer => otherLayers.has(layer))
+                        && [...otherLayers].some(layer => ['top-copper', 'bottom-copper'].includes(layer)
+                            && isLayerVisible(layer) && !isLayerLocked(layer));
+                });
+            });
+            if (!target || [...(app.vias || []), ...vias].some(via =>
+                Math.abs(via.x - point.x) < NODE_MERGE_EPS && Math.abs(via.y - point.y) < NODE_MERGE_EPS)) continue;
+            const block = placementBlock([{ id: 'vias' }]);
+            if (block) {
+                const message = `${placementBlockName(block)} layer ${block.reason}`;
+                app.setStatus(message);
+                const viewport = app.viewport;
+                const screen = viewport?.worldToScreen(point), rect = viewport?.svg.getBoundingClientRect();
+                showLayerBubble(app, block, screen && rect ? { x: rect.left + screen.x, y: rect.top + screen.y } : undefined,
+                    { message });
+                return false;
+            }
+            const params = app.getRoutingParams();
+            const error = viaDimensionError(params.viaDiameter, params.viaDrill);
+            if (error) {
+                app.setStatus(error);
+                app.alert(error, { title: 'Via dimensions' });
+                return false;
+            }
+            vias.push(new Via({ x: point.x, y: point.y, diameter: params.viaDiameter,
+                drill: params.viaDrill, net: track.net || '' }));
+        }
+    }
     const bonded = collectNodeConnections(copperBoardWith(app, {
         tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
     }), new Map(drawn.map(track => [track, new Set(track.nodes.keys())])));

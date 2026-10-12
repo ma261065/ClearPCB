@@ -165,6 +165,9 @@ successful updates; rejected updates do not suppress default restoration, and
 New keeps the marker with the last-used values. A fresh model accepts
 local defaults, including display-unit values from saved data. Binding always displays
 the model's values without reading rounded controls back.
+The same-footprint pad clearance exclusion is an optional boolean Design field
+(`epc` in compact files). Files without it load with exclusion off instead of
+inheriting an exclusion from the previously open project.
 The first viewport restores the model's loaded grid preferences. Controls bound
 before or after viewport creation synchronize from the live viewport, selecting
 the nearest fixed grid preset. Later viewport checks do not

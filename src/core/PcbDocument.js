@@ -150,7 +150,9 @@ export class PcbDocument {
         const loaded = prepared.data || data;
         this._loadedSection = !!loaded;
         this.settings = structuredClone(loaded?.settings);
-        if (loaded?.design) this.designSettings.update(clampDesignDimensions(loaded.design));
+        if (loaded?.design) this.designSettings.update({
+            excludeSameFootprintPadClearance: false, ...clampDesignDimensions(loaded.design),
+        });
         this.placementState.load(loaded?.placements);
         const board = loaded?.board;
         const outline = getBoardOutline(this);

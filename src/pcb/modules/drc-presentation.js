@@ -6,6 +6,8 @@
  * @property {(id:'drc-overlay'|'ratlines', create?:boolean) => SVGElement|null} getLayerGroup
  * @property {() => DrcViewport|null} getViewport Viewbox, SVG and screen conversion/navigation only.
  * @property {(violation:DrcViolation) => DrcViolation|null} [resolvePairMarker] Recheck the selected pair's displayed copper.
+ * @property {() => boolean} [sameFootprintPadClearanceExcluded] Whether the Design exclusion is enabled.
+ * @property {(excluded: boolean) => void} setSameFootprintPadClearanceExcluded Commit the panel's saved exclusion setting.
  *
  * @typedef {object} DrcViewport
  * @property {{x:number,y:number,width:number,height:number}} viewBox
@@ -185,6 +187,11 @@ export class DrcPresentation {
             e.stopPropagation();
             this.closePanel();
         });
+        const exclusion = /** @type {HTMLInputElement|null} */ (this.dom.getElementById('pcbExcludeSameFootprintPadClearance'));
+        this.listen(exclusion, 'change', () => {
+            this.capabilities.setSameFootprintPadClearanceExcluded(/** @type {HTMLInputElement} */ (exclusion).checked);
+            this.updateExclusionNotice();
+        });
         const slidePanel = this.dom.getElementById('pcbDrcSlidePanel');
         const clearBoardSelection = () => this.capabilities.clearBoardSelection();
         if (slidePanel) {
@@ -293,6 +300,7 @@ export class DrcPresentation {
     /** @param {DrcResult} result @param {boolean} [pending] */
     updateStatus(result, pending = false) {
         if (this.disposed) return;
+        this.updateExclusionNotice();
         const btn = this.dom.getElementById('pcbDrcStatus');
         const icon = this.dom.getElementById('pcbDrcIcon');
         const label = this.dom.getElementById('pcbDrcLabel');
@@ -324,8 +332,18 @@ export class DrcPresentation {
         }
     }
 
+    updateExclusionNotice() {
+        const excluded = !!this.capabilities.sameFootprintPadClearanceExcluded?.();
+        const checkbox = /** @type {HTMLInputElement|null} */ (this.dom.getElementById('pcbExcludeSameFootprintPadClearance'));
+        if (checkbox) checkbox.checked = excluded;
+        const notice = this.dom.getElementById('pcbDrcExclusionNotice');
+        if (!notice) return;
+        notice.hidden = !excluded;
+    }
+
     renderList() {
         if (this.disposed) return;
+        this.updateExclusionNotice();
         for (const remove of this.rowListeners.splice(0)) remove();
         const list = this.dom.getElementById('pcbDrcList');
         const empty = this.dom.getElementById('pcbDrcEmpty');
@@ -457,6 +475,7 @@ export class DrcPresentation {
         const btn = this.dom.getElementById('pcbDrcStatus');
         if (!panel) return;
         panel.classList.add('open');
+        this.updateExclusionNotice();
         panel.setAttribute('aria-hidden', 'false');
         btn?.setAttribute('aria-expanded', 'true');
         btn?.classList.add('drc-status-active');

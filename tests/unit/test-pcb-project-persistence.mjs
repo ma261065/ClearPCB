@@ -10,7 +10,7 @@ assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
 const blank = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
 const design = { trackWidth: 0.2345, clearance: 0.1234, viaDiameter: 0.6, viaDrill: 0.3,
-    units: 'inch', router: 'pathfinder' };
+    units: 'inch', router: 'pathfinder', excludeSameFootprintPadClearance: false };
 const input = {
     ...blank(),
     schematic: { shapes: [{ id: 'shape_1', type: 'circle', x: 5, y: 4, r: 2 }], components: [] },

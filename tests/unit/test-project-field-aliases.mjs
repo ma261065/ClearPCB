@@ -132,6 +132,16 @@ const compact = compactProjectAliases(longProject);
 assert.deepEqual(compact.pcb.stackup, { cl: ['top-copper', 'bottom-copper'] });
 assert.deepEqual(compact.pcb.board, { w: 100, h: 80, r: 1 });
 assert.deepEqual(compact.pcb.design, { tw: 0.2, cl: 0.2, vd: 0.6, dr: 0.3, u: 'mm', rt: 'maze' });
+for (const excluded of [false, true]) {
+    const project = structuredClone(longProject);
+    project.pcb.design.excludeSameFootprintPadClearance = excluded;
+    const compact = compactProjectAliases(project);
+    assert.equal(compact.pcb.design.epc, excluded);
+    assert.equal(validateProject(compact).pcb.design.excludeSameFootprintPadClearance, excluded);
+}
+const invalidExclusion = structuredClone(longProject);
+invalidExclusion.pcb.design.excludeSameFootprintPadClearance = 'true';
+assert.throws(() => validateProject(invalidExclusion), /Expected a boolean.*[\s\S]*pcb.design.excludeSameFootprintPadClearance/);
 assert.equal(compact.pcb.boardShapes[0].k, 'rect');
 assert.equal(compact.pcb.boardShapes[1].k, 'polygon');
 assert.equal(compact.pcb.tracks[0].sbs.k, 'line');

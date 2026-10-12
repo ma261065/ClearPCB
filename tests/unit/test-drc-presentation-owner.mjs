@@ -59,7 +59,8 @@ class Element {
 
 function fixture(extraCapabilities = {}) {
     const ids = ['pcbDrcStatus', 'pcbDrcIcon', 'pcbDrcLabel', 'pcbDrcSlideClose', 'pcbDrcSlidePanel',
-        'pcbDrcList', 'pcbDrcEmpty', 'pcbDrcSlideTitle', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill', 'pcbRouteUnits'];
+        'pcbDrcList', 'pcbDrcEmpty', 'pcbDrcSlideTitle', 'pcbDrcExclusionNotice', 'pcbExcludeSameFootprintPadClearance',
+        'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill', 'pcbRouteUnits'];
     const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
     const all = Object.values(elements);
     const body = new Element(), overlay = new Element('g'), rats = new Element('g');
@@ -90,6 +91,7 @@ function fixture(extraCapabilities = {}) {
         requestRefresh: () => { refreshes++; },
         collectRatlines: () => ratlines,
         clearBoardSelection: () => { clears++; },
+        setSameFootprintPadClearanceExcluded() {},
         getLayerGroup: id => id === 'drc-overlay' ? overlay : id === 'ratlines' ? rats : null,
         getViewport: () => viewport,
         ...extraCapabilities,
@@ -111,6 +113,26 @@ const ratline = (id, x = 0, net = 'N') => ({
 const result = violations => ({ violations, ok: violations.length === 0,
     counts: { errors: violations.filter(v => v.severity === 'error').length,
         warnings: violations.filter(v => v.severity !== 'error').length } });
+
+{
+    let excluded = false;
+    const { owner, elements } = fixture({ sameFootprintPadClearanceExcluded: () => excluded,
+        setSameFootprintPadClearanceExcluded: value => { excluded = value; } });
+    owner.initialize();
+    assert.equal(elements.pcbDrcExclusionNotice.hidden, true);
+    assert.equal(elements.pcbExcludeSameFootprintPadClearance.checked, false);
+    elements.pcbExcludeSameFootprintPadClearance.checked = true;
+    elements.pcbExcludeSameFootprintPadClearance.fire('change');
+    assert.equal(excluded, true, 'The panel checkbox commits through its capability');
+    owner.updateStatus(result([]), true);
+    assert.equal(elements.pcbDrcExclusionNotice.hidden, false, 'Notice updates as soon as a check is pending');
+    owner.adoptResult(result([]));
+    assert.equal(elements.pcbDrcExclusionNotice.hidden, false, 'No problems must not hide an active exclusion');
+    excluded = false;
+    owner.updateStatus(result([]), true);
+    assert.equal(elements.pcbDrcExclusionNotice.hidden, true);
+    assert.equal(elements.pcbExcludeSameFootprintPadClearance.checked, false, 'Panel controls reflect adopted model settings');
+}
 
 {
     const f = fixture(), { owner, elements, panel } = f;

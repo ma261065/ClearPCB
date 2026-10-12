@@ -1,4 +1,5 @@
 import { AutorouterPresentation } from './autorouter-presentation.js';
+import { viaDimensionError } from '../../core/PcbDesignSettings.js';
 
 /**
  * @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams
@@ -97,6 +98,9 @@ export class AutorouterSession {
         const current = () => this._isCurrent(session);
         let adopting = false;
         try {
+            const viaError = viaDimensionError(/** @type {number} */ (session.rules.viaDiameter),
+                /** @type {number} */ (session.rules.viaDrill));
+            if (viaError) throw new Error(viaError);
             this.presentation.start();
             const input = this.capabilities.takeRouteInput();
             input.trackWidth = session.rules.trackWidth;

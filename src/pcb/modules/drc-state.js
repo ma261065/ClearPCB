@@ -6,6 +6,7 @@ import { clearSelectionInteractionUi } from './selection-interaction.js';
 import { getPcbSelection } from './selection-registry.js';
 import { isBoardOutlineSelected } from './board-outline-resize.js';
 import { hasTrackEdit } from './track-select.js';
+import { commitSameFootprintPadClearanceExclusion } from './design-settings.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {{net: string, x1: number, y1: number, x2: number, y2: number, failed?: boolean}} Ratline */
@@ -39,7 +40,12 @@ export function getDrcPresentation(app) {
         state.presentation = new DrcPresentation({
             requestRefresh: () => scheduleDrc(app),
             collectRatlines: () => collectDrcRatlines(app),
-            resolvePairMarker: violation => resolveDrcPairMarker(app, violation, app.getRoutingParams()),
+            resolvePairMarker: violation => resolveDrcPairMarker(app, violation, {
+                ...app.getRoutingParams(),
+                excludeSameFootprintPadClearance: app.pcbDocument.designSettings.values.excludeSameFootprintPadClearance,
+            }),
+            sameFootprintPadClearanceExcluded: () => app.pcbDocument.designSettings.values.excludeSameFootprintPadClearance,
+            setSameFootprintPadClearanceExcluded: excluded => commitSameFootprintPadClearanceExclusion(app, excluded),
             clearBoardSelection: () => {
                 if (!getPcbSelection(app).length && !isBoardOutlineSelected(app) && !hasTrackEdit(app)) return;
                 clearSelectionInteractionUi(app);

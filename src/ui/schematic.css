@@ -3500,8 +3500,38 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     display: inline-flex;
 }
 
+.drc-panel-options {
+    flex: none;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.drc-exclusion-control {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.drc-exclusion-control input {
+    flex: none;
+    margin: 2px 0 0;
+    accent-color: var(--accent-color);
+}
+
+.drc-exclusion-notice {
+    padding-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 .drc-status {
     display: inline-flex;
+    flex: none;
+    width: 160px;
+    box-sizing: border-box;
     align-items: center;
     gap: 6px;
     padding: 3px 9px;
@@ -3525,6 +3555,7 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     justify-content: center;
     width: 16px;
     height: 16px;
+    flex: none;
     border-radius: 50%;
     font-size: 11px;
     font-weight: bold;
@@ -3532,6 +3563,13 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     text-align: center;
     font-style: normal;
     color: #fff;
+}
+
+.drc-status-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .drc-status-pending .drc-status-icon { background: #888; }

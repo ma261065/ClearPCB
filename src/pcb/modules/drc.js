@@ -10,9 +10,8 @@
  * Checks implemented:
  *   1. Clearance — copper of different nets, on a shared layer, closer than
  *      the design-rule Clearance gap (pad/pad, pad/track, pad/via, track/
- *      track, track/via, via/via). Pads within the SAME footprint are
- *      trusted (intra-footprint pad geometry is defined by the part, not the
- *      layout) and skipped to avoid flooding on fine-pitch ICs.
+ *      track, track/via, via/via). Same-footprint pad clearance is checked
+ *      unless explicitly excluded by the Design setting.
  *   2. Via annular ring — copper ring (diameter − drill)/2 below a minimum,
  *      and invalid drills (drill ≥ diameter or non-positive).
  *   3. Incomplete connections — every remaining ratsnest line (an air wire
@@ -43,6 +42,7 @@ import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
 import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior, strokedPointDistance } from './arc-clearance.js';
 import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
+import { PCB_MIN_VIA_ANNULAR_RING } from '../../core/PcbDesignSettings.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 /** @typedef {{x:number,y:number}} Point */
@@ -50,14 +50,14 @@ import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 /** @typedef {{dist:number,x:number,y:number}} DistanceResult */
 /** @typedef {Record<string, any>} CopperFeature */
 /** @typedef {{pads:CopperFeature[],segments:CopperFeature[],vias:CopperFeature[],areas:CopperFeature[],circles:CopperFeature[],arcs:CopperFeature[]}} CopperCollection */
-/** @typedef {{clearance?: number, minAnnularRing?: number, trackWidth?: number, viaDiameter?: number, viaDrill?: number, ratlines?: import('./drc-state.js').Ratline[]}} DrcRules */
+/** @typedef {{clearance?: number, minAnnularRing?: number, trackWidth?: number, viaDiameter?: number, viaDrill?: number, excludeSameFootprintPadClearance?: boolean, ratlines?: import('./drc-state.js').Ratline[]}} DrcRules */
 /** @typedef {{type?: string, r?: number, a?: Point, b?: Point, net?: string, pair?: unknown}|any} DrcMarker */
 /** @typedef {{id:string,rule:string,severity:string,message:string,x:number,y:number,marker:DrcMarker}} DrcViolation */
 /** @typedef {{ok: boolean, violations: DrcViolation[], counts: {errors: number, warnings: number}}} DrcResult */
 /** @typedef {{nets:string[], point:Point, features:Set<CopperFeature>, contactFeatures:Set<CopperFeature>}} ShortResult */
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
-const DEFAULT_MIN_ANNULAR_RING = 0.05;
+const DEFAULT_MIN_ANNULAR_RING = PCB_MIN_VIA_ANNULAR_RING;
 
 /** Numeric tolerance (mm) so coincident-by-design copper isn't flagged. */
 const EPS = 1e-4;
@@ -320,16 +320,18 @@ export function resolveDrcPairMarker(app, violation, rules = {}) {
     const ruleClearance = rules.clearance;
     const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
     const distance = createCopperDistanceChecker(clearance);
-    const closest = closestCopperPair(first, second, clearance, distance, violation.rule === 'short', violation);
+    const closest = closestCopperPair(first, second, clearance, distance, violation.rule === 'short', violation,
+        rules.excludeSameFootprintPadClearance);
     return closest ? { ...violation, x: closest.x, y: closest.y } : null;
 }
 
 /** Use the same physical witness for full reports and selected-pair live markers.
  * @param {CopperFeature[]} first @param {CopperFeature[]} second @param {number} clearance
  * @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance
- * @param {boolean} short @param {Point} anchor @returns {DistanceResult|null}
+ * @param {boolean} short @param {Point} anchor @param {boolean} [excludeSameFootprintPadClearance]
+ * @returns {DistanceResult|null}
  */
-function closestCopperPair(first, second, clearance, distance, short, anchor) {
+function closestCopperPair(first, second, clearance, distance, short, anchor, excludeSameFootprintPadClearance = false) {
     /** @type {DistanceResult|null} */
     let closest = null;
     for (const [a, b] of spatialCrossPairsPrepared(
@@ -337,8 +339,7 @@ function closestCopperPair(first, second, clearance, distance, short, anchor) {
         if (!layersOverlap(a.layer, b.layer)) continue;
         // A short's joining pair can be an unassigned bridge between named groups.
         if (sameNet(a.net, b.net) && !(short && !a.net && !b.net)) continue;
-        if (!short && (a.originalKind || a.kind) === 'pad' && (b.originalKind || b.kind) === 'pad'
-            && a.componentId === b.componentId) continue;
+        if (!short && excludeSameFootprintPadClearance && sameFootprintPads(a, b)) continue;
         if (a.trackId && a.trackId === b.trackId) continue;
         const gap = distance(a, b);
         if (gap.dist < clearance - EPS && (!closest || gap.dist < closest.dist
@@ -346,6 +347,12 @@ function closestCopperPair(first, second, clearance, distance, short, anchor) {
                 < Math.hypot(closest.x - anchor.x, closest.y - anchor.y))) closest = gap;
     }
     return closest;
+}
+
+/** @param {CopperFeature} first @param {CopperFeature} second */
+function sameFootprintPads(first, second) {
+    return (first.originalKind || first.kind) === 'pad' && (second.originalKind || second.kind) === 'pad'
+        && first.componentId != null && first.componentId === second.componentId;
 }
 
 /** @param {CopperFeature[]} features */
@@ -404,6 +411,10 @@ export function collectDrcInputs(app, rules = {}, fill = { pending: isFillRefres
  *   rules?: DrcRules}} inputs
  */
 export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPending, fillFailed }) {
+    if (rules.excludeSameFootprintPadClearance !== undefined
+        && typeof rules.excludeSameFootprintPadClearance !== 'boolean') {
+        throw new Error('DRC same-footprint pad clearance exclusion must be a boolean.');
+    }
     const ruleClearance = rules.clearance;
     const ruleMinRing = rules.minAnnularRing;
     const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
@@ -479,8 +490,7 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
     }
     for (const [first, second] of spatialPairs(remainingCopper, featureBounds, clearance)) {
         if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
-        if ((first.originalKind || first.kind) === 'pad' && (second.originalKind || second.kind) === 'pad'
-            && first.componentId === second.componentId) continue;
+        if (rules.excludeSameFootprintPadClearance && sameFootprintPads(first, second)) continue;
         if (first.trackId && first.trackId === second.trackId) continue;
         const distance = copperDistance(first, second);
         // Named-net contacts belong to the shorted group; keep positive gaps

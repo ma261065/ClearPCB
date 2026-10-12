@@ -4,7 +4,7 @@
  * gesture's changes become one undoable command (trackPointerCommands). reconcileCopperRegion
  * re-derives the nets of copper a change touched.
  */
-import { collectNodeConnections } from './track-connections.js';
+import { collectNodeConnections, copperBoardWith } from './track-connections.js';
 import { showBondedNetConflict } from './track-commit.js';
 import { MoveVertexCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack } from './track-commands.js';
 import { Via } from '../../shapes/via.js';
@@ -505,6 +505,8 @@ export function trackPointerCommands(app, view, drag) {
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode || drag.snapTargetSegment)) {
         const nodeId = drag.nodes[0].nodeId;
         const target = _droppedNodeTarget(view, drag);
+        /** @type {Set<Via>} */
+        const newVias = new Set();
         let prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ (view));
         if (target && !drag.topology) {
             const fromLayers = _incidentLayers(drag.track, nodeId);
@@ -514,13 +516,27 @@ export function trackPointerCommands(app, view, drag) {
                 && !_hasViaAt(app, point.x, point.y)) {
                 // Validate the connection the merge will create across layers,
                 // including the transition Via that is not on the board yet.
+                const via = _makeViaAt(app, point.x, point.y, '');
+                newVias.add(via);
                 prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ ({ ...view,
-                    vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] }));
+                    vias: [...(app.vias || []), via] }));
             }
         }
-        const bonded = collectNodeConnections(prospectiveApp,
-            new Map([[drag.track, new Set([nodeId])]]));
-        const nets = _bondedNets(bonded);
+        const placedNodes = new Map([[drag.track, new Set([nodeId])]]);
+        const introduced = collectNodeConnections(prospectiveApp, placedNodes,
+            { previousTracks: new Map([[drag.track, drag.original]]), newVias });
+        const nets = _bondedNets(introduced);
+        if (!drag.track.net && nets.size) {
+            const previousBoard = copperBoardWith(app, {
+                tracks: view.tracks.map((/** @type {Track} */ track) => track === drag.track ? drag.original : track),
+            });
+            const previous = collectNodeConnections(previousBoard,
+                new Map([[drag.original, new Set(drag.original.nodes.keys())]]));
+            const previousNets = _bondedNets(previous);
+            if (previousNets.size === 1 || [...nets].some(net => !previousNets.has(net))) {
+                for (const net of previousNets) nets.add(net);
+            }
+        }
         if (nets.size > 1) {
             const terminalNet = drag.snapTargetVia?.net;
             if (drag.track.net && terminalNet && drag.track.net !== terminalNet) {
@@ -528,7 +544,9 @@ export function trackPointerCommands(app, view, drag) {
             } else showBondedNetConflict(app, nets);
             return [];
         }
-        const net = [...nets][0];
+        const bonded = collectNodeConnections(prospectiveApp, placedNodes);
+        const bondedNets = _bondedNets(bonded);
+        const net = bondedNets.size === 1 ? [...bondedNets][0] : null;
         if (net) netCommand = new AdoptDroppedCopperNetCommand(app, bonded, net);
     }
     /** @param {CommandLike[]} commands */

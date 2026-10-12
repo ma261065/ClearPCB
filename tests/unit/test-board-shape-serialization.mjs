@@ -243,7 +243,7 @@ assert.deepEqual(savedPcb.placements.comp_4, { x: 27.94, y: -38.1, rot: 45.1235,
     lk: true, mir: true, sd: 'bottom', rv: false });
 assert.deepEqual(savedPcb.board, { w: 100.1235, h: 80, r: 1.2346 });
 assert.deepEqual(savedPcb.design, { tw: 0.2, cl: 0.1235, vd: 0.6,
-    dr: 0.3, u: 'mm', rt: 'pathfinder' });
+    dr: 0.3, u: 'mm', rt: 'pathfinder', epc: false });
 assert.deepEqual(text, beforeText);
 assert.deepEqual(placement, beforePlacement);
 assert.deepEqual(serializePcbText(text), beforeText, 'undo and clipboard snapshots retain full text precision');

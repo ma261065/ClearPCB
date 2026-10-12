@@ -192,7 +192,8 @@ const nativeCases = [];
     model.vias.push(new Via({ id: 'small-via', x: 30, y: 0, diameter: 0.5, drill: 0.25 }));
     app.getRoutingParams = () => ({ clearance: 0.2, trackWidth: 0.200123456789,
         viaDiameter: 0.600123456789, viaDrill: 0.300123456789 });
-    const rules = { ...app.getRoutingParams(), minAnnularRing: 0.05, ratlines: [] };
+    const rules = { ...app.getRoutingParams(), minAnnularRing: 0.05,
+        excludeSameFootprintPadClearance: false, ratlines: [] };
     const expected = runDRC(app, rules), inputs = captureDrcInputs(app, rules);
     assert.deepEqual(expected.violations.map(item => item.rule), ['track-width', 'via-diameter', 'via-drill']);
     assert.deepEqual(inputs.rules, rules, 'Worker retains all full-precision routing minimums');
@@ -200,6 +201,39 @@ const nativeCases = [];
     runDrcNow(app);
     assert.deepEqual(app.lastResult, expected, 'Direct editor checks use all Design routing values');
     nativeCases.push({ inputs, expected });
+}
+
+{
+    const { app, model } = fixture();
+    model.tracks.length = model.vias.length = model.pads.length = model.boardShapes.length = 0;
+    model.texts.clear();
+    app.placements.clear();
+    app.placements.set('U1', { x: 0, y: 0, reference: 'U1', side: 'top', padOffsets: [
+        { padId: '1', number: '1', dx: 0, dy: 0, width: 1, height: 1, shape: 'rect', layer: 'top' },
+        { padId: '2', number: '2', dx: 1.2, dy: 0, width: 1, height: 1, shape: 'rect', layer: 'top' },
+    ] });
+    app.netlist = [
+        { net: 'A', pins: [{ componentId: 'U1', pinNumber: '1' }] },
+        { net: 'B', pins: [{ componentId: 'U1', pinNumber: '2' }] },
+    ];
+    app.getRoutingParams = () => ({ clearance: 0.3 });
+    for (const excluded of [false, true]) {
+        model.designSettings.update({ excludeSameFootprintPadClearance: excluded });
+        const rules = { clearance: 0.3, minAnnularRing: 0.05, ratlines: [],
+            excludeSameFootprintPadClearance: excluded };
+        const inputs = captureDrcInputs(app, rules), expected = runDRC(app, rules);
+        assert.equal(expected.violations.length, excluded ? 0 : 1);
+        assert.equal(inputs.rules.excludeSameFootprintPadClearance, excluded);
+        assert.deepEqual(runDrcInputs(inputs), expected);
+        runDrcNow(app);
+        assert.deepEqual(app.lastResult, expected, 'Direct editor checks use the stored exclusion setting');
+        nativeCases.push({ inputs, expected });
+        app.placements.get('U1').padOffsets[1].dx = 0.8;
+        const short = runDRC(app, rules);
+        assert.equal(short.violations[0].rule, 'short', 'Native worker must retain shorts under either policy');
+        nativeCases.push({ inputs: captureDrcInputs(app, rules), expected: short });
+        app.placements.get('U1').padOffsets[1].dx = 1.2;
+    }
 }
 
 // A real module worker: reject storage/network/file/UI imports and accesses, not merely fake math.

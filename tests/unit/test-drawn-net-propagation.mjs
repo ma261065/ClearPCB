@@ -33,6 +33,7 @@ function fixture() {
         ],
         placements: new Map([['U1', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }]]),
         getLayerGroup() { return null; },
+        getRoutingParams: () => pcbDocument.designSettings.getRoutingParams(),
         existingLayerGroups: () => new Map(),
         _shapeElements: new Map(),
         alert(message) { this.lastAlert = message; },
@@ -270,12 +271,17 @@ for (const reverse of [false, true]) {
     const bottom = track(0, 0, -10, 0, 'bottom-copper');
     app.tracks.push(bottom);
     commitDrawnTracks(app, [track(0, 0, 20, 0)]);
-    assert.equal(bottom.net, '', 'opposite layers do not bond without a plated terminal');
+    assert.equal(bottom.net, 'SIGNAL', 'An endpoint on an opposite-layer node inserts a plated Via');
+    assert.equal(app.vias.length, 1);
+    assert.equal(app.vias[0].net, 'SIGNAL');
     app.commands[0].undo();
+    assert.equal(bottom.net, '');
+    assert.equal(app.vias.length, 0);
     app.vias.push(source);
     commitDrawnTracks(app, [track(0, 0, 20, 0)]);
     assert.equal(bottom.net, 'SIGNAL');
     assert.equal(source.net, 'SIGNAL');
+    assert.equal(app.vias.length, 1, 'Existing plated terminal is reused');
 }
 
 {

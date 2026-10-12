@@ -226,7 +226,8 @@ snapshotModel.loadPanelization(expectedPanel);
 const grid = { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false };
 const expectedSnapshot = compactProjectAliases({ pcb: {
     stackup: defaultPcbStackup(), board: { width: 37.1235, height: 21.2346, radius: 2.3457 },
-    design: { trackWidth: 0.2, clearance: 0.1235, viaDiameter: 0.3, viaDrill: 0.15, units: 'inch', router: 'pathfinder' },
+    design: { trackWidth: 0.2, clearance: 0.1235, viaDiameter: 0.3, viaDrill: 0.15, units: 'inch', router: 'pathfinder',
+        excludeSameFootprintPadClearance: false },
     panelization: expectedPanel, settings: grid, ...snapshotModel.serializeEntities(),
     placements: { U1: { x: 3.1235, y: -4.2346, rotation: 90, side: 'bottom', refVisible: false, refDx: 0.1235 } },
 } }).pcb;

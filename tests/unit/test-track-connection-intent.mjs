@@ -116,6 +116,93 @@ for (const kind of ['segment', 'arc', 'pad', 'via', 'shape']) {
     assert.deepEqual(app.pcbDocument.captureGeometry(), before);
 }
 
+for (const kind of ['track', 'pad', 'via', 'shape']) {
+    const app = fixture();
+    const source = track([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }]);
+    app.tracks.push(source);
+    const existing = kind === 'track' ? track([{ x: 0, y: 0 }, { x: 0, y: -5 }], 'B')
+        : kind === 'pad' ? new Pad({ x: 0, y: 0, net: 'B' })
+            : kind === 'via' ? new Via({ x: 0, y: 0, net: 'B' })
+                : { ...rectangle('B'), points: [
+                    { x: -1, y: -1 }, { x: 1, y: -1 }, { x: 1, y: 1 }, { x: -1, y: 1 },
+                ] };
+    app[kind === 'track' ? 'tracks' : kind === 'shape' ? 'boardShapes' : `${kind}s`].push(existing);
+    assert.ok(runDRC(app, { clearance: 0.2 }).violations.some(item => item.rule === 'short'));
+    const before = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 10, y: 2 });
+    assert.equal(app.alerts.length, 0, `${kind}: unchanged endpoint short must not reject a remote node edit`);
+    assert.equal(app.history.undoStack.length, 1);
+    assert.equal(source.net, 'A', 'Existing shorts do not relabel authored nets');
+    assert.equal(existing.net, 'B');
+    assertUndo(app, before, app.pcbDocument.captureGeometry());
+    app.pads.push(new Pad({ x: 20, y: 2, net: 'B' }));
+    const unchanged = app.pcbDocument.captureGeometry(), historySize = app.history.undoStack.length;
+    dragEnd(app, source, { x: 20, y: 2 });
+    assert.equal(app.alerts.length, 1, `${kind}: a new short to the same already-shorted net is still rejected`);
+    assert.equal(app.history.undoStack.length, historySize);
+    assert.deepEqual(app.pcbDocument.captureGeometry(), unchanged);
+}
+
+{
+    const app = fixture();
+    const source = track([{ x: 0, y: 0 }, { x: 10, y: 0 }]);
+    app.tracks.push(source);
+    app.pads.push(new Pad({ x: 10, y: 0, net: 'B', size: 2 }));
+    const before = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 10.25, y: 0 });
+    assert.equal(app.alerts.length, 0, 'Moving within an already contacted foreign pad does not create a new short');
+    assert.equal(app.history.undoStack.length, 1);
+    assertUndo(app, before, app.pcbDocument.captureGeometry());
+    dragEnd(app, source, { x: 14, y: 3 });
+    assert.equal(app.alerts.length, 0, 'Moving away from the existing short is allowed');
+    assert.equal(runDRC(app, { clearance: 0.2 }).violations.some(item => item.rule === 'short'), false);
+}
+
+{
+    const app = fixture();
+    const source = track([{ x: 0, y: 0 }, { x: 10, y: 0 }], '');
+    app.tracks.push(source);
+    app.pads.push(new Pad({ x: 0, y: 0, net: 'A' }), new Pad({ x: 20, y: 0, net: 'B' }));
+    const before = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 20, y: 0 });
+    assert.equal(app.alerts.length, 1, 'A No Net track anchored to A cannot create a new bridge to B');
+    assert.deepEqual(app.pcbDocument.captureGeometry(), before);
+    assert.equal(app.history.undoStack.length, 0);
+}
+
+{
+    const app = fixture();
+    const source = track([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }], '');
+    app.tracks.push(source);
+    app.pads.push(new Pad({ x: 0, y: 0, net: 'A' }), new Pad({ x: 5, y: 0, net: 'B' }),
+        new Pad({ x: 20, y: 0, net: 'C' }));
+    const before = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 11, y: 2 });
+    assert.equal(app.alerts.length, 0, 'An already shorted unassigned bridge remains editable');
+    assert.equal(source.net, '', 'Editing an ambiguous bridge never picks an arbitrary net');
+    assert.equal(app.history.undoStack.length, 1);
+    assertUndo(app, before, app.pcbDocument.captureGeometry());
+    const unchanged = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 20, y: 0 });
+    assert.equal(app.alerts.length, 1, 'An unassigned bridge cannot add a new short to a third net');
+    assert.deepEqual(app.pcbDocument.captureGeometry(), unchanged);
+}
+
+{
+    const app = fixture();
+    app.viewport.shiftHeld = false;
+    const source = track([{ x: 0, y: 0 }, { x: 5, y: 0 }]);
+    const existing = track([{ x: 0, y: 0 }, { x: 0, y: -5 }], 'B');
+    const target = track([{ x: 20, y: 0 }, { x: 20, y: -5 }], 'B', { layer: 'bottom-copper' });
+    app.tracks.push(source, existing, target);
+    const before = app.pcbDocument.captureGeometry();
+    dragEnd(app, source, { x: 20, y: 0 });
+    assert.equal(app.alerts.length, 1, 'A new transition Via must not bypass conflict validation on an already shorted track');
+    assert.equal(app.vias.length, 0);
+    assert.equal(app.history.undoStack.length, 0);
+    assert.deepEqual(app.pcbDocument.captureGeometry(), before);
+}
+
 {
     const app = fixture();
     const first = track([{ x: 0, y: 0 }, { x: 10, y: 0 }]);

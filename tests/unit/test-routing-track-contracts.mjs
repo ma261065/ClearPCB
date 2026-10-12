@@ -5,6 +5,7 @@ import { routeAllPathfinder } from '../../src/pcb/modules/autorouter-pathfinder.
 import { tracksFromAutorouterResult } from '../../src/pcb/modules/autorouter-adapter.js';
 import { exportDSN, importDSN, importSES } from '../../src/pcb/modules/dsn.js';
 import { AutorouterPresentation } from '../../src/pcb/modules/autorouter-presentation.js';
+import { runDRC } from '../../src/pcb/modules/drc.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 // Direct calls use the non-yielding DOM path; real workers exercise MessageChannel scheduling.
@@ -73,11 +74,31 @@ for (const [mode, router] of [['maze', routeAll], ['pathfinder', routeAllPathfin
     assert.equal(model.tracks.length, direct.tracks.length);
     assert.ok(model.tracks.every(track => track.width === input.trackWidth));
     assert.ok(model.tracks.some(track => track.layer === 'bottom-copper'));
+    assert.ok(model.vias.length > 0, 'Cross-layer route exercises emitted Via dimensions');
+    const viaRules = { viaDiameter: input.viaDiameter, viaDrill: 0.2 };
+    const viaChecks = runDRC({ placements: new Map(), tracks: [], vias: model.vias, boardShapes: [],
+        texts: new Map() }, viaRules);
+    assert.equal(viaChecks.violations.some(item => ['via', 'via-diameter', 'via-drill'].includes(item.rule)), false,
+        'Both routers generate Vias that pass size and annular-ring checks');
     assert.deepEqual(input, before);
     const invalid = { ...input, trackWidth: undefined, traceWidth: 0.2 };
     const failed = await runWorker(mode, invalid);
     assert.equal(failed.message.type, 'error');
     assert.match(failed.message.error, /trackWidth/);
+}
+
+for (const route of [
+    { tracks: [], vias: [{ x: 5, y: 5, net: 'N' }] },
+    { tracks: [{ net: 'N', points: [{ x: 0, y: 0 }, { x: 5, y: 5 }], vias: [{ x: 5, y: 5 }] }] },
+]) {
+    assert.throws(() => tracksFromAutorouterResult(route, { viaDiameter: 0.1, viaDrill: 0.7 }),
+        /at least 0.800 mm/, 'Adapter refuses incompatible sizes rather than clamping the drill');
+    const result = tracksFromAutorouterResult(route, { viaDiameter: 0.8, viaDrill: 0.7 });
+    assert.equal(result.vias[0].diameter, 0.8);
+    assert.equal(result.vias[0].drill, 0.7);
+    assert.deepEqual(runDRC({ placements: new Map(), tracks: [], vias: result.vias, boardShapes: [],
+        texts: new Map() }, { viaDiameter: 0.8, viaDrill: 0.7 }).violations, [],
+        'Exact minimum ring passes DRC and retains the requested drill size');
 }
 
 const placements = new Map([

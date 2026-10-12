@@ -69,6 +69,25 @@ unbounded board-sized canvas. Overscan is capped at 4096 pixels per side (or the
 viewport size if larger), and refreshed when a long pan exhausts its coverage
 so newly revealed artwork does not disappear.
 
+Track clearance outlines use round polygon offsets of the rendered centreline,
+including doubled-back or overlapping runs. Full and live refresh use the same
+boundary, respect per-run widths and visible copper layers, and retain inner
+boundaries of closed loops. Pad attachment must not change the clearance distance
+or introduce diagonal lines across the copper.
+
+Moving a track node does not show a Net Conflict popup solely because the track
+already has a short. The popup guards newly made incompatible node connections,
+including new Via transitions; edits that retain or remove an existing contact
+remain available. Existing and incidental segment-crossing shorts remain DRC
+issues rather than blocking unrelated node edits.
+
+Drawing a new track to a yellow node target on the opposite copper layer inserts
+an automatic Via at that node. Starting a new track on an opposite-layer node
+does the same. Existing Vias are reused; the two track graphs stay on their own
+layers, and the draw, Via and any net adoption undo together. A locked or hidden
+Via layer refuses the finish with a cursor popup and leaves the drawing intact.
+Different-net targets remain rejected.
+
 Part of the [module contracts](../module-contracts.md). Conventions both editors
 share: grids, units, the light palette, ribbon height, and the order and labels
 of Properties controls.
@@ -105,6 +124,28 @@ separates ruler shading from the rest of the UI; without it, rulers retain the
 `--bg-primary` background. Dark mode and electrical layer/net colors keep their
 own palettes.
 
+The PCB Design tab's DRC status button has a fixed 160 px width across checking,
+clear, error, warning and failure states so status updates do not shift the
+ribbon. Long status counts ellipsize without shrinking the status icon.
+
+The top of the DRC panel includes "Exclude clearance between pads in the same footprint",
+unchecked by default. All different-net pad pairs are checked unless this
+project setting is enabled; enabling it skips only internal footprint pad
+clearance, not shorts or clearance to tracks, Vias or other components.
+The DRC panel visibly states "Same-footprint pad clearance excluded" while enabled,
+including when there are no reported problems. Toggling it reruns DRC without
+altering authored copper or routing parameters.
+The checkbox and exclusion notice remain above the scrolling results, not in the
+Design ribbon.
+
+Via Diameter and Via Drill settings must retain a minimum 0.050 mm annular ring:
+diameter must be at least drill plus 0.100 mm. Both Design fields and New Via
+Properties reject incompatible edits with validation feedback instead of
+silently clamping the drill. Validated dimensions remain in millimetres regardless
+of display units. The settings model rejects incompatible saved values; there is
+no compatibility fallback or automatic resizing. Auto Route checks the same rule
+before starting, and route adoption refuses invalid Via sizes.
+
 Both editors use `shared/ui/ribbon-height.js` to retain the tallest static
 ribbon panel. A cached container width and retained style avoid cycling every
 tab through forced layout on each activation or tab change. Width changes and
@@ -132,7 +173,10 @@ Ribbons keep stable IDs, classes, `data-*` attributes, titles, labels and order 
 controller code and browser scenarios can wire behaviour by ID. The renderer
 exposes a refresh API for description-owned state accessors
 (`active`, `disabled`, `checked`, `value`), so a visual redesign should change the
-renderer rather than rewriting either editor's description. Truly custom or
+renderer rather than rewriting either editor's description. Its attribute-only
+refresh updates dependent input bounds without overwriting an in-progress entry
+or unrelated control state; Via Design handlers use it after validated changes.
+Truly custom or
 externally populated areas remain slots: recent-file menus, the schematic shape
 options container, the PCB layer picker/panel, DRC status, and the schematic/PCB
 Properties hosts (`#propertiesPanel`, `#pcbPropertiesPanel`, `#pcbPropsItems`).

@@ -386,6 +386,17 @@ export function pcbTextClearanceOutlines(text, clearance) {
         path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
+/** @param {Point[]} points @param {number} width @param {number} clearance @returns {Point[][]} */
+export function trackClearanceOutlines(points, width, clearance) {
+    if (points.length < 2) return [];
+    const offset = new ClipperLib.ClipperOffset(2, ARC_TOL);
+    offset.AddPath(points.map(point => ({ X: S(point.x), Y: S(point.y) })),
+        ClipperLib.JoinType.jtRound, ClipperLib.EndType.etOpenRound);
+    const result = new ClipperLib.Paths();
+    offset.Execute(result, (width / 2 + clearance) * SCALE);
+    return /** @type {ClipperPaths} */ (result).map(path => path.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
+}
+
 /** @param {ClipperPaths} paths @returns {Point[][]} */
 function mergeClearancePaths(paths) {
     if (!paths.length) return [];

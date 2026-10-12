@@ -145,6 +145,26 @@ for (const blocked of ['inactive', 'editing', 'empty', 'disposed']) {
     cases++;
 }
 
+for (const rules of [
+    { viaDiameter: 0.1, viaDrill: 0.7 },
+    { viaDiameter: 0.3, viaDrill: 0.3 },
+    { viaDiameter: 0.6, viaDrill: 0.55 },
+]) {
+    const f = fixture();
+    Object.assign(f.board.rules, rules);
+    let inputs = 0;
+    f.capabilities.takeRouteInput = () => { inputs++; return { connections: [] }; };
+    await f.owner.run();
+    assert.equal(f.workers.length, 0, 'Invalid Via settings stop before launching the router');
+    assert.equal(inputs, 0, 'Invalid settings do not consume a routing input');
+    assert.equal(f.adopted.length, 0);
+    assert.equal(f.board.undo.length, 0);
+    assert.equal(f.errors.length, 1, 'Invalid settings are reported explicitly');
+    assert.match(f.statuses.at(-1), /Route error: Via Diameter must be at least/);
+    f.checkReleased();
+    cases++;
+}
+
 for (const stopped of [false, true]) {
     const f = fixture(), run = f.owner.run(), worker = f.workers.at(-1);
     assert.equal(f.owner.active, true);

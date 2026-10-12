@@ -34,6 +34,7 @@ const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'setting
 const STACKUP_FIELDS = fields('copperLayers');
 const BOARD_FIELDS = fields('width', 'height', 'radius');
 const DESIGN_FIELDS = fields('trackWidth', 'clearance', 'viaDiameter', 'viaDrill', 'units', 'router');
+const OPTIONAL_DESIGN_FIELDS = fields('excludeSameFootprintPadClearance');
 const TRACK_FIELDS = new Set([...SHAPE_COMMON_FIELDS,
     'nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'el', 'ew', 'n', 'w', 'pdc', 'sbs']);
 const VIA_FIELDS = fields('type', 'id', 'x', 'y', 'd', 'dr', 'n', 'lk', 'v', 'span');
@@ -268,8 +269,12 @@ function validatePcb(pcb) {
     rejectUnknownFields(pcb.stackup, STACKUP_FIELDS, 'pcb.stackup');
     requireFields(pcb.stackup, ['copperLayers'], 'pcb.stackup');
     requireRecord(pcb.design, 'pcb.design');
-    rejectUnknownFields(pcb.design, DESIGN_FIELDS, 'pcb.design');
+    rejectUnknownFields(pcb.design, new Set([...DESIGN_FIELDS, ...OPTIONAL_DESIGN_FIELDS]), 'pcb.design');
     requireFields(pcb.design, DESIGN_FIELDS, 'pcb.design');
+    if (pcb.design.excludeSameFootprintPadClearance !== undefined
+        && typeof pcb.design.excludeSameFootprintPadClearance !== 'boolean') {
+        invalid('pcb.design.excludeSameFootprintPadClearance', 'Expected a boolean.', pcb.design);
+    }
     validateUnits(pcb.design, 'pcb.design');
     if (pcb.board !== undefined) {
         requireRecord(pcb.board, 'pcb.board');

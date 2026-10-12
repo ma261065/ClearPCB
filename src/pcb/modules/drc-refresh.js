@@ -1,4 +1,5 @@
 import { runDRC } from './drc.js';
+import { PCB_MIN_VIA_ANNULAR_RING } from '../../core/PcbDesignSettings.js';
 import { captureDrcInputs } from './drc-worker-inputs.js';
 import { createDrcWorker } from './drc-worker-client.js';
 import { getComputedFill } from './computed-fill-cache.js';
@@ -27,7 +28,8 @@ const deferred = app => {
         || app.isSectionEditing();
 };
 /** @param {PcbEditor} app */
-const rulesFor = app => ({ ...app.getRoutingParams(), minAnnularRing: 0.05,
+const rulesFor = app => ({ ...app.getRoutingParams(), minAnnularRing: PCB_MIN_VIA_ANNULAR_RING,
+    excludeSameFootprintPadClearance: app.pcbDocument.designSettings.values.excludeSameFootprintPadClearance,
     ratlines: collectDrcRatlines(app) });
 /** @param {DrcRefreshState} state */
 const stopWaiting = state => { state.waiting = false; };

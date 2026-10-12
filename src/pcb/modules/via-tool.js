@@ -4,6 +4,7 @@ import { resolveTrackSnap } from './track-snap.js';
 import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } from './track-commands.js';
 import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-edits.js';
 import { Via } from '../../shapes/via.js';
+import { PCB_MIN_VIA_ANNULAR_RING } from '../../core/PcbDesignSettings.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {{x: number, y: number}} Point */
@@ -129,9 +130,8 @@ export function showViaToolProperties(app) {
     };
     /** @param {number} value */
     const setDiameter = value => {
-        const next = Number.isFinite(value) && value > 0 ? Math.max(value, currentDrill()) : value;
         const hadError = !!diameterError;
-        const result = commitDesignValue(app, 'viaDiameter', next, 'mm');
+        const result = commitDesignValue(app, 'viaDiameter', value, 'mm');
         diameterError = result.message;
         if (result.message) refresh();
         if (!result.ok) return;
@@ -140,9 +140,8 @@ export function showViaToolProperties(app) {
     };
     /** @param {number} value */
     const setDrill = value => {
-        const next = Number.isFinite(value) && value > currentDiameter() ? currentDiameter() : value;
         const hadError = !!drillError;
-        const result = commitDesignValue(app, 'viaDrill', next, 'mm');
+        const result = commitDesignValue(app, 'viaDrill', value, 'mm');
         drillError = result.message;
         if (result.message) refresh();
         if (!result.ok) return;
@@ -157,12 +156,12 @@ export function showViaToolProperties(app) {
             { key: 'net', id: 'pcbPropViaToolNet', type: 'net', label: 'Net', value: String(getViaToolNet(app) || ''),
                 nets: app.netNames(), commit: value => { setViaToolNet(app, value); refresh(); } },
             { key: 'diameter', id: 'pcbPropViaToolDiameter', type: 'number', label: 'Diameter (mm)',
-                value: currentDiameter(), min: currentDrill(), step: 0.05, numberFormat: 'precise',
-                error: diameterError, normalize: value => value > 0 ? Math.max(value, currentDrill()) : value,
+                value: currentDiameter(), min: currentDrill() + 2 * PCB_MIN_VIA_ANNULAR_RING, step: 0.05, numberFormat: 'precise',
+                error: diameterError,
                 preview: setDiameter, commit: setDiameter },
             { key: 'drill', id: 'pcbPropViaToolDrill', type: 'number', label: 'Drill (mm)',
-                value: currentDrill(), min: 0.05, max: currentDiameter(), step: 0.05, numberFormat: 'precise',
-                error: drillError, normalize: value => value > currentDiameter() ? currentDiameter() : value,
+                value: currentDrill(), min: 0.05, max: currentDiameter() - 2 * PCB_MIN_VIA_ANNULAR_RING, step: 0.05, numberFormat: 'precise',
+                error: drillError,
                 preview: setDrill, commit: setDrill },
         ],
     });

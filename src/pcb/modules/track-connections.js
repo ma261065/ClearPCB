@@ -9,6 +9,8 @@ import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, co
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** A board plus the document it came from, which keys the terminal-contact cache. @typedef {PcbBoard & {pcbDocument?: PcbEditor['pcbDocument']}} CopperBoard */
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./copper-connectivity.js').CopperCluster} CopperCluster */
 /** Physical-contact records differ by source (track, via, pad, fill, region). @typedef {*} CopperContact */
@@ -163,8 +165,11 @@ export function* nodeTargetPairs(nodes, contacts) {
  * Track connections are node-to-target hits; track/track crossings are never queried.
  * @param {CopperBoard} app
  * @param {Map<object, Set<string>>} placedNodes
+ * @param {{previousTracks?: Map<Track, Track>, newVias?: Set<Via>}} [options]
+ *   With previousTracks, query only introduced node contacts for edit validation.
+ *   Preserved contacts still participate in the ordinary adoption query.
  */
-export function collectNodeConnections(app, placedNodes) {
+export function collectNodeConnections(app, placedNodes, { previousTracks, newVias } = {}) {
     const clusters = buildBondedClusters(app, true);
     const contacts = _clusterCopperContacts(app, clusters);
     const parent = clusters.map((_, i) => i);
@@ -172,7 +177,6 @@ export function collectNodeConnections(app, placedNodes) {
     const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
     /** @param {number} a @param {number} b */
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-    unionCoincidentClusters(clusters, union);
     /** @type {CopperContact[]} */
     const nodes = [];
     /** @type {number[]} */
@@ -189,10 +193,47 @@ export function collectNodeConnections(app, placedNodes) {
                 const key = `${id}|${layer}`;
                 if (!ids.has(id) || seen.has(key)) continue;
                 seen.add(key);
-                nodes.push({ ...track.nodes.get(id), layer, index, track });
+                nodes.push({ ...track.nodes.get(id), layer, index, track, nodeId: id });
             }
         }
     });
+    /** @param {CopperContact} node @param {CopperContact} target */
+    const preservedContact = (node, target) => {
+        const previous = previousTracks?.get(node.track);
+        const point = previous?.nodes.get(node.nodeId);
+        const cluster = clusters[target.index];
+        if (!previous || !point || newVias?.has(cluster.via)
+            || (node.layer !== 'all' && target.layer !== 'all' && node.layer !== target.layer)
+            || !previous.incidentEdges(node.nodeId).some(({ edgeId }) => previous.getEdgeLayer(edgeId) === node.layer)) return false;
+        // Plated terminal centres remain valid intentional junctions even inside a bore.
+        return cluster.points.some((/** @type {Point} */ other) =>
+            ratlinePointKey(point) === ratlinePointKey(other))
+            || !nodeTargetPairs([{ ...point, layer: node.layer }], [target]).next().done;
+    };
+    if (previousTracks) {
+        const nodesByCluster = new Map();
+        const contactsByCluster = new Map();
+        for (const node of nodes) {
+            if (!nodesByCluster.has(node.index)) nodesByCluster.set(node.index, []);
+            nodesByCluster.get(node.index).push(node);
+        }
+        for (const contact of contacts) {
+            if (!contactsByCluster.has(contact.index)) contactsByCluster.set(contact.index, []);
+            contactsByCluster.get(contact.index).push(contact);
+        }
+        unionCoincidentClusters(clusters.map((cluster, index) => placedNodes.has(cluster.track)
+            ? { ...cluster, points: nodesByCluster.get(index) || [] } : cluster), (first, second) => {
+            for (const [source, target] of [[first, second], [second, first]]) {
+                if (!placedNodes.has(clusters[source].track)) continue;
+                const targets = contactsByCluster.get(target) || [];
+                if (!(nodesByCluster.get(source) || []).some((/** @type {CopperContact} */ node) =>
+                    clusters[target].points.some((/** @type {Point} */ point) =>
+                        ratlinePointKey(node) === ratlinePointKey(point))
+                    && !targets.some((/** @type {CopperContact} */ contact) => preservedContact(node, contact)))) return;
+            }
+            union(first, second);
+        });
+    } else unionCoincidentClusters(clusters, union);
     // Existing nodes target stationary copper; only the placed node can create
     // a new connection to a moving track.
     const targets = contacts.filter(contact => !placedNodes.has(contact.track));
@@ -200,6 +241,7 @@ export function collectNodeConnections(app, placedNodes) {
         if (node.track === target.track) continue;
         const fill = target.shape?.type === 'fill' ? target.shape : null;
         if (fill?.net && placedNodes.has(node.track) && fill.net !== node.track.net) continue;
+        if (previousTracks && preservedContact(node, target)) continue;
         union(node.index, target.index);
     }
     const roots = new Set(seeds.map(find));

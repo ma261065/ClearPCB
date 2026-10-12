@@ -162,6 +162,15 @@ One short report represents each physically connected group of distinct named
 nets. Disconnected groups with the same net names have distinct result IDs;
 clipped islands sharing primitive IDs retain their identities when unchanged
 tracks or removal shapes are reordered.
+Same-footprint pad clearance is checked by default. The checkbox at the top of the DRC panel
+sets `excludeSameFootprintPadClearance`, persisted in project Design settings
+(compact key `epc`). Older files missing the field load with exclusion off,
+independently of the previously open project's preference. Direct checks, worker
+snapshots and live pair markers use the same rule. Enabling exclusion skips
+clearance only between pads with the same non-null component identity, including
+their surviving copper-removal fragments. Standalone pads, external copper and
+shorts are never exempted by this setting. The panel discloses the exclusion even
+when the result is otherwise clear.
 Named-net contacts in a shorted group are not repeated as zero-clearance
 errors, but positive-gap violations and unassigned-copper clearance remain.
 No Net copper can bridge named nets without being assigned a new net.
@@ -180,6 +189,14 @@ Direct callers may omit size rules to run only the existing checks; a supplied
 size rule must be a positive finite number. Scheduled and direct editor checks
 always use all routing values in millimetres, regardless of display units, and
 worker snapshots retain their full precision.
+
+The 0.050 mm minimum Via annular ring is shared with Design validation and the
+autorouter. Settings updates and loaded settings require diameter >= drill +
+0.100 mm; invalid combinations are rejected atomically, not migrated or clamped.
+The routing session validates before consuming input or launching a worker.
+The result adapter also rejects incompatible requested Via dimensions before
+building model objects, preventing the Via constructor's drill clamp from
+turning a requested drill into an undersized, ringless result.
 
 Scheduled live DRC uses `drc-refresh.js` and a module worker. The
 `drc-worker-inputs.js` capture supplies detached, full-precision physical geometry

@@ -99,6 +99,14 @@ edit-specific crossing filter; physical-contact consumers, including
 ratsnest/DRC geometry, use their own physical-contact rules. Post-drop adoption
 uses the validated contacts rebound to the final graph, so node merges and
 collinear cleanup neither lose intended adoption nor rediscover remote crossings.
+Node-drop conflict validation compares the edited node's contacts with its
+pre-drag geometry. Unchanged shorts elsewhere on the track, and movement within
+an already contacted terminal, do not block edits; DRC continues to report them.
+New incompatible node contacts are rejected even when the same net names are
+already shorted elsewhere. A newly inserted transition Via is a new connection,
+not a preserved contact. Unassigned tracks retain their existing named anchors
+for bridge validation, and an ambiguous shorted group never adopts an arbitrary
+net. The ordinary contact query remains responsible for unambiguous net adoption.
 
 Track drawing and single-node dragging snap to compatible segment interiors as well
 as existing nodes. The yellow target circle marks the projected connection point;
@@ -108,6 +116,13 @@ join. The target graph is unchanged during hover or drag. On drop, its edge spli
 at the projected point and the graphs merge into one junction, adopting the target
 net when the moving track is unassigned. Splitting, joining and net adoption undo
 as one action; Escape leaves both original tracks intact.
+Newly drawn endpoints that meet an existing opposite-layer node insert an
+automatic Via before the command's Net validation, including the draw's start
+endpoint. The Via uses the validated Design dimensions, bonds the two independent
+layer graphs and participates in the same compound history command. An existing
+Via at the node is reused. If Via placement is blocked, command construction
+refuses without editing existing copper, and the draw retains its last accepted
+waypoint.
 Existing-node targets also exclude hidden or locked tracks and nodes whose incident
 layers are all hidden or locked, so the yellow circle never advertises an unavailable
 join. An endpoint may join a non-adjacent segment of its own track; adjacent segments

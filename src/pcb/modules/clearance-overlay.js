@@ -1,5 +1,5 @@
 import { buildTrackLayerRuns, hasTrackElements, hasViaElements } from './track-render.js';
-import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from './copper-fill-geom.js';
+import { boardShapeClearanceOutlines, pcbTextClearanceOutlines, trackClearanceOutlines } from './copper-fill-geom.js';
 import { placementTransform } from './track-commands.js';
 import { shouldDeferShapeClearance } from './picture-refresh.js';
 import { isPcbPasteActive } from './pcb-paste.js';
@@ -232,31 +232,6 @@ export function showClearances(app, show, liveTrack = null) {
         padHaloGroups?.set(compId, grp);
     }
 
-    // Halos for routed tracks. Computed as the Minkowski-sum offset
-    // polygon of each track centerline by (trackR + OUTLINE_W/2),
-    // rendered as a closed <polygon> stroked with width OUTLINE_W. Pure
-    // vector — no masks, no rasterization, zero per-frame cost on
-    // zoom/pan.
-    //
-    // Construction (per track):
-    //   - Walk each segment; emit perpendicular offsets on the right
-    //     side going forward, then on the left side going backward.
-    //   - At interior vertices: insert a short arc fan on the OUTSIDE
-    //     of the bend (round-join). Inside vertex uses the segment-
-    //     intersection point.
-    //   - At endpoints: insert a semicircular cap (round-cap).
-    //
-    // Where two tracks meet at a junction, their polygons overlap and
-    // the stroked outlines visibly cross — same artifact as pad/via
-    // halos already have. Acceptable.
-    //
-    // Halo radius is sized per-track from each rendered run's stroke
-    // width (tracks may carry per-segment widths); see the track loop.
-    // Arc tessellation: number of segments per FULL CIRCLE. Each arc
-    // emits a proportional fraction of these. Higher = smoother caps
-    // and corners at the cost of more polygon vertices.
-    const ARC_STEPS_FULL = 64;
-
     /**
      * @param {SVGElement} track
      * @returns {Array<[number, number]>}
@@ -290,174 +265,6 @@ export function showClearances(app, show, liveTrack = null) {
         return dedup;
     };
 
-    // Build the offset polygon of `pts` by radius `r`. Returns array of
-    // [x, y] pairs (closed polygon — first ≠ last).
-    /**
-     * @param {Array<[number, number]>} pts
-     * @param {number} r
-     * @returns {Array<[number, number]>}
-     */
-    const offsetPolygon = (pts, r) => {
-        if (pts.length < 2) return [];
-        const n = pts.length;
-        // Per-segment unit direction and perpendicular (right-hand normal).
-        /** @type {Array<[number, number]>} */
-        const dirs = new Array(n - 1);
-        /** @type {Array<[number, number]>} */
-        const perps = new Array(n - 1);
-        for (let i = 0; i < n - 1; i++) {
-            const dx = pts[i + 1][0] - pts[i][0];
-            const dy = pts[i + 1][1] - pts[i][1];
-            const len = Math.hypot(dx, dy) || 1;
-            dirs[i] = [dx / len, dy / len];
-            perps[i] = [dy / len, -dx / len]; // right-hand perpendicular
-        }
-
-        /**
-         * @param {number} cx
-         * @param {number} cy
-         * @param {number} fromAngle
-         * @param {number} toAngle
-         * @param {boolean} ccw
-         * @returns {Array<[number, number]>}
-         */
-        const arcFan = (cx, cy, fromAngle, toAngle, ccw) => {
-            // Returns intermediate arc points (not including endpoints).
-            let delta = toAngle - fromAngle;
-            if (ccw) {
-                while (delta <= 0) delta += Math.PI * 2;
-            } else {
-                while (delta >= 0) delta -= Math.PI * 2;
-            }
-            // Number of steps proportional to arc sweep angle.
-            const steps = Math.max(2, Math.ceil(Math.abs(delta) / (Math.PI * 2) * ARC_STEPS_FULL));
-            /** @type {Array<[number, number]>} */
-            const out = [];
-            for (let s = 1; s < steps; s++) {
-                const t = s / steps;
-                const a = fromAngle + delta * t;
-                out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-            }
-            return out;
-        };
-
-        // Right side, forward (i = 0 .. n-1)
-        /** @type {Array<[number, number]>} */
-        const right = [];
-        // Start cap (semicircle from left side around to right side)
-        {
-            const p = perps[0];
-            const startAngle = Math.atan2(-p[1], -p[0]); // left-side angle
-            const endAngle = Math.atan2(p[1], p[0]);     // right-side angle
-            right.push([pts[0][0] + Math.cos(startAngle) * r, pts[0][1] + Math.sin(startAngle) * r]);
-            // CCW so the cap bulges AWAY from the segment (around the back of the start point).
-            for (const a of arcFan(pts[0][0], pts[0][1], startAngle, endAngle, true)) right.push(a);
-            right.push([pts[0][0] + p[0] * r, pts[0][1] + p[1] * r]);
-        }
-        // Forward through interior vertices (1 .. n-2): join between seg i-1 and seg i.
-        for (let i = 1; i < n - 1; i++) {
-            const p0 = perps[i - 1];
-            const p1 = perps[i];
-            // Cross of dirs to determine bend direction.
-            const cross = dirs[i - 1][0] * dirs[i][1] - dirs[i - 1][1] * dirs[i][0];
-            if (Math.abs(cross) < 1e-9) {
-                // Collinear — just push the point.
-                right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-                continue;
-            }
-            if (cross > 0) {
-                // Right turn — right side is OUTSIDE → arc fan.
-                const fromA = Math.atan2(p0[1], p0[0]);
-                const toA = Math.atan2(p1[1], p1[0]);
-                right.push([pts[i][0] + p0[0] * r, pts[i][1] + p0[1] * r]);
-                for (const a of arcFan(pts[i][0], pts[i][1], fromA, toA, true)) right.push(a);
-                right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-            } else {
-                // Left turn — right side is INSIDE → miter (segment intersection).
-                // Lines: P1 = pts[i-1]+p0*r + t*dirs[i-1]
-                //        P2 = pts[i]  +p1*r + s*dirs[i]
-                // Solve for intersection.
-                const a1x = pts[i - 1][0] + p0[0] * r;
-                const a1y = pts[i - 1][1] + p0[1] * r;
-                const a2x = pts[i][0] + p1[0] * r;
-                const a2y = pts[i][1] + p1[1] * r;
-                const denom = dirs[i - 1][0] * (-dirs[i][1]) - dirs[i - 1][1] * (-dirs[i][0]);
-                if (Math.abs(denom) < 1e-9) {
-                    right.push([a2x, a2y]);
-                } else {
-                    const t = ((a2x - a1x) * (-dirs[i][1]) - (a2y - a1y) * (-dirs[i][0])) / denom;
-                    const mx = a1x + dirs[i - 1][0] * t;
-                    const my = a1y + dirs[i - 1][1] * t;
-                    // Miter limit: if the miter point is too far from
-                    // the vertex (acute inside corner), fall back to a
-                    // bevel (two endpoints) to avoid the spike.
-                    const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
-                    const maxDist = r * 4; // miter limit ~4× ring radius
-                    if (distSq > maxDist * maxDist) {
-                        right.push([pts[i][0] + p0[0] * r, pts[i][1] + p0[1] * r]);
-                        right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-                    } else {
-                        right.push([mx, my]);
-                    }
-                }
-            }
-        }
-        // End cap (right side around to left side)
-        {
-            const p = perps[n - 2];
-            right.push([pts[n - 1][0] + p[0] * r, pts[n - 1][1] + p[1] * r]);
-            const startAngle = Math.atan2(p[1], p[0]);
-            const endAngle = Math.atan2(-p[1], -p[0]);
-            // CCW so the cap bulges AWAY from the segment (around the front of the end point).
-            for (const a of arcFan(pts[n - 1][0], pts[n - 1][1], startAngle, endAngle, true)) right.push(a);
-            right.push([pts[n - 1][0] - p[0] * r, pts[n - 1][1] - p[1] * r]);
-        }
-        // Left side, backward (i = n-2 .. 1): mirror logic with negated perps.
-        for (let i = n - 2; i >= 1; i--) {
-            const p0 = perps[i];      // perp of segment going INTO vertex from left walk
-            const p1 = perps[i - 1];
-            const cross = dirs[i][0] * dirs[i - 1][1] - dirs[i][1] * dirs[i - 1][0];
-            // Left side uses negated perpendiculars.
-            if (Math.abs(cross) < 1e-9) {
-                right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-                continue;
-            }
-            if (cross > 0) {
-                // Walking backwards: a "right turn" in reverse means left side is OUTSIDE → arc fan.
-                const fromA = Math.atan2(-p0[1], -p0[0]);
-                const toA = Math.atan2(-p1[1], -p1[0]);
-                right.push([pts[i][0] - p0[0] * r, pts[i][1] - p0[1] * r]);
-                for (const a of arcFan(pts[i][0], pts[i][1], fromA, toA, true)) right.push(a);
-                right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-            } else {
-                // Inside — miter with limit fallback to bevel.
-                const a1x = pts[i + 1][0] - p0[0] * r;
-                const a1y = pts[i + 1][1] - p0[1] * r;
-                const a2x = pts[i][0] - p1[0] * r;
-                const a2y = pts[i][1] - p1[1] * r;
-                const dx0 = -dirs[i][0], dy0 = -dirs[i][1];
-                const dx1 = -dirs[i - 1][0], dy1 = -dirs[i - 1][1];
-                const denom = dx0 * (-dy1) - dy0 * (-dx1);
-                if (Math.abs(denom) < 1e-9) {
-                    right.push([a2x, a2y]);
-                } else {
-                    const t = ((a2x - a1x) * (-dy1) - (a2y - a1y) * (-dx1)) / denom;
-                    const mx = a1x + dx0 * t;
-                    const my = a1y + dy0 * t;
-                    const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
-                    const maxDist = r * 4;
-                    if (distSq > maxDist * maxDist) {
-                        right.push([pts[i][0] - p0[0] * r, pts[i][1] - p0[1] * r]);
-                        right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-                    } else {
-                        right.push([mx, my]);
-                    }
-                }
-            }
-        }
-        return right;
-    };
-
     const live = liveTrack;
     const liveId = live?.id;
     const liveNet = live?.net;
@@ -487,30 +294,31 @@ export function showClearances(app, show, liveTrack = null) {
             // have per-segment widths), so size the halo from THIS track's
             // width rather than the global routing width.
             const sw = track.width;
-            const ringR = (Number.isFinite(sw) && sw > 0 ? sw / 2 : params.trackWidth / 2) + halo;
-            const poly = offsetPolygon(pts, ringR);
-            if (poly.length < 3) continue;
-            const el = document.createElementNS(NS, 'polygon');
-            el.setAttribute('class', HALO_CLASS);
-            el.setAttribute('points', poly.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join(' '));
-            el.setAttribute('fill', 'none');
-            el.setAttribute('stroke', HALO_STROKE);
-            el.setAttribute('stroke-width', String(OUTLINE_W));
-            el.setAttribute('vector-effect', 'non-scaling-stroke');
-            el.setAttribute('stroke-linejoin', 'round');
-            el.setAttribute('pointer-events', 'none');
-            // Tag with the source track's net so a footprint drag can hide
-            // the halos of the nets it moves (their tracks shift mid-drag,
-            // leaving the deferred halo stranded at the old position).
-            const tnet = track.net;
-            if (tnet) el.dataset.net = tnet;
-            if (track.id) {
-                el.dataset.trackId = track.id;
-                let trackElements = state.trackElements.get(track.id);
-                if (!trackElements) state.trackElements.set(track.id, trackElements = []);
-                trackElements.push(el);
+            const width = Number.isFinite(sw) && sw > 0 ? sw : params.trackWidth;
+            for (const poly of trackClearanceOutlines(pts.map(([x, y]) => ({ x, y })), width, halo)) {
+                if (poly.length < 3) continue;
+                const el = document.createElementNS(NS, 'polygon');
+                el.setAttribute('class', HALO_CLASS);
+                el.setAttribute('points', poly.map(p => `${p.x.toFixed(4)},${p.y.toFixed(4)}`).join(' '));
+                el.setAttribute('fill', 'none');
+                el.setAttribute('stroke', HALO_STROKE);
+                el.setAttribute('stroke-width', String(OUTLINE_W));
+                el.setAttribute('vector-effect', 'non-scaling-stroke');
+                el.setAttribute('stroke-linejoin', 'round');
+                el.setAttribute('pointer-events', 'none');
+                // Tag with the source track's net so a footprint drag can hide
+                // the halos of the nets it moves (their tracks shift mid-drag,
+                // leaving the deferred halo stranded at the old position).
+                const tnet = track.net;
+                if (tnet) el.dataset.net = tnet;
+                if (track.id) {
+                    el.dataset.trackId = track.id;
+                    let trackElements = state.trackElements.get(track.id);
+                    if (!trackElements) state.trackElements.set(track.id, trackElements = []);
+                    trackElements.push(el);
+                }
+                overlay.appendChild(el);
             }
-            overlay.appendChild(el);
         }
     }
 

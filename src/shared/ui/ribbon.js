@@ -55,7 +55,7 @@ const svgTags = new Set(['svg', 'path', 'circle', 'line', 'rect', 'polyline', 'p
  * @typedef {{id?: string, title?: RibbonContent, className?: string, itemsId?: string, itemsClassName?: string, items?: RibbonItemDescription[]}} RibbonGroupDescription
  * @typedef {{id?: string, panel?: string, active?: boolean, className?: string, children?: RibbonContent, groups?: RibbonGroupDescription[]}} RibbonPanelDescription
  * @typedef {{tabs?: RibbonTabDescription[], panels?: RibbonPanelDescription[], persistentGroups?: RibbonGroupDescription[], onBeforeTabChange?: (event: RibbonTabChangeEvent) => void, onTabChange?: (event: RibbonTabChangeEvent) => void, onRefresh?: (api: RibbonApi) => void}} RibbonDescription
- * @typedef {{controls: Map<string, HTMLElement>, activeTab: string|null, activateTab: (tabId: string|null|undefined, userInitiated?: boolean) => void, refresh: () => void, closeMenus: () => void}} RibbonApi
+ * @typedef {{controls: Map<string, HTMLElement>, activeTab: string|null, activateTab: (tabId: string|null|undefined, userInitiated?: boolean) => void, refresh: () => void, refreshAttributes: () => void, closeMenus: () => void}} RibbonApi
  * @typedef {{desc: RibbonItemDescription|RibbonElementDescription, node: RibbonElement, control: RibbonElement}} RibbonStateEntry
  * @typedef {{controls: Map<string, HTMLElement>, stateful: RibbonStateEntry[], menuClosers: Array<() => void>, closeMenus: () => void, api: RibbonApi|null}} RibbonRenderContext
  * @typedef {{node: Node, control?: RibbonElement|null, controls?: RibbonElement[]}} RenderedRibbonItem
@@ -439,11 +439,7 @@ function applyState(desc, node, control = node, context) {
     if (desc.checked !== undefined) control.checked = !!valueOf(desc.checked);
     if (desc.value !== undefined) control.value = String(valueOf(desc.value));
     if (desc.title !== undefined && node.setAttribute) node.setAttribute('title', String(valueOf(desc.title)));
-    for (const [name, value] of Object.entries(desc.attrs || {})) {
-        const resolved = valueOf(value);
-        if (name === 'value' && desc.value !== undefined) continue;
-        setAttr(control, name, resolved);
-    }
+    applyAttributes(desc, control);
     if ((desc.content !== undefined || desc.label !== undefined || desc.text !== undefined)
         && (desc.kind === 'button' || desc.kind === 'toolButton')) {
         setContent(node, desc.content ?? desc.label ?? desc.text, context);
@@ -453,6 +449,15 @@ function applyState(desc, node, control = node, context) {
         const previous = control.value;
         syncSelectOptions(/** @type {HTMLSelectElement} */ (control), selectDesc);
         control.value = desc.value !== undefined ? String(valueOf(desc.value)) : previous;
+    }
+}
+
+/** @param {RibbonItemDescription|RibbonElementDescription} desc @param {RibbonElement} control */
+function applyAttributes(desc, control) {
+    for (const [name, value] of Object.entries(desc.attrs || {})) {
+        const resolved = valueOf(value);
+        if (name === 'value' && desc.value !== undefined) continue;
+        setAttr(control, name, resolved);
     }
 }
 
@@ -495,6 +500,9 @@ export function renderRibbon(container, description) {
         refresh: () => {
             for (const entry of context.stateful) applyState(entry.desc, entry.node, entry.control, context);
             description.onRefresh?.(api);
+        },
+        refreshAttributes: () => {
+            for (const entry of context.stateful) applyAttributes(entry.desc, entry.control);
         },
         closeMenus: context.closeMenus,
     };

@@ -1,6 +1,7 @@
 import { refreshBoardView } from './refresh-state.js';
-import { PCB_DESIGN_MAX_MM, clampDesignDimensions } from '../../core/PcbDesignSettings.js';
+import { PCB_DESIGN_MAX_MM, clampDesignDimensions, viaDimensionError } from '../../core/PcbDesignSettings.js';
 import { areClearancesVisible } from './clearance-overlay.js';
+import { scheduleDrc } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../core/PcbDesignSettings.js').PcbRoutingField} PcbRoutingField */
 /** @typedef {string} DesignUnits */
@@ -46,7 +47,8 @@ export function bindDesignSettings(app) {
             ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
         if (stored) {
             /** @type {Record<string, any>} */
-            const restored = { units: stored.units || 'mm', router: stored.router || 'maze' };
+            const restored = { units: stored.units || 'mm', router: stored.router || 'maze',
+                excludeSameFootprintPadClearance: stored.excludeSameFootprintPadClearance ?? false };
             const factor = restored.units === 'inch' ? 25.4 : 1;
             for (const [key, id] of Object.entries(INPUTS)) {
                 if (stored[key] !== undefined) restored[key] = stored[key];
@@ -60,8 +62,8 @@ export function bindDesignSettings(app) {
     renderDesignSettings(app);
 }
 
-/** @param {PcbRoutingField|string} key @param {string|number} rawValue @param {DesignUnits} units */
-function readDesignValue(key, rawValue, units) {
+/** @param {PcbEditor} app @param {PcbRoutingField|string} key @param {string|number} rawValue @param {DesignUnits} units */
+function readDesignValue(app, key, rawValue, units) {
     const value = Number(rawValue) * (units === 'inch' ? 25.4 : 1);
     const maximum = PCB_DESIGN_MAX_MM[/** @type {PcbRoutingField} */ (key)];
     let message = '';
@@ -72,12 +74,18 @@ function readDesignValue(key, rawValue, units) {
             ? `Enter a value no larger than ${Number((maximum / 25.4).toFixed(4))} in.`
             : `Enter a value no larger than ${maximum} mm.`;
     }
-    return { value: message ? null : Math.min(value, maximum), message };
+    const clamped = Math.min(value, maximum);
+    if (!message && (key === 'viaDiameter' || key === 'viaDrill')) {
+        const current = app.designSettings.values;
+        message = viaDimensionError(key === 'viaDiameter' ? clamped : current.viaDiameter,
+            key === 'viaDrill' ? clamped : current.viaDrill);
+    }
+    return { value: message ? null : clamped, message };
 }
 
-/** @param {HTMLInputElement} element @param {DesignUnits} units @param {PcbRoutingField|string} key */
-function readDesignInput(element, units, key) {
-    const result = readDesignValue(key, element.value, units);
+/** @param {PcbEditor} app @param {HTMLInputElement} element @param {DesignUnits} units @param {PcbRoutingField|string} key */
+function readDesignInput(app, element, units, key) {
+    const result = readDesignValue(app, key, element.value, units);
     element.setCustomValidity(result.message);
     return result.value;
 }
@@ -101,8 +109,11 @@ function commitDesignUpdate(app, key, value) {
  * @param {DesignUnits} units
  */
 export function commitDesignInput(app, key, element, units) {
-    const value = readDesignInput(element, units, key);
-    if (value === null) return false;
+    const value = readDesignInput(app, element, units, key);
+    if (value === null) {
+        app.setStatus(element.validationMessage);
+        return false;
+    }
     commitDesignUpdate(app, key, value);
     return true;
 }
@@ -116,7 +127,7 @@ export function commitDesignInput(app, key, element, units) {
  * @param {((message: string) => void)|null} [onError]
  */
 export function commitDesignValue(app, key, rawValue, units = 'mm', onError = null) {
-    const { value, message } = readDesignValue(key, rawValue, units);
+    const { value, message } = readDesignValue(app, key, rawValue, units);
     if (value === null) {
         onError?.(message);
         app.setStatus(message);
@@ -124,4 +135,12 @@ export function commitDesignValue(app, key, rawValue, units = 'mm', onError = nu
     }
     commitDesignUpdate(app, key, value);
     return { ok: true, message: '' };
+}
+
+/** @param {PcbEditor} app @param {boolean} excluded */
+export function commitSameFootprintPadClearanceExclusion(app, excluded) {
+    if (!app.designSettings.update({ excludeSameFootprintPadClearance: excluded })) return;
+    saveDefaults(app);
+    app.markDirty();
+    scheduleDrc(app);
 }

@@ -46,6 +46,7 @@ export function captureDrcInputs(app, rules = {}) {
         .map(shape => pick(shape, shapeFields));
     inputs.rules = { clearance: rules.clearance, minAnnularRing: rules.minAnnularRing,
         trackWidth: rules.trackWidth, viaDiameter: rules.viaDiameter, viaDrill: rules.viaDrill,
+        excludeSameFootprintPadClearance: rules.excludeSameFootprintPadClearance,
         ratlines: (rules.ratlines || []).map(({ net, x1, y1, x2, y2 }) => ({ net, x1, y1, x2, y2 })) };
     return structuredClone(inputs);
 }

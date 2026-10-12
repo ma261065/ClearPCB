@@ -61,7 +61,7 @@ const STACKUP = { cl: 'copperLayers' };
 const BOARD = { w: 'width', h: 'height', r: 'radius' };
 const DESIGN = {
     tw: 'trackWidth', cl: 'clearance', vd: 'viaDiameter', dr: 'viaDrill',
-    u: 'units', rt: 'router',
+    u: 'units', rt: 'router', epc: 'excludeSameFootprintPadClearance',
 };
 const TRACK = {
     ...SHAPE_COMMON,

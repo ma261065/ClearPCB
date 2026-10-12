@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { PcbDesignSettings } from '../../src/core/PcbDesignSettings.js';
+import { PcbDesignSettings, viaDimensionError } from '../../src/core/PcbDesignSettings.js';
+import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { defaultPcbStackup } from '../../src/core/project-format.js';
 import { formatNumberInput } from '../../src/core/number-inputs.js';
@@ -15,8 +16,21 @@ assert.equal(model.hasAppliedSettings, false);
 assert.throws(() => model.update({ clearance: 0 }), /positive finite/);
 assert.equal(model.hasAppliedSettings, false, 'Rejected settings must not suppress startup defaults');
 const precise = { trackWidth: 0.2, clearance: 0.1234, viaDiameter: 0.6, viaDrill: 0.3,
-    units: 'mm', router: 'pathfinder' };
+    units: 'mm', router: 'pathfinder', excludeSameFootprintPadClearance: false };
 const expectedRouting = { trackWidth: 0.2, clearance: 0.1234, viaDiameter: 0.6, viaDrill: 0.3 };
+{
+    const document = new PcbDocument();
+    document.designSettings.update({ ...precise, excludeSameFootprintPadClearance: true });
+    const loaded = new PcbDocument();
+    loaded.load(document.serialize());
+    assert.equal(loaded.designSettings.values.excludeSameFootprintPadClearance, true,
+        'Project round trip preserves the exclusion');
+    const legacyDesign = { ...precise };
+    delete legacyDesign.excludeSameFootprintPadClearance;
+    loaded.load({ stackup: defaultPcbStackup(), design: legacyDesign });
+    assert.equal(loaded.designSettings.values.excludeSameFootprintPadClearance, false,
+        'Older files do not inherit the previous project exclusion');
+}
 model.update(precise);
 const copy = model.values;
 copy.trackWidth = 999;
@@ -27,6 +41,19 @@ for (const value of [0, -1, Infinity, NaN]) {
 }
 assert.throws(() => model.update({ units: 'unknown' }), /units/);
 assert.throws(() => model.update({ router: 'unknown' }), /router/);
+assert.throws(() => model.update({ excludeSameFootprintPadClearance: 'true' }), /boolean/);
+for (const via of [
+    { viaDiameter: 0.1, viaDrill: 0.7 },
+    { viaDiameter: 0.3, viaDrill: 0.3 },
+    { viaDiameter: 0.6, viaDrill: 0.55 },
+]) {
+    assert.throws(() => model.update(via), /Via Diameter must be at least/);
+    assert.deepEqual(model.values, precise, 'Incompatible Via sizes cannot partially overwrite settings');
+    assert.throws(() => new PcbDocument().load({ stackup: defaultPcbStackup(), design: { ...precise, ...via } }),
+        /Via Diameter must be at least/, 'Loading invalid Via settings is rejected, not corrected');
+}
+assert.equal(viaDimensionError(0.8, 0.7), '', 'Exact minimum annular ring is allowed');
+assert.match(viaDimensionError(0.7999, 0.7), /at least 0.800 mm/);
 model.update({ clearance: 0.123456 });
 assert.equal(model.serialize().clearance, 0.1235);
 assert.equal(model.getRoutingParams().clearance, 0.123456, 'File rounding does not change routing precision');
@@ -34,7 +61,7 @@ assert.equal(model.getRoutingParams().clearance, 0.123456, 'File rounding does n
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { bindPcbControls } = await import('../../src/pcb/modules/controls.js');
 const { serializePcb, preparePcb } = await import('../../src/pcb/modules/project-state.js');
-const { refreshDesignSettings } = await import('../../src/pcb/modules/design-settings.js');
+const { refreshDesignSettings, commitSameFootprintPadClearanceExclusion } = await import('../../src/pcb/modules/design-settings.js');
 const { normalizePcbSection } = await import('../../src/core/project-field-aliases.js');
 const ids = ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill'];
 const storage = new Map();
@@ -149,11 +176,22 @@ elements.get('pcbRouterMode').value = 'maze';
 elements.get('pcbRouterMode').fire('change');
 assert.equal(app._getRouterMode(), 'maze');
 assert.equal(changes.dirty, 102);
+assert.equal(document.getElementById('pcbExcludeSameFootprintPadClearance'), null, 'Exclusion is no longer a ribbon control');
+assert.equal(app.designSettings.values.excludeSameFootprintPadClearance, false, 'Footprint exclusion defaults off');
+commitSameFootprintPadClearanceExclusion(app, true);
+assert.equal(app.designSettings.values.excludeSameFootprintPadClearance, true);
+assert.equal(JSON.parse(storage.get('clearpcb_pcb_design_params')).excludeSameFootprintPadClearance, true);
+assert.equal(normalizePcbSection(serializePcb(app)).design.excludeSameFootprintPadClearance, true);
+assert.equal(changes.dirty, 103, 'Exclusion is a persisted project edit');
+assert.equal(changes.fills, 1, 'Exclusion does not recompute authored copper');
+commitSameFootprintPadClearanceExclusion(app, true);
+assert.equal(changes.dirty, 103, 'No-op exclusion does not dirty the project');
+commitSameFootprintPadClearanceExclusion(app, false);
 app.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'inch' } });
 refreshDesignSettings(app);
 assert.equal(elements.get('pcbTrackWidth').value, '0.0079');
 assert.equal(app.getRoutingParams().trackWidth, 0.2, 'Loading inch display must not change 0.2 mm to 0.20066 mm');
-assert.equal(changes.dirty, 102);
+assert.equal(changes.dirty, 104);
 assert.deepEqual(fixture().app.designSettings.values, { ...precise, units: 'inch' },
     'Canonical defaults retain precision across startup');
 storage.set('clearpcb_pcb_design_params', JSON.stringify({ units: 'inch', router: 'maze',
@@ -204,7 +242,35 @@ assert.throws(() => new PcbDesignSettings().update({ trackWidth: 25.5 }), /no la
     assert.equal(fixture().app.getRoutingParams().clearance, 10, 'Oversized local defaults are clamped on startup');
     storage.clear();
 }
-console.log('PASS canonical PCB design settings, load/save/unit precision, legacy defaults, validation and dirty/refresh routing');
+for (const units of ['mm', 'inch']) {
+    storage.clear();
+    const { app, changes, elements } = fixture();
+    app.designSettings.update({ viaDiameter: 0.6, viaDrill: 0.3, units });
+    refreshDesignSettings(app);
+    const drill = elements.get('pcbViaDrill'), diameter = elements.get('pcbViaDiameter');
+    const display = value => String(units === 'inch' ? value / 25.4 : value);
+    for (const [input, value] of [[drill, 0.7], [drill, 0.6], [drill, 0.55], [diameter, 0.3]]) {
+        input.value = display(value);
+        input.fire('input');
+        input.fire('change');
+        assert.match(input.validationMessage, /Via Diameter must be at least/);
+        assert.equal(app.getRoutingParams().viaDiameter, 0.6);
+        assert.equal(app.getRoutingParams().viaDrill, 0.3);
+        assert.equal(changes.dirty, 0, 'Rejected size edits leave model and history untouched');
+    }
+    diameter.value = display(0.8);
+    diameter.fire('input');
+    assert.equal(diameter.value, display(0.8), 'Valid input is not reformatted while typing');
+    assert.ok(Math.abs(app.getRoutingParams().viaDiameter - 0.8) < 1e-12);
+    drill.value = display(0.7);
+    drill.fire('input');
+    assert.equal(drill.validationMessage, '');
+    assert.ok(Math.abs(app.getRoutingParams().viaDrill - 0.7) < 1e-12);
+    assert.equal(changes.dirty, 2, 'Corrected, exact-boundary dimensions commit in both display units');
+    assert.ok(Math.abs(Number(diameter.min) * (units === 'inch' ? 25.4 : 1) - 0.8) < 1e-9);
+}
+storage.clear();
+console.log('PASS canonical PCB design settings, precision, atomic Via validation and dirty/refresh routing');
 
 const { app: tools, elements: ribbon } = fixture();
 tools.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'inch' } });
@@ -230,7 +296,14 @@ assert.equal(tools.getRoutingParams().viaDiameter, 0.8);
 assert.equal(tools.getRoutingParams().viaDrill, 0.4);
 assert.equal(ribbon.get('pcbViaDrill').value, '0.0157');
 drill.preview(1.2);
-assert.equal(tools.getRoutingParams().viaDrill, 0.8, 'Via tool preserves its diameter/drill clamp');
+assert.equal(tools.getRoutingParams().viaDrill, 0.4, 'Via tool rejects an oversized drill without silently clamping it');
+drill = panel.fields.find(field => field.id === 'pcbPropViaToolDrill');
+assert.match(drill.error, /Via Diameter must be at least/);
+diameter = panel.fields.find(field => field.id === 'pcbPropViaToolDiameter');
+diameter.preview(0.45);
+assert.equal(tools.getRoutingParams().viaDiameter, 0.8, 'Via tool rejects a diameter with too little annular ring');
+diameter = panel.fields.find(field => field.id === 'pcbPropViaToolDiameter');
+assert.match(diameter.error, /Via Diameter must be at least/);
 diameter.preview(-1);
 diameter = panel.fields.find(field => field.id === 'pcbPropViaToolDiameter');
 assert.match(diameter.error, /positive finite/);

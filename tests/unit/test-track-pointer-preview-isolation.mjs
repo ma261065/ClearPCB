@@ -411,6 +411,36 @@ for (const targetKind of ['same-track', 'same-layer', 'cross-layer', 'conflict',
     cases++;
 }
 
+for (const mode of ['node']) {
+    const f = fixture(mode), { app, model, track } = f;
+    const target = new Track({ id: `bottom-${mode}`, net: 'SIGNAL', layer: 'bottom-copper',
+        points: [{ x: -12, y: 7 }, { x: -20, y: 7 }] });
+    model.tracks.push(target);
+    renderTrack(target, app.getLayerGroup);
+    app.viewport.shiftHeld = false;
+    const before = model.captureGeometry(), source = track.captureState(), other = target.captureState();
+    f.start();
+    updateVertexDrag(app, { x: -12, y: 7 });
+    assert.equal(getVertexDrag(app).snapTargetNode.track, target);
+    assert.deepEqual(track.captureState(), source, 'Cross-layer hover keeps source canonical');
+    assert.deepEqual(target.captureState(), other, 'Cross-layer hover does not edit target');
+    assert.equal(model.vias.length, 0, 'Via is not authored before drop');
+    finishVertexDrag(app);
+    assert.equal(model.vias.length, 1, `${mode}: compatible cross-layer node drop inserts a Via`);
+    assert.equal(model.vias[0].net, 'SIGNAL');
+    assert.equal(model.vias[0].x, -12);
+    assert.equal(model.vias[0].y, 7);
+    assert.equal(model.tracks.includes(target), true, 'Opposite-layer tracks retain separate graphs');
+    assert.ok([...track.nodes.values()].some(point => point.x === -12 && point.y === 7));
+    const after = model.captureGeometry();
+    assert.equal(app.history.undoStack.length, 1, 'Move/topology and Via insertion commit in one action');
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    app.history.redo();
+    assert.deepEqual(model.captureGeometry(), after);
+    cases++;
+}
+
 for (const removed of ['node', 'edge', 'terminal', 'before-preview']) {
     const f = fixture('node'), { app, model, track, nodeId, edgeId, initial } = f;
     const via = new Via({ x: -12, y: 7 });

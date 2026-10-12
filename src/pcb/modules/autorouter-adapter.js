@@ -16,6 +16,7 @@
  */
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
+import { viaDimensionError } from '../../core/PcbDesignSettings.js';
 
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{componentId: string, pinNumber: string|number}} PadRef */
@@ -40,6 +41,12 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
     const trackWidth = typeof optTrackWidth === 'number' && Number.isFinite(optTrackWidth) && optTrackWidth > 0 ? optTrackWidth : 0.2;
     const viaDiameter = typeof optViaDiameter === 'number' && Number.isFinite(optViaDiameter) && optViaDiameter > 0 ? optViaDiameter : 0.6;
     const viaDrill = typeof optViaDrill === 'number' && Number.isFinite(optViaDrill) && optViaDrill > 0 ? optViaDrill : 0.3;
+    const sourceTracks = Array.isArray(routeResult?.tracks) ? routeResult.tracks : [];
+    const sourceVias = Array.isArray(routeResult?.vias) ? routeResult.vias : [];
+    if (sourceVias.length || sourceTracks.some(track => track?.vias?.length)) {
+        const error = viaDimensionError(viaDiameter, viaDrill);
+        if (error) throw new Error(error);
+    }
 
     // Build a position→pad lookup so we can re-attach endpoints to
     // component pads. Keyed by rounded (x,y) to absorb fp arithmetic.
@@ -58,9 +65,6 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
         // will see "orphan" tracks that don't follow component drags.
         console.warn('tracksFromAutorouterResult: opts.placements must be a Map; pads will not link to components');
     }
-
-    const sourceTracks = Array.isArray(routeResult?.tracks) ? routeResult.tracks : [];
-    const sourceVias = Array.isArray(routeResult?.vias) ? routeResult.vias : [];
 
     // Dedupe vias by position (rounded to 4dp) so the per-track .vias arrays
     // and top-level .vias array don't produce duplicates.
