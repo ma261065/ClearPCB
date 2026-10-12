@@ -76,6 +76,34 @@ and nearby H/V–45° intersections from different neighbours are supported. A m
 intersection must be within the normal snap distance, so distant intersections
 do not pull the node away. Hard connection targets and collinear snapping retain
 priority; Shift bypasses alignment snapping.
+Wire endpoint dragging composes compatible hard targets with alignment
+constraints. For example, snapping onto a horizontal wire segment preserves a
+vertical incident-wire guide and lands at the segment/axis intersection.
+Yellow hard-target feedback and compatible axis guides remain visible together;
+an incompatible point target does not move merely to satisfy an axis guide.
+Two schematic wires that cross through both segment interiors show a local
+crossover cue on the visually upper wire: two canvas-colored one-screen-pixel
+strokes run
+parallel just outside its edges. There is no local wire overdraw or foreground
+box; the already-rendered wire remains visually continuous during hover/selection.
+Normal visual stacking follows document render order, while selecting a wire
+raises it and moves the cue to its edges.
+Schematic shape hover and selection use a six-screen-pixel margin outside the
+rendered geometry at every zoom; there is no additional fixed 0.5 mm margin at
+high zoom.
+Dragging a wire segment computes collinearity from the rigid translation of
+both segment endpoints. When that translation makes the moved segment and an
+adjoining stationary segment collinear, the usual blue dotted collinearity
+guide is shown; node dragging is not required. If the intervening dogleg
+collapses to zero length, the coincident bend remains a valid collinearity
+transition and the guide extends through the stationary straight continuation.
+Separate side strokes avoid crosswise end caps at every zoom, including 5000%
+and 10000%. They span the complete rendered width of the crossed wire rather
+than truncating at a fixed screen length. At an angled crossing, each side
+stroke is shifted to the actual intersection of that overpass edge with the
+crossed wire. The cue is confined to the crossing, ignores pointer input and
+does not change connectivity.
+Crossings at authored nodes, shared endpoints and T-junctions have no cue.
 
 The flat 2D board viewer pans and zooms a cached transparent board image, leaving
 its background fixed. Dragging with either the left or right mouse button pans

@@ -12,7 +12,7 @@ import { snapNodeToMixedAxes } from '../../shapes/path-snap.js';
  * @typedef {import('../../shapes/wire.js').Wire} Wire
  * @typedef {{from: string, to: string, [key: string]: unknown}} GraphEdge
  * @typedef {{nodes: Record<string, Point>, edges: Record<string, GraphEdge>}} WireGraphState
- * @typedef {{moving: Point, fixed: Point, beyond?: Point}} SnapEdge
+ * @typedef {{moving: Point, fixed: Point, beyond?: Point, beyondMoves?: boolean, fixedBeyond?: Point}} SnapEdge
  * @typedef {{a: Point, b: Point, collinear?: boolean, axisKind?: string}} SnapGuide
  * @typedef {import('./wire-snap.js').PinSnapInfo} PinSnap
  * @typedef {Point & {type?: string}} WirePointSnap
@@ -147,9 +147,33 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal
 
     // ── Collinear snap (first match adjusts position) ──
     let collinearSnapped = false;
-    for (const { moving, fixed, beyond } of edges) {
+    for (const { moving, fixed, beyond, beyondMoves } of edges) {
         if (!beyond) continue;
         const mx = moving.x + adjustX, my = moving.y + adjustY;
+        if (beyondMoves) {
+            const bx = beyond.x + adjustX, by = beyond.y + adjustY;
+            const dx = bx - mx, dy = by - my;
+            const length = Math.hypot(dx, dy);
+            if (length < 1e-9) continue;
+            const nx = -dy / length, ny = dx / length;
+            const distance = (fixed.x - mx) * nx + (fixed.y - my) * ny;
+            let offX = 0, offY = 0;
+            if (axisLock === 'vertical') {
+                if (Math.abs(ny) < 1e-9) continue;
+                offY = distance / ny;
+            } else if (axisLock === 'horizontal') {
+                if (Math.abs(nx) < 1e-9) continue;
+                offX = distance / nx;
+            } else {
+                offX = nx * distance;
+                offY = ny * distance;
+            }
+            if (Math.hypot(offX, offY) >= threshold) continue;
+            adjustX += offX;
+            adjustY += offY;
+            collinearSnapped = true;
+            break;
+        }
         const snap = collinearSnap(fixed, { x: mx, y: my }, beyond, threshold);
         if (!snap) continue;
         let offX = snap.x - mx, offY = snap.y - my;
@@ -222,18 +246,29 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal
     const guides = [];
     // Collinear guides first (skip if fixed already covered by a prior guide
     // to avoid overlapping highlights on straight multi-segment wires)
-    for (const { moving, fixed, beyond } of edges) {
+    for (const { moving, fixed, beyond, beyondMoves, fixedBeyond } of edges) {
         if (!beyond) continue;
         if (covered.has(fixed)) continue;
         const mx = moving.x + adjustX, my = moving.y + adjustY;
-        if (!collinearSnap(fixed, { x: mx, y: my }, beyond, threshold)) continue;
+        const shiftedBeyond = beyondMoves
+            ? { x: beyond.x + adjustX, y: beyond.y + adjustY }
+            : beyond;
+        if (beyondMoves) {
+            const dx = shiftedBeyond.x - mx, dy = shiftedBeyond.y - my;
+            const length = Math.hypot(dx, dy);
+            if (length < 1e-9
+                || Math.abs((fixed.x - mx) * dy - (fixed.y - my) * dx) / length >= 1e-6) continue;
+        } else if (!collinearSnap(fixed, { x: mx, y: my }, shiftedBeyond, 1e-6)) {
+            continue;
+        }
         covered.add(fixed);
         covered.add(beyond);
-        const pts = [{ x: mx, y: my }, fixed, beyond];
-        const rx = Math.abs(beyond.x - fixed.x);
-        const ry = Math.abs(beyond.y - fixed.y);
+        if (fixedBeyond) covered.add(fixedBeyond);
+        const pts = [{ x: mx, y: my }, fixed, shiftedBeyond, ...(fixedBeyond ? [fixedBeyond] : [])];
+        const rx = Math.abs(shiftedBeyond.x - fixed.x);
+        const ry = Math.abs(shiftedBeyond.y - fixed.y);
         pts.sort((a, b) => rx >= ry ? a.x - b.x : a.y - b.y);
-        guides.push({ a: pts[0], b: pts[2], collinear: true });
+        guides.push({ a: pts[0], b: pts[pts.length - 1], collinear: true });
     }
     // H/V guides (skip fixed points already covered by collinear,
     // and skip alignments that are trivially preserved by the axis lock)
@@ -359,13 +394,40 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // Collect fixed neighbors at the chain boundary (for off-grid snap + guides).
     // Track which moving node each fixed neighbor is adjacent to, so we use the
     // correct endpoint (futureA vs futureB) for guide line computation.
-    /** @type {{pos: Point, movingNodeId: string}[]} */
+    /** @type {{pos: Point, movingNodeId: string, fixedBeyond?: Point}[]} */
     const fixedNeighbors = [];
+    const draggedLength = Math.hypot(segOffX, segOffY);
     for (const nodeId of movingNodes) {
         for (const { otherNode } of wire.incidentEdges(nodeId)) {
             if (movingNodes.has(otherNode)) continue;
             const p = wire.nodes.get(otherNode);
-            if (p) fixedNeighbors.push({ pos: p, movingNodeId: nodeId });
+            if (!p) continue;
+            let currentId = otherNode;
+            let previousId = nodeId;
+            /** @type {Point|undefined} */
+            let fixedBeyond;
+            const visited = new Set(movingNodes);
+            visited.add(otherNode);
+            while (draggedLength > 1e-9) {
+                const current = wire.nodes.get(currentId);
+                if (!current) break;
+                const continuations = wire.incidentEdges(currentId).filter(({ edgeId, otherNode: candidateId }) => {
+                    if (candidateId === previousId || visited.has(candidateId)) return false;
+                    if (Math.abs(Number(wire.getEdgeAttr(edgeId, 'bulge')) || 0) > 1e-9) return false;
+                    const candidate = wire.nodes.get(candidateId);
+                    if (!candidate) return false;
+                    const vx = candidate.x - current.x, vy = candidate.y - current.y;
+                    const candidateLength = Math.hypot(vx, vy);
+                    return candidateLength > 1e-9
+                        && Math.abs(vx * segOffY - vy * segOffX) / (candidateLength * draggedLength) < 1e-6;
+                });
+                if (continuations.length !== 1) break;
+                previousId = currentId;
+                currentId = continuations[0].otherNode;
+                visited.add(currentId);
+                fixedBeyond = wire.nodes.get(currentId);
+            }
+            fixedNeighbors.push({ pos: p, movingNodeId: nodeId, fixedBeyond });
         }
     }
 
@@ -463,10 +525,10 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // Use fixed chain-boundary neighbors as snap/guide targets.
     // Each fixed neighbor knows which moving node it connects to, so we
     // use the correct future position (A or B) as the moving point.
-    for (const { pos: p, movingNodeId } of fixedNeighbors) {
+    for (const { pos: p, movingNodeId, fixedBeyond } of fixedNeighbors) {
         const movingPt = (movingNodeId === origEdge.from) ? futureA : futureB;
         const beyondPt = (movingNodeId === origEdge.from) ? futureB : futureA;
-        snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt });
+        snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt, beyondMoves: true, fixedBeyond });
     }
     const threshold = gridSnapTolerance(gridSize, app.viewport.scale);
     const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis || undefined, { diagonal: true });

@@ -47,11 +47,11 @@ export class SelectionManager {
         this._boxSelectBase = null;
         
         // Hit test tolerance in world units
-        this.tolerance = options.tolerance || 0.5;
+        this.tolerance = options.tolerance ?? 0.5;
         // Minimum on-screen hit tolerance (px). At low zoom a fixed world-unit
         // tolerance shrinks to sub-pixel size, making thin shapes nearly
         // impossible to click; this floor keeps the target a usable size.
-        this.screenTolerancePx = options.screenTolerancePx || 6;
+        this.screenTolerancePx = options.screenTolerancePx ?? 6;
         /** @type {(() => number)|null} */
         this.getScale = options.getScale || null;
         /** @type {((entity:T) => boolean)|null} */

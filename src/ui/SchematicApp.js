@@ -147,6 +147,8 @@ export default class SchematicApp {
         this.interactionState = undefined;
         // Shape/selection state
         this.selection = /** @type {SelectionManager<SchematicItem>} */ (/** @type {unknown} */ (new SelectionManager({
+            tolerance: 0,
+            screenTolerancePx: 6,
             getScale: () => this.viewport?.scale,
             isCulled: (entity) => isCulled(/** @type {SchematicItem} */ (entity)),
             onSelectionChanged: (shapes) => this._onSelectionChanged(/** @type {SchematicItem[]} */ (shapes)),

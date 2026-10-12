@@ -114,6 +114,23 @@ end of the straightened prefix, stopping at bends, junctions, pin attachments,
 curves and reversals. Later unrelated wire turns do not suppress a guide for an
 already eliminable pin-side dogleg.
 New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
+Wire anchor drags also compose compatible constraints: a segment target may
+slide along its own axis to the incident wire's H/V/45 alignment intersection.
+Exact pin/node targets stay exact and retain only guides already true at that
+point. Thus hard-target yellow feedback does not erase a compatible axis guide.
+Wire rendering distinguishes unjoined interior crossings without authoring
+geometry: two parallel canvas-colored side strokes are drawn just outside the
+visually upper wire, each exactly one screen pixel wide. Normal stacking follows
+document render order; selecting a wire raises it and transfers the cue to it.
+The existing wire itself remains
+untouched, so hover and selection cannot produce a local foreground box. The
+local cue follows zoom, theme and curved-edge tangent sampling. Intersections at either edge's
+authored endpoint are left to normal node/T-junction rendering.
+At angled crossings, each side stroke follows its own intersection interval
+with the crossed wire rather than being centred on the centreline intersection.
+Because there is no wider crosswise under-stroke, no end-cap dashes appear at
+extreme zoom. The side strokes span the crossed wire's complete rendered width;
+their junction-local length is not capped below that required coverage.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;

@@ -1100,6 +1100,7 @@ export const anchorDragState = {
             }
 
             let snappedToTarget = false;
+            let hardSnap = null;
             if (isLeaf && getSchematicDrag(app).shape.type === 'wire') {
                 const snap = resolveWireSnapPosition(app, worldPos, {
                     excludeNode: { wire: getSchematicDrag(app).shape, nodeId: getSchematicDrag(app).anchorId },
@@ -1108,7 +1109,10 @@ export const anchorDragState = {
                 });
                 anchorPos = { x: snap.x, y: snap.y };
                 snappedToTarget = snap.snapType === 'pin' || snap.snapType === 'endpoint' || snap.snapType === 'segment';
-                if (snappedToTarget) updateSnapHighlight(app, snap);
+                if (snappedToTarget) {
+                    hardSnap = snap;
+                    updateSnapHighlight(app, snap);
+                }
             }
 
             if (!snappedToTarget) {
@@ -1132,6 +1136,21 @@ export const anchorDragState = {
                     const collinearSnap = computeAnchorCollinearSnap(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, anchorPos);
                     anchorPos = collinearSnap.anchorPos;
                     anchorGuides = collinearSnap.guides;
+                }
+            } else if (getSchematicDrag(app).shape.type === 'wire' && !getSchematicDrag(app).shape.isRect) {
+                const constrained = computeAnchorCollinearSnap(app, getSchematicDrag(app).shape,
+                    getSchematicDrag(app).anchorId, anchorPos);
+                const samePoint = Math.hypot(constrained.anchorPos.x - anchorPos.x,
+                    constrained.anchorPos.y - anchorPos.y) < 1e-9;
+                const alongTarget = hardSnap?.snapType === 'segment'
+                    && (hardSnap.wireDir === 'horizontal'
+                        ? Math.abs(constrained.anchorPos.y - anchorPos.y) < 1e-9
+                        : hardSnap.wireDir === 'vertical'
+                            ? Math.abs(constrained.anchorPos.x - anchorPos.x) < 1e-9
+                            : samePoint);
+                if (samePoint || alongTarget) {
+                    anchorPos = constrained.anchorPos;
+                    anchorGuides = constrained.guides;
                 }
             }
         }

@@ -39,6 +39,10 @@ the bounds `SelectionManager` pre-filters with.
 Selection and hover live only in `SelectionManager`. Its `selected` id set and
 `hovered` id are authoritative; entities carry no `selected` or `hovered`
 flags, so logical selection and rendered selection cannot drift apart.
+The manager accepts independent world-space and minimum screen-space hit
+tolerances. The schematic configures zero world-space margin and a fixed
+six-screen-pixel margin, preventing hover targets from expanding at high zoom;
+PCB retains the shared default world-space floor.
 Renderers ask `isSelected()` and `isHovered()` through the `selection` render
 option (`shapes/selection-view.js`; previews use `NO_SELECTION`).
 

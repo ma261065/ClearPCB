@@ -29,6 +29,7 @@ import {
     renderComponent,
 } from '../render/component-renderer.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { renderWireCrossings } from './wire-crossings.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -345,6 +346,7 @@ export function renderShapes(app, force = false) {
         }
     }
     lastPassScale.set(app, scale);
+    renderWireCrossings(app);
     renderShapeSegmentSelection(app);
     refreshAxisGlow(app);
     updateLabelGuide(app);

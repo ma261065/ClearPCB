@@ -537,6 +537,24 @@ for (const [name, edge, collinear, axisKind] of [
     expect(`wire ${name} never creates the old guide pool`, !Object.hasOwn(app, '_collinearGuides'));
 }
 
+{
+    const result = wireGuides.computeMovingSegmentSnaps(0.5, [{
+        moving: { x: 0.2, y: 0 },
+        fixed: { x: 0, y: 0 },
+        fixedBeyond: { x: 0, y: -10 },
+        beyond: { x: 0.2, y: 10 },
+        beyondMoves: true,
+    }], 'horizontal');
+    const moved = { x: 0.2 + result.adjustX, y: result.adjustY };
+    const movedBeyond = { x: 0.2 + result.adjustX, y: 10 + result.adjustY };
+    expect('wire segment translation snaps both moved endpoints onto the stationary continuation',
+        Math.abs(result.adjustX + 0.2) < 1e-12 && Math.abs(result.adjustY) < 1e-12
+        && Math.abs(moved.x) < 1e-12 && Math.abs(movedBeyond.x) < 1e-12);
+    expect('wire segment translation displays a collinearity guide',
+        result.guides.length === 1 && result.guides[0].collinear
+        && result.guides[0].a.y === -10 && result.guides[0].b.y === 10);
+}
+
 // Wire edits also snap and guide 45° segments; callers opt in (component drags with
 // sticky wires stay horizontal/vertical only).
 {
