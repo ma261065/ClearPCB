@@ -99,6 +99,20 @@ the inner half of the line. Outer dimensions and authored radius remain unchange
 Existing wire-node/segment alignment and sticky wires on moved components use
 the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
 effective grid spacing. They do not force alignment from half a grid cell away.
+For component drags, automatic sticky bridge/bend nodes are traversed to find
+the stationary wire reference. A pin stub kept orthogonal by construction is
+not an H/V snap target. Alignment feedback uses final displayed geometry after
+pin magnets and sticky updates, so a later hard-pin snap cannot leave stale
+guides behind. Component drags show blue/dotted collinearity feedback only when
+the bridge's dogleg can collapse against a stationary wire node; ordinary H/V
+orientation is not useful feedback for these automatically orthogonal wires.
+The full generated bridge path and the next nonzero stationary segment are
+checked together: retained corners, reversals and curved continuations do not
+receive a collinearity indicator merely because the pin-to-corner stub is straight.
+Accepted guides extend through all forward collinear stationary segments to the
+end of the straightened prefix, stopping at bends, junctions, pin attachments,
+curves and reversals. Later unrelated wire turns do not suppress a guide for an
+already eliminable pin-side dogleg.
 New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a

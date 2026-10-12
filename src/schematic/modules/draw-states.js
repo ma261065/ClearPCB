@@ -22,7 +22,7 @@ import { updateStickyWires } from './wire-reconcile.js';
 import { captureStickyNetLabels } from './sticky-wires.js';
 import { updateSnapHighlight, VERTEX_EPSILON } from './wire.js';
 import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
-import { computeAnchorCollinearSnap, computeSegmentDragSnap, applyOffGridNeighborSnap } from './wire-drag-snap.js';
+import { computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap } from './wire-drag-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { clearPendingAnchorDrag, getPendingAnchorDrag, getSchematicDrag, setSchematicDrag, captureMoveDragStates } from './drag.js';
@@ -927,7 +927,7 @@ export const moveDragState = {
         const netLabels = getSchematicDrag(app).netLabels ??= captureStickyNetLabels(app, movingCompIds);
         for (const { net } of netLabels) movingCompIds.add(net.id);
         const snappedTarget = getMoveDragSnappedTarget(app);
-        const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
+        resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
 
         // Probe the raw projected label anchor before grid snapping, matching placement.
         const dragNet = selNow.length === 1 && isNetItem(selNow[0]) ? selNow[0] : null;
@@ -986,7 +986,6 @@ export const moveDragState = {
             }
             if (movingCompIds.size > 0) {
                 updateStickyWires(app, { movedIds: movingCompIds, netLabels });
-                renderGuideLines(app, stickyGuides);
             }
             propagateMovedWireJunctions(app, sel, dx, dy);
             getSchematicDrag(app).lastSnapped.x = snappedTarget.x;
@@ -994,6 +993,11 @@ export const moveDragState = {
             app.renderShapes(false);
             if (getSchematicTextEdit(app)) app.updateTextEditOverlay();
             app.fileManager.setDirty(true);
+        }
+        if (movingCompIds.size > 0) {
+            renderGuideLines(app, computeStickyWireSnaps(app, movingCompIds, 0, 0, {
+                guidesOnly: true, baseline: getSchematicDrag(app).stickyGuideBaseline,
+            }).guides);
         }
 
         if (dragComp) {

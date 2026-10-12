@@ -477,23 +477,113 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
 }
 
 /**
- * Compute H/V snap adjustment and guide lines for sticky wire nodes
+ * @param {Wire} wire @param {string} pinNodeId @param {string} neighborId
+ * @param {Set<string>} movingCompIds
+ * @returns {{point: Point, bridged: boolean, nodeId: string, path: string[]}|null}
+ */
+function stickyStationaryNeighbor(wire, pinNodeId, neighborId, movingCompIds) {
+    const visited = new Set([pinNodeId]);
+    let previousId = pinNodeId;
+    let currentId = neighborId;
+    let bridged = false;
+    const path = [pinNodeId];
+    while (!visited.has(currentId)) {
+        visited.add(currentId);
+        path.push(currentId);
+        const point = wire.nodes.get(currentId);
+        if (!point) return null;
+        const connection = wire.pinConnections.get(currentId);
+        if (connection && movingCompIds.has(connection.componentId)) return null;
+        const followsPin = point._stickyBridge || point._stickyBridgeBend || point._staggerBend
+            || point._staggerAxis || point._staggerBendId;
+        if (!followsPin || point._pinDetachJunction
+            || point._stickyOwnerCompId && !movingCompIds.has(point._stickyOwnerCompId)) return { point, bridged, nodeId: currentId, path };
+        bridged = true;
+        const nextId = point._staggerWireNeighbor || point._staggerBendId;
+        const neighbors = nextId ? [nextId] : wire.incidentEdges(currentId)
+            .map(({ otherNode }) => otherNode).filter(id => id !== previousId);
+        if (neighbors.length !== 1) return null;
+        previousId = currentId;
+        currentId = neighbors[0];
+    }
+    return null;
+}
+
+/**
+ * Capture simplified wires attached to a moved owner before bridge insertion.
+ * A later guide is meaningful only if the corresponding topology simplifies.
+ * @param {SchematicEditor} app @param {Set<string>} movingCompIds
+ * @returns {Map<Wire, import('../../shapes/wire.js').WireState>}
+ */
+export function captureStickyGuideBaseline(app, movingCompIds) {
+    const baseline = new Map();
+    for (const shape of app.shapes) {
+        if (shape.type !== 'wire'
+            || ![...shape.pinConnections.values()].some(conn => movingCompIds.has(conn.componentId))) continue;
+        const copy = /** @type {Wire} */ (shape.clone());
+        copy.cleanGraph();
+        baseline.set(shape, copy.captureState());
+    }
+    return baseline;
+}
+
+/**
+ * Guides are topology transitions, not merely current alignments. Clean both
+ * snapshots and expose final pin edges only when the authored wire loses edges.
+ * @param {Wire} wire
+ * @param {import('../../shapes/wire.js').WireState} beforeState
+ * @param {Set<string>} movingCompIds
+ * @returns {SnapGuide[]}
+ */
+function stickyTransitionGuides(wire, beforeState, movingCompIds) {
+    const before = /** @type {Wire} */ (wire.clone());
+    before.applyState(beforeState);
+    before.cleanGraph();
+    const after = /** @type {Wire} */ (wire.clone());
+    after.cleanGraph();
+    if (after.edges.size >= before.edges.size) return [];
+    const guides = [];
+    for (const [nodeId, connection] of after.pinConnections) {
+        if (!movingCompIds.has(connection.componentId)) continue;
+        const start = after.nodes.get(nodeId);
+        if (!start) continue;
+        const beforeEnds = new Set(before.incidentEdges(nodeId).flatMap(({ edge, otherNode }) => {
+            if (Math.abs(edge.bulge || 0) > 1e-6) return [];
+            const point = before.nodes.get(otherNode);
+            return point ? [`${point.x},${point.y}`] : [];
+        }));
+        for (const { edge, otherNode } of after.incidentEdges(nodeId)) {
+            if (Math.abs(edge.bulge || 0) > 1e-6) continue;
+            const end = after.nodes.get(otherNode);
+            if (!end || Math.hypot(end.x - start.x, end.y - start.y) <= 1e-6
+                || beforeEnds.has(`${end.x},${end.y}`)) continue;
+            guides.push({ a: { x: start.x, y: start.y }, b: { x: end.x, y: end.y }, collinear: true });
+        }
+    }
+    return guides;
+}
+
+/**
+ * Compute sticky-wire straightening adjustment and collinearity guides for nodes
  * connected to moving components.
  *
  * @param {SchematicEditor} app
  * @param {Set<string>} movingCompIds
  * @param {number} proposedDx - grid-snapped dx about to be applied
  * @param {number} proposedDy - grid-snapped dy about to be applied
+ * @param {{guidesOnly?: boolean, baseline?: Map<Wire, import('../../shapes/wire.js').WireState>}} [options] Show only topology-changing alignments after final movement.
  * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number}, b:{x:number,y:number}, collinear?:boolean, axisKind?:string}> }}
  */
-export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy) {
-    const threshold = gridSnapTolerance(app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1), app.viewport.scale);
+export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy, { guidesOnly = false, baseline } = {}) {
+    const threshold = guidesOnly ? 1e-6
+        : gridSnapTolerance(app.viewport.getEffectiveGridSize?.() ?? (app.viewport.gridSize || 1), app.viewport.scale);
     /** @type {SnapEdge[]} */
     const edges = [];
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
         const wireShape = shape;
+        if (movingCompIds.has(wireShape.id)) continue;
         if (wireShape.pinConnections.size === 0) continue;
 
         for (const [nodeId, conn] of wireShape.pinConnections) {
@@ -503,18 +593,29 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
             // Find a non-moving neighbor node for the snap reference
             const neighbors = wireShape.incidentEdges(nodeId);
             for (const { otherNode } of neighbors) {
-                const npos = wireShape.nodes.get(otherNode);
-                if (!npos) continue;
-                // Only use non-moving neighbors as fixed reference
-                const otherConn = wireShape.pinConnections.get(otherNode);
-                if (otherConn && movingCompIds.has(otherConn.componentId)) continue;
-                edges.push({
+                // Generated stubs stay orthogonal automatically; they are not
+                // meaningful alignment targets for moving the component.
+                const neighbor = stickyStationaryNeighbor(wireShape, nodeId, otherNode, movingCompIds);
+                if (!neighbor) continue;
+                const edge = {
                     moving: { x: node.x + proposedDx, y: node.y + proposedDy },
-                    fixed: npos
-                });
+                    fixed: neighbor.point
+                };
+                edges.push(edge);
             }
         }
     }
 
-    return computeMovingSegmentSnaps(threshold, edges);
+    const result = computeMovingSegmentSnaps(threshold, edges);
+    const guides = guidesOnly && baseline
+        ? [...baseline].flatMap(([wire, state]) => stickyTransitionGuides(wire, state, movingCompIds))
+        : [];
+    /** @type {Map<string, SnapGuide>} */
+    const unique = new Map();
+    for (const guide of guides) {
+        const key = `${guide.a.x},${guide.a.y}|${guide.b.x},${guide.b.y}`;
+        unique.set(key, guide);
+    }
+    result.guides = [...unique.values()];
+    return result;
 }

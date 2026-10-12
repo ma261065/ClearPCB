@@ -26,6 +26,18 @@ for free pins only. Pins already attached to wires, including wires attached
 through a direct pin NetLabel, are excluded from the connection magnet; their
 sticky wires still follow normally. The component's own pins and other moving
 pin owners cannot become snap targets.
+Component dragging shows only collinearity feedback when an attached wire's
+dogleg straightens and can be eliminated, not H/V indicators for automatically
+orthogonal wire stubs. Straightening targets use stationary wire nodes beyond
+sticky bridges. Guides are rebuilt after the final snapped movement; moving
+owners are not fixed references.
+The generated bridge path and the stationary continuation must share the same
+straight direction. Aligning a pin stub with a corner that still turns, or
+doubles back, does not qualify for collinearity feedback.
+When a pin-side dogleg straightens, its indicator covers the complete
+straightened prefix, including intermediate stationary nodes. It stops at the
+next bend, branch, pin attachment, curved edge or reversal; later unrelated
+doglegs do not suppress feedback for that useful straightened section.
 
 Both editors offer only Fit, not a separate Default view action. Outside text
 and Properties inputs, Home activates Select, opens the active editor's Home tab and fits its
