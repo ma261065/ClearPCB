@@ -9,32 +9,31 @@
  *     derived from the schematic netlist and are never deleted here.
  *
  * The marquee rectangle itself is drawn with the shared helpers in
- * ../../ui/modules/box-selection.js (it reads `app.drag.start`,
- * `app.viewport.scale` and `app.viewport.contentLayer`).
+ * ../../shared/ui/box-selection.js, which keep it and its start point.
  */
 
+import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession } from './drag-session.js';
+import { snapToViewportGrid } from '../../core/grid-snap.js';
 import {
     createBoxSelectElement,
     updateBoxSelectElement,
     removeBoxSelectElement,
     getBoxSelectBounds,
-} from '../../ui/modules/box-selection.js';
-import {
-    drawStandalonePadHalo,
-    drawTrackHalo,
-    drawViaHalo,
-    refreshTrackSelectionHalo,
-    removeHalosByClass,
-} from './track-select.js';
-import { renderTrack, renderVia } from './track-render.js';
-import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
-import {
-    applyShapeGeometry,
-    cloneShapeGeometry,
-    renderBoardShape,
-    translateShapeGeometry,
-} from './board-shapes.js';
-import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
+} from '../../shared/ui/box-selection.js';
+import { drawStandalonePadHalo, drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './copper-halos.js';
+import { trackIsSelectable } from './track-select.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
+import { Track } from '../../shapes/track.js';
+import { Via, viaBounds, viaHitTest } from '../../shapes/via.js';
+import { Pad } from '../../shapes/pad.js';
+import { CopperFill } from '../../shapes/copper-fill.js';
+import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
+import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isViaVisible } from './layers.js';
+import { isPcbObjectLocked } from './object-locks.js';
+import { applyShapeGeometry, cloneShapeGeometry } from '../../core/pcb-board-shapes.js';
+import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
+import { translateShapeGeometry } from './board-shapes.js';
+import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
 import {
     CompoundCommand,
     RemoveTrackCommand,
@@ -42,23 +41,41 @@ import {
     MovePlacementCommand,
     MoveViaCommand,
     ModifyTrackGraphCommand,
-    applyPlacementPose,
+    previewPlacementPoses,
+    finishPlacementPreview,
+    getPlacementPreviewTracks,
 } from './track-commands.js';
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
-import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
+import { MoveTextCommand, RemoveTextCommand, previewTextPoses, finishTextPosePreview } from './text-commands.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { ModifyPadCommand, RemovePadCommand } from './pad-commands.js';
-import { padBounds, padHitTest, renderPad } from './pad.js';
+import { padBounds, padHitTest, padLayers } from '../../shapes/pad-geometry.js';
+import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { commitPropertyEditors } from './property-editors.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
+import { rerenderFills } from './fill-refresh.js';
 import {
     clearPcbSelection,
+    getComponentSelectionHits,
     getPcbSelection,
+    getPcbSelectionEntries,
     hasPcbSelection,
     refreshPcbReferenceOverlay,
     setPcbSelection,
     togglePcbSelection,
+    syncPcbSelection,
 } from './selection-registry.js';
+import { isEditorActive } from './pcb-editor-api.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { setSelectionInteraction } from './selection-interaction.js';
+import { netsForComponent } from './component-selection.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {ReturnType<typeof getGroupDrag>} GroupDrag */
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -68,9 +85,123 @@ const VIA_HALO_CLASS = 'pcb-box-via-sel';
 const PAD_HALO_CLASS = 'pcb-box-pad-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
+const boxSelectState = new WeakMap();
+
+/** @param {PcbEditor} app */
+function stateFor(app) {
+    let state = boxSelectState.get(app);
+    if (!state) {
+        state = {
+            arm: null,
+            active: false,
+            pendingWorld: null,
+            frame: undefined,
+            highlightFrame: undefined,
+        };
+        boxSelectState.set(app, state);
+    }
+    return state;
+}
+
+/**
+ * The active group (multi-selection) drag, or null.
+ * @param {PcbEditor} app
+ */
+export function getGroupDrag(app) {
+    return getPcbInteraction(app, '_groupDrag');
+}
+
+/** @param {PcbEditor} app */
+export function getGroupPreview(app) {
+    return getGroupDrag(app)?.preview;
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g */
+function beginGroupPreview(app, g) {
+    if (g.preview || ![g.tracks, g.vias, g.pads, g.shapes, g.fills].some(entries => entries.length)) return;
+    const model = app.pcbDocument;
+    assertGroupTargets(app, g);
+    const tracks = getPlacementPreviewTracks(app) || model.tracks;
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    const copies = new Map();
+    for (const entry of g.tracks) {
+        const existing = /** @type {Track} */ (tracksById.get(entry.track.id));
+        const copy = existing !== entry.track ? existing : new Track({ id: entry.track.id });
+        if (copy !== existing) copy.applyState(entry.before);
+        copies.set(entry.track, copy);
+    }
+    for (const [entries, key, Type] of [
+        [g.vias, 'via', Via], [g.pads, 'pad', Pad],
+    ]) for (const entry of entries) {
+        const original = entry[key], copy = new Type({ id: original.id });
+        copy.applyState(original.captureState());
+        copies.set(original, copy);
+    }
+    for (const entry of g.shapes) {
+        const { artwork, ...shape } = entry.shape;
+        copies.set(entry.shape, { ...structuredClone(shape), ...(artwork ? { artwork } : {}) });
+    }
+    for (const entry of g.fills) copies.set(entry.fill, new CopperFill(entry.before));
+    /** @template T @param {T[]} collection @returns {T[]} */
+    const replace = collection => collection.map(item => /** @type {T} */ (copies.get(item) || item));
+    g.preview = {
+        copies, originals: new Map([...copies].map(([original, copy]) => [copy, original])),
+        tracks: replace(tracks), vias: replace(model.vias || []), pads: replace(model.pads || []),
+        boardShapes: replace(model.boardShapes || []),
+    };
+    for (const { track } of g.tracks) removeTrackElements(track);
+    for (const { via } of g.vias) removeViaElements(via);
+    for (const { pad } of g.pads) removePadElements(pad);
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g */
+function groupIsEditable(app, g) {
+    return isEditorActive(app)
+        && g.comps.every(/** @param {{id: string}} entry */ entry => !app.placements.get(entry.id)?.locked)
+        && g.tracks.every(/** @param {{track: Track}} entry */ entry => !entry.track.locked && trackIsSelectable(entry.track))
+        && g.vias.every(/** @param {{via: Via}} entry */ entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
+        && g.pads.every(/** @param {{pad: Pad}} entry */ entry => !entry.pad.locked && entry.pad.visible !== false
+            && padLayers(entry.pad).every(layer => !isLayerLocked(layer)) && padLayers(entry.pad).some(isLayerVisible))
+        && [...g.shapes.map(/** @param {{shape: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.shape), ...g.texts.map(/** @param {{text: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.text)]
+            .every(item => !item.locked && item.visible !== false && !isLayerLocked(item.layer) && isLayerVisible(item.layer))
+        && g.fills.every(/** @param {{fill: CopperFill}} entry */ ({ fill }) => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
+            && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g */
+function assertGroupTargets(app, g) {
+    const model = app.pcbDocument;
+    for (const component of g.comps) {
+        if (!app.placements.has(component.id) || !app.project?.getPcbFootprint(component.id)) {
+            throw new Error(`PCB footprint is no longer available: ${component.id}`);
+        }
+    }
+    for (const [entries, key, collection] of [
+        [g.tracks, 'track', model.tracks], [g.vias, 'via', model.vias], [g.pads, 'pad', model.pads],
+        [g.shapes, 'shape', model.boardShapes], [g.fills, 'fill', model.boardShapes],
+    ]) {
+        if (!entries.length) continue;
+        const present = new Set(collection);
+        for (const entry of entries) {
+            if (!present.has(entry[key])) throw new Error(`PCB ${key} is no longer available: ${entry[key].id}`);
+        }
+    }
+    for (const entry of g.texts) {
+        if (model.texts.get(entry.text.id) !== entry.text) throw new Error(`PCB text is no longer available: ${entry.text.id}`);
+    }
+    for (const entry of g.tracks) {
+        if ([...entry.nodes.keys()].some(id => !entry.track.nodes.has(id))) {
+            throw new Error(`PCB track node is no longer available: ${entry.track.id}`);
+        }
+    }
+}
+
 /* ───────────────────────────── state ───────────────────────────── */
 
-/** Any objects currently box-selected? */
+/**
+ * Any objects currently box-selected?
+ * @param {PcbEditor} app
+ */
 export function hasBoxSelection(app) {
     return hasPcbSelection(app);
 }
@@ -80,40 +211,54 @@ export function hasBoxSelection(app) {
 /**
  * Arm a potential box-select. Called from mousedown on empty canvas; the
  * marquee only materialises once the pointer passes the drag threshold.
- * @param {object} app
- * @param {{x:number,y:number}} screen - clientX/clientY at mousedown
- * @param {{x:number,y:number}} world  - world coords at mousedown
+ * @param {PcbEditor} app
+ * @param {Point} screen - clientX/clientY at mousedown
+ * @param {Point} world  - world coords at mousedown
  */
 export function armBoxSelect(app, screen, world) {
-    app._boxSelectArm = { screen, world };
-    app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
+    stateFor(app).arm = { screen, world };
 }
 
-/** Discard a pending (not-yet-started) box-select arm. */
+/**
+ * Discard a pending (not-yet-started) box-select arm.
+ * @param {PcbEditor} app
+ */
 export function disarmBoxSelect(app) {
-    app._boxSelectArm = null;
+    stateFor(app).arm = null;
 }
 
-/** True while a marquee is actively being dragged. */
+/**
+ * True while a potential marquee is armed but not yet active.
+ * @param {PcbEditor} app
+ */
+export function isBoxSelectArmed(app) {
+    return !!stateFor(app).arm;
+}
+
+/**
+ * True while a marquee is actively being dragged.
+ * @param {PcbEditor} app
+ */
 export function isBoxSelecting(app) {
-    return !!app._boxSelectActive;
+    return !!stateFor(app).active;
 }
 
 /**
  * Called on mousemove. If a box-select is armed and the pointer has moved
  * past the threshold, start the marquee. Returns true when the marquee is
  * active (so the caller should treat the move as a box-select update).
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {MouseEvent} e
- * @param {{x:number,y:number}} worldPos
+ * @param {Point} worldPos
  * @returns {boolean}
  */
 export function maybeStartBoxSelect(app, e, worldPos) {
-    if (app._boxSelectActive) {
+    const state = stateFor(app);
+    if (state.active) {
         _scheduleMarqueeUpdate(app, worldPos);
         return true;
     }
-    const arm = app._boxSelectArm;
+    const arm = state.arm;
     if (!arm) return false;
     const ddx = e.clientX - arm.screen.x;
     const ddy = e.clientY - arm.screen.y;
@@ -121,92 +266,119 @@ export function maybeStartBoxSelect(app, e, worldPos) {
 
     // Threshold crossed — begin the marquee. Clear any prior single
     // selection so the new box selection is the only highlighted thing.
-    app._boxSelectActive = true;
-    app.drag = { start: { x: arm.world.x, y: arm.world.y } };
+    state.active = true;
     clearBoxSelection(app);
-    createBoxSelectElement(app);
+    createBoxSelectElement(app, arm.world);
     _updateMarquee(app, worldPos);
     return true;
 }
 
-/** Coalesce expensive marquee containment work to one update per frame. */
+/**
+ * Coalesce expensive marquee containment work to one update per frame.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 function _scheduleMarqueeUpdate(app, worldPos) {
-    app._boxSelectPendingWorld = worldPos;
-    if (app._boxSelectFrame !== undefined) return;
-    app._boxSelectFrame = requestAnimationFrame(() => {
-        app._boxSelectFrame = undefined;
-        const pending = app._boxSelectPendingWorld;
-        app._boxSelectPendingWorld = null;
-        if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+    const state = stateFor(app);
+    state.pendingWorld = worldPos;
+    if (state.frame !== undefined) return;
+    state.frame = requestAnimationFrame(() => {
+        state.frame = undefined;
+        const pending = state.pendingWorld;
+        state.pendingWorld = null;
+        if (pending && state.active) _updateMarquee(app, pending);
     });
 }
 
+/** @param {PcbEditor} app */
 function _flushMarqueeUpdate(app) {
-    if (app._boxSelectFrame !== undefined) {
-        cancelAnimationFrame(app._boxSelectFrame);
-        app._boxSelectFrame = undefined;
+    const state = stateFor(app);
+    if (state.frame !== undefined) {
+        cancelAnimationFrame(state.frame);
+        state.frame = undefined;
     }
-    const pending = app._boxSelectPendingWorld;
-    app._boxSelectPendingWorld = null;
-    if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+    const pending = state.pendingWorld;
+    state.pendingWorld = null;
+    if (pending && state.active) _updateMarquee(app, pending);
 }
 
-/** Update the marquee rect + recompute the enclosed set + redraw halos. */
+/**
+ * Update the marquee rect + recompute the enclosed set + redraw halos.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 function _updateMarquee(app, worldPos) {
     updateBoxSelectElement(app, worldPos);
-    const bounds = getBoxSelectBounds(app, worldPos);
-    _computeEnclosed(app, bounds);
+    const bounds = getBoxSelectBounds(/** @type {Parameters<typeof getBoxSelectBounds>[0]} */ (/** @type {unknown} */ (app)), worldPos);
+    selectEnclosed(app, bounds);
     _applyHighlights(app);
 }
 
-/** Finish the marquee: keep the selection, remove the rubber-band rect. */
+/**
+ * Finish the marquee: keep the selection, remove the rubber-band rect.
+ * @param {PcbEditor} app
+ */
 export function finishBoxSelect(app) {
-    if (!app._boxSelectActive) {
-        app._boxSelectArm = null;
+    const state = stateFor(app);
+    if (!state.active) {
+        state.arm = null;
         return false;
     }
     _flushMarqueeUpdate(app);
     removeBoxSelectElement(app);
-    app._boxSelectActive = false;
-    app._boxSelectArm = null;
-    app.drag = null;
+    state.active = false;
+    state.arm = null;
     return hasBoxSelection(app);
 }
 
-/** Redraw the current marquee selection after an externally-driven edit. */
+/**
+ * Redraw the current marquee selection after an externally-driven edit.
+ * @param {PcbEditor} app
+ */
 export function refreshBoxSelectionHighlights(app) {
-    app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
 
-/** Schedule one selection-overlay rebuild for the current animation frame. */
+/**
+ * Schedule one selection-overlay rebuild for the current animation frame.
+ * @param {PcbEditor} app
+ */
 export function scheduleBoxSelectionHighlights(app) {
-    if (app._boxHighlightFrame !== undefined) return;
-    app._boxHighlightFrame = requestAnimationFrame(() => {
-        app._boxHighlightFrame = undefined;
+    const state = stateFor(app);
+    if (state.highlightFrame !== undefined) return;
+    state.highlightFrame = requestAnimationFrame(() => {
+        state.highlightFrame = undefined;
         refreshBoxSelectionHighlights(app);
     });
 }
 
-/** Toggle one board shape in the active PCB multi-selection. */
+/**
+ * Toggle one board shape in the active PCB multi-selection.
+ * @param {PcbEditor} app
+ * @param {object} shape
+ */
 export function toggleBoxShapeSelection(app, shape) {
     if (!shape) return;
     togglePcbSelection(app, 'shape', shape);
     _applyHighlights(app);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /* ─────────────────────── containment test ───────────────────────── */
 
-/** Replace the selection sets with everything fully inside `bounds`. */
-function _computeEnclosed(app, bounds) {
+/**
+ * Replace the selection sets with everything fully inside `bounds`.
+ * @param {PcbEditor} app
+ * @param {Bounds} bounds
+ */
+export function selectEnclosed(app, bounds) {
+    /** @type {Array<{kind: string, object: unknown}>} */
     const selected = [];
     const { minX, minY, maxX, maxY } = bounds;
 
     // Components: every pad must lie inside the rectangle.
     for (const [compId, pl] of app.placements) {
-        if (pl.locked) continue;
         if (!pl.pads || pl.pads.size === 0) continue;
         let allInside = true;
         for (const [, pad] of pl.pads) {
@@ -218,11 +390,10 @@ function _computeEnclosed(app, bounds) {
         if (allInside) selected.push({ kind: 'component', object: compId });
     }
 
-    // Tracks: every node must lie inside the rectangle. Locked-layer tracks
-    // are never marquee-selectable.
+    // Tracks: every node must lie inside, with at least one visible, unlocked edge.
     for (const t of app.tracks) {
         if (!t.nodes || t.nodes.size === 0) continue;
-        if (isLayerLocked(t.layer)) continue;
+        if (!trackIsSelectable(t)) continue;
         let allInside = true;
         for (const [, n] of t.nodes) {
             if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) {
@@ -236,14 +407,14 @@ function _computeEnclosed(app, bounds) {
     // Vias: centre (± radius) inside the rectangle. Skip when locked.
     if (!isViaLocked()) {
         for (const v of app.vias) {
-            const r = (v.diameter || 0.6) / 2;
-            if (v.x - r >= minX && v.x + r <= maxX && v.y - r >= minY && v.y + r <= maxY) {
+            const bounds = viaBounds(v);
+            if (bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY) {
                 selected.push({ kind: 'via', object: v });
             }
         }
     }
     for (const pad of app.pads || []) {
-        if (pad.locked || pad.visible === false) continue;
+        if (pad.visible === false || padLayers(pad).some(isLayerLocked)) continue;
         const padBox = padBounds(pad);
         if (padBox.minX >= minX && padBox.maxX <= maxX
             && padBox.minY >= minY && padBox.maxY <= maxY) {
@@ -256,32 +427,36 @@ function _computeEnclosed(app, bounds) {
         if (shape?.type === 'fill') continue;
         if (isLayerLocked(shape.layer)) continue;
         const outline = shapeOutline(shape);
-        if (outline.length > 0 && outline.every((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)) {
+        if (outline.length > 0 && outline.every((/** @type {Point} */ p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)) {
             selected.push({ kind: 'shape', object: shape });
         }
     }
     for (const text of app.texts?.values?.() || []) {
+        if (isLayerLocked(text.layer) || !isLayerVisible(text.layer)) continue;
         const bounds = pcbTextBounds(text);
         if (bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY) {
             selected.push({ kind: 'text', object: text });
         }
     }
     for (const fill of (app.boardShapes || [])) {
-        if (fill?.type !== 'fill' || fill.locked || fill.visible === false) continue;
+        if (fill?.type !== 'fill' || fill.visible === false) continue;
         if (isLayerLocked(fill.layer)
             || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         const outline = fill.getOutline?.() || fill.outline;
-        if (outline?.length && outline.every((point) => (
+        if (outline?.length && outline.every((/** @type {Point} */ point) => (
             point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY
         ))) selected.push({ kind: 'fill', object: fill });
     }
     setPcbSelection(app, selected);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons();
 }
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
 
-/** Draw halos for every selected object (clears old halos first). */
+/**
+ * Draw halos for every selected object (clears old halos first).
+ * @param {PcbEditor} app
+ */
 function _applyHighlights(app) {
     _clearHighlights(app);
     for (const compId of getPcbSelection(app, 'component')) _drawCompHighlight(app, compId);
@@ -291,20 +466,23 @@ function _applyHighlights(app) {
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
     for (const pad of getPcbSelection(app, 'pad')) drawStandalonePadHalo(app, pad, PAD_HALO_CLASS);
-    for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
+    for (const text of getPcbSelection(app, 'text')) app.refreshText(text.id);
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
-    if (getPcbSelection(app, 'fill').length) app._rerenderFills?.();
+    if (getPcbSelection(app, 'fill').length) rerenderFills(app);
     refreshPcbReferenceOverlay(app);
     renderPcbSelectionAnchors(app);
 }
 
-/** Remove all box-selection halos from the DOM. */
+/**
+ * Remove all box-selection halos from the DOM.
+ * @param {PcbEditor} app
+ */
 function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
     removeHalosByClass(app, PAD_HALO_CLASS);
-    app._getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
+    app.getLayerGroup('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements || []) {
         if (pl.elements) {
@@ -313,7 +491,11 @@ function _clearHighlights(app) {
     }
 }
 
-/** Add a translucent rect over a component's footprint bounds. */
+/**
+ * Add a translucent rect over a component's footprint bounds.
+ * @param {PcbEditor} app
+ * @param {string} compId
+ */
 function _drawCompHighlight(app, compId) {
     const pl = app.placements.get(compId);
     if (!pl?.elements?.length || !pl.bounds) return;
@@ -332,15 +514,38 @@ function _drawCompHighlight(app, compId) {
     pl.elements[0].appendChild(rect);
 }
 
-/** Clear the multi-selection and remove its halos. */
+/**
+ * Clear the multi-selection and remove its halos.
+ * @param {PcbEditor} app
+ */
 export function clearBoxSelection(app) {
-    const selectedTextIds = getPcbSelection(app, 'text').map((text) => text.id);
+    const selectedTextIds = getPcbSelection(app, 'text').map((/** @type {{id: string}} */ text) => text.id);
     const selectedPads = getPcbSelection(app, 'pad');
     _clearHighlights(app);
     clearPcbSelection(app);
-    for (const textId of selectedTextIds) app._refreshText?.(textId);
-    for (const pad of selectedPads) renderPad(pad, id => app._getLayerGroup(id));
-    app._syncClipboardButtons?.();
+    for (const textId of selectedTextIds) app.refreshText(textId);
+    for (const pad of selectedPads) renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id));
+    app.syncClipboardButtons();
+}
+
+/**
+ * Deselect only the selected objects that are no longer visible (e.g. after a
+ * layer is hidden), keeping the rest of the selection. Returns true when
+ * anything was deselected.
+ * @param {PcbEditor} app
+ */
+export function deselectHiddenPcbSelection(app) {
+    const selected = getPcbSelectionEntries(app);
+    const hidden = selected.filter((/** @type {{visible?: boolean}} */ entry) => entry.visible === false);
+    if (!hidden.length) return false;
+    _clearHighlights(app);
+    setPcbSelection(app, selected.filter((/** @type {{visible?: boolean}} */ entry) => entry.visible !== false));
+    for (const entry of hidden) {
+        if (entry.kind === 'text') app.refreshText(entry.object.id);
+        else if (entry.kind === 'pad') renderPad(entry.object, /** @param {string} id */ id => app.getLayerGroup(id));
+    }
+    app.syncClipboardButtons();
+    return true;
 }
 
 /* ─────────────────────────── group drag ─────────────────────────── */
@@ -349,6 +554,8 @@ export function clearBoxSelection(app) {
  * True when `worldPos` lands on a member of the current box-selection —
  * i.e. clicking there should start a group drag rather than a fresh
  * single selection.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
  */
 export function pointInBoxSelection(app, worldPos) {
     if (!hasBoxSelection(app)) return false;
@@ -359,12 +566,11 @@ export function pointInBoxSelection(app, worldPos) {
     // Reuse PCBApp's pose-aware component picker. Placement bounds live in
     // local coordinates, so a simple translated rectangle misses rotated or
     // mirrored footprints and breaks Ctrl+A group dragging from their body.
-    const componentHit = app._hitTestComponent?.(worldPos);
-    if (componentHit && getPcbSelection(app, 'component').includes(componentHit)) return true;
+    const componentHits = getComponentSelectionHits(app, worldPos);
+    if (getPcbSelection(app, 'component').some((/** @type {string} */ id) => componentHits.has(id))) return true;
     // A selected via.
     for (const v of getPcbSelection(app, 'via')) {
-        const r = (v.diameter || 0.6) / 2 + worldTol;
-        if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) return true;
+        if (viaHitTest(v, worldPos, worldTol)) return true;
     }
     for (const pad of getPcbSelection(app, 'pad')) {
         if (padHitTest(pad, worldPos)) return true;
@@ -391,6 +597,7 @@ export function pointInBoxSelection(app, worldPos) {
     return false;
 }
 
+/** @param {Point} p @param {Point} a @param {Point} b */
 function _pointSegDist(p, a, b) {
     const vx = b.x - a.x, vy = b.y - a.y;
     const wx = p.x - a.x, wy = p.y - a.y;
@@ -401,88 +608,114 @@ function _pointSegDist(p, a, b) {
     return Math.hypot(p.x - (a.x + t * vx), p.y - (a.y + t * vy));
 }
 
-/** Snapshot start positions of every selected object for a group drag. */
+/**
+ * Snapshot start positions of every selected object for a group drag.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function beginGroupDrag(app, worldPos) {
+    if (getGroupDrag(app)) cancelGroupDrag(app);
+    commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape', 'fill']);
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);
         if (pl && !pl.locked) comps.push({ id: compId, x: pl.x, y: pl.y });
     }
     const vias = [];
-    for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });
+    // Locked members (own or layer lock) stay where they are; the rest move.
+    /** @param {string} kind */
+    const movable = kind => getPcbSelection(app, kind).filter((/** @type {object} */ object) => !isPcbObjectLocked(app, kind, object));
+    for (const v of movable('via')) vias.push({ via: v, x: v.x, y: v.y });
     const pads = [];
-    for (const pad of getPcbSelection(app, 'pad')) pads.push({ pad, before: pad.captureState() });
+    for (const pad of movable('pad')) pads.push({ pad, before: pad.captureState() });
     const tracks = [];
-    for (const t of getPcbSelection(app, 'track')) {
+    for (const t of movable('track')) {
         const nodes = new Map();
         for (const [nid, n] of t.nodes) nodes.set(nid, { x: n.x, y: n.y });
         tracks.push({ track: t, nodes, before: t.captureState() });
     }
     const shapes = [];
-    for (const shape of getPcbSelection(app, 'shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
+    for (const shape of movable('shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
     const texts = [];
-    for (const text of getPcbSelection(app, 'text')) texts.push({ text, x: text.x, y: text.y });
+    for (const text of movable('text')) texts.push({ text, x: text.x, y: text.y });
     const fills = [];
     for (const fill of getPcbSelection(app, 'fill')) {
         if (fill.locked || fill.visible === false || isLayerLocked(fill.layer)
             || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         fills.push({ fill, before: fill.captureState() });
     }
-    const ratsnestNets = new Set();
+    // Ratlines follow the moved copper: components' nets, vias, pads, tracks and additive
+    // copper shapes. Pours only move their outline until the drop recomputes them.
+    const ratsnestNets = copperNets([...vias.map(entry => entry.via), ...pads.map(entry => entry.pad),
+        ...tracks.map(entry => entry.track),
+        ...shapes.map(entry => entry.shape).filter(shape => normalizeShapeCopperMode(shape.copperMode) === 'add')]);
     for (const component of comps) {
-        for (const net of app._netsForComponent?.(component.id) || []) ratsnestNets.add(net);
+        for (const net of netsForComponent(app, component.id)) ratsnestNets.add(net);
     }
-    for (const entry of vias) if (entry.via.net) ratsnestNets.add(entry.via.net);
-    for (const entry of pads) if (entry.pad.net) ratsnestNets.add(entry.pad.net);
-    for (const entry of tracks) if (entry.track.net) ratsnestNets.add(entry.track.net);
-    for (const entry of shapes) {
-        const shape = entry.shape;
-        if (shape.net && normalizeShapeCopperMode(shape.copperMode) === 'add') ratsnestNets.add(shape.net);
-    }
-    app._groupDrag = {
+    setPcbInteraction(app, '_groupDrag', {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
-        ratsnestNets,
+        directTrackIds: new Set(tracks.map(entry => entry.track.id)),
+        posePreview: true,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
-        previousDeferDragOverlays: !!app._deferDragOverlays,
-    };
-    app._deferDragOverlays = true;
-    if (app._groupDrag.padCrosshairStart) {
-        app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
+        // The board view is handed back after the drop's command, overlays before it.
+        previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app),
+        session: beginDragSession(app, { nets: ratsnestNets }),
+    });
+    setBoardViewRefreshSuspended(app, true);
+    const drag = getGroupDrag(app);
+    if (drag.padCrosshairStart) {
+        app.viewport?.setCrosshair(drag.padCrosshairStart);
     }
 }
 
-/** Live-update positions of every selected object during a group drag. */
+/**
+ * Live-update positions of every selected object during a group drag.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ */
 export function scheduleGroupDrag(app, worldPos) {
-    const drag = app._groupDrag;
+    const drag = getGroupDrag(app);
     if (!drag) return;
     drag.pendingWorld = { x: worldPos.x, y: worldPos.y };
     if (drag.frame) return;
     drag.frame = window.requestAnimationFrame(() => {
         drag.frame = 0;
-        if (app._groupDrag !== drag) return;
+        if (getGroupDrag(app) !== drag) return;
         const pending = drag.pendingWorld;
         drag.pendingWorld = null;
         if (pending) updateGroupDrag(app, pending);
     });
 }
 
+/** @param {PcbEditor} app @param {Point} worldPos @param {{snap?: boolean}} [options] */
 export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
-    const g = app._groupDrag;
+    try {
+        updateGroupPreview(app, worldPos, snap);
+    } catch (error) {
+        cancelGroupDrag(app);
+        throw error;
+    }
+}
+
+/** @param {PcbEditor} app @param {Point} worldPos @param {boolean} snap */
+function updateGroupPreview(app, worldPos, snap) {
+    const g = getGroupDrag(app);
     if (!g) return;
+    if (!groupIsEditable(app, g)) { cancelGroupDrag(app); return; }
+    if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
+        cancelGroupDrag(app);
+        throw new Error('Group drag requires a finite position.');
+    }
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
     // Magnetically snap the shared delta (not each object) so relative layout
     // is kept while movement remains free between nearby grid lines.
-    if (snap && app.viewport?.getSnappedPosition) {
-        const position = app.viewport.getSnappedPosition({ x: dx, y: dy });
+    if (snap) {
+        const position = snapToViewportGrid({ x: dx, y: dy }, app.viewport);
         dx = position.x;
         dy = position.y;
-    } else if (snap && app.viewport?.snapToGrid) {
-        const gs = app.viewport.gridSize;
-        dx = Math.round(dx / gs) * gs;
-        dy = Math.round(dy / gs) * gs;
     }
     if (dx === g.lastDx && dy === g.lastDy) return;
     g.lastDx = dx;
@@ -494,58 +727,89 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         });
     }
 
-    for (const c of g.comps) {
-        const pl = app.placements.get(c.id);
-        if (!pl) continue;
-        pl.x = c.x + dx; pl.y = c.y + dy;
-        applyPlacementPose(app, c.id);
-    }
+    previewPlacementPoses(app, new Map(g.comps.map((/** @type {{id: string, x: number, y: number}} */ c) => [c.id, { x: c.x + dx, y: c.y + dy }])), g.directTrackIds);
+    previewTextPoses(app, new Map(g.texts.map((/** @type {{text: {id: string}, x: number, y: number}} */ entry) => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
+    beginGroupPreview(app, g);
+    /** @template T @param {T} original @returns {T} */
+    const display = original => /** @type {T} */ (g.preview?.copies.get(original) || original);
     for (const vEntry of g.vias) {
-        vEntry.via.x = vEntry.x + dx;
-        vEntry.via.y = vEntry.y + dy;
-        renderVia(vEntry.via, (id) => app._getLayerGroup(id));
+        const via = display(vEntry.via);
+        via.x = vEntry.x + dx;
+        via.y = vEntry.y + dy;
+        renderVia(via, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
     for (const entry of g.pads || []) {
-        entry.pad.x = entry.before.x + dx;
-        entry.pad.y = entry.before.y + dy;
-        renderPad(entry.pad, id => app._getLayerGroup(id));
+        const pad = display(entry.pad);
+        pad.x = entry.before.x + dx;
+        pad.y = entry.before.y + dy;
+        renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
+        const track = display(tEntry.track);
         for (const [nid, start] of tEntry.nodes) {
-            const n = tEntry.track.nodes.get(nid);
+            const n = track.nodes.get(nid);
             if (n) { n.x = start.x + dx; n.y = start.y + dy; }
         }
-        renderTrack(tEntry.track, (id) => app._getLayerGroup(id), _trackOpts(app, tEntry.track));
+        track.invalidate();
+        renderTrack(track, (id) => app.getLayerGroup(id), _trackOpts(app, track));
     }
     for (const entry of (g.shapes || [])) {
-        applyShapeGeometry(entry.shape, translateShapeGeometry(entry.before, dx, dy));
-        renderBoardShape(app, entry.shape, { liveDrag: true });
-    }
-    for (const entry of (g.texts || [])) {
-        entry.text.x = entry.x + dx;
-        entry.text.y = entry.y + dy;
-        app._refreshText?.(entry.text.id);
+        const shape = display(entry.shape);
+        applyShapeGeometry(shape, translateShapeGeometry(entry.before, dx, dy));
+        renderBoardShape(app, shape, { liveDrag: true });
     }
     for (const entry of (g.fills || [])) {
-        entry.fill.applyState(entry.before);
-        entry.fill.move(dx, dy);
+        const fill = display(entry.fill);
+        if (fill.kind === 'circle') {
+            fill.x = entry.before.x + dx;
+            fill.y = entry.before.y + dy;
+        }
+        fill.outline.forEach((/** @type {Point} */ point, /** @type {number} */ index) => {
+            point.x = entry.before.outline[index].x + dx;
+            point.y = entry.before.outline[index].y + dy;
+        });
+        renderCopperFill(fill, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
     }
-    if (g.ratsnestNets.size) app._updateRatsnest?.({ nets: g.ratsnestNets });
+    refreshDragRatlines(app, g.session);
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
 
-/** Commit a group drag as one undoable compound command. */
+/**
+ * Commit a group drag as one undoable compound command.
+ * @param {PcbEditor} app
+ */
 export function endGroupDrag(app) {
-    const g = app._groupDrag;
+    const g = getGroupDrag(app);
     if (!g) return;
-    if (g.frame) window.cancelAnimationFrame(g.frame);
-    g.frame = 0;
-    if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
-    g.pendingWorld = null;
-    app._groupDrag = null;
-    app._deferDragOverlays = g.previousDeferDragOverlays;
-    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
+    let committed = false;
+    try {
+        if (g.frame) window.cancelAnimationFrame(g.frame);
+        g.frame = 0;
+        if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
+        g.pendingWorld = null;
+        if (getGroupDrag(app) !== g || !groupIsEditable(app, g)) return;
+        const cmds = groupMoveCommands(app, g);
+        if (!cmds.length) return;
+        assertGroupTargets(app, g);
+        const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
+        setPcbInteraction(app, '_groupDrag', null);
+        removeGroupPreviewArtwork(app, g);
+        finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
+            syncPcbSelection(app);
+            releaseDragSession(app, g.session);
+            app.history.execute(command);
+        }));
+        committed = true;
+    } finally {
+        finishGroupPreview(app, g, committed);
+    }
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g */
+function groupMoveCommands(app, g) {
+    /** @template T @param {T} original @returns {T} */
+    const display = original => /** @type {T} */ (g.preview?.copies.get(original) || original);
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -554,109 +818,118 @@ export function endGroupDrag(app) {
         }
     }
     for (const v of g.vias) {
-        if (v.via.x !== v.x || v.via.y !== v.y) {
-            cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, v.via.x, v.via.y));
+        const via = display(v.via);
+        if (via.x !== v.x || via.y !== v.y) {
+            cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, via.x, via.y));
         }
     }
     for (const entry of g.pads || []) {
-        const after = entry.pad.captureState();
+        const after = display(entry.pad).captureState();
         if (after.x !== entry.before.x || after.y !== entry.before.y) {
             cmds.push(new ModifyPadCommand(app, entry.pad, entry.before, after));
         }
     }
     for (const t of g.tracks) {
-        const after = t.track.captureState();
+        const after = display(t.track).captureState();
         // Only record a move if something actually shifted.
         const moved = JSON.stringify(after) !== JSON.stringify(t.before);
         if (moved) cmds.push(new ModifyTrackGraphCommand(app, t.track, t.before, after));
     }
     for (const entry of (g.shapes || [])) {
-        const after = cloneShapeGeometry(entry.shape);
+        const after = cloneShapeGeometry(display(entry.shape));
         if (JSON.stringify(after) !== JSON.stringify(entry.before)) {
             cmds.push(new MoveBoardShapeCommand(app, entry.shape, entry.before, after));
         }
     }
     for (const entry of (g.texts || [])) {
-        if (entry.text.x !== entry.x || entry.text.y !== entry.y) {
-            cmds.push(new MoveTextCommand(app, entry.text.id, entry.x, entry.y, entry.text.x, entry.text.y));
+        const text = app.texts.get(entry.text.id);
+        if (text && (text.x !== entry.x || text.y !== entry.y)) {
+            cmds.push(new MoveTextCommand(app, text.id, entry.x, entry.y, text.x, text.y));
         }
     }
     for (const entry of (g.fills || [])) {
-        const after = entry.fill.captureState();
+        const after = display(entry.fill).captureState();
         if (JSON.stringify(after) !== JSON.stringify(entry.before)) {
             cmds.push(new ModifyFillCommand(app, entry.fill, entry.before, after));
         }
     }
-    if (cmds.length === 0) {
-        if (!app._deferDragOverlays && (g.comps.length || g.vias.length || g.tracks.length)) {
-            app._refreshClearanceHalos?.();
-        }
-        app._updateRatsnest?.();
-        _applyHighlights(app);
-        return;
-    }
-    // The model is already at the dragged-to state; execute() re-applies it
-    // (idempotent), keeping the command the single source of truth.
-    app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    _applyHighlights(app);
+    return cmds;
 }
 
-/** Cancel a supported-entity group drag and restore its initial geometry. */
+/**
+ * Discard the projection and restore canonical artwork without authored rollback.
+ * @param {PcbEditor} app
+ */
 export function cancelGroupDrag(app) {
-    const g = app._groupDrag;
-    app._groupDrag = null;
+    const g = getGroupDrag(app);
     if (!g) return;
+    finishGroupPreview(app, g, false);
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g */
+function removeGroupPreviewArtwork(app, g) {
+    for (const entry of g.tracks) {
+        const copy = g.preview?.copies.get(entry.track);
+        if (copy) removeTrackElements(copy);
+    }
+    for (const [entries, key, remove] of [[g.vias, 'via', removeViaElements], [g.pads, 'pad', removePadElements]]) {
+        for (const entry of entries) {
+            const copy = g.preview?.copies.get(entry[key]);
+            if (copy) remove(copy);
+        }
+    }
+}
+
+/** @param {PcbEditor} app @param {GroupDrag} g @param {boolean} committed */
+function finishGroupPreview(app, g, committed) {
+    if (g.finished) return;
+    g.finished = true;
+    setPcbInteraction(app, '_groupDrag', null);
     if (g.frame) window.cancelAnimationFrame(g.frame);
     g.frame = 0;
     g.pendingWorld = null;
-    app._deferDragOverlays = g.previousDeferDragOverlays;
-    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
-    for (const entry of g.comps || []) {
-        const placement = app.placements.get(entry.id);
-        if (!placement) continue;
-        placement.x = entry.x;
-        placement.y = entry.y;
-        applyPlacementPose(app, entry.id);
+    try {
+        removeGroupPreviewArtwork(app, g);
+        finishPlacementPreview(app, undefined);
+        finishTextPosePreview(app, undefined);
+        if (g.preview && !committed) {
+            const model = app.pcbDocument;
+            for (const [entries, key, collection, render] of [
+                [g.tracks, 'track', model.tracks, (/** @type {Track} */ track) => renderTrack(track, /** @param {string} id */ id => app.getLayerGroup(id), _trackOpts(app, track))],
+                [g.vias, 'via', model.vias, (/** @type {Via} */ via) => renderVia(via, /** @param {string} id */ id => app.getLayerGroup(id))],
+                [g.pads, 'pad', model.pads, (/** @type {Pad} */ pad) => renderPad(pad, /** @param {string} id */ id => app.getLayerGroup(id))],
+            ]) {
+                if (!entries.length) continue;
+                const present = new Set(collection);
+                for (const entry of entries) if (present.has(entry[key])) render(entry[key]);
+            }
+            const shapes = new Set(model.boardShapes);
+            for (const entry of g.shapes) {
+                if (shapes.has(entry.shape)) renderBoardShape(app, entry.shape);
+                else removeBoardShapeElement(app, entry.shape.id);
+            }
+            for (const entry of g.fills) {
+                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, /** @param {string} id */ id => app.getLayerGroup(id), { selected: true });
+                else removeCopperFillElements(entry.fill, /** @param {string} id */ id => app.getLayerGroup(id));
+            }
+        }
+    } finally {
+        releaseDragSession(app, g.session);
+        setBoardViewRefreshSuspended(app, g.previousSuspendBoardViewRefresh);
+        if (g.padCrosshairStart) app.viewport?.hideCrosshair();
+        if (g.preview) syncPcbSelection(app);
     }
-    for (const entry of g.vias || []) {
-        entry.via.x = entry.x;
-        entry.via.y = entry.y;
-        renderVia(entry.via, (id) => app._getLayerGroup(id));
+    if (!areDragOverlaysDeferred(app) && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
+        app.refreshClearanceHalos();
     }
-    for (const entry of g.pads || []) {
-        entry.pad.applyState(entry.before);
-        renderPad(entry.pad, id => app._getLayerGroup(id));
-    }
-    for (const entry of g.tracks || []) {
-        entry.track.applyState(entry.before);
-        renderTrack(entry.track, (id) => app._getLayerGroup(id), _trackOpts(app, entry.track));
-    }
-    for (const entry of (g.shapes || [])) {
-        applyShapeGeometry(entry.shape, entry.before);
-        renderBoardShape(app, entry.shape);
-    }
-    for (const entry of (g.texts || [])) {
-        entry.text.x = entry.x;
-        entry.text.y = entry.y;
-        app._refreshText?.(entry.text.id);
-    }
-    for (const entry of (g.fills || [])) entry.fill.applyState(entry.before);
-    const movedShapeAffectsFill = g.shapes?.some((entry) => entry.shape?.layer === 'hole'
-        || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
-    const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
-        || entry.text?.layer === 'bottom-copper');
-    if (g.comps?.length || g.vias?.length || g.pads?.length || g.tracks?.length || g.fills?.length
-        || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
-    if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
-        app._refreshClearanceHalos?.();
-    }
-    app._updateRatsnest?.();
-    app._board3d?.refresh?.();
+    app.updateRatsnest();
+    if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     _applyHighlights(app);
 }
 
+/** @param {PcbEditor} app @param {Track} track */
 function _trackOpts(app, track) {
-    const p = app._getRoutingParams?.() || {};
+    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams() || {});
     return { viaDiameter: p.viaDiameter, viaDrill: p.viaDrill };
 }
 
@@ -666,25 +939,34 @@ function _trackOpts(app, track) {
  * Delete the box-selected tracks and vias as one undoable action.
  * Components are intentionally NOT deleted (they are owned by the
  * schematic netlist). Returns true if anything was deleted.
+ * @param {PcbEditor} app
  */
 export function deleteBoxSelection(app) {
+    if (getGroupDrag(app)) {
+        cancelGroupDrag(app);
+        setSelectionInteraction(app, null);
+    }
     if (!hasBoxSelection(app)) return false;
+    // Locked objects (by their own lock or a layer's) stay put.
+    /** @param {string} kind @returns {any[]} Selection entry object type depends on kind-specific registries and command targets. */
+    const removable = kind => getPcbSelectionEntries(app)
+        .filter((/** @type {{kind: string, locked?: boolean}} */ entry) => entry.kind === kind && !entry.locked).map((/** @type {{object: unknown}} */ entry) => entry.object);
     const cmds = [];
-    for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
-    for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
-    for (const pad of getPcbSelection(app, 'pad')) cmds.push(new RemovePadCommand(app, pad));
-    for (const shape of getPcbSelection(app, 'shape')) {
+    for (const t of removable('track')) cmds.push(new RemoveTrackCommand(app, t));
+    for (const v of removable('via')) cmds.push(new RemoveViaCommand(app, v));
+    for (const pad of removable('pad')) cmds.push(new RemovePadCommand(app, pad));
+    for (const shape of removable('shape')) {
         if (shape.layer !== 'board-outline') cmds.push(new RemoveBoardShapeCommand(app, shape));
     }
-    for (const text of getPcbSelection(app, 'text')) cmds.push(new RemoveTextCommand(app, text.id));
-    for (const fill of getPcbSelection(app, 'fill')) cmds.push(new RemoveFillCommand(app, fill));
+    for (const text of removable('text')) cmds.push(new RemoveTextCommand(app, text.id));
+    for (const fill of removable('fill')) cmds.push(new RemoveFillCommand(app, fill));
 
     // Clear the selection (and its halos) before mutating the model.
     clearBoxSelection(app);
 
     if (cmds.length === 0) return false;
     app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    app._clearProperties?.();
-    app._setActiveRibbonTab?.('pcb-home');
+    app.clearProperties();
+    app.setActiveRibbonTab('pcb-home');
     return true;
 }

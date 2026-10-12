@@ -1,77 +1,94 @@
-import { isLayerLocked, isLayerVisible, unlockPcbLayer } from './layers.js';
-import { padBounds, padHitTest, padLayers, padOutline, renderPad, updatePadHighlightGeometry } from './pad.js';
+import { isLayerVisible } from './layers.js';
+import { isPcbObjectLocked } from './object-locks.js';
+import { padLayers } from '../../shapes/pad-geometry.js';
+import { renderPad, updatePadHighlightGeometry } from './pad.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
-import { ModifyPadCommand } from './pad-commands.js';
-import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
+import {
+    ModifyPadCommand, getPadRotationPreview, beginPadRotationPreview, previewPadRotation, finishPadRotationPreview,
+    canonicalPad, displayedPad,
+} from './pad-commands.js';
+import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './terminal-drag.js';
+import { getPropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred } from './refresh-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{id: string, kind: 'pad', object: Pad, visible: boolean, locked: boolean, getBounds: () => ReturnType<Pad['getBounds']>, getLockPosition: (pointer: Point|null|undefined, scale: number) => Point|null, hitTest: (point: Point) => boolean, getPosition: () => Point, getAnchors: () => import('./selection-registry.js').SelectionAnchor[], beginMove: (worldPos: Point) => boolean, updateMove: (worldPos: Point) => void, endMove: (commit: boolean) => void, beginAnchorDrag: (anchorId: string|number|undefined, worldPos: Point) => boolean, updateAnchorDrag: (worldPos: Point) => void, endAnchorDrag: (commit: boolean) => void, invalidate: () => void}} PadSelectionAdapter */
 
+/**
+ * @param {PcbEditor} app
+ * @param {Pad} pad
+ * @param {string} id
+ * @returns {PadSelectionAdapter}
+ */
 export function createPadSelectionAdapter(app, pad, id) {
-    let rotationDrag = null;
+    pad = canonicalPad(app, pad);
+    const current = () => displayedPad(app, pad);
     const layers = () => padLayers(pad);
     return {
-        id, kind: 'pad', object: pad,
+        id, kind: 'pad', get object() { return current(); },
         get visible() { return pad.visible !== false && layers().some(isLayerVisible); },
-        get locked() { return pad.locked || layers().some(isLayerLocked); },
-        unlock() { for (const layer of layers()) unlockPcbLayer(app, layer); },
-        getBounds() { return padBounds(pad); },
+        get locked() { return isPcbObjectLocked(app, 'pad', pad); },
+        getBounds() { return current().getBounds(); },
         getLockPosition(pointer, scale) {
+            const pad = current();
             return lockPositionOutsideOutline(
-                padOutline(pad),
+                pad.getOutline(),
                 pointer || { x: pad.x, y: pad.y },
                 scale,
             );
         },
-        hitTest(point) { return padHitTest(pad, point); },
-        getPosition() { return { x: pad.x, y: pad.y }; },
+        hitTest(point) { return current().hitTest(point); },
+        getPosition() { const pad = current(); return { x: pad.x, y: pad.y }; },
         getAnchors() {
+            const pad = current();
             return pad.shape === 'round'
-                ? [] : [rotationHandleAnchor(padBounds(pad), app.viewport?.scale)];
+                ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale ?? 1)];
         },
         beginMove(worldPos) {
+            getPropertyEditor(app, 'pad')?.commit();
             return startPadDrag(app, pad, worldPos);
         },
         updateMove(worldPos) {
             updateViaDrag(app, worldPos);
-            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
+            updatePadHighlightGeometry(current(), app.getLayerGroup('selection-overlay'));
         },
         endMove(commit) {
             if (commit) finishViaDrag(app);
             else cancelViaDrag(app);
-            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
-            if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+            updatePadHighlightGeometry(pad, app.getLayerGroup('selection-overlay'));
+            if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos();
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;
-            rotationDrag = { start: { ...worldPos }, rotation: pad.rotation };
-            app._rotationHandleDrag = true;
+            getPropertyEditor(app, 'pad')?.commit();
+            beginPadRotationPreview(app, pad, worldPos);
             return true;
         },
         updateAnchorDrag(worldPos) {
-            if (!rotationDrag) return;
-            pad.rotation = pointerRotation(
+            const rotationDrag = getPadRotationPreview(app);
+            if (rotationDrag?.original !== pad) return;
+            const rotation = pointerRotation(
                 { x: pad.x, y: pad.y }, rotationDrag.start, worldPos, rotationDrag.rotation,
             );
-            renderPad(pad, layer => app._getLayerGroup(layer));
-            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
+            if (current().rotation === rotation) return;
+            const copy = previewPadRotation(app, pad, rotation);
+            renderPad(copy, /** @param {string} layer */ (layer) => app.getLayerGroup(layer));
+            updatePadHighlightGeometry(copy, app.getLayerGroup('selection-overlay'));
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropPadRotation'));
-            if (input) input.value = String(Math.round(pad.rotation) % 360);
+            if (input) input.value = String(Math.round(rotation) % 360);
         },
         endAnchorDrag(commit) {
-            if (!rotationDrag) return;
+            if (getPadRotationPreview(app)?.original !== pad) return;
             const before = pad.captureState();
-            const rotation = pad.rotation;
-            before.rotation = rotationDrag.rotation;
-            rotationDrag = null;
-            app._rotationHandleDrag = false;
-            if (commit && rotation !== before.rotation) {
-                app.history.execute(new ModifyPadCommand(app, pad, before, { ...before, rotation }));
-            } else {
-                pad.rotation = before.rotation;
-                renderPad(pad, layer => app._getLayerGroup(layer));
-            }
+            const rotation = current().rotation;
+            finishPadRotationPreview(app, commit && rotation !== before.rotation
+                ? () => app.history.execute(new ModifyPadCommand(app, pad, before, { ...before, rotation }))
+                : undefined);
         },
-        invalidate() { renderPad(pad, layer => app._getLayerGroup(layer)); },
+        invalidate() { renderPad(current(), /** @param {string} layer */ (layer) => app.getLayerGroup(layer)); },
     };
 }
 

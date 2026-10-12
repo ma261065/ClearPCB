@@ -1,0 +1,240 @@
+import { AutorouterPresentation } from './autorouter-presentation.js';
+import { viaDimensionError } from '../../core/PcbDesignSettings.js';
+
+/**
+ * @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams
+ * @typedef {Omit<import('./autorouter-common.js').RouteInput, 'trackWidth'|'clearance'|'viaDiameter'> & {trackWidth?: number, clearance?: number, viaDiameter?: number}} AutorouterRouteInput
+ * @typedef {import('./autorouter-common.js').RouteResult} AutorouterResult
+ * @typedef {object} AutorouterWorkerMessage
+ * @property {'done'|'error'|string} type
+ * @property {AutorouterResult|null|undefined} [result]
+ * @property {string} [error]
+ * @typedef {{cancelled: boolean, abort?: () => void}} AutorouterCancelToken
+ * @typedef {AutorouterBoardState & {cancelToken: AutorouterCancelToken}} AutorouterSessionState
+ * @typedef {{requestStop: () => void}} AutorouterWorkerTransport
+ *
+ * @typedef {object} AutorouterBoardState
+ * @property {boolean} active
+ * @property {boolean} editing
+ * @property {object} model Identity of the authored document (never mutated here).
+ * @property {Map<string, object>} placements
+ * @property {object[]} netlist
+ * @property {object[]} undo
+ * @property {object[]} redo
+ * @property {Partial<RoutingParams> & Record<string, number|undefined>} rules Canonical routing dimensions.
+ *
+ * @typedef {object} AutorouterCapabilities
+ * @property {() => AutorouterBoardState} readBoard
+ * @property {() => AutorouterRouteInput} takeRouteInput Consume a test input or build a fresh board input.
+ * @property {() => string} getRouterMode
+ * @property {(result: AutorouterResult) => void} adoptResult Publish one undoable route replacement.
+ * @property {() => void} reconcileRatsnest Restore the authored board's connectivity.
+ * @property {(message: string) => void} setStatus
+ * @property {import('./autorouter-presentation.js').AutorouterPresentationCapabilities} presentation
+ * @property {(error: Error) => void} [reportError]
+ * @property {() => void} [sessionEnded] A session finished or was cancelled; work it held back may run.
+ */
+
+/** Owns one latest-only routing session; Stop accepts partial output, cancel never does. */
+export class AutorouterSession {
+    /**
+     * @param {AutorouterCapabilities} capabilities
+     * @param {Partial<import('./autorouter-presentation.js').AutorouterPresentationRuntime> & {createWorker?: () => Worker}} [runtime]
+     * Explicit worker/clock/scheduler overrides for headless contracts.
+     */
+    constructor(capabilities, runtime = {}) {
+        this.capabilities = capabilities;
+        this.runtime = {
+            createWorker: () => new Worker(new URL('./autorouter-worker.js', import.meta.url), { type: 'module' }),
+            now: () => performance.now(),
+            /** @param {TimerHandler} callback @param {number} delay */
+            setInterval: (callback, delay) => setInterval(callback, delay),
+            /** @param {ReturnType<typeof setInterval>} id */
+            clearInterval: id => clearInterval(id),
+            ...runtime,
+        };
+        this.presentation = new AutorouterPresentation(capabilities.presentation, () => this.stop(), runtime);
+        /** @type {AutorouterSessionState|null} */
+        this._session = null;
+        /** @type {AutorouterWorkerTransport|null} */
+        this._worker = null;
+        this._disposed = false;
+    }
+
+    get active() { return this._session !== null; }
+
+    /** @param {AutorouterSessionState} session */
+    _isCurrent(session) {
+        if (this._disposed || this._session !== session) return false;
+        const board = this.capabilities.readBoard();
+        return board.active && !board.editing && board.model === session.model
+            && board.placements === session.placements && board.netlist === session.netlist
+            && Object.entries(session.rules).every(([key, value]) => board.rules[key] === value)
+            && board.undo.length === session.undo.length
+            && board.undo.every((command, index) => command === session.undo[index])
+            && board.redo.length === session.redo.length
+            && board.redo.every((command, index) => command === session.redo[index]);
+    }
+
+    async run() {
+        if (this._disposed) return;
+        const board = this.capabilities.readBoard();
+        if (!board.active) return;
+        if (board.editing) {
+            this.capabilities.setStatus('Finish the current edit before routing.');
+            return;
+        }
+        if (!board.placements.size || !board.netlist.length) {
+            this.capabilities.setStatus('Nothing to route');
+            return;
+        }
+        this.cancel();
+        const session = /** @type {AutorouterSessionState} */ ({
+            model: board.model, placements: board.placements, netlist: board.netlist,
+            undo: [...board.undo], redo: [...board.redo], rules: { ...board.rules },
+            cancelToken: { cancelled: false },
+        });
+        this._session = session;
+        const current = () => this._isCurrent(session);
+        let adopting = false;
+        try {
+            const viaError = viaDimensionError(/** @type {number} */ (session.rules.viaDiameter),
+                /** @type {number} */ (session.rules.viaDrill));
+            if (viaError) throw new Error(viaError);
+            this.presentation.start();
+            const input = this.capabilities.takeRouteInput();
+            input.trackWidth = session.rules.trackWidth;
+            input.clearance = session.rules.clearance;
+            input.viaDiameter = session.rules.viaDiameter;
+            this.presentation.beginConnections(input.connections);
+            const startTime = this.runtime.now();
+            const result = await this._runInWorker(input, session, this.capabilities.getRouterMode());
+            if (!result || !current()) {
+                if (this._session === session) this.cancel('Routing cancelled because the board changed.');
+                return;
+            }
+            if (!session.cancelToken.cancelled) await this.presentation.finishRipupPhases(current);
+            if (!current()) {
+                if (this._session === session) this.cancel('Routing cancelled because the board changed.');
+                return;
+            }
+
+            this.presentation.finish();
+            // Release before the command's dirty notification invalidates pending sessions.
+            this._session = null;
+            this.capabilities.sessionEnded?.();
+            adopting = true;
+            this.capabilities.adoptResult(result);
+            const seconds = Math.max(0, Math.floor((this.runtime.now() - startTime) / 1000));
+            const elapsed = `${Math.floor(seconds / 60)} min ${String(seconds % 60).padStart(2, '0')} sec`;
+            const total = result.totalConnectionCount || input.connections.length;
+            const failed = result.failedConnectionCount || 0;
+            this.capabilities.setStatus(`Routed ${total - failed} of ${total} connections (${failed} unrouted), ${result.tracks.length} segments, ${result.vias?.length || 0} vias in ${elapsed}`);
+        } catch (error) {
+            const routeError = /** @type {Error} */ (error);
+            if (this._session !== session && !adopting) return;
+            this.cancel();
+            (this.capabilities.reportError || (error => console.error('Autorouter error:', error)))(routeError);
+            this.capabilities.setStatus(`Route error: ${routeError.message}`);
+        } finally {
+            if (this._session === session) this.cancel();
+        }
+    }
+
+    /** Cooperative Stop leaves the session current so its partial result can be adopted. */
+    stop() {
+        const session = this._session;
+        if (!session) return;
+        session.cancelToken.cancelled = true;
+        this.presentation.skipRemainingPhases();
+        this._worker?.requestStop();
+    }
+
+    /** Invalidation discards every pending result and restores authored presentation. */
+    /** @param {string|null} [message] */
+    cancel(message = null) {
+        const session = this._session;
+        if (!session) return;
+        this._session = null;
+        this.capabilities.sessionEnded?.();
+        session.cancelToken.cancelled = true;
+        session.cancelToken.abort?.();
+        this.presentation.reset();
+        this.capabilities.reconcileRatsnest();
+        if (message) this.capabilities.setStatus(message);
+    }
+
+    dispose() {
+        this._disposed = true;
+        this.cancel();
+        this.presentation.dispose();
+    }
+
+    /** @param {AutorouterRouteInput} routeInput @param {AutorouterSessionState} session @param {string} routerMode */
+    _runInWorker(routeInput, session, routerMode) {
+        return new Promise((resolve, reject) => {
+            const worker = this.runtime.createWorker();
+            const token = session.cancelToken;
+            /** @type {ReturnType<typeof setInterval>|null} */
+            let poll = null, settled = false;
+            const cleanup = () => {
+                if (poll !== null) this.runtime.clearInterval(poll);
+                poll = null;
+                worker.removeEventListener('message', onMessage);
+                worker.removeEventListener('error', onError);
+                worker.removeEventListener('messageerror', onMessageError);
+                worker.terminate();
+                if (this._worker === transport) this._worker = null;
+                delete token.abort;
+            };
+            /** @param {AutorouterResult|null} result @param {Error|null} [error] */
+            const settle = (result, error = null) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                if (error) reject(error); else resolve(result);
+            };
+            const current = () => {
+                if (settled) return false;
+                if (this._isCurrent(session)) return true;
+                if (this._session === session) this.cancel('Routing cancelled because the board changed.');
+                else settle(null);
+                return false;
+            };
+            /** @param {Error|ErrorEvent} event */
+            const onError = event => {
+                const workerError = /** @type {ErrorEvent} */ (event);
+                if (current()) settle(null, workerError.error || new Error(event.message || 'Autorouter worker failed'));
+            };
+            const onMessageError = () => onError(new Error('Invalid autorouter worker response'));
+            /** @param {MessageEvent<AutorouterWorkerMessage>} event */
+            const onMessage = event => {
+                try {
+                    if (!current()) return;
+                    const message = event.data || {};
+                    if (message.type === 'done') settle(message.result ?? null);
+                    else if (message.type === 'error') settle(null, new Error(message.error || 'Autorouter worker error'));
+                    else this.presentation.handleMessage(message);
+                } catch (error) { onError(/** @type {Error} */ (error)); }
+            };
+            const transport = {
+                requestStop: () => {
+                    try {
+                        if (current()) worker.postMessage({ type: 'cancel' });
+                    } catch (error) { onError(/** @type {Error} */ (error)); }
+                },
+            };
+            this._worker = transport;
+            token.abort = () => settle(null);
+            worker.addEventListener('message', onMessage);
+            worker.addEventListener('error', onError);
+            worker.addEventListener('messageerror', onMessageError);
+            try {
+                worker.postMessage({ type: 'start', routeInput, routerMode });
+                if (!settled) poll = this.runtime.setInterval(() => {
+                    if (current() && token.cancelled) transport.requestStop();
+                }, 50);
+            } catch (error) { onError(/** @type {Error} */ (error)); }
+        });
+    }
+}

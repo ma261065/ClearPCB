@@ -1,124 +1,41 @@
 /** Shared adapter-driven anchor rendering and hit testing for PCB selection. */
 
 import { getPcbSelectionEntries } from './selection-registry.js';
-import { ROTATION_CURSOR } from './rotation-handle.js';
-import { createLockIcon, lockIconMetrics, LOCK_GAP, LOCK_SCREEN_GAP_PX } from '../../core/ui-helpers.js';
-import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
+import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
+import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers.js';
+import { boundsOutline, lockPositionOutsideOutline } from '../../core/lock-position.js';
+import { getLastPointerWorld } from './cursor-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./selection-registry.js').SelectionAnchor} SelectionAnchor */
+
+export { lockPositionOutsideOutline };
 
 const HANDLE_CLASS = 'pcb-selection-anchors';
 const NS = 'http://www.w3.org/2000/svg';
 const ROTATION_ICON_URL = new URL('../../../assets/icons/RotateIcon.svg', import.meta.url).href;
 
+/** @param {SelectionAnchor} anchor */
 function anchorId(anchor) {
     return anchor.id ?? anchor.key;
 }
 
+/** @param {PcbEditor} app */
 function anchorSize(app) {
     return 8 / Math.max(0.01, app.viewport?.scale || 1);
 }
 
-function boundsOutline(bounds) {
-    return [
-        { x: bounds.minX, y: bounds.minY },
-        { x: bounds.maxX, y: bounds.minY },
-        { x: bounds.maxX, y: bounds.maxY },
-        { x: bounds.minX, y: bounds.maxY },
-    ];
-}
-
-/** Position a lock beside the visible geometry nearest the pointer. */
-export function lockPositionOutsideOutline(points, pointer, scale, closed = true, objectMargin = 0) {
-    if (!pointer || !Array.isArray(points) || !points.length) return null;
-    const paths = Array.isArray(points[0]) ? points : [points];
-    let nearest = null;
-    for (let pathIndex = 0; pathIndex < paths.length; pathIndex++) {
-        const path = paths[pathIndex];
-        const margin = Array.isArray(objectMargin)
-            ? Math.max(0, Number(objectMargin[pathIndex]) || 0)
-            : Math.max(0, Number(objectMargin) || 0);
-        const finite = path.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
-        if (!finite.length) continue;
-        if (finite.length === 1) {
-            const distance = Math.hypot(pointer.x - finite[0].x, pointer.y - finite[0].y);
-            const visualDistance = Math.max(0, distance - margin);
-            if (!nearest || visualDistance < nearest.visualDistance
-                || (visualDistance === nearest.visualDistance && distance < nearest.distance)) {
-                nearest = {
-                    point: finite[0], start: finite[0], end: finite[0],
-                    distance, visualDistance, path: finite, margin,
-                };
-            }
-            continue;
-        }
-        const count = closed ? finite.length : finite.length - 1;
-        for (let index = 0; index < count; index++) {
-            const start = finite[index];
-            const end = finite[(index + 1) % finite.length];
-            const point = closestPointOnSegment(pointer, start, end);
-            const distance = Math.hypot(pointer.x - point.x, pointer.y - point.y);
-            const visualDistance = Math.max(0, distance - margin);
-            if (!nearest || visualDistance < nearest.visualDistance
-                || (visualDistance === nearest.visualDistance && distance < nearest.distance)) {
-                nearest = { point, start, end, distance, visualDistance, path: finite, margin };
-            }
-        }
-    }
-    if (!nearest) return null;
-
-    const pointerToBoundary = {
-        x: nearest.point.x - pointer.x,
-        y: nearest.point.y - pointer.y,
-    };
-    const pointerDistance = Math.hypot(pointerToBoundary.x, pointerToBoundary.y);
-    let outward;
-    if (pointerDistance > 1e-6) {
-        const pointerIsInside = closed && nearest.path.length >= 3
-            && pointInPolygon(pointer, nearest.path);
-        const direction = pointerIsInside ? 1 : -1;
-        outward = {
-            x: pointerToBoundary.x / pointerDistance * direction,
-            y: pointerToBoundary.y / pointerDistance * direction,
-        };
-    } else {
-        const dx = nearest.end.x - nearest.start.x;
-        const dy = nearest.end.y - nearest.start.y;
-        const length = Math.hypot(dx, dy);
-        const normals = length
-            ? [{ x: -dy / length, y: dx / length }, { x: dy / length, y: -dx / length }]
-            : [{ x: 0, y: -1 }];
-        if (closed && nearest.path.length >= 3) {
-            const probe = Math.max(0.1, 2 / Math.max(0.01, scale));
-            outward = normals.find(candidate => !pointInPolygon({
-                x: nearest.point.x + candidate.x * probe,
-                y: nearest.point.y + candidate.y * probe,
-            }, nearest.path)) || normals[0];
-        } else {
-            outward = normals.find(candidate => candidate.y < 0) || normals[0];
-        }
-    }
-
-    const gap = LOCK_SCREEN_GAP_PX / Math.max(0.01, scale);
-    const { bounds: lockBounds } = lockIconMetrics(scale);
-    const boundary = {
-        x: nearest.point.x + outward.x * nearest.margin,
-        y: nearest.point.y + outward.y * nearest.margin,
-    };
-    const nearestLockX = outward.x >= 0 ? lockBounds.minX : lockBounds.maxX;
-    const nearestLockY = outward.y >= 0 ? lockBounds.minY : lockBounds.maxY;
-    const nearestProjection = outward.x * nearestLockX + outward.y * nearestLockY;
-    const distance = gap - nearestProjection;
-    return {
-        x: boundary.x + outward.x * distance,
-        y: boundary.y + outward.y * distance,
-    };
-}
-
-/** Return the selected adapter anchor under point, or null. */
+/**
+ * Return the selected adapter anchor under point, or null.
+ * @param {PcbEditor} app
+ * @param {Point} point
+ * @param {Iterable<string>|null} [kinds]
+ */
 export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
     const tolerance = anchorSize(app);
     const selected = getPcbSelectionEntries(app);
-    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    const hideRotation = selected.length > 1 || isRotationHandleDragActive(app);
     for (const adapter of selected) {
         if (!adapter.visible || (allowed && !allowed.has(adapter.kind))) continue;
         for (const anchor of adapter.getAnchors?.() || []) {
@@ -132,32 +49,32 @@ export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     return null;
 }
 
-/** Rebuild all selected adapter anchor handles at the current viewport scale. */
+/**
+ * Rebuild all selected adapter anchor handles at the current viewport scale.
+ * @param {PcbEditor} app
+ */
 export function renderPcbSelectionAnchors(app) {
     clearPcbSelectionAnchors(app);
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup('selection-overlay');
     if (!overlay) return;
     const size = anchorSize(app);
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const { size: lockSize } = lockIconMetrics(scale);
     const selected = getPcbSelectionEntries(app);
-    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    const hideRotation = selected.length > 1 || isRotationHandleDragActive(app);
     for (const adapter of selected) {
         if (!adapter.visible) continue;
         if (adapter.locked) {
             const bounds = adapter.getBounds?.();
             if (!bounds) continue;
-            const position = adapter.getLockPosition?.(app._lastPointerWorld, scale)
-                || lockPositionOutsideOutline(boundsOutline(bounds), app._lastPointerWorld, scale)
+            const pointerWorld = getLastPointerWorld(app) || { x: bounds.minX, y: bounds.minY };
+            const position = adapter.getLockPosition?.(pointerWorld, scale)
+                || lockPositionOutsideOutline(boundsOutline(bounds), pointerWorld, scale)
                 || {
                     x: bounds.minX - LOCK_GAP - lockSize,
                     y: bounds.minY - LOCK_GAP - lockSize * 0.6,
                 };
-            const owner = {
-                element: overlay,
-                unlock: adapter.unlock,
-                componentId: adapter.kind === 'component' ? adapter.object : null,
-            };
+            const owner = { element: overlay, kind: adapter.kind, object: adapter.object };
             overlay.appendChild(createLockIcon(
                 position.x,
                 position.y,
@@ -205,7 +122,7 @@ export function renderPcbSelectionAnchors(app) {
             handle.setAttribute('stroke-width', String(anchor.strokeWidthPx || 1));
             handle.setAttribute('vector-effect', 'non-scaling-stroke');
             handle.setAttribute('data-anchor-id', String(anchorId(anchor)));
-            handle.style.cursor = app._rotationHandleDrag ? ROTATION_CURSOR : (anchor.cursor || 'move');
+            handle.style.cursor = isRotationHandleDragActive(app) ? ROTATION_CURSOR : (anchor.cursor || 'move');
             if (isRotation) {
                 const title = document.createElementNS(NS, 'title');
                 title.textContent = 'Rotate';
@@ -260,9 +177,12 @@ export function renderPcbSelectionAnchors(app) {
     }
 }
 
-/** Remove every adapter-driven anchor overlay. */
+/**
+ * Remove every adapter-driven anchor overlay.
+ * @param {PcbEditor} app
+ */
 export function clearPcbSelectionAnchors(app) {
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup('selection-overlay');
     overlay?.querySelectorAll(`.${HANDLE_CLASS}`).forEach((element) => element.remove());
     overlay?.querySelectorAll('.pcb-selection-lock-icon').forEach((element) => element.remove());
 }

@@ -4,53 +4,62 @@ Two connection-oriented routers — a maze router with rip-up-and-reroute
 (inspired by [Freerouting](https://github.com/freerouting/freerouting)) and a
 negotiated-congestion pathfinder — sharing a common geometry / A* core.
 
+PCB conductors are called **tracks** in the UI, reports and documentation.
+Routing payloads use `tracks`, `trackWidth` and `netTracks` consistently.
+Authored `.cpcb` board data uses tracks. DSN/SES syntax uses the external
+format's `wire` and `path` keywords.
+Image tracing is an unrelated image-conversion operation.
+
 ## Architecture
 
 ```
-┌─────────────┐     postMessage      ┌────────────────────┐
-│  PCBApp.js  │◄────────────────────►│ autorouter-worker.js│
-│  (main UI)  │  Worker messages     │   (Web Worker)      │
-└─────────────┘                      └────────┬───────────┘
+┌─────────────┐     adapters      ┌──────────────────────────┐
+│  PCBApp.js  │◄─────────────────►│ autorouter-session.js    │
+│  (main UI)  │                   │ + autorouter-presentation│
+└─────────────┘                   └────────────┬─────────────┘
+                                               │ postMessage
+                                               ▼
+                                   ┌──────────────────────┐
+                                   │ autorouter-worker.js │
+                                   │   (Web Worker)       │
+                                   └──────────┬───────────┘
                                               │
                               ┌──────────────┴─────────────┐
                               ▼                            ▼
-                  ┌───────────────────┐    ┌─────────────────────┐
-                  │ autorouter-maze.js │    │ autorouter-pathfinder │
-                  │   routeAll()       │    │   routeAllPathfinder()│
-                  └────────┬──────────┘    └───────────┬─────────┘
+                  ┌───────────────────┐    ┌──────────────────────┐
+                  │ autorouter-maze.js │    │ autorouter-pathfinder.js │
+                  │   routeAll()       │    │   routeAllPathfinder()   │
+                  └────────┬──────────┘    └───────────┬──────────┘
                            │                       │
-                           └──────────┬───────────┘
+                           └──────────┬────────────┘
                                       ▼
-                            ┌────────────────────┐
+                            ┌──────────────────────┐
                             │ autorouter-common.js │
-                            │  ┌─────────────┐ │
-                            │  │ SpatialHash  │ │
-                            │  │ (obstacles)  │ │
-                            │  └─────────────┘ │
-                            │  ┌─────────────┐ │
-                            │  │ A* Pathfinder│ │
-                            │  │ (2-layer)    │ │
-                            │  └─────────────┘ │
-                            │  ┌─────────────┐ │
-                            │  │ Congestion / │ │
-                            │  │ Pathfinder   │ │
-                            │  │ Grids        │ │
-                            │  └─────────────┘ │
-                                     └────────────────┘
+                            │ SpatialHash, A*,     │
+                            │ CongestionGrid,      │
+                            │ PathfinderGrid       │
+                            └──────────────────────┘
 ```
 
-The autorouter runs in a **Web Worker** to keep the UI responsive. The main
-thread communicates via `postMessage`:
+`autorouter-session.js` owns the current routing session, worker lifetime,
+cancel/stop semantics and result adoption guard. `autorouter-presentation.js`
+owns progress UI, incremental preview copper, temporary attempt artwork and
+ratline visibility. `PCBApp` supplies adapters for board-state capture, route
+input, routing rules, command adoption and status reporting.
+
+The router runs in a **Web Worker** to keep the UI responsive. The session and
+worker communicate via `postMessage`:
 
 | Message (worker → UI)  | Purpose                                     |
 |------------------------|---------------------------------------------|
 | `progress`             | Phase/pass progress for status bar           |
-| `netRouted`            | New traces drawn — render incrementally      |
+| `netRouted`            | `netTracks` array — render incrementally      |
 | `netFailed`            | Connection could not be routed               |
 | `connRipped`           | Connection removed during rip-up             |
 | `netPendingChanged`    | Update ratsnest visibility for a net         |
 | `trying`               | Flash yellow line showing current A* attempt |
 | `done`                 | Routing complete — final `RouteResult`       |
+| `error`                | Routing failed with an error message         |
 
 | Message (UI → worker)  | Purpose                                     |
 |------------------------|---------------------------------------------|
@@ -61,23 +70,29 @@ thread communicates via `postMessage`:
 
 ### RouteInput
 
-Passed from `PCBApp._buildRouteInput()` to the worker.
+`buildRouteInput(app)` in `pcb/modules/route-input.js` builds this payload.
+`pcb/modules/autorouter-actions.js` consumes it for routing sessions, unless a
+loaded test board supplied a stored `RouteInput`.
 
 | Field             | Type                | Description                         |
 |-------------------|---------------------|-------------------------------------|
-| `connections`     | `Array<{net, pads}>` | Net name + ordered pad array       |
+| `connections`     | `Array<{net, pads}>` | Net name + ordered pad array; pads may include `alternates` |
 | `allObstaclePads` | `Array<Pad>`        | All pads (including non-netlist)    |
-| `traceWidth`      | `number`            | Trace width in mm (default 0.254)  |
-| `clearance`       | `number`            | Min clearance in mm (default 0.2)  |
-| `viaDiameter`     | `number`            | Via diameter in mm (default 0.6)   |
-| `gridStep`        | `number`            | Grid resolution in mm (default 0.5)|
+| `copperObstacles` | `Array`             | Fixed copper features to avoid but not rip up |
+| `trackWidth`      | `number`            | Required track width in mm         |
+| `clearance`       | `number`            | Required clearance in mm           |
+| `viaDiameter`     | `number`            | Required via diameter in mm        |
+| `gridStep`        | `number`            | Required grid resolution in mm; editor/DSN inputs use `0.5` |
 | `bounds`          | `{minX,minY,maxX,maxY}` | Board bounding box             |
+
+Route pads use `rect`, `ellipse` or `oval` shapes. Polygon/custom source pads
+are converted to conservative rectangular bounding boxes before routing.
 
 ### RouteResult
 
 | Field                  | Type           | Description                          |
 |------------------------|----------------|--------------------------------------|
-| `traces`               | `Array`        | Routed trace segments                |
+| `tracks`               | `Array`        | Routed track segments                |
 | `vias`                 | `Array`        | Via locations `{net, x, y}`          |
 | `failed`               | `string[]`     | Unrouted net names                   |
 | `failedConnectionCount`| `number`       | Number of unrouted connections       |
@@ -85,26 +100,27 @@ Passed from `PCBApp._buildRouteInput()` to the worker.
 
 ### SpatialHash
 
-Grid-based spatial index for obstacle queries. Each cell is `gridStep × 4` mm.
+Grid-based spatial index for obstacle queries. Maze and pathfinder routing use
+`Math.max(gridStep * 4, 2.0)` mm cells for their main obstacle hash.
 Stores two types of obstacles:
 
-- **Pads**: `{cx, cy, hw, hh, net, layer, isPad: true, isVia, connId, id}`
-- **Segments**: `{x1, y1, x2, y2, hw, net, layer, connId}`
+- **Pads**: `{cx, cy, hw, hh, net, layer, isPad: true, isVia, connId, shape, netName, fixedCopper}`
+- **Segments**: `{x1, y1, x2, y2, hw, net, layer, connId, fixedCopper}`
 
 Key operations:
 - `isBlocked(x, y, clearance, skipIds, layer, skipNet)` — point query
 - `isSegmentBlocked(...)` — segment query
-- `insert(x1, y1, x2, y2, hw, net, layer, connId)` — add trace segment
+- `insert(x1, y1, x2, y2, hw, net, layer, connId)` — add track segment
 - `removeConnection(connId)` — surgical removal for rip-up
-- `isOnPad(x, y, clearance, skipNet)` — via placement check
+- `isOnPad(x, y, clearance)` — via placement check
 
-The `skipNet` parameter enables **same-net transparency**: traces belonging to
-the same net are invisible to A\*, so connections within a multi-pad net don't
-block each other.
+The `skipIds` set exempts the source and destination pad groups for the current
+sub-route. The `skipNet` parameter makes same-net routed tracks and fixed copper
+transparent to A\*. Pads still block unless their pad IDs are in `skipIds`.
 
 ### CongestionGrid
 
-Tracks how many different nets use each spatial cell. Built from routed traces
+Tracks how many different nets use each spatial cell. Built from routed tracks
 plus demand lines from failed connections. Used during rip-up passes to steer
 A\* away from congested corridors.
 
@@ -116,12 +132,11 @@ All connections are routed individually (not as whole nets), sorted
 **hardest-first** by difficulty score:
 
 ```
-score = manhattan_distance + local_pad_density × gridStep
+score = manhattan_distance + local_pad_density × max(gridStep, 0.5)
 ```
 
-For multi-pad nets (≥3 pads), pads are reordered using a **nearest-neighbor
-chain** starting from the pad farthest from the centroid. This prevents
-redundant parallel traces.
+The maze router builds a Euclidean MST for each multi-pad net and flattens the
+MST edges into individual connections before scoring them.
 
 Each connection attempts routing in three stages:
 1. **Direct line** — if H/V/45° and unblocked on a shared layer
@@ -150,7 +165,9 @@ start/end.
 | History            | `(congestion − 1) × gridStep × historyWeight`   |
 
 **Via placement rule**: Via center must be at least `viaRadius + clearance` from
-any foreign pad edge. Own-net pads are exempt.
+any pad edge. Source/destination pad groups are exempt from the layer-clearance
+checks through `skipIds`, but the final `isOnPad` check has no net skip, so the
+router only places a via after escaping every pad.
 
 **Termination**: Max iterations, stagnation detection, detour factor cap, or
 cancel token.
@@ -168,11 +185,11 @@ Up to `MAX_PASSES` (default 4) passes while failed connections remain.
 
 Before each pass, a **CongestionGrid** is rebuilt and
 `activeHistoryWeight = 0.3 × pass`. This implements **negotiated congestion**:
-later passes penalize congested areas more aggressively, spreading traces.
+later passes penalize congested areas more aggressively, spreading tracks.
 
 For each failed connection:
 
-1. **Probe** — `astarProbe` finds the cheapest path treating traces as
+1. **Probe** — `astarProbe` finds the cheapest path treating tracks as
    crossable (with heavy penalty). Returns the set of foreign connection IDs
    crossed.
 2. **Identify blockers** — If probe fails, fall back to
@@ -187,7 +204,7 @@ For each failed connection:
 ### Best-State Tracking
 
 After each successful routing, `captureBestIfImproved()` snapshots
-`routedTraces` if the routed connection count exceeds the previous best.
+`routedTracks` if the routed connection count exceeds the previous best.
 The final output uses the best snapshot, so transient rip-up degradation
 doesn't affect the result.
 
@@ -217,35 +234,46 @@ This enables:
 - **Independent ordering**: connections sorted by global difficulty regardless
   of which net they belong to
 - **Surgical rip-up**: only the specific blocking connection is removed, not
-  the entire net's traces
-- **Same-net transparency**: `skipNet` makes same-net traces invisible to A\*,
+  the entire net's tracks
+- **Same-net transparency**: `skipNet` makes same-net tracks invisible to A\*,
   so routing order within a net doesn't matter
 
-### Nearest-Neighbor Pad Ordering
+### Multi-Pad Topology
 
-Multi-pad nets have pads reordered by a greedy nearest-neighbor chain starting
-from the outlier pad. This prevents the common failure mode of two long
-parallel traces to a distant pad instead of one long trace + short hops.
+The maze router connects each multi-pad net with a Euclidean MST (`buildMstEdges`).
+The pathfinder router mutates each multi-pad net into a nearest-neighbour chain
+with `nncReorderPads` and reorders the parallel pad-ID groups the same way.
 
 ### Via-Pad Clearance
 
-Via placement uses `viaRadius + clearance` as the minimum distance from foreign
-pad edges. This is tighter than the conservative `totalClear × 2` originally
-used, enabling via placement near closely-spaced SMD pads (e.g., 0.8mm pitch
-IC pins).
+Via placement uses `viaRadius + clearance` as the minimum distance from pad
+edges. Own source and destination pad groups are exempt from point and segment
+obstacle checks through `skipIds`, but via centers must be off every pad because
+`SpatialHash.isOnPad()` does not take a net skip.
 
 ### Negotiated Congestion
 
-The `CongestionGrid` records both actual trace usage and demand from failed
+The `CongestionGrid` records both actual track usage and demand from failed
 connections. During rip-up, A\* penalizes paths through high-congestion cells
-with a weight that increases each pass (`0.3 × pass`). This spreads traces
+with a weight that increases each pass (`0.3 × pass`). This spreads tracks
 across the board and resolves routing-order butterfly effects.
+
+## Tests
+
+Focused unit tests in `tests/unit/test-autorouter-geometry.mjs`,
+`tests/unit/test-autorouter-maze.mjs`, and
+`tests/unit/test-autorouter-pathfinder.mjs` cover the shared geometry/grid
+helpers and tiny router scenarios. `tools/regression.mjs` provides whole-board
+fixture baseline coverage.
 
 ## File Structure
 
 ```
 src/pcb/modules/
-├── autorouter-common.js      # Shared infrastructure (~1700 lines)
+├── route-input.js            # Board/editor state → RouteInput
+├── autorouter-session.js     # Session ownership, worker lifetime, result adoption
+├── autorouter-presentation.js # Progress UI, incremental preview, ratline visibility
+├── autorouter-common.js      # Shared infrastructure
 │   ├── SpatialHash            # Obstacle spatial index
 │   ├── CongestionGrid         # Historical routing demand (maze)
 │   ├── PathfinderGrid         # Cell-based path-cost accumulation
@@ -253,25 +281,25 @@ src/pcb/modules/
 │   ├── astarProbe()           # Crossing-aware A* for rip-up
 │   ├── padPointBlocked / padSegmentBlocked   # Pad blocking predicates
 │   ├── RouteInput / RouteResult typedefs     # Router contract
-│   └── (geometry helpers, path post-processing, node-key packing)
+│   ├── NODE_KEY_OFFSET / NODE_KEY_Y_STRIDE / packNodeKey()
+│   └── (geometry helpers and path post-processing)
 │
-├── autorouter-maze.js        # Maze router (~1300 lines)
+├── autorouter-maze.js        # Maze router
 │   ├── routeAll()             # Rip-up-and-reroute main entry
 │   ├── routeWithMazeRouter()  # Worker-facing wrapper
 │   └── defaultChainEdges / buildMstEdges / netManhattan
 │
-├── autorouter-pathfinder.js  # Negotiated-congestion router (~1800 lines)
+├── autorouter-pathfinder.js  # Negotiated-congestion router
 │   ├── routeAllPathfinder()         # Main entry
 │   ├── routeWithPathfinderRouter()  # Worker-facing wrapper
 │   └── nncReorderPads, extractFeasibleSubset, geometricVerifyAndDrop,
 │       smoothPathfinderRoutes, ripUpSwap, unionExtend, …
 │
-└── autorouter-worker.js      # Web Worker wrapper (~50 lines)
+└── autorouter-worker.js      # Web Worker wrapper
 
-src/ui/
-└── PCBApp.js                 # UI integration
-    ├── _buildRouteInput()
-    ├── _runAutoRouteInWorker()
-    ├── _renderNetTraces()
-    └── _clearIncrementalConnection()
+src/pcb/modules/
+└── autorouter-actions.js     # UI integration
+    ├── getAutorouter()
+    ├── runAutoRoute()
+    └── renderRouteResult()
 ```

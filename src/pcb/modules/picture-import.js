@@ -1,11 +1,13 @@
 import { ModalManager } from '../../core/ModalManager.js';
-import { isLayerLocked, isLayerVisible } from './layers.js';
-import { showBoardShapeProperties } from './board-shapes.js';
-import { AddBoardShapeCommand } from './shape-commands.js';
-import { setPcbSelection } from './selection-registry.js';
-import { renderPcbSelectionAnchors } from './selection-anchors.js';
-import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from './picture-raster.js';
+import { isLayerLocked, isLayerVisible, pcbLayerOption } from './layers.js';
+import { beginPcbPaste, preparePcbPaste } from './pcb-paste.js';
+import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from '../../shared/pcb/picture-raster.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{pointerId:number, offsetX:number, offsetY:number}} DialogDragState */
+/** @typedef {ReturnType<typeof pictureShape>} PictureShape */
+/** @typedef {import('../../shared/pcb/picture-raster.js').PictureArtwork | import('../../shared/pcb/picture-raster.js').PictureRaster | ReturnType<typeof rasterizePicture>} PictureImportArtwork */
 
+/** @param {PcbEditor} app */
 export function showPictureImport(app) {
     if (document.getElementById('pcb-picture-import')) return;
     const dialog = document.createElement('dialog');
@@ -81,6 +83,7 @@ export function showPictureImport(app) {
     title.style.cursor = 'move';
     title.style.touchAction = 'none';
     title.style.userSelect = 'none';
+    /** @type {DialogDragState|null} */
     let drag = null;
     title.addEventListener('pointerdown', event => {
         if (event.button !== 0 || !event.isPrimary) return;
@@ -102,6 +105,7 @@ export function showPictureImport(app) {
         dialog.style.left = `${Math.max(0, Math.min(maxLeft, event.clientX - drag.offsetX))}px`;
         dialog.style.top = `${Math.max(0, Math.min(maxTop, event.clientY - drag.offsetY))}px`;
     });
+    /** @param {PointerEvent} event */
     const endDrag = event => {
         if (!drag || event.pointerId !== drag.pointerId) return;
         drag = null;
@@ -110,7 +114,8 @@ export function showPictureImport(app) {
     title.addEventListener('pointerup', endDrag);
     title.addEventListener('pointercancel', endDrag);
     title.addEventListener('lostpointercapture', endDrag);
-    const form = dialog.querySelector('form');
+    const form = /** @type {HTMLFormElement} */ (dialog.querySelector('form'));
+    /** @param {string} name */
     const field = name => /** @type {HTMLInputElement} */ (form.elements.namedItem(name));
     const netSelect = /** @type {HTMLSelectElement} */ (form.elements.namedItem('net'));
     const netNames = new Set();
@@ -128,11 +133,13 @@ export function showPictureImport(app) {
     }
     const sourceCanvas = /** @type {HTMLCanvasElement} */ (dialog.querySelector('[data-preview="original"]'));
     const artworkCanvas = /** @type {HTMLCanvasElement} */ (dialog.querySelector('[data-preview="artwork"]'));
-    const error = dialog.querySelector('.picture-error');
-    const summary = dialog.querySelector('.picture-summary');
+    const error = /** @type {HTMLElement} */ (dialog.querySelector('.picture-error'));
+    const summary = /** @type {HTMLOutputElement} */ (dialog.querySelector('.picture-summary'));
     const accept = /** @type {HTMLButtonElement} */ (dialog.querySelector('[type="submit"]'));
     const samplingCanvas = document.createElement('canvas');
+    /** @type {ImageBitmap|null} */
     let bitmap = null;
+    /** @type {PictureShape|null} */
     let prepared = null;
     let generation = 0;
     let previewGeneration = 0;
@@ -143,6 +150,7 @@ export function showPictureImport(app) {
     fullPreview.setAttribute('popover', 'manual');
     fullPreview.setAttribute('aria-hidden', 'true');
     dialog.appendChild(fullPreview);
+    /** @type {HTMLCanvasElement|null} */
     let hoveredPreview = null;
     const hideFullPreview = () => {
         if (!fullPreview.hidden) fullPreview.hidePopover?.();
@@ -167,14 +175,15 @@ export function showPictureImport(app) {
         if (hoveredPreview === sourceCanvas) {
             context.drawImage(bitmap, 0, 0, fullPreview.width, fullPreview.height);
         } else {
+            const previewShape = /** @type {PictureShape} */ (prepared);
             context.fillStyle = '#000';
             context.fillRect(0, 0, fullPreview.width, fullPreview.height);
-            const origin = prepared.points[0];
-            const scale = fullPreview.width / Math.hypot(prepared.points[1].x - origin.x, prepared.points[1].y - origin.y);
+            const origin = previewShape.points[0];
+            const scale = fullPreview.width / Math.hypot(previewShape.points[1].x - origin.x, previewShape.points[1].y - origin.y);
             context.save();
             context.transform(scale, 0, 0, scale, -origin.x * scale, -origin.y * scale);
             context.fillStyle = '#fff';
-            drawPicture(context, prepared);
+            drawPicture(context, previewShape);
             context.restore();
         }
         fullPreview.hidden = false;
@@ -198,14 +207,17 @@ export function showPictureImport(app) {
         };
         preview.addEventListener('blur', dismiss);
     }
-    dialog.querySelector('.picture-previews').addEventListener('pointerleave', () => {
+    /** @type {HTMLElement} */ (dialog.querySelector('.picture-previews')).addEventListener('pointerleave', () => {
         hoveredPreview = null;
         hideFullPreview();
     });
     window.addEventListener('resize', refreshFullPreview);
     field('layer').value = 'top-silk';
     for (const option of /** @type {HTMLSelectElement} */ (form.elements.namedItem('layer')).options) {
-        option.disabled = isLayerLocked(option.value) || !isLayerVisible(option.value);
+        const layer = pcbLayerOption(option.value, option.textContent || '', { visibleOnly: true });
+        Object.assign(option.dataset, layer.dataset);
+        option.textContent = layer.label;
+        option.disabled = !!layer.disabled;
     }
     const close = () => {
         if (closed) return;
@@ -236,11 +248,13 @@ export function showPictureImport(app) {
         const contourMode = tracing || halftoning;
         field('threshold').disabled = halftoning;
         field('dotSize').disabled = !halftoning;
-        dialog.querySelectorAll('[data-trace-control]').forEach(control => {
+        dialog.querySelectorAll('[data-trace-control]').forEach((control) => {
+            if (!(control instanceof HTMLElement)) return;
             const engine = control.getAttribute('data-trace-control');
             control.hidden = !contourMode || !!engine && engine !== conversion;
         });
-        dialog.querySelectorAll('[data-pixel-control]').forEach(control => {
+        dialog.querySelectorAll('[data-pixel-control]').forEach((control) => {
+            if (!(control instanceof HTMLElement)) return;
             control.hidden = contourMode;
         });
         const layer = field('layer').value;
@@ -254,7 +268,7 @@ export function showPictureImport(app) {
             const factor = contourMode ? Math.min(1, samplingFactor) : samplingFactor;
             samplingCanvas.width = Math.max(1, Math.round(bitmap.width * factor));
             samplingCanvas.height = Math.max(1, Math.round(bitmap.height * factor));
-            const context = samplingCanvas.getContext('2d', { willReadFrequently: true });
+            const context = /** @type {CanvasRenderingContext2D} */ (samplingCanvas.getContext('2d', { willReadFrequently: true }));
             context.imageSmoothingEnabled = true;
             context.imageSmoothingQuality = 'high';
             const flipHorizontal = field('mirror').checked;
@@ -267,7 +281,7 @@ export function showPictureImport(app) {
                 { threshold: Number(field('threshold').value), invert: field('invert').checked, maskOnly: tracing });
             artworkCanvas.width = pixels.width;
             artworkCanvas.height = pixels.height;
-            const artworkContext = artworkCanvas.getContext('2d');
+            const artworkContext = /** @type {CanvasRenderingContext2D} */ (artworkCanvas.getContext('2d'));
             if (raster) {
                 const preview = artworkContext.createImageData(raster.width, raster.height);
                 for (let index = 0; index < raster.mask.length; index++) {
@@ -281,6 +295,7 @@ export function showPictureImport(app) {
             if (raster) summary.textContent = `${widthMm.toFixed(2)} x ${heightMm.toFixed(2)} mm | ${(widthMm / raster.width).toFixed(3)} mm/px | Rectangles: ${raster.rectangles.length} / ${MAX_PICTURE_REGIONS}`;
             if (heightMm > 500) throw new Error('Image height must be at most 500 mm.');
             if (isLayerLocked(layer) || !isLayerVisible(layer)) throw new Error('Choose an unlocked, visible layer.');
+            /** @type {any} */
             let artwork = raster;
             if (halftoning) {
                 summary.textContent = 'Generating dots...';
@@ -292,7 +307,7 @@ export function showPictureImport(app) {
                 const tracer = conversion === 'vtrace'
                     ? await import('./picture-vtrace.js') : await import('./picture-trace.js');
                 if (closed || version !== previewGeneration) return;
-                artwork = await tracer.tracePicture(raster, conversion === 'vtrace'
+                artwork = await tracer.tracePicture(/** @type {NonNullable<typeof raster>} */ (raster), conversion === 'vtrace'
                     ? { smooth: Number(field('smooth').value), speckle: Number(field('speckle').value) }
                     : { simplify: Number(field('simplify').value), despeckle: Number(field('despeckle').value),
                         preserveCorners: field('preserveCorners').checked });
@@ -300,10 +315,11 @@ export function showPictureImport(app) {
             }
             if (contourMode) {
                 const usage = halftoning ? `Dots: ${artwork.circles.length} / ${MAX_PICTURE_CIRCLES}`
-                    : `Contours: ${artwork.contours.length} / ${MAX_PICTURE_REGIONS} | Points: ${artwork.contours.reduce((total, contour) => total + contour.length, 0)} / ${MAX_PICTURE_VERTICES}`;
+                    : `Contours: ${artwork.contours.length} / ${MAX_PICTURE_REGIONS} | Points: ${artwork.contours.reduce((/** @type {number} */ total, /** @type {Array<{x:number,y:number}>} */ contour) => total + contour.length, 0)} / ${MAX_PICTURE_VERTICES}`;
                 summary.textContent = `${widthMm.toFixed(2)} x ${heightMm.toFixed(2)} mm | ${pixels.width} x ${pixels.height} px | ${usage}`;
             }
-            prepared = pictureShape(artwork, { widthMm, layer, center: app.viewport.offset, net: field('net').value,
+            const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
+            prepared = pictureShape(/** @type {import('../../shared/pcb/picture-raster.js').PictureRaster} */ (artwork), { widthMm, layer, center: viewport.offset, net: field('net').value,
                 name: field('file').files?.[0]?.name || 'Image' });
             if (contourMode) {
                 const previewScale = 512 / Math.max(pixels.width, pixels.height);
@@ -327,7 +343,7 @@ export function showPictureImport(app) {
             prepared = null;
             accept.disabled = true;
             summary.textContent = halftoning ? 'Halftone unavailable' : tracing ? 'Tracing unavailable' : summary.textContent;
-            error.textContent = failure.message;
+            error.textContent = /** @type {Error} */ (failure).message;
         }
     };
     field('file').addEventListener('change', async () => {
@@ -340,8 +356,8 @@ export function showPictureImport(app) {
         accept.disabled = true;
         error.textContent = '';
         summary.textContent = '';
-        sourceCanvas.getContext('2d').clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-        artworkCanvas.getContext('2d').clearRect(0, 0, artworkCanvas.width, artworkCanvas.height);
+        /** @type {CanvasRenderingContext2D} */ (sourceCanvas.getContext('2d')).clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+        /** @type {CanvasRenderingContext2D} */ (artworkCanvas.getContext('2d')).clearRect(0, 0, artworkCanvas.width, artworkCanvas.height);
         const file = field('file').files?.[0];
         if (!file) return;
         summary.textContent = 'Loading image...';
@@ -361,12 +377,12 @@ export function showPictureImport(app) {
             const factor = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
             sourceCanvas.width = Math.max(1, Math.round(bitmap.width * factor));
             sourceCanvas.height = Math.max(1, Math.round(bitmap.height * factor));
-            sourceCanvas.getContext('2d').drawImage(bitmap, 0, 0, sourceCanvas.width, sourceCanvas.height);
+            /** @type {CanvasRenderingContext2D} */ (sourceCanvas.getContext('2d')).drawImage(bitmap, 0, 0, sourceCanvas.width, sourceCanvas.height);
             await update();
         } catch (failure) {
             if (closed || version !== generation) return;
             summary.textContent = '';
-            error.textContent = failure.message || 'This image could not be decoded.';
+            error.textContent = /** @type {Error} */ (failure).message || 'This image could not be decoded.';
         }
     });
     form.addEventListener('input', event => {
@@ -377,26 +393,19 @@ export function showPictureImport(app) {
         const imported = await update();
         if (!imported || accept.disabled || closed) return;
         document.getElementById('pcbToolSelect')?.click();
-        const shape = { ...imported, id: `pshape_${app._shapeIdCounter++}` };
-        const historyDepth = app.history.undoStack.length;
-        app._suspendFillRefresh = true;
-        app._fillRefreshPending = false;
-        app._suspendBoardViewRefresh = true;
-        app.history.execute(new AddBoardShapeCommand(app, shape));
-        setPcbSelection(app, [{ kind: 'shape', object: shape }]);
-        renderPcbSelectionAnchors(app);
-        showBoardShapeProperties(app, shape);
+        const payload = preparePcbPaste(app, { shapes: [imported] });
         close();
-        app._beginPasteDrop({ shapes: [shape] }, historyDepth);
-        app._setStatus?.('Click to place image');
+        beginPcbPaste(app, payload, { select: true });
+        app.setStatus('Click to place image');
     });
-    dialog.querySelector('[data-cancel]').addEventListener('click', close);
+    /** @type {HTMLElement} */ (dialog.querySelector('[data-cancel]')).addEventListener('click', close);
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     ModalManager.push('pictureImport', close);
     dialog.showModal();
     update();
     field('file').focus();
-    const canvasBounds = app.viewport.container.getBoundingClientRect();
+    const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
+    const canvasBounds = viewport.container.getBoundingClientRect();
     const dialogBounds = dialog.getBoundingClientRect();
     const maxLeft = Math.max(0, document.documentElement.clientWidth - dialogBounds.width);
     const maxTop = Math.max(0, document.documentElement.clientHeight - dialogBounds.height);

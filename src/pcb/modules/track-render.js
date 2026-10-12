@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Track rendering for the PCB editor
  *
  * Renders Track and Via shapes into PCB layer groups as SVG elements.
@@ -7,9 +7,9 @@
  * layer groups with the correct colour.
  *
  * Rendering strategy:
- *   - A Track with all edges on one layer ⇒ one <polyline> on that layer
+ *   - A Track with all edges on one layer â‡’ one <polyline> on that layer
  *     (single stroke, single clearance halo).
- *   - A Track that spans two layers ⇒ one <polyline> per contiguous run
+ *   - A Track that spans two layers â‡’ one <polyline> per contiguous run
  *     of same-layer edges. The implicit-via nodes (where layers change)
  *     are rendered as <circle> ring + drill on the hole layer.
  *   - Standalone Via shapes render as an opaque annular <path> with an open bore.
@@ -18,8 +18,14 @@
  * testing and incremental cleanup.
  */
 
-import { resolveTrackEdgePaths } from './board-geometry.js';
+import { resolveTrackEdgePaths } from '../../shared/pcb/board-geometry.js';
 import { renderDrillBore } from './drill-bore.js';
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x:number,y:number,diameter:number,drill?:number,net?:string,id?:string}} RenderViaLike */
+/** @typedef {{layer:string,width:number,points:Point[]}} TrackRun */
+/** @typedef {{edgeId:string,other:string,layer:string,width:number}} TrackAdjacency */
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -29,15 +35,23 @@ const TRACK_CLASS = 'pcb-track';
 /** CSS class applied to via rings and drills. */
 const VIA_CLASS = 'pcb-via';
 
+/** @type {WeakMap<Track, SVGElement[]>} */
+const trackElements = new WeakMap();
+/** @type {WeakMap<Via, SVGElement[]>} */
+const viaElements = new WeakMap();
+
 /**
  * Render a Track into the supplied layer groups, removing any prior
  * SVG it owned. Safe to call repeatedly.
  *
- * @param {object} track - Track instance
+ * @param {Track} track - Track instance
  * @param {(layerId: string) => SVGGElement|null} getLayerGroup
  * @param {object} [opts]
  * @param {string} [opts.topColor='#e74c3c']
  * @param {string} [opts.bottomColor='#2479b5']
+ * @param {boolean} [opts.hideNetLabel] omit the net label (e.g. while selected or dragged)
+ * @param {number} [opts.viaDiameter] routing defaults some callers pass; unused here
+ * @param {number} [opts.viaDrill] routing defaults some callers pass; unused here
  */
 export function renderTrack(track, getLayerGroup, opts = {}) {
     removeTrackElements(track);
@@ -50,6 +64,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     // Build per-layer polyline runs by walking contiguous same-layer paths.
     const runs = buildTrackLayerRuns(track);
 
+    /** @type {SVGElement[]} */
     const created = [];
     for (const run of runs) {
         const layerId = run.layer;
@@ -87,19 +102,15 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     // `Via` shapes (see PCBApp.vias / renderVia). A Track that changes
     // layer without a colocated Via simply shows an in-air vertex.
 
-    track._svgElements = created;
+    trackElements.set(track, created);
 }
 
-/**
- * Render a standalone Via on the hole layer.
- *
- * @param {object} via - Via instance
- * @param {(layerId: string) => SVGGElement|null} getLayerGroup
- * @param {object} [opts]
- */
+/** SVG path (outer ring with its drill as an even-odd hole) for a via's copper. */
+/** @param {RenderViaLike} via */
 export function viaCopperPathD(via) {
     const outerRadius = via.diameter / 2;
-    const drillRadius = Number.isFinite(via.drill) ? Math.max(0, via.drill / 2) : 0;
+    const drill = via.drill;
+    const drillRadius = typeof drill === 'number' && Number.isFinite(drill) ? Math.max(0, drill / 2) : 0;
     let path = `M${via.x + outerRadius},${via.y}`
         + `A${outerRadius},${outerRadius} 0 1 0 ${via.x - outerRadius},${via.y}`
         + `A${outerRadius},${outerRadius} 0 1 0 ${via.x + outerRadius},${via.y}Z`;
@@ -111,6 +122,13 @@ export function viaCopperPathD(via) {
     return path;
 }
 
+/**
+ * Render a standalone Via on the hole layer.
+ *
+ * @param {Via} via - Via instance
+ * @param {(layerId: string) => SVGGElement|null} getLayerGroup
+ * @param {{viaRingColor?: string}} [opts]
+ */
 export function renderVia(via, getLayerGroup, opts = {}) {
     removeViaElements(via);
 
@@ -135,26 +153,51 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     const drill = renderDrillBore(via, viaLayer, `${VIA_CLASS} pcb-via-drill`, 'via');
     if (drill) created.push(drill);
 
-    via._svgElements = created;
+    viaElements.set(via, created);
 }
 
 /** Remove every SVG element this Track previously created. */
+/** @param {Track} track */
 export function removeTrackElements(track) {
-    if (track._svgElements) {
-        for (const el of track._svgElements) el.remove();
-        track._svgElements = null;
-    }
+    for (const el of trackElements.get(track) || []) el.remove();
+    trackElements.delete(track);
+}
+
+/** Whether this track has a registered render, including an empty hidden-layer render. */
+/** @param {Track} track */
+export function hasTrackElements(track) {
+    return trackElements.has(track);
 }
 
 /** Remove every SVG element this Via previously created. */
+/** @param {Via} via */
 export function removeViaElements(via) {
-    if (via._svgElements) {
-        for (const el of via._svgElements) el.remove();
-        via._svgElements = null;
-    }
+    for (const el of viaElements.get(via) || []) el.remove();
+    viaElements.delete(via);
 }
 
-/* ──────────────────────────── internals ──────────────────────────── */
+/** @param {Via} via */
+export function hasViaElements(via) {
+    return viaElements.has(via);
+}
+
+/** Show/hide existing net labels; false tells selection to rebuild omitted labels. */
+/**
+ * @param {Track} track
+ * @param {boolean} visible
+ */
+export function setTrackLabelsVisible(track, visible) {
+    let found = false;
+    for (const el of trackElements.get(track) || []) {
+        if (el.getAttribute('class') === 'pcb-track-label') {
+            el.style.display = visible ? '' : 'none';
+            found = true;
+        }
+    }
+    return found;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ internals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * Walk the Track graph and yield contiguous same-layer runs as
@@ -163,15 +206,19 @@ export function removeViaElements(via) {
  * For Phase 1 the autorouter emits one Track per (net, layer) so every
  * Track has exactly one run. The general algorithm below still works
  * for Phase 2 multi-layer Tracks: it walks the graph from each
- * degree-≤1 endpoint, breaking runs at any node whose adjacent edges
+ * degree-â‰¤1 endpoint, breaking runs at any node whose adjacent edges
  * change layer.
+ * @param {Track} track
+ * @returns {TrackRun[]}
  */
 export function buildTrackLayerRuns(track) {
+    /** @type {TrackRun[]} */
     const runs = [];
     if (track.edges.size === 0) return runs;
     const paths = resolveTrackEdgePaths(track);
 
-    // Build adjacency: nodeId → [{edgeId, otherNodeId, layer, width}]
+    // Build adjacency: nodeId â†’ [{edgeId, otherNodeId, layer, width}]
+    /** @type {Map<string, TrackAdjacency[]>} */
     const adj = new Map();
     for (const nid of track.nodes.keys()) adj.set(nid, []);
     for (const [eid, e] of track.edges) {
@@ -181,13 +228,15 @@ export function buildTrackLayerRuns(track) {
         adj.get(e.to)?.push({ edgeId: eid, other: e.from, layer: lyr, width: w });
     }
 
+    /** @type {Set<string>} */
     const visitedEdges = new Set();
 
     // Pick a deterministic start order: endpoint nodes (degree 1) first,
     // then any remaining nodes (handles ring topologies).
+    /** @type {string[]} */
     const startOrder = [];
     for (const [nid, list] of adj) if (list.length === 1) startOrder.push(nid);
-    for (const nid of adj.keys()) if (!startOrder.includes(nid)) startOrder.push(nid);
+    for (const [nid, list] of adj) if (list.length !== 1) startOrder.push(nid);
 
     for (const startNid of startOrder) {
         // From this start node, follow each unvisited outgoing edge.
@@ -195,6 +244,7 @@ export function buildTrackLayerRuns(track) {
             if (visitedEdges.has(initial.edgeId)) continue;
 
             // Walk a single contiguous same-layer, same-width run.
+            /** @type {Point[]} */
             const points = [];
             const startPt = track.nodes.get(startNid);
             if (!startPt) continue;
@@ -202,6 +252,7 @@ export function buildTrackLayerRuns(track) {
             let currentNid = startNid;
             let currentLayer = initial.layer;
             let currentWidth = initial.width;
+            /** @type {TrackAdjacency|null} */
             let next = initial;
 
             while (next && !visitedEdges.has(next.edgeId)
@@ -211,16 +262,19 @@ export function buildTrackLayerRuns(track) {
                 if (!np) break;
                 const path = paths.get(next.edgeId);
                 if (!path) break;
-                const oriented = track.edges.get(next.edgeId).from === currentNid ? path : [...path].reverse();
+                const edge = track.edges.get(next.edgeId);
+                if (!edge) break;
+                const oriented = edge.from === currentNid ? path : [...path].reverse();
                 points.push(...(points.length ? oriented.slice(1) : oriented));
                 currentNid = next.other;
 
                 // Find next unvisited edge on the same layer AND width at
                 // currentNid (excluding the one we just traversed). For a
-                // degree-≥3 junction, layer change, or width change we stop
+                // degree-â‰¥3 junction, layer change, or width change we stop
                 // the run here.
+                /** @type {TrackAdjacency[]} */
                 const candidates = (adj.get(currentNid) || []).filter(
-                    a => !visitedEdges.has(a.edgeId)
+                    (a) => !visitedEdges.has(a.edgeId)
                         && a.layer === currentLayer && a.width === currentWidth
                 );
                 if (candidates.length === 1) {
@@ -240,7 +294,7 @@ export function buildTrackLayerRuns(track) {
 /** Spacing between net-name labels along a track run, in mm. */
 const LABEL_INTERVAL_MM = 12;
 
-/** Upper bound on the net-label font (mm) so fat traces don't get huge text. */
+/** Upper bound on the net-label font (mm) so fat tracks don't get huge text. */
 const MAX_LABEL_FONT_MM = 0.4;
 
 /**
@@ -273,10 +327,10 @@ function _makeNetLabel(x, y, angle, fontSize, netName) {
  * Generate `<text>` elements with the net name placed along the polyline
  * `points`. Each label is rotated to its segment direction, kept upright
  * (no upside-down text), and scaled relative to the track width so it sits
- * visually on the trace.
+ * visually on the track.
  *
  * Labels are placed *per straight segment* and constrained so the whole
- * rotated string fits between the segment's endpoints — they never cross a
+ * rotated string fits between the segment's endpoints â€” they never cross a
  * bend or overhang a corner into empty space. Segments too short to host
  * the text get no label.
  *
@@ -286,13 +340,14 @@ function _makeNetLabel(x, y, angle, fontSize, netName) {
  * @returns {SVGTextElement[]}
  */
 function _buildNetLabels(points, netName, trackWidth) {
+    /** @type {SVGTextElement[]} */
     const labels = [];
     if (!netName || points.length < 2) return labels;
 
     // Font sized just inside the track width so the label reads as "on" the
     // copper. At low zoom the on-screen text shrinks below readable size and
     // effectively disappears. The size scales down with the track width but is
-    // capped so fat traces (power/ground pours) don't get oversized labels.
+    // capped so fat tracks (power/ground pours) don't get oversized labels.
     const fontSize = Math.min((trackWidth || 0.2) * 0.7, MAX_LABEL_FONT_MM);
     // Approximate rendered length of the string along its baseline
     // (~0.62 em per average sans-serif glyph), plus a small margin so glyphs

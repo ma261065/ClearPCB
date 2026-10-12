@@ -5,70 +5,92 @@ import { globalEventBus } from '../core/EventBus.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
-import { repairDuplicateTrackIds } from '../core/project-format.js';
+import { SchematicDocument } from '../core/SchematicDocument.js';
+import { errorMessage } from '../core/errors.js';
+import { ProjectIntegrityError, duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
-import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
+import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // Modules with a small public API use named imports; modules with many
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
-import { bindMouseEvents } from './modules/mouse.js';
-import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
-import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
-import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
-import { getToolIconPath, setToolCursor } from './modules/cursor.js';
-import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
-import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
-import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
-import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from './modules/clipboard.js';
-import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
-import { bindPaperEvents } from './modules/paper.js';
+import { bindMouseEvents } from '../schematic/modules/mouse.js';
+import { bindKeyboardShortcuts } from '../schematic/modules/keyboard.js';
+import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
+import { bindRibbon, updateShapePanelOptions, activateRibbonTab, retainRibbonHeight as retainSchematicRibbonHeight, showSaveToast as showRibbonSaveToast } from '../schematic/modules/ribbon.js';
+import { setToolCursor } from '../shared/ui/cursor.js';
+import { updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
+import { bindThemeToggle, toggleTheme } from '../schematic/modules/theme.js';
+import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { createSchematicHistory, showUnlockMenu } from '../schematic/modules/locks.js';
+import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
+import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
+import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
 import * as WireTools from '../schematic/modules/wire.js';
-import * as DrawingTools from './modules/drawing.js';
-import * as ComponentTools from './modules/components.js';
+import * as DrawingTools from '../schematic/modules/drawing.js';
+import * as ComponentTools from '../schematic/modules/components.js';
 import * as FileTools from '../schematic/modules/files.js';
-import * as ExportTools from './modules/export.js';
-import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
-import { adaptShortcutsInDOM } from './modules/platform-keys.js';
-import { setupCallbacks } from './modules/callbacks.js';
-import { updateUndoRedoButtons, makeHelpPanelDraggable } from './modules/ui-utils.js';
-import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
-import { showAlert, showConfirm, showPrompt } from './modules/modal.js';
+import * as ExportTools from '../shared/ui/export.js';
+import { onToolSelected, onOptionsChanged, loadToolOptions } from '../schematic/modules/tool.js';
+import { adaptShortcutsInDOM } from '../schematic/modules/platform-keys.js';
+import { setupCallbacks } from '../schematic/modules/callbacks.js';
+import { getOverlapHitCount } from '../schematic/modules/callbacks.js';
+import { updateUndoRedoButtons, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
+import { needsValueDialog, showValueDialog } from '../schematic/modules/value-dialog.js';
+import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
 import {
     startTextEdit,
     endTextEdit,
     handleTextEditKey,
     updateTextEditOverlay,
-    setTextCaretFromScreen,
-    nudgeTextEditOverlay
-} from './modules/text-edit.js';
+    setTextCaretFromScreen
+} from '../schematic/modules/text-edit.js';
 import {
     addShape,
-    addShapeInternal,
-    addShapeInternalAt,
     commandAddShapeInternal,
     commandRemoveShapeInternal,
     commandDeleteShapesInternal,
     commandRestoreShapesInternal,
-    removeShapeInternal,
+} from '../schematic/modules/shape-management.js';
+import {
     renderShapes,
     clearShapeSegmentSelection,
-} from '../schematic/modules/shape-management.js';
+    refreshSelectionVisual,
+    isCulled,
+} from '../schematic/modules/schematic-view.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus } from '../schematic/modules/shape-focus.js';
+import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interactions.js';
 
 // Shape construction uses createShape() from shapes/index.js.
 
 /**
- * Central application class — a thin facade over the `ui/modules/` layer.
+ * @typedef {import('../core/SchematicDocument.js').SchematicItem} SchematicItem
+ * @typedef {import('../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable
+ * @typedef {import('../components/Component.js').Component} Component
+ * @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('../shapes/text.js').Text} TextShape
+ * @typedef {import('../shapes/shape.js').Shape} Shape
+ * @typedef {import('../core/ProjectDocument.js').ProjectData} ProjectData
+ * @typedef {import('../core/geometry.js').Point} Point
+ * @typedef {import('../schematic/modules/draw-states.js').InteractionState} InteractionState
+ * @typedef {{key: string, fileName: string, timestamp: number}} AutoSaveEntry
+ * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, textRotation?: number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: unknown}} SchematicToolOptions
+ * @typedef {{cursorPos: HTMLElement|null, gridSnap: HTMLElement|null, zoomPercent: HTMLElement|null, viewportInfo: HTMLElement|null, docTitle: HTMLElement|null, propertiesPanel?: HTMLElement|null}} SchematicUiElements
+ * @typedef {{shape: SchematicDrawable, index: number, parentWire?: SchematicDrawable|null}} ShapeRestoreData
+ */
+
+/**
+ * Central application class — a thin facade over the `schematic/modules/` layer.
  *
  * Almost all logic lives in the module files (mouse.js, wire.js, drawing.js,
  * keyboard.js, etc.).  Methods here delegate to those modules, passing `this`
  * as the shared app context.  If you're looking for how a feature works, check
  * the corresponding module rather than this file.
  *
- * The constructor is the single source of truth for application state — every
- * property that modules read or write on `app` is initialised here.
+ * The constructor initializes editor interaction state. Shape/component
+ * collections alias the project-owned document rather than separate editor data.
  */
 export default class SchematicApp {
 
@@ -81,9 +103,10 @@ export default class SchematicApp {
      *        where a private FileManager is created as a fallback.
      */
     constructor(project) {
-        /** @type {any} */
+        /** @type {import('../core/ProjectDocument.js').ProjectDocument|null} */
         this.project = project || null;
         this.fileManager = project ? project.fileManager : new FileManager();
+        this.document = project ? project.schematicDocument : new SchematicDocument();
         // Register as the schematic view + UI host, and inject the file
         // lifecycle so the project can drive New/Open/Save without
         // importing this module (keeping core free of view dependencies).
@@ -99,70 +122,77 @@ export default class SchematicApp {
             },
         });
         // Auto-save recovery now runs after initialization.
-        this._skipAutoSaveRecovery = !!/** @type {any} */ (window)._launchFile;
+        this._skipAutoSaveRecovery = !!/** @type {Window & {_launchFile?: boolean}} */ (window)._launchFile;
 
-        this.container = document.getElementById('canvasContainer');
+        this.container = /** @type {HTMLElement} */ (document.getElementById('canvasContainer'));
         this.viewport = new Viewport(this.container);
-        /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
+        /** @type {Viewport & {_app?: SchematicApp}} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
-        this.history = new CommandHistory({
-            onChanged: () => {
-                this._updateUndoRedoButtons();
-            }
+        this.history = createSchematicHistory(this, {
+            onChanged: () => this._onHistoryChanged(),
+            onRefused: error => showRibbonSaveToast(this, errorMessage(error)),
         });
         // fileManager already created above
-        this.fileManager.onDirtyChanged = () => this._updateTitle();
-        this.fileManager.onFileNameChanged = () => this._updateTitle();
-        this.fileManager.onAutoSaveChanged = () => this._updateTitle();
+        this.fileManager.onDirtyChanged = () => this._onDirtyChanged();
+        this.fileManager.onFileNameChanged = () => FileTools.updateTitle(this);
+        this.fileManager.onAutoSaveChanged = () => FileTools.updateTitle(this);
+        this.fileManager.onAutoSaveSuccess = flashAutoSaveIndicator;
+        this.fileManager.onAutoSaveError = error => this.onAutoSaveError(error);
 
+        /**
+         * The pointer state draw-states.js dispatches events to; set as interactions
+         * begin and end (resolveState derives it from the interaction slots).
+         * @type {InteractionState | undefined}
+         */
+        this.interactionState = undefined;
         // Shape/selection state
-        this.shapes = [];
-        this.components = [];
-        this.selection = new SelectionManager({
+        this.selection = /** @type {SelectionManager<SchematicItem>} */ (/** @type {unknown} */ (new SelectionManager({
+            tolerance: 0,
+            screenTolerancePx: 6,
             getScale: () => this.viewport?.scale,
-            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
-        });
-        /** Refined edge selection for a line, rectangle, or polygon. */
-        this._selectedShapeSegment = null;
-        /** Refined node selection for per-corner properties. */
-        this._selectedShapeNode = null;
-        this._updateSelectableItems();
+            isCulled: (entity) => isCulled(/** @type {SchematicItem} */ (entity)),
+            onSelectionChanged: (shapes) => this._onSelectionChanged(/** @type {SchematicItem[]} */ (shapes)),
+            invalidateEntity: (entity) => refreshSelectionVisual(this, /** @type {SchematicItem} */ (entity)),
+        })));
+        /** Number of selectable objects under the pointer (overlap cycling tip). */
+        this.updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────
         this.currentTool = 'select';
-        this.isDrawing = false;
+        /** @type {Point|null} */
         this.drawStart = null;
+        /** @type {Point|null} */
         this.drawCurrent = null;
+        /** @type {Point[]} */
         this.polygonPoints = [];
+        /** @type {SVGGElement|null} */
         this.previewElement = null;
+        /** @type {import('../schematic/modules/wire.js').WirePoint[]} */
         this.wirePoints = [];
+        /** @type {any|null} Dynamic wire snap highlight state can be a full snap result or a lightweight drawing pin. */
         this.wireSnapPin = null;
+        /** @type {any|null} Dynamic wire start pin mirrors wireSnapPin's drawing-time shape. */
         this.wireStartPin = null;
+        /** @type {any|null} Dynamic drawing snap state is completed progressively while drawing a wire. */
         this.lastSnappedData = null;
+        /** @type {Point|null} */
         this.drawCorner = null;         // set by wire.js — auto-corner waypoint
+        /** @type {Point[]} */
         this.linePoints = [];           // set by drawing.js — polyline vertices
+        /** @type {Point|null} */
         this.arcEndpoint = null;        // set by drawing.js / mouse.js — arc second click
         this.arcDirection = undefined;  // set by drawing.js — arc CW/CCW flag
         this.arcSweepFlag = undefined;  // set by drawing.js — SVG sweep-flag
 
-        // ── Drag state (mutated by mouse-states.js / drag.js) ────────
-        this.drag = null;                  // { mode, shape, ... } — see mouse-states.js begin*Session
-        this.didDrag = false;              // true once an actual drag occurred
-        this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
-        this.skipClickSelection = false;
-        this._rightClickStart = null;      // screen pos for right-click drag detection
-
-        // ── Box selection ──────────────────────────────────────────────
-        this.boxSelectElement = null;
-
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
+        /** @type {SVGGElement|null} */
         this.pastePreviewGroup = null;
-        this.pastingClipboard = false;
 
         // Tool options
         const savedOptions = loadToolOptions();
         const defaultShapeColor = 'var(--sch-symbol-outline, #ffffff)';
-        this.toolOptions = savedOptions || {
+        /** @type {SchematicToolOptions} */
+        this.toolOptions = /** @type {SchematicToolOptions} */ (savedOptions || {
             lineWidth: 0.25,
             fill: false,
             color: defaultShapeColor,
@@ -171,27 +201,17 @@ export default class SchematicApp {
             netFontSize: 1.4,
             netStyle: 't',
             netOrientation: 'N'
-        };
+        });
         this.toolOptions.color = defaultShapeColor;
 
-        // Text edit state
-        this.textEdit = null;
-
         // UI elements
+        /** @type {SchematicUiElements} */
         this.ui = {
             cursorPos: document.getElementById('cursorPos'),
             gridSnap: document.getElementById('gridSnap'),
             zoomPercent: document.getElementById('zoomPercent'),
             viewportInfo: document.getElementById('viewportInfo'),
-            gridSize: document.getElementById('gridSize'),
-            gridStyle: document.getElementById('gridStyle'),
-            units: document.getElementById('units'),
-            showGrid: document.getElementById('showGrid'),
-            snapToGrid: document.getElementById('snapToGrid'),
             docTitle: document.getElementById('docTitle'),
-            undoBtn: document.getElementById('undoBtn'),
-            redoBtn: document.getElementById('redoBtn'),
-            propertiesPanel: document.getElementById('propertiesPanel'),
         };
 
         document.querySelector('.ribbon')?.addEventListener('contextmenu', (e) => {
@@ -202,24 +222,12 @@ export default class SchematicApp {
         }));
 
         // Component code tooltip (copyable)
-        this._componentCodeTooltip = document.createElement('div');
-        this._componentCodeTooltip.className = 'component-code-tooltip';
-        this._componentCodeTooltip.innerHTML = `
-            <div class="component-code-tooltip-title">Component code</div>
-            <button class="component-code-tooltip-close" title="Close">×</button>
-            <textarea class="component-code-tooltip-text" readonly></textarea>
-        `;
-        document.body.appendChild(this._componentCodeTooltip);
-        this._componentCodeTooltipActiveId = null;
-        this._componentCodeTooltipPinned = false;
-        this._componentCodeTooltipPosition = null;
+        ComponentTools.initializeComponentCodeTooltip(this);
         this.showComponentDebugTooltip = false;
-        this._showSaveToast = null;
-        this._componentCodeTooltip.addEventListener('click', (e) => {
-            if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
-                this._updateComponentCodeTooltip(null, null, { forceHide: true });
-            }
-        });
+        /** @type {(() => void)|null} Refreshes renderer-owned schematic ribbon state. */
+        this.refreshRibbon = null;
+        /** @type {string|null} The ribbon tab shown last (set by ribbon.js). */
+        this.activeRibbonTab = null;
 
         // Help panel now lives in ribbon
 
@@ -231,7 +239,7 @@ export default class SchematicApp {
         this.componentPicker.appendTo(this.container);
 
         // Component placement state
-        this.placingComponent = null;  // Definition being placed
+        /** @type {SVGElement|null} */
         this.componentPreview = null;  // Preview SVG element
         this.componentRotation = 0;    // Current rotation for placement
         this.componentMirror = false;  // Current mirror state
@@ -240,40 +248,28 @@ export default class SchematicApp {
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
-        bindPaperEvents(this);
-
-        // Listen for lock icon clicks (bubbles up from shape SVG elements)
+        // A lock icon click offers to unlock that object (bubbles up from the icon).
         this.viewport.svg.addEventListener('unlock-shape', (e) => {
-            const customEvent = /** @type {CustomEvent} */ (e);
-            const shape = customEvent.detail?.shape;
-            if (shape && shape.locked) {
-                this._applyCommonProperty('locked', false);
-            }
+            const { shape, clientX, clientY } = /** @type {CustomEvent} */ (e).detail || {};
+            showUnlockMenu(this, shape, clientX, clientY);
         });
 
         // Initial view
         this.viewport.resetView();
-        this._updateTitle();
-
-
+        FileTools.updateTitle(this);
 
         // Start auto-save. When a project owns this view the project
         // drives autosave (it aggregates dirty state across both editors);
         // only fall back to a private timer in standalone setups.
         if (!this.project) {
             this.fileManager.startAutoSave(
-                () => this._serializeDocument(),
+                () => FileTools.serializeProjectDocument(this),
                 () => false,
             );
         }
 
-        // Start KiCad index loading/refresh in the background immediately.
-        // - If no cache exists: downloads index now.
-        // - If stale cache exists: serves cached index and refreshes silently.
-        // The picker attaches a progress callback if opened while a first-time
-        // download is still in flight.
-        this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
-            ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
+        // Warm the index immediately so first picker use need not start a download.
+        warmKiCadIndex(this.componentLibrary);
 
         // Warn about unsaved changes in either editor (one document).
         window.addEventListener('beforeunload', (e) => {
@@ -286,12 +282,11 @@ export default class SchematicApp {
             }
         });
 
-
         // If we have a pending auto-load, do it now that everything is ready
         if (this._pendingAutoLoad) {
             // Use the same logic as loadDocument
-            import('./modules/files.js').then(async FileTools => {
-                await FileTools.loadDocument(this, this._pendingAutoLoad);
+            import('../schematic/modules/files.js').then(async FileTools => {
+                await FileTools.loadProjectDocument(this, /** @type {object} */ (this._pendingAutoLoad));
                 this._pendingAutoLoad = null;
             }).catch(err => {
                 console.error('Failed to auto-load document:', err);
@@ -315,9 +310,10 @@ export default class SchematicApp {
      */
     async _recoverAutoSave() {
         if (this._skipAutoSaveRecovery) return true;
+        /** @type {AutoSaveEntry[]} */
         let index = [];
         try {
-            index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
+            index = JSON.parse(/** @type {string} */ (localStorage.getItem(this.fileManager.autoSavePrefix + 'index'))) || [];
         } catch {}
 
         // Remove autosaves older than 7 days
@@ -341,7 +337,7 @@ export default class SchematicApp {
         if (index.length === 1) {
             const entry = index[0];
             const time = new Date(entry.timestamp).toLocaleString();
-            const recoveryChoice = await this._confirm(
+            const recoveryChoice = await this.confirm(
                 `Recover autosaved file "${entry.fileName}" from ${time}?\n\nChoosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
                 { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
             );
@@ -365,7 +361,7 @@ export default class SchematicApp {
                     const idx = parseInt(choice.slice(1)) - 1;
                     if (index[idx]) {
                         this.fileManager.clearAutoSave(index[idx].fileName);
-                        await this._alert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
+                        await this.alert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
                         location.reload();
                         return false;
                     }
@@ -380,19 +376,20 @@ export default class SchematicApp {
 
     /**
      * Restores auto-saved document data and marks the document as dirty.
-     * @param {Object} entry - The auto-save index entry to restore.
+     * @param {AutoSaveEntry} entry - The auto-save index entry to restore.
      */
     async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
             try {
-                const recovered = repairDuplicateTrackIds(saved.data);
+                const recovered = repairDuplicateIds(saved.data);
+                const repairMessage = duplicateIdRepairMessage(recovered);
                 if (this._initComplete) {
-                    await this._loadDocument(recovered.data);
+                    await FileTools.loadProjectDocument(this, /** @type {object} */ (recovered.data));
                 } else {
                     this.shapes = [];
                     this.components = [];
-                    this.ui = /** @type {any} */ ({});
+                    this.ui = /** @type {SchematicUiElements} */ ({});
                     this._pendingAutoLoad = recovered.data;
                 }
                 if (saved.fileName) this.fileManager.setFileName(saved.fileName);
@@ -404,13 +401,12 @@ export default class SchematicApp {
                     try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
                 }
                 this.fileManager.setDirty(true);
-                if (recovered.count) {
-                    await this._alert(`Recovered the autosave and assigned new IDs to ${recovered.count} tracks with duplicate IDs. All track geometry was retained. Save the project to keep the repaired IDs.`,
-                        { title: 'Autosave Repaired' });
+                if (repairMessage) {
+                    await this.alert(`Recovered the autosave. ${repairMessage}`, { title: 'Autosave Repaired' });
                 }
                 console.log('Recovered auto-saved content');
             } catch (error) {
-                await this._alert(`Failed to recover autosave: ${error.message}`, { title: 'Recovery Failed' });
+                await this.alert(`Failed to recover autosave: ${errorMessage(error)}`, { title: 'Recovery Failed' });
                 return false;
             }
         }
@@ -418,22 +414,16 @@ export default class SchematicApp {
     }
 
     /**
-     * Handles Escape key, cascading through active operations (text edit, drawing, placement, etc.).
-     */
-    _handleEscape() {
-        return handleEscape(this);
-    }
-
-    /**
      * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
-     * @param {Object} shape - The text shape to edit.
+     * @param {SchematicItem} shape - The text shape to edit.
      */
-    _startTextEdit(shape) {
+    startTextEdit(shape) {
+        const textShape = shape?.type === 'text' ? /** @type {TextShape} */ (shape) : null;
         // For value fields on passive components, show the value dialog instead
-        if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
-            const comp = shape.parentComponent;
+        if (textShape && textShape.fieldKey === 'value' && textShape.parentComponent) {
+            const comp = /** @type {Component} */ (/** @type {unknown} */ (textShape.parentComponent));
             if (needsValueDialog(comp.definition)) {
-                const screenPos = this.viewport.worldToScreen({ x: shape.x, y: shape.y });
+                const screenPos = this.viewport.worldToScreen({ x: textShape.x, y: textShape.y });
                 showValueDialog(comp.definition, screenPos.x, screenPos.y, {
                     currentValue: comp.value, allowEscape: true
                 }).then(value => {
@@ -450,14 +440,14 @@ export default class SchematicApp {
                 return;
             }
         }
-        startTextEdit(this, shape);
+        startTextEdit(this, /** @type {TextShape} */ (shape));
     }
 
     /**
      * Ends inline text editing, committing or discarding changes.
      * @param {boolean} [commit=true] - Whether to commit the text changes.
      */
-    _endTextEdit(commit = true) {
+    endTextEdit(commit = true) {
         endTextEdit(this, commit);
     }
 
@@ -466,31 +456,22 @@ export default class SchematicApp {
      * @param {KeyboardEvent} e - The keyboard event to handle.
      * @returns {*} The result from the text-edit key handler.
      */
-    _handleTextEditKey(e) {
+    handleTextEditKey(e) {
         return handleTextEditKey(this, e);
     }
 
     /**
      * Refreshes the text-edit overlay position and content.
      */
-    _updateTextEditOverlay() {
+    updateTextEditOverlay() {
         updateTextEditOverlay(this);
     }
 
     /**
-     * Shifts the text-edit overlay by the given delta.
-     * @param {number} dx - Horizontal offset.
-     * @param {number} dy - Vertical offset.
-     */
-    _nudgeTextEditOverlay(dx, dy) {
-        nudgeTextEditOverlay(this, dx, dy);
-    }
-
-    /**
      * Sets the text-edit caret position from screen coordinates.
-     * @param {Object} screenPos - The screen position {x, y}.
+     * @param {Point} screenPos - The screen position {x, y}.
      */
-    _setTextEditCaretFromScreen(screenPos) {
+    setTextEditCaretFromScreen(screenPos) {
         setTextCaretFromScreen(this, screenPos);
     }
 
@@ -500,23 +481,16 @@ export default class SchematicApp {
      * Switches the active tool and emits a toolChanged event.
      * @param {string} tool - The tool identifier to activate.
      */
-    _onToolSelected(tool) {
+    selectTool(tool) {
         onToolSelected(this, tool);
         this.eventBus.emit('toolChanged', tool);
     }
     
     /**
-     * Reverts to select tool when the component picker closes.
-     */
-    _onComponentPickerClosed() {
-        onComponentPickerClosed(this);
-    }
-    
-    /**
      * Merges updated tool options and persists to storage.
-     * @param {Object} options - The tool options to apply.
+     * @param {SchematicToolOptions} options - The tool options to apply.
      */
-    _onOptionsChanged(options) {
+    updateToolOptions(options) {
         onOptionsChanged(this, options);
     }
 
@@ -524,66 +498,53 @@ export default class SchematicApp {
     
     /**
      * Adds a shape to the canvas via an undoable command.
-     * @param {Object} shape - The shape to add.
-     * @returns {*} The result of the add operation.
+     * @param {SchematicDrawable} shape - The shape to add.
+     * @returns {SchematicDrawable} The result of the add operation.
      */
     addShape(shape) {
         return addShape(this, shape);
     }
     
     /**
-     * Adds a shape without undo (used by command execution).
-     * @param {Object} shape - The shape to add internally.
-     * @returns {*} The result of the internal add.
-     */
-    _addShapeInternal(shape) {
-        return addShapeInternal(this, shape);
-    }
-    
-    /**
-     * Inserts a shape at a specific array index without undo.
-     * @param {Object} shape - The shape to insert.
-     * @param {number} index - The array position to insert at.
-     * @returns {*} The result of the insertion.
-     */
-    _addShapeInternalAt(shape, index) {
-        return addShapeInternalAt(this, shape, index);
-    }
-    
-    /**
      * Internal remove - used by commands, no history entry
      * Does NOT destroy the shape so it can be re-added on undo
      */
-    _removeShapeInternal(shape, options = undefined) {
-        removeShapeInternal(this, shape, options);
-    }
-
     /**
      * Command boundary: add one shape with command-safe wire-label handling.
+     * @param {Shape} shape
+     * @param {TextShape|null} [linkedWireLabelText]
+     * @returns {TextShape|null}
      */
-    _commandAddShape(shape, linkedWireLabelText = null) {
-        return commandAddShapeInternal(this, shape, linkedWireLabelText);
+    commandAddShape(shape, linkedWireLabelText = null) {
+        return commandAddShapeInternal(this, /** @type {SchematicDrawable} */ (shape), linkedWireLabelText);
     }
 
     /**
      * Command boundary: remove one shape with command-safe wire-label handling.
+     * @param {Shape} shape
+     * @param {{ preserveWireLabelRef?: boolean, preserveLinkedLabelRef?: boolean }} [options]
+     * @returns {TextShape|null}
      */
-    _commandRemoveShape(shape, options = undefined) {
-        return commandRemoveShapeInternal(this, shape, options);
+    commandRemoveShape(shape, options = undefined) {
+        return commandRemoveShapeInternal(this, /** @type {SchematicDrawable} */ (shape), options);
     }
 
     /**
      * Command boundary: batch-delete shapes and linked wire labels.
+     * @param {ShapeRestoreData[]} shapesData
+     * @param {ShapeRestoreData[]} [linkedLabelData]
      */
-    _commandDeleteShapes(shapesData, linkedLabelData) {
-        commandDeleteShapesInternal(this, shapesData, linkedLabelData);
+    commandDeleteShapes(shapesData, linkedLabelData) {
+        commandDeleteShapesInternal(this, shapesData, /** @type {Array<{shape: SchematicDrawable, index: number, parentWire: SchematicDrawable|null}>} */ (linkedLabelData || []));
     }
 
     /**
      * Command boundary: batch-restore shapes and linked wire labels.
+     * @param {ShapeRestoreData[]} shapesData
+     * @param {ShapeRestoreData[]} [linkedLabelData]
      */
-    _commandRestoreShapes(shapesData, linkedLabelData) {
-        commandRestoreShapesInternal(this, shapesData, linkedLabelData);
+    commandRestoreShapes(shapesData, linkedLabelData) {
+        commandRestoreShapesInternal(this, shapesData, /** @type {Array<{shape: SchematicDrawable, index: number, parentWire: SchematicDrawable|null}>} */ (linkedLabelData || []));
     }
     
     /**
@@ -597,81 +558,10 @@ export default class SchematicApp {
     // ==================== Drawing ====================
     
     /**
-     * Begins a shape-drawing session at the given position.
-     * @param {Object} worldPos - The starting world coordinate {x, y}.
-     */
-    _startDrawing(worldPos) {
-        DrawingTools.startDrawing(this, worldPos);
-    }
-    
-    /**
-     * Updates the drawing preview as the cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateDrawing(worldPos) {
-        DrawingTools.updateDrawing(this, worldPos);
-    }
-    
-    /**
-     * Completes the drawing and creates the final shape.
-     * @param {Object} worldPos - The ending world coordinate {x, y}.
-     */
-    _finishDrawing(worldPos) {
-        DrawingTools.finishDrawing(this, worldPos);
-    }
-    
-    /**
-     * Adds a vertex to the in-progress polygon.
-     * @param {Object} worldPos - The vertex world coordinate {x, y}.
-     */
-    _addPolygonPoint(worldPos) {
-        DrawingTools.addPolygonPoint(this, worldPos);
-    }
-    
-    /**
-     * Completes the polygon (at least 3 points required).
-     */
-    _finishPolygon() {
-        DrawingTools.finishPolygon(this);
-    }
-
-    /**
-     * Adds a vertex to the in-progress polyline.
-     * @param {Object} worldPos - The vertex world coordinate {x, y}.
-     */
-    _addLinePoint(worldPos) {
-        DrawingTools.addLinePoint(this, worldPos);
-    }
-
-    /**
-     * Completes the multi-segment line.
-     */
-    _finishLine() {
-        DrawingTools.finishLine(this);
-    }
-    
-    /**
      * Cancels drawing, removing preview and resetting state.
      */
-    _cancelDrawing() {
+    cancelDrawing() {
         DrawingTools.cancelDrawing(this);
-    }
-    
-    /**
-     * Creates a preview SVG element for the shape being drawn.
-     */
-    _createPreview() {
-        DrawingTools.createPreview(this);
-    }
-    
-    
-    /**
-     * Returns the effective stroke width at current zoom.
-     * @param {number} lineWidth - The base line width.
-     * @returns {number} The effective stroke width.
-     */
-    _getEffectiveStrokeWidth(lineWidth) {
-        return DrawingTools.getEffectiveStrokeWidth(this, lineWidth);
     }
     
     /**
@@ -681,143 +571,27 @@ export default class SchematicApp {
         DrawingTools.updatePreview(this);
     }
     
-    /**
-     * Instantiates a shape from the current drawing state.
-     * @returns {Object|null} The created shape, or null.
-     */
-    _createShapeFromDrawing() {
-        return DrawingTools.createShapeFromDrawing(this);
-    }
-
     // ==================== Wire Drawing ====================
-    
-    /** Get snapped position for wire drawing with orthogonal routing */
-    _getWireSnappedPosition(worldPos) {
-        return WireTools.getDrawingSnappedPosition(this, worldPos);
-    }
-    
-    /**
-     * Find the nearest pin within snap tolerance from a position
-     * Returns {component, pin, distance, worldPos} or null if no pin nearby
-     * @param {Object} worldPos - The position to check
-     * @param {number} tolerance - Snap tolerance in mm (defaults to 0.5mm)
-     */
-    _findNearbyPin(worldPos, tolerance = 0.5) {
-        return WireTools.findNearbyPin(this.components, worldPos, tolerance);
-    }
-
-    /**
-     * Checks if two pin references refer to the same component pin.
-     * @param {Object} pin1 - First pin reference.
-     * @param {Object} pin2 - Second pin reference.
-     * @returns {boolean} True if pins are identical.
-     */
-    _isSamePin(pin1, pin2) {
-        return WireTools.isSamePin(pin1, pin2);
-    }
-
-    /**
-     * Tests whether two points are coincident within epsilon.
-     * @param {Object} a - First point {x, y}.
-     * @param {Object} b - Second point {x, y}.
-     * @param {number} [epsilon=1e-6] - Tolerance for comparison.
-     * @returns {boolean} True if the points match.
-     */
-    _pointsMatch(a, b, epsilon = 1e-6) {
-        return pointsMatch(a, b, epsilon);
-    }
-    
-    /**
-     * Begins wire drawing from a snapped position.
-     * @param {Object} snappedData - The snapped position data.
-     */
-    _startWireDrawing(snappedData) {
-        WireTools.startWireDrawing(this, snappedData);
-    }
-    
-    /**
-     * Updates the wire routing preview as the cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateWireDrawing(worldPos) {
-        WireTools.updateWireDrawing(this, worldPos);
-    }
-
-    
-    /**
-     * Adds an intermediate waypoint to the wire being drawn.
-     * @param {Object} waypointData - The waypoint position data.
-     */
-    _addWireWaypoint(waypointData) {
-        WireTools.addWireWaypoint(this, waypointData);
-    }
-    
-    /**
-     * Completes wire drawing and creates the final wire shape.
-     * @param {Object} worldPos - The ending world coordinate {x, y}.
-     */
-    _finishWireDrawing(worldPos) {
-        WireTools.finishWireDrawing(this, worldPos);
-    }
     
     /**
      * Cancels wire drawing and removes its preview.
      */
-    _cancelWireDrawing() {
+    cancelWireDrawing() {
         WireTools.cancelWireDrawing(this);
-    }
-    
-    /**
-     * Refreshes the wire preview SVG element.
-     */
-    _updateWirePreview() {
-        WireTools.updateWirePreview(this);
     }
     
     // ==================== Component Handling ====================
     
     /**
-     * Enters component placement mode with a preview.
-     * @param {Object} definition - The component definition to place.
-     */
-    _onComponentDefinitionSelected(definition) {
-        ComponentTools.onComponentDefinitionSelected(this, definition);
-    }
-    
-    /**
-     * Creates a cursor-following preview of the component.
-     * @param {Object} definition - The component definition to preview.
-     */
-    _createComponentPreview(definition) {
-        ComponentTools.createComponentPreview(this, definition);
-    }
-    
-    /**
-     * Moves the component placement preview to follow the cursor.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateComponentPreview(worldPos) {
-        ComponentTools.updateComponentPreview(this, worldPos);
-    }
-    
-    /**
-     * Places a component instance at the given position.
-     * @param {Object} worldPos - The world coordinate {x, y} for placement.
-     */
-    _placeComponent(worldPos) {
-        ComponentTools.placeComponent(this, worldPos);
-    }
-    
-    /**
      * Rebuilds the selection manager's item list.
      */
-    _updateSelectableItems() {
+    updateSelectableItems() {
         ComponentTools.updateSelectableItems(this);
     }
     
     /**
      * Generates the next unique reference designator.
-     * @param {Object} definition - The component definition.
+     * @param {ComponentDefinition} definition - The component definition.
      * @returns {string} The generated reference designator.
      */
     _generateReference(definition) {
@@ -832,20 +606,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Rotates placement preview or selected components +90 degrees.
-     */
-    _rotateComponentRight() {
-        ComponentTools.rotateComponentRight(this);
-    }
-
-    /**
-     * Rotates placement preview or selected components -90 degrees.
-     */
-    _rotateComponentLeft() {
-        ComponentTools.rotateComponentLeft(this);
-    }
-    
-    /**
      * Flips placement preview or selected components horizontally.
      */
     _flipComponentH() {
@@ -853,36 +613,12 @@ export default class SchematicApp {
     }
 
     /**
-     * Flips selected components vertically.
-     */
-    _flipComponentV() {
-        ComponentTools.flipComponentV(this);
-    }
-    
-    /**
-     * Legacy alias for _flipComponentH().
-     */
-    _mirrorComponent() {
-        ComponentTools.flipComponentH(this);
-    }
-    
-    /**
      * Exits placement mode and removes the preview.
      */
-    _cancelComponentPlacement() {
+    cancelComponentPlacement() {
         ComponentTools.cancelComponentPlacement(this);
     }
     
-    /**
-     * Returns currently selected Component instances.
-     * @returns {Array} The selected components.
-     */
-    _getSelectedComponents() {
-        return ComponentTools.getSelectedComponents(this);
-    }
-    
-
-
     // ==================== Callbacks ====================
 
     /**
@@ -894,20 +630,11 @@ export default class SchematicApp {
     
     /**
      * Positions the crosshair at the snapped world position.
-     * @param {Object} snapped - The snapped position data.
+     * @param {Point} snapped - The snapped position data.
      */
-    _updateCrosshair(snapped) {
+    updateCrosshair(snapped) {
         this.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
         this.viewport.setCrosshair(snapped);
-    }
-
-    /**
-     * Returns the SVG path string for a tool cursor icon.
-     * @param {string} tool - The tool identifier.
-     * @returns {string} The SVG path data.
-     */
-    _getToolIconPath(tool) {
-        return getToolIconPath(tool);
     }
 
     /**
@@ -915,61 +642,63 @@ export default class SchematicApp {
      * @param {string} tool - The tool identifier.
      * @param {SVGSVGElement} svg - The SVG element to set the cursor on.
      */
-    _setToolCursor(tool, svg) {
+    setToolCursor(tool, svg) {
         setToolCursor(this, tool, svg);
     }
 
     /**
-     * Makes the help panel draggable by its header.
-     */
-    _makeHelpPanelDraggable() {
-        makeHelpPanelDraggable();
-    }
-    
-    /**
      * Shows the crosshair overlay.
      */
-    _showCrosshair() {
+    showCrosshair() {
         this.viewport.showCrosshair();
     }
     
     /**
      * Hides the crosshair overlay.
      */
-    _hideCrosshair() {
+    hideCrosshair() {
         this.viewport.hideCrosshair();
     }
     
     /**
      * Emits selectionChanged on the event bus.
-     * @param {Array} shapes - The currently selected shapes.
+     * @param {SchematicItem[]} shapes - The currently selected shapes.
      */
     _onSelectionChanged(shapes) {
-        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeSegment?.shapeId) {
+        if (shapes.length !== 1 || shapes[0]?.id !== getShapeSegmentFocus(this)?.shapeId) {
             clearShapeSegmentSelection(this);
         }
-        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeNode?.shapeId) {
-            this._selectedShapeNode = null;
+        if (shapes.length !== 1 || shapes[0]?.id !== getShapeNodeFocus(this)?.shapeId) {
+            setShapeNodeFocus(this, null);
         }
-        this._updateShapeSelectionTip();
+        this.updateShapeSelectionTip();
         this.eventBus.emit('selectionChanged', shapes);
     }
 
-    _updateShapeSelectionTip() {
+    updateShapeSelectionTip() {
         const tip = document.getElementById('schematicStatusTip');
         if (!tip) return;
         const selected = this.selection.getSelection();
+        const selectedText = selected[0]?.type === 'text' ? /** @type {TextShape} */ (selected[0]) : null;
         const showReferenceTip = this.currentTool === 'select'
             && selected.length === 1
-            && selected[0]?.type === 'text'
-            && selected[0]?.fieldKey === 'reference';
+            && selectedText?.fieldKey === 'reference';
+        const showOverlapTip = this.currentTool === 'select' && getOverlapHitCount(this) > 1;
+        const showComponentTip = this.currentTool === 'select' && selected.length > 0
+            && selected.every(item => item.type === 'component');
+        const textAttached = selected.length === 1 && !!selectedText?.parentComponent;
+        const showAttachTip = !textAttached && (this.currentTool === 'text' || (this.currentTool === 'select'
+            && selected.length === 1 && selectedText && (!selectedText.fieldKey || selectedText.fieldKey === 'label')));
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
-            && !this._selectedShapeSegment
-            && !this._selectedShapeNode;
-        tip.hidden = !show && !showReferenceTip;
-        tip.textContent = showReferenceTip ? 'Tip: Use SPACE to rotate text'
+            && !getShapeSegmentFocus(this)
+            && !getShapeNodeFocus(this);
+        tip.hidden = !show && !showReferenceTip && !showOverlapTip && !showAttachTip && !showComponentTip;
+        tip.textContent = showComponentTip ? 'Tip: SPACE to rotate, X for horizontal flip, Y for vertical flip'
+            : showAttachTip ? 'Tip: Attach text to a shape or wire by dragging over it'
+            : showReferenceTip ? 'Tip: Use SPACE to rotate text'
+            : showOverlapTip ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
             : show ? 'Tip: Click again to select a segment or node' : '';
     }
 
@@ -989,18 +718,11 @@ export default class SchematicApp {
 
     /**
      * Updates shape-options panel for the active tool.
-     * @param {Array} selection - The current selection.
+     * @param {SchematicItem[]} selection - The current selection.
      * @param {string} toolId - The active tool identifier.
      */
-    _updateShapePanelOptions(selection, toolId) {
+    updateShapePanelOptions(selection, toolId) {
         updateShapePanelOptions(this, selection, toolId);
-    }
-
-    /**
-     * Toggles locked state on selected items.
-     */
-    _toggleSelectionLock() {
-        toggleSelectionLock(this);
     }
 
     /**
@@ -1014,10 +736,22 @@ export default class SchematicApp {
     
     /**
      * Refreshes the properties panel for the given selection.
-     * @param {Array} selection - The currently selected shapes.
+     * @param {SchematicItem[]} selection - The currently selected shapes.
      */
-    _updatePropertiesPanel(selection) {
+    updatePropertiesPanel(selection) {
         updatePropertiesPanel(this, selection);
+    }
+
+    /**
+     * Bring a ribbon tab to the front; does nothing before the ribbon is bound.
+     * @param {string} tabId - `home`, `properties`, …
+     */
+    setActiveRibbonTab(tabId) {
+        activateRibbonTab(this, tabId);
+    }
+
+    retainRibbonHeight() {
+        retainSchematicRibbonHeight(this);
     }
 
     // ==================== Mouse Events ====================
@@ -1035,22 +769,10 @@ export default class SchematicApp {
      * Binds viewport controls, undo/redo, theme, and paper events.
      */
     _bindUIControls() {
-        bindViewportControls(this);
+        // Ribbon renders controls that viewport/history/theme binding uses.
+        this._bindRibbon();
         
         // Ribbon handles file/export actions
-        
-        // Undo/Redo buttons
-        this.ui.undoBtn.addEventListener('click', () => {
-            if (this.history.undo()) {
-                this.renderShapes();
-            }
-        });
-        
-        this.ui.redoBtn.addEventListener('click', () => {
-            if (this.history.redo()) {
-                this.renderShapes();
-            }
-        });
         
         // Theme toggle
         bindThemeToggle(this);
@@ -1059,99 +781,28 @@ export default class SchematicApp {
         this._updateUndoRedoButtons();
         
         // Initialize grid dropdown with current units
-        this._updateGridDropdown();
+        this.updateGridDropdown();
 
         // Properties panel
         this._bindPropertiesPanel();
 
-        // Ribbon
-        this._bindRibbon();
-    }
-
-    /**
-     * Returns the topmost component at a world coordinate, or null.
-     * @param {Object} point - The world coordinate {x, y} to test.
-     * @returns {Object|null} The component at the point, or null.
-     */
-    _findComponentAt(point) {
-        for (let i = this.components.length - 1; i >= 0; i--) {
-            const comp = this.components[i];
-            if (!comp?.visible) continue;
-            if (comp.hitTest(point, 0.5)) {
-                return comp;
-            }
-        }
-        return null;
     }
 
     /**
      * Shows, updates, or hides the component debug tooltip.
-     * @param {Object|null} component - The component to display info for, or null to hide.
-     * @param {Object|null} screenPos - The screen position {x, y} for the tooltip.
+     * @param {Component|null} component - The component to display info for, or null to hide.
+     * @param {Point|null} screenPos - The screen position {x, y} for the tooltip.
      * @param {Object} [options={}] - Options (e.g., { forceHide: true }).
      */
-    _updateComponentCodeTooltip(component, screenPos, options = {}) {
-        const tooltip = this._componentCodeTooltip;
-        if (!tooltip) return;
-
-        if (!this.showComponentDebugTooltip && !options.forceHide) {
-            tooltip.style.display = 'none';
-            this._componentCodeTooltipActiveId = null;
-            this._componentCodeTooltipPinned = false;
-            this._componentCodeTooltipPosition = null;
-            return;
-        }
-
-        const easyedaRaw = component?.definition?.symbol?._easyedaRawShapes;
-        const kicadRaw = component?.definition?._kicadRaw || component?.definition?.symbol?._kicadRaw;
-        const hasEasyeda = Array.isArray(easyedaRaw) && easyedaRaw.length > 0;
-        const hasKicad = typeof kicadRaw === 'string' && kicadRaw.trim().length > 0;
-        if (options.forceHide || !component || (!hasEasyeda && !hasKicad)) {
-            tooltip.style.display = 'none';
-            this._componentCodeTooltipActiveId = null;
-            this._componentCodeTooltipPinned = false;
-            this._componentCodeTooltipPosition = null;
-            return;
-        }
-
-        const textEl = /** @type {HTMLTextAreaElement|null} */ (tooltip.querySelector('.component-code-tooltip-text'));
-        if (textEl && this._componentCodeTooltipActiveId !== component.id) {
-            textEl.value = hasEasyeda ? easyedaRaw.join('\n') : kicadRaw;
-            this._componentCodeTooltipActiveId = component.id;
-        }
-
-        const pad = 12;
-        const position = this._componentCodeTooltipPinned && this._componentCodeTooltipPosition
-            ? this._componentCodeTooltipPosition
-            : screenPos;
-        const maxX = window.innerWidth - tooltip.offsetWidth - pad;
-        const maxY = window.innerHeight - tooltip.offsetHeight - pad;
-        const left = Math.min(position.x + pad, Math.max(pad, maxX));
-        const top = Math.min(position.y + pad, Math.max(pad, maxY));
-
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${top}px`;
-        tooltip.style.display = 'block';
-    }
-
-
-    /**
-     * Pins the component tooltip at a fixed position.
-     * @param {Object} component - The component to pin the tooltip for.
-     * @param {Object} screenPos - The screen position {x, y} to pin at.
-     */
-    _pinComponentCodeTooltip(component, screenPos) {
-        if (!component || !screenPos) return;
-        this._componentCodeTooltipPinned = true;
-        this._componentCodeTooltipPosition = { ...screenPos };
-        this._updateComponentCodeTooltip(component, screenPos);
+    updateComponentCodeTooltip(component, screenPos, options = {}) {
+        ComponentTools.updateComponentCodeTooltip(this, component, screenPos, options);
     }
 
     /**
      * Clears cached component/search data from IndexedDB storage and legacy localStorage.
      */
     async _clearComponentCaches() {
-        if (!await this._confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
+        if (!await this.confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
 
@@ -1199,21 +850,38 @@ export default class SchematicApp {
         }
 
         console.log(`Cleared component caches (${removed} entries)`);
-        if (typeof this._showSaveToast === 'function') {
-            this._showSaveToast('Cache cleared');
-        }
+        showRibbonSaveToast(this, 'Cache cleared');
+    }
+
+    async clearComponentCaches() {
+        return this._clearComponentCaches();
     }
 
     // ==================== Modal helpers ====================
 
-    async _alert(message, options = {}) {
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<void>}
+     */
+    async alert(message, options = {}) {
         await showAlert(message, options);
     }
 
-    async _confirm(message, options = {}) {
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<boolean>}
+     */
+    async confirm(message, options = {}) {
         return await showConfirm(message, options);
     }
 
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<string|null>}
+     */
     async _prompt(message, options = {}) {
         return await showPrompt(message, options);
     }
@@ -1224,26 +892,20 @@ export default class SchematicApp {
     _toggleTheme() {
         toggleTheme(this);
     }
+
+    toggleTheme() {
+        this._toggleTheme();
+    }
     
     /**
      * Loads the saved theme from storage on startup.
      */
-    _loadTheme() {
-        loadTheme(this);
-    }
-    
-    /**
-     * Updates component SVG colors for the current theme.
-     */
-    _updateComponentColors() {
-        updateComponentColors(this);
-    }
-    
     /**
      * Updates grid size dropdown options for current units.
      */
-    _updateGridDropdown() {
+    updateGridDropdown() {
         updateGridDropdown(this);
+        this.refreshRibbon?.();
     }
 
     /**
@@ -1257,92 +919,38 @@ export default class SchematicApp {
      * Deletes unlocked selected items with undo support.
      */
     _deleteSelected() {
-        deleteSelected(this);
+        runSchematicDeleteAction(this);
     }
 
     /**
      * Copies selected items to the internal clipboard.
      */
-    _copySelection() {
+    copySelection() {
         copySelection(this);
-    }
-
-    /**
-     * Copies selection to clipboard then deletes the items.
-     */
-    _cutSelection() {
-        cutSelection(this);
-    }
-
-    /**
-     * Begins paste preview mode with clipboard contents.
-     */
-    _pasteClipboard() {
-        beginPastePreview(this);
-    }
-
-    /**
-     * Updates paste preview position as cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updatePastePreview(worldPos) {
-        updatePastePreview(this, worldPos);
-    }
-
-    /**
-     * Places pasted items at the given position.
-     * @param {Object} worldPos - The world coordinate {x, y} for placement.
-     */
-    _confirmPaste(worldPos) {
-        confirmPaste(this, worldPos);
     }
 
     /**
      * Cancels paste preview and removes preview elements.
      */
-    _cancelPaste() {
+    cancelPaste() {
         cancelPaste(this);
     }
     
     // ==================== Box Selection ====================
     
     /**
-     * Creates the box-selection marquee SVG element.
-     */
-    _createBoxSelectElement() {
-        createBoxSelectElement(this);
-    }
-    
-    /**
-     * Updates the box-selection rectangle dimensions.
-     * @param {Object} currentPos - The current cursor position {x, y}.
-     */
-    _updateBoxSelectElement(currentPos) {
-        updateBoxSelectElement(this, currentPos);
-    }
-    
-    /**
      * Removes the box-selection element.
      */
-    _removeBoxSelectElement() {
+    removeBoxSelectElement() {
         removeBoxSelectElement(this);
-    }
-    
-    /**
-     * Returns the bounding box of the box selection area.
-     * @param {Object} currentPos - The current cursor position {x, y}.
-     * @returns {Object} The bounding box {x, y, width, height}.
-     */
-    _getBoxSelectBounds(currentPos) {
-        return getBoxSelectBounds(this, currentPos);
     }
     
     // ==================== Shape State Helpers (for undo/redo) ====================
     
     /**
      * Captures a shape's state snapshot for undo.
-     * @param {Object} shape - The shape to capture state from.
-     * @returns {Object} The captured state snapshot.
+     * @param {SchematicItem} shape - The shape to capture state from.
+     * @returns {import('../schematic/modules/selection.js').ShapeState} The captured state snapshot.
      */
     _captureShapeState(shape) {
         return captureShapeState(this, shape);
@@ -1350,8 +958,8 @@ export default class SchematicApp {
     
     /**
      * Restores a shape from a captured state snapshot.
-     * @param {Object} shape - The shape to restore.
-     * @param {Object} state - The state snapshot to apply.
+     * @param {SchematicItem} shape - The shape to restore.
+     * @param {import('../schematic/modules/selection.js').ShapeState} state - The state snapshot to apply.
      */
     _applyShapeState(shape, state) {
         applyShapeState(this, shape, state);
@@ -1360,7 +968,7 @@ export default class SchematicApp {
     /**
      * Zooms and pans to fit all content.
      */
-    _fitToContent() {
+    fitToContent() {
         fitToContent(this);
     }
     
@@ -1373,29 +981,74 @@ export default class SchematicApp {
      * section alone in standalone setups.
      * @returns {Object} The serialized document data.
      */
-    _serializeDocument() {
-        return this.project ? this.project.serialize() : this.serializeSection();
-    }
-
-    /**
-     * Loads a whole project document from serialized data, restoring every
-     * registered section via the project owner when present.
-     * @param {Object} data - The serialized document data.
-     * @returns {Promise<void>}
-     */
-    async _loadDocument(data) {
-        if (this.project) {
-            await this.project.load(data);
-        } else {
-            await this.loadSection(data);
-        }
-    }
-
     // ── ProjectDocument view interface ────────────────────────────────
 
+    isSectionEditing() {
+        return hasSchematicPropertyPreview(this) || blocksSchematicSnapshot(this);
+    }
+
+    onDocumentReplaced() {
+        this.setActiveRibbonTab?.('home');
+    }
+
+    onProjectChanged() {
+        FileTools.updateTitle(this);
+    }
+
+    _onHistoryChanged() {
+        this._updateUndoRedoButtons();
+        this.project?.notifySchematicChanged();
+    }
+
+    _onDirtyChanged() {
+        FileTools.updateTitle(this);
+        this.project?.notifySchematicChanged();
+    }
+
+    /** @param {unknown} [error] */
+    onAutoSaveError(error) {
+        if (error instanceof ProjectIntegrityError) {
+            return this.alert('Auto-save stopped: the project failed its integrity check, so the last good autosave is kept. '
+                + 'Your changes are still open, but saving is refused too, so your file on disk is not overwritten. '
+                + `Please report this problem.\n\n${error.message}`, { title: 'Auto-save Failed' });
+        }
+        return this.alert('Auto-save failed: storage full or unavailable. Your changes are still open, but are not being backed up. Save your project to disk.',
+            { title: 'Auto-save Failed' });
+    }
+
+    // Existing interaction modules use these aliases, never a second collection.
+    /** @returns {SchematicDrawable[]} */
+    get shapes() { return this.document.shapes; }
+    /** @param {SchematicDrawable[]} value */
+    set shapes(value) { this.document.shapes = value; }
+    /** @returns {Component[]} */
+    get components() { return this.document.components; }
+    /** @param {Component[]} value */
+    set components(value) { this.document.components = value; }
+
     /**
-     * Serialize just this editor's slice of the document (the schematic
-     * envelope). Called by ProjectDocument.serialize().
+     * Refresh presentation after a project-owned reference operation.
+     * @param {string} id
+     */
+    onComponentReferenceChanged(id) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return;
+        component.invalidate();
+        component.refText?.invalidate();
+        this.renderShapes(true);
+    }
+
+    /**
+     * Current view preferences only; authored state is serialized by the project model.
+     * @returns {object}
+     */
+    getViewSettings() {
+        return /** @type {object} */ (FileTools.serializeViewSettings(this.viewport));
+    }
+
+    /**
+     * Retained direct-editor API for the schematic envelope.
+     * ProjectDocument serializes the model itself.
      * @returns {Object}
      */
     serializeSection() {
@@ -1403,12 +1056,23 @@ export default class SchematicApp {
     }
 
     /**
-     * Restore just this editor's slice of the document.
-     * @param {Object} data
-     * @returns {Promise<void>}
+     * Validate and render replacement entities before either editor is changed.
+     * @param {ProjectData} data
      */
-    async loadSection(data) {
-        await FileTools.loadDocument(this, data);
+    prepareSection(data) {
+        return FileTools.prepareDocument(this, data);
+    }
+
+    /**
+     * Restore this editor's slice, consuming project preflight when provided.
+     * @param {ProjectData} data @param {ReturnType<SchematicDocument['prepare']>} [prepared]
+     */
+    async loadSection(data, prepared = this.prepareSection(data)) {
+        await FileTools.loadDocument(this, data, prepared);
+    }
+
+    clearSection() {
+        FileTools.clearDocument(this);
     }
 
     /**
@@ -1422,18 +1086,9 @@ export default class SchematicApp {
     }
     
     /**
-     * Creates a component from serialized data.
-     * @param {Object} data - The serialized component data.
-     * @returns {Object} The created component instance.
-     */
-    _createComponentFromData(data) {
-        return FileTools.createComponentFromData(this, data);
-    }
-    
-    /**
      * Creates a shape from serialized type/options data.
-     * @param {Object} data - The serialized shape data.
-     * @returns {Object|null} The created shape, or null if the type is unknown.
+     * @param {ProjectData} data - The serialized shape data.
+     * @returns {SchematicItem|null} The created shape, or null if the type is unknown.
      */
     _createShapeFromData(data) {
         try {
@@ -1447,57 +1102,11 @@ export default class SchematicApp {
     /**
      * Removes all shapes, clears undo history.
      */
-    _clearAllShapes() {
-        for (const shape of this.shapes) {
-            this.viewport.removeContent(shape.element);
-            shape.destroy();
-        }
-        this.shapes = [];
-        this._updateSelectableItems();
-        this.history.clear();
-        this._updateUndoRedoButtons();
-    }
-    
-    /**
-     * Removes all components and their field texts.
-     */
-    _clearAllComponents() {
-        for (const comp of this.components) {
-            // Remove field texts from shapes array and DOM
-            for (const ft of comp.getFieldTexts()) {
-                const idx = this.shapes.indexOf(ft);
-                if (idx !== -1) this.shapes.splice(idx, 1);
-                if (ft.element) this.viewport.removeContent(ft.element);
-                ft.destroy();
-            }
-            if (comp.element) {
-                this.viewport.removeContent(comp.element);
-            }
-            comp.destroy();
-        }
-        this.components = [];
-        this._updateSelectableItems();
-    }
-    
-    /**
-     * Updates document title with filename and dirty indicator.
-     */
-    _updateTitle() {
-        FileTools.updateTitle(this);
-    }
-    
     /**
      * Enables or disables undo/redo buttons.
      */
     _updateUndoRedoButtons() {
         updateUndoRedoButtons(this);
-    }
-    
-    /**
-     * Checks for auto-saved content on startup.
-     */
-    async _checkAutoSave() {
-        await FileTools.checkAutoSave(this);
     }
     
     /**
@@ -1552,60 +1161,6 @@ export default class SchematicApp {
     }
 
     /**
-     * Lazy-loads jsPDF and svg2pdf vendor scripts.
-     * @returns {Promise<Function>}
-     */
-    _loadVectorPdfLibs() {
-        return ExportTools.loadVectorPdfLibs(this);
-    }
-
-    /**
-     * Deep-clones viewport SVG for export with inlined styles.
-     * @returns {{svgNode: SVGSVGElement, paperSize: {width: number, height: number}|null}} Export payload.
-     */
-    _cloneViewportSvgForExport() {
-        return ExportTools.cloneViewportSvgForExport(this);
-    }
-
-    /**
-     * Forces all SVG colors to black for printing.
-     * @param {SVGElement} svgRoot - The SVG root element to modify.
-     */
-    _forceMonochromeSvg(svgRoot) {
-        ExportTools.forceMonochromeSvg(svgRoot);
-    }
-
-    /**
-     * Copies computed styles to a cloned SVG.
-     * @param {SVGSVGElement} originalSvg - The original SVG element.
-     * @param {SVGSVGElement} clonedSvg - The cloned SVG element to receive styles.
-     */
-    _inlineSvgComputedStyles(originalSvg, clonedSvg) {
-        ExportTools.inlineSvgComputedStyles(originalSvg, clonedSvg);
-    }
-
-    /**
-     * Saves a Blob via File System Access API.
-     * @param {Blob} blob - The data blob to save.
-     * @param {string} suggestedName - The suggested file name.
-     * @param {string} mimeType - The MIME type of the file.
-     * @param {Array<string>} extensions - Accepted file extensions.
-     * @returns {Promise<void>}
-     */
-    async _saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-        await ExportTools.saveBlobAsFile(blob, suggestedName, mimeType, extensions);
-    }
-
-    /**
-     * Renders viewport to a canvas at the given scale.
-     * @param {number} [scale=2] - The rendering scale factor.
-     * @returns {Promise<HTMLCanvasElement>} The rendered canvas element.
-     */
-    _renderViewportToCanvas(scale = 2) {
-        return ExportTools.renderViewportToCanvas(this, scale);
-    }
-    
-    /**
      * Opens a file via picker and loads it.
      * @returns {Promise<void>}
      */
@@ -1631,5 +1186,14 @@ export default class SchematicApp {
     async _importEasyEDA() {
         if (this.project) return await this.project.importEasyEDA();
         await FileTools.importEasyEDA(this);
+    }
+
+    async importEasyEDA() {
+        return await this._importEasyEDA();
+    }
+
+    /** @param {string} [text] */
+    showSaveToast(text = 'Saved') {
+        showRibbonSaveToast(this, text);
     }
 }

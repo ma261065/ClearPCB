@@ -5,6 +5,7 @@ const THEME_STORAGE_KEY = 'clearpcb-theme';
  * @returns {'dark' | 'light'}
  */
 export function getSavedTheme() {
+    if (typeof localStorage === 'undefined') return 'dark';
     return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
 }
 
@@ -14,6 +15,7 @@ export function getSavedTheme() {
  */
 export function applyTheme(theme) {
     const html = document.documentElement;
+    if (!html) return;
     if (theme === 'light') {
         html.setAttribute('data-theme', 'light');
     } else {

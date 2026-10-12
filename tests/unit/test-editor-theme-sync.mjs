@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+
+const stored = new Map();
+globalThis.localStorage = {
+    getItem(key) { return stored.get(key) ?? null; },
+    setItem(key, value) { stored.set(key, value); },
+    removeItem(key) { stored.delete(key); },
+};
+const document = installFakeDom();
+const windowListeners = new Map();
+window.addEventListener = (type, callback) => {
+    if (!windowListeners.has(type)) windowListeners.set(type, []);
+    windowListeners.get(type).push(callback);
+};
+window.removeEventListener = (type, callback) => {
+    windowListeners.set(type, (windowListeners.get(type) || []).filter(item => item !== callback));
+};
+window.dispatchEvent = event => {
+    for (const callback of windowListeners.get(event.type) || []) callback(event);
+    return true;
+};
+const buttons = new Map(['themeToggle', 'pcbThemeToggle'].map(id => [id, fakeElement('button')]));
+for (const [id, button] of buttons) {
+    button.id = id;
+    document.body.appendChild(button);
+}
+const shared = await import('../../src/shared/ui/theme.js');
+const { bindThemeToggle, toggleTheme, loadTheme } = await import('../../src/schematic/modules/theme.js');
+const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
+const { setRefTextGeometryCache } = await import('../../src/pcb/modules/ref-text-geometry.js');
+const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
+let schematicUpdates = 0;
+let pcbUpdates = 0;
+let symbols = 0;
+const schematic = {
+    viewport: { updateTheme() { schematicUpdates++; }, addComponentContent() {} },
+    components: [{
+        id: 'theme-comp',
+        x: 0,
+        y: 0,
+        rotation: 0,
+        symbol: { width: 1, height: 1, origin: { x: 0, y: 0 }, graphics: [], pins: [] },
+        _getLocalBounds() { symbols++; return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
+    }],
+    _toggleTheme() { toggleTheme(this); },
+};
+bindThemeToggle(schematic);
+const highlights = [];
+const refElement = {
+    isConnected: true,
+    attributes: new Map(),
+    setAttribute(name, value) { if (name === 'stroke') highlights.push('part'); this.attributes.set(name, value); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+};
+const placement = { side: 'top' };
+setRefTextGeometryCache(placement, refElement, { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 });
+const pcb = pcbEditorFixture({
+    themeToggle: buttons.get('pcbThemeToggle'),
+    viewport: { updateTheme() { pcbUpdates++; }, addContent() {} },
+    placements: new Map([['part', placement]]),
+});
+setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
+highlights.length = 0;
+pcb._bindThemeToggle();
+schematicUpdates = 0;
+const toggles = [
+    () => toggleTheme(schematic),
+    () => shared.toggleTheme(),
+    () => toggleTheme(schematic),
+    () => shared.toggleTheme(),
+];
+for (const [index, run] of toggles.entries()) {
+    run();
+    const expected = index % 2 === 0 ? 'light' : 'dark';
+    assert.equal(shared.getSavedTheme(), expected);
+    assert.equal(document.documentElement.getAttribute('data-theme') || 'dark', expected);
+    assert.equal(schematicUpdates, index + 1, 'Either toggle refreshes the schematic once');
+    assert.equal(pcbUpdates, index + 1, 'Either toggle refreshes PCB once');
+    assert.deepEqual(highlights, Array(index + 1).fill('part'), 'Either toggle refreshes the selected reference highlight');
+    assert.equal(symbols, index + 1, 'Either toggle refreshes schematic symbols');
+    assert.equal(shared.getThemeIcon(expected), expected === 'light' ? '☀️' : '🌙');
+}
+console.log('PASS either editor theme action updates both viewports, schematic symbols, and saved theme');

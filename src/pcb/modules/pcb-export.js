@@ -1,7 +1,7 @@
 /**
- * PCB-specific PDF and print export.
+ * PCB-specific PDF/print export and shared export naming.
  *
- * The schematic exporter in `ui/modules/export.js` is tied to schematic
+ * The schematic exporter in `shared/ui/export.js` is tied to schematic
  * concepts (paper size, selection, monochrome line art). The PCB needs a
  * different treatment: bounds come from the board outline, layers keep
  * their colours, and on-screen aids (grid, axes, ratlines, clearance
@@ -13,10 +13,14 @@ import {
     loadVectorPdfLibs,
     saveBlobAsFile,
     inlineSvgComputedStyles,
-} from '../../ui/modules/export.js';
+} from '../../shared/ui/export.js';
 import { PCB_LAYERS } from './layers.js';
-import { boardBoundary } from './board-outline.js';
+import { stripRemovalHatches } from './removal-hatch.js';
+import { boardBoundary } from '../../shared/pcb/board-outline.js';
+import { errorMessage, isAbortError } from '../../core/errors.js';
 import { ModalManager } from '../../core/ModalManager.js';
+import { uncullAllPlacements, updatePcbCulling } from './component-selection.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -41,14 +45,61 @@ const FIT_MARGIN_MM = 10;
 
 /**
  * Derive a sensible base file name (no extension) from the project file.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
+ * @param {string} [fallback='pcb'] Base name when no project filename is available.
  * @returns {string}
  */
-function projectBaseName(app) {
-    const fm = /** @type {any} */ (window).bootstrap?.project?.fileManager
-        || /** @type {any} */ (window).app?.fileManager;
-    const fname = fm?.fileName || 'pcb';
-    return fname.replace(/\.[^./\\]+$/, '') || 'pcb';
+export function projectBaseName(app, fallback = 'pcb') {
+    const fname = app.project?.fileManager?.fileName || fallback;
+    return fname.replace(/\.[^./\\]+$/, '') || fallback;
+}
+
+/**
+ * Save a Blob to disk. Uses the File System Access API when available
+ * (proper Save As dialog), falling back to an anchor download. Returns true
+ * if a file was saved, false if the user cancelled the picker.
+ * @param {Blob | (() => Promise<Blob>)} blob
+ * @param {string} suggestedName
+ * @param {{description?: string, accept?: Record<string,string[]>, win?: Window|null}} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function savePcbBlob(blob, suggestedName, opts = {}) {
+    // Run the save in the window that owns the user gesture. When a viewer
+    // is torn off into a pop-up, the click happens there — using the opener
+    // window's picker/anchor would have no user activation and silently fail.
+    const targetWin = /** @type {Window & {showSaveFilePicker?: (options: object) => Promise<{createWritable: () => Promise<{write: (blob: Blob) => Promise<void>, close: () => Promise<void>}>}>}} */ (opts.win && !opts.win.closed ? opts.win : window);
+    const targetDoc = targetWin.document || document;
+    if (typeof targetWin.showSaveFilePicker === 'function') {
+        try {
+            const handle = await targetWin.showSaveFilePicker({
+                suggestedName,
+                types: opts.accept ? [{
+                    description: opts.description || '',
+                    accept: opts.accept,
+                }] : undefined,
+            });
+            const data = typeof blob === 'function' ? await blob() : blob;
+            const writable = await handle.createWritable();
+            await writable.write(data);
+            await writable.close();
+            return true;
+        } catch (err) {
+            // User cancelled — not an error.
+            if (isAbortError(err)) return false;
+            throw err;
+        }
+    }
+    // Fallback: anchor download (Firefox / older browsers).
+    const data = typeof blob === 'function' ? await blob() : blob;
+    const url = URL.createObjectURL(data);
+    const a = targetDoc.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
+    (targetDoc.body || targetDoc.documentElement).appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return true;
 }
 
 /** Artwork layer ids (z-ordered, bottom to top). Excludes ratlines/overlays. */
@@ -66,16 +117,16 @@ const ARTWORK_LAYER_IDS = [
  * List all artwork layers in z-order, annotated with display name, colour
  * and whether they currently have rendered content (used to decide which
  * checkboxes start ticked).
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  * @returns {Array<{id: string, name: string, color: string, populated: boolean}>}
  */
-function listArtworkLayers(app) {
+export function listArtworkLayers(app) {
     const meta = new Map(PCB_LAYERS.map((l) => [l.id, l]));
     const out = [];
     for (const id of ARTWORK_LAYER_IDS) {
-        const g = app._layerGroups?.get(id);
-        const fill = id === 'top-copper' ? app._layerGroups?.get('top-fill')
-            : id === 'bottom-copper' ? app._layerGroups?.get('bottom-fill') : null;
+        const g = app.existingLayerGroups().get(id);
+        const fill = id === 'top-copper' ? app.existingLayerGroups().get('top-fill')
+            : id === 'bottom-copper' ? app.existingLayerGroups().get('bottom-fill') : null;
         const populated = !!(g?.childNodes.length || fill?.childNodes.length);
         const m = meta.get(id);
         out.push({ id, name: m?.name || id, color: m?.color || '#888', populated });
@@ -88,7 +139,7 @@ function listArtworkLayers(app) {
  * artwork. Unions the bounding boxes of the included artwork layers so the
  * page is cropped snugly to whatever is actually being exported, rather
  * than to the (possibly mismatched) nominal board-outline dimensions.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  * @param {Set<string>} [layers] Layer ids to measure; defaults to all artwork.
  * @returns {{x: number, y: number, w: number, h: number}}
  */
@@ -97,7 +148,7 @@ function getArtworkBoundsMm(app, layers) {
     for (const id of [...ARTWORK_LAYER_IDS, 'top-fill', 'bottom-fill']) {
         const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
         if (layers && !layers.has(owner)) continue;
-        const g = app._layerGroups?.get(id);
+        const g = app.existingLayerGroups().get(id);
         if (!g || !g.childNodes.length) continue;
         let bb;
         try {
@@ -139,7 +190,7 @@ function forceMono(root, color) {
  * Deep-clone the PCB viewport SVG for export: crop to the included
  * artwork bounds (plus a margin), drop non-artwork layers, unselected
  * layers, and on-screen aids, then apply colour / mono / invert options.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  * @param {PdfExportOptions} [opts]
  * @returns {{svgNode: SVGSVGElement, widthMm: number, heightMm: number}}
  */
@@ -148,14 +199,15 @@ export function clonePcbViewportForExport(app, opts) {
     const mono = !!opts?.mono;
     const invert = !!opts?.invert;
 
-    const originalSvg = app.viewport.svg;
+    const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
+    const originalSvg = viewport.svg;
     let svgNode, b;
-    app._uncullAllPlacements?.();
+    uncullAllPlacements(app);
     try {
         svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
         b = getArtworkBoundsMm(app, layers || undefined);
     } finally {
-        app._updatePcbCulling?.();
+        updatePcbCulling(app);
     }
     const m = EXPORT_MARGIN_MM;
     const vbX = b.x - m;
@@ -180,6 +232,8 @@ export function clonePcbViewportForExport(app, opts) {
         '#gridLayer',
         '#axesLayer',
         '#paperOutlineLayer',
+        // The editor's <defs>: copper-cut clips are sized to the on-screen view.
+        '[data-pcb-defs]',
         '[data-layer="ratlines"]',
         '[data-layer="clearance-overlay"]',
         '.pcb-box-track-sel',
@@ -192,6 +246,10 @@ export function clonePcbViewportForExport(app, opts) {
     const artwork = new Set(ARTWORK_LAYER_IDS);
     for (const group of svgNode.querySelectorAll('[data-layer]')) {
         const id = group.getAttribute('data-layer');
+        if (!id) {
+            group.remove();
+            continue;
+        }
         const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
         if (!artwork.has(owner) || (layers && !layers.has(owner))) group.remove();
     }
@@ -201,6 +259,9 @@ export function clonePcbViewportForExport(app, opts) {
     // Strip transient selection / hover halos.
     svgNode.querySelectorAll('.pcb-track-selection, .pcb-track-hover')
         .forEach((el) => el.remove());
+
+    // Copper-removal hatching is an on-screen aid; exports show those shapes as outlines.
+    stripRemovalHatches(svgNode);
 
     // Colour treatment. Black & white forces a single ink colour; inverted
     // B&W draws white-on-black (photo negative). Colour mode keeps the
@@ -225,7 +286,7 @@ export function clonePcbViewportForExport(app, opts) {
 /**
  * Show the PCB PDF export options dialog (scale, layers, colour, invert)
  * and resolve with the chosen options, or null if cancelled.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  * @returns {Promise<PdfExportOptions|null>}
  */
 function showPdfExportDialog(app) {
@@ -305,6 +366,7 @@ function showPdfExportDialog(app) {
         syncScaleUi();
 
         let settled = false;
+        /** @param {PdfExportOptions|null} result */
         const close = (result) => {
             if (settled) return;
             settled = true;
@@ -320,7 +382,7 @@ function showPdfExportDialog(app) {
                     .map((c) => /** @type {HTMLInputElement} */ (c).value)
             );
             if (layers.size === 0) {
-                app._setStatus?.('Select at least one layer to export');
+                app.setStatus('Select at least one layer to export');
                 return;
             }
             const colorMode = /** @type {HTMLInputElement} */ (
@@ -346,7 +408,7 @@ function showPdfExportDialog(app) {
 /**
  * Export the PCB to a vector PDF. Presents an options dialog (scale,
  * layers, colour, invert), then renders and prompts to save.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  */
 export async function savePcbPdf(app) {
     const opts = await showPdfExportDialog(app);
@@ -358,13 +420,13 @@ export async function savePcbPdf(app) {
         const jsPDF = await loadVectorPdfLibs(app);
         const { svgNode, widthMm, heightMm } = clonePcbViewportForExport(app, opts);
 
-        const w = /** @type {any} */ (window);
+        const w = /** @type {Window & {jspdf?: {jsPDF?: unknown}, jsPDF?: unknown, svg2pdf?: {svg2pdf?: unknown, default?: unknown}}} */ (window);
         const svg2pdf = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
         if (typeof svg2pdf !== 'function') {
             throw new Error('svg2pdf is not available');
         }
 
-        const JsPdfCtor = /** @type {any} */ (jsPDF);
+        const JsPdfCtor = /** @type {new (options: object) => {setProperties?: (properties: object) => void, addImage: (...args: unknown[]) => void, addPage: (format?: unknown, orientation?: unknown) => void, save: (name: string) => void, output: (type: string) => Blob}} */ (jsPDF);
         let pdf;
         /** @type {{x: number, y: number, width: number, height: number}} */
         let draw;
@@ -409,16 +471,16 @@ export async function savePcbPdf(app) {
 
         const pdfBlob = pdf.output('blob');
         await saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
-        app._setStatus?.('PCB exported to PDF');
+        app.setStatus('PCB exported to PDF');
     } catch (err) {
         console.error('PCB PDF export failed:', err);
-        app._setStatus?.(`PDF export failed: ${err?.message || err}`);
+        app.setStatus(`PDF export failed: ${errorMessage(err)}`);
     }
 }
 
 /**
  * Print the PCB via a hidden iframe, sized to the board outline.
- * @param {object} app PCBApp instance.
+ * @param {PcbEditor} app
  */
 export async function printPcb(app) {
     try {
@@ -440,7 +502,8 @@ export async function printPcb(app) {
         iframe.style.height = '1px';
         document.body.appendChild(iframe);
 
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        const iframeWin = /** @type {Window} */ (iframe.contentWindow);
+        const iframeDoc = iframe.contentDocument || iframeWin.document;
         iframeDoc.open();
         iframeDoc.write('<!DOCTYPE html><html><head><title>Print PCB</title></head><body></body></html>');
         iframeDoc.close();
@@ -465,21 +528,21 @@ export async function printPcb(app) {
 
         const doPrint = () => {
             try {
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
+                iframeWin.focus();
+                iframeWin.print();
             } finally {
                 setTimeout(() => {
                     if (iframe.parentNode) document.body.removeChild(iframe);
                 }, 500);
             }
         };
-        if (iframe.contentWindow.document.readyState === 'complete') {
+        if (iframeWin.document.readyState === 'complete') {
             requestAnimationFrame(doPrint);
         } else {
             iframe.addEventListener('load', doPrint, { once: true });
         }
     } catch (err) {
         console.error('PCB print failed:', err);
-        app._setStatus?.(`Print failed: ${err?.message || err}`);
+        app.setStatus(`Print failed: ${errorMessage(err)}`);
     }
 }

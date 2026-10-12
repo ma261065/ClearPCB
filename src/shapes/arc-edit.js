@@ -1,17 +1,30 @@
 import { bulgeRatio, circumcircle } from '../core/geometry.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{start:Point,end:Point,bulge:Point}} ControlArcShape */
+
+/**
+ * @param {Partial<ControlArcShape>} shape
+ */
 export function controlArcGeometry(shape) {
-    const circle = circumcircle(shape.start, shape.bulge, shape.end);
+    const arc = /** @type {ControlArcShape} */ (shape);
+    const circle = circumcircle(arc.start, arc.bulge, arc.end);
     if (!circle) return null;
+    /** @param {number} angle */
     const normalize = angle => ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-    const startAngle = Math.atan2(shape.start.y - circle.cy, shape.start.x - circle.cx);
-    const bulgeAngle = Math.atan2(shape.bulge.y - circle.cy, shape.bulge.x - circle.cx);
-    const endAngle = Math.atan2(shape.end.y - circle.cy, shape.end.x - circle.cx);
+    const startAngle = Math.atan2(arc.start.y - circle.cy, arc.start.x - circle.cx);
+    const bulgeAngle = Math.atan2(arc.bulge.y - circle.cy, arc.bulge.x - circle.cx);
+    const endAngle = Math.atan2(arc.end.y - circle.cy, arc.end.x - circle.cx);
     const span = normalize(endAngle - startAngle);
     const counterclockwise = normalize(bulgeAngle - startAngle) >= span;
     return { ...circle, startAngle, endAngle: startAngle + (counterclockwise ? -(2 * Math.PI - span) : span), counterclockwise };
 }
 
+/**
+ * @param {ControlArcShape} shape
+ * @param {number} [segments]
+ * @returns {Point[]}
+ */
 export function sampleControlArc(shape, segments = 48) {
     const geometry = controlArcGeometry(shape);
     if (!geometry) return [{ ...shape.start }, { ...shape.end }];
@@ -21,6 +34,11 @@ export function sampleControlArc(shape, segments = 48) {
     });
 }
 
+/**
+ * @param {Point} start
+ * @param {Point} end
+ * @returns {{midpoint:Point,normal:Point,length:number}|null}
+ */
 export function arcChordFrame(start, end) {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
@@ -33,6 +51,14 @@ export function arcChordFrame(start, end) {
     };
 }
 
+/**
+ * @param {Point} start
+ * @param {Point} end
+ * @param {Point} point
+ * @param {Point} snapped
+ * @param {number} threshold
+ * @returns {Point}
+ */
 export function snapArcBulgeToChord(start, end, point, snapped, threshold) {
     const frame = arcChordFrame(start, end);
     if (!frame) return snapped;
@@ -42,6 +68,12 @@ export function snapArcBulgeToChord(start, end, point, snapped, threshold) {
         ? frame.midpoint : snapped;
 }
 
+/**
+ * @param {Point} start
+ * @param {Point} end
+ * @param {Point} point
+ * @returns {Point}
+ */
 export function projectArcBulge(start, end, point) {
     const frame = arcChordFrame(start, end);
     if (!frame) return { ...point };
@@ -54,6 +86,10 @@ export function projectArcBulge(start, end, point) {
     };
 }
 
+/**
+ * @param {ControlArcShape} shape
+ * @returns {number}
+ */
 export function arcBulgeRatio(shape) {
     const frame = arcChordFrame(shape.start, shape.end);
     if (!frame) return 0;
@@ -62,6 +98,12 @@ export function arcBulgeRatio(shape) {
     return Math.max(-0.5, Math.min(0.5, offset / frame.length));
 }
 
+/**
+ * @param {Point} start
+ * @param {Point} end
+ * @param {number} ratio
+ * @returns {Point}
+ */
 export function arcBulgeFromRatio(start, end, ratio) {
     const frame = arcChordFrame(start, end);
     if (!frame) return { ...start };

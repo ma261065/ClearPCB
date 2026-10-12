@@ -9,12 +9,19 @@ import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** Half-size of the X mark in mm */
 const NC_HALF = 0.8;
 
+/** @typedef {{componentId: string, pinNumber: string|number}} PinConnection */
+/** @typedef {{x: number, y: number, pinConnection: PinConnection|null}} NoConnectState */
+
 export class NoConnect extends Shape {
+    /** @type {'noconnect'} */
+    type;
+
     /**
      * @param {Object} [options]
         * @param {string} [options.id]
@@ -33,13 +40,18 @@ export class NoConnect extends Shape {
         // NoConnect has a fixed thin stroke
         if (!options.lineWidth) options.lineWidth = 0.25;
         super(options);
+        /** @type {'noconnect'} */
         this.type = 'noconnect';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
 
         /** @type {{ componentId: string, pinNumber: string|number }|null} */
         this.pinConnection = options.pinConnection || null;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this no-connect marker. */
+        this.attachedLabels = null;
     }
 
     // ─── Shape overrides ───────────────────────────────────────────
@@ -54,13 +66,19 @@ export class NoConnect extends Shape {
         };
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {{x:number,y:number}} point
+     */
     hitTest(point, tolerance = 0.5) {
         const d = Math.hypot(point.x - this.x, point.y - this.y);
         return d <= NC_HALF + tolerance;
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {{x:number,y:number}} point
+     */
     distanceTo(point) {
         return Math.hypot(point.x - this.x, point.y - this.y);
     }
@@ -72,7 +90,12 @@ export class NoConnect extends Shape {
         ];
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -82,45 +105,11 @@ export class NoConnect extends Shape {
         return undefined;
     }
 
-    /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        const sw = Math.max(this.lineWidth, 1.5 / scale);
-
-        // Ensure two lines exist
-        if (el.children.length < 2) {
-            el.innerHTML = '';
-            el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'line'));
-            el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'line'));
-        }
-
-        const line1 = el.children[0];
-        const line2 = el.children[1];
-
-        // Diagonal 1: top-left to bottom-right
-        line1.setAttribute('x1', this.x - NC_HALF);
-        line1.setAttribute('y1', this.y - NC_HALF);
-        line1.setAttribute('x2', this.x + NC_HALF);
-        line1.setAttribute('y2', this.y + NC_HALF);
-        line1.setAttribute('stroke', strokeColor);
-        line1.setAttribute('stroke-width', sw);
-        line1.setAttribute('stroke-linecap', 'round');
-
-        // Diagonal 2: top-right to bottom-left
-        line2.setAttribute('x1', this.x + NC_HALF);
-        line2.setAttribute('y1', this.y - NC_HALF);
-        line2.setAttribute('x2', this.x - NC_HALF);
-        line2.setAttribute('y2', this.y + NC_HALF);
-        line2.setAttribute('stroke', strokeColor);
-        line2.setAttribute('stroke-width', sw);
-        line2.setAttribute('stroke-linecap', 'round');
-    }
-
-    /** @override */
+    /**
+     * @override
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -128,10 +117,6 @@ export class NoConnect extends Shape {
         this.invalidate();
     }
 
-    /** @override — no fill, minimal stroke for hit expansion. */
-    _getEffectiveStrokeWidth(scale) {
-        return Math.max(this.lineWidth, 1.5 / scale);
-    }
 
     /** @override */
     clone() {
@@ -161,6 +146,7 @@ export class NoConnect extends Shape {
 
     /** @override */
     toJSON() {
+        /** @type {ReturnType<Shape['toJSON']> & {x:number,y:number,pn?: { componentId: string, pinNumber: string|number }}} */
         const json = {
             ...super.toJSON(),
             x: _r4(this.x),

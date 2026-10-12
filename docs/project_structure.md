@@ -1,7 +1,9 @@
 # ClearPCB Project Structure
 
-This document reflects the current repository layout and the ownership
-boundaries between schematic, PCB, and shared code.
+Where code lives, which way imports may point, and which module owns each piece
+of shared state. The regression gate enforces the import and editor-access rules.
+Detailed per-module behaviour is in [module-contracts.md](module-contracts.md),
+an index of area pages under [contracts/](contracts/).
 
 ## Current Structure
 
@@ -11,379 +13,556 @@ clearpcb/
 ├── sw.js                       # Service worker (PWA)
 ├── mcp-worker/                 # Cloudflare Worker + Durable Object MCP relay
 ├── manifest.json
-├── jsconfig.json               # checkJs: true, noImplicitAny: false
+├── jsconfig.json               # checkJs with TypeScript strict settings
 ├── assets/
 │   ├── icons/
-│   └── vendor/                 # jspdf, svg2pdf (vendored, see docs/vendoring_npm_packages.md)
+│   └── vendor/                 # Vendored libraries: three, clipper, earcut, fflate, jsPDF,
+│                               # svg2pdf, imagetracer, vtracer (see docs/vendoring_npm_packages.md)
 ├── src/
-│   ├── core/                   # Mode-agnostic services: Viewport, CommandHistory,
-│   │                           # SelectionManager, StorageManager, FileManager,
-│   │                           # ModalManager, EventBus, geometry, ShapeValidator,
-│   │                           # SearchManager, LazyLoader, ui-helpers
-│   ├── shapes/                 # Drawing primitives shared by schematic + pcb
-│   │                           # (shape, line, rect, circle, arc, polygon,
-│   │                           # polyline, polyline-graph, text, net, wire,
-│   │                           # noconnect, track, via)
-│   ├── components/             # Component/symbol ingestion (BuiltInComponents,
-│   │                           # ComponentLibrary, ComponentPicker, KiCadFetcher,
-│   │                           # LCSCFetcher, STEPPreview, VRMLPreview)
+│   ├── core/                   # Project model and editor-neutral services:
+│   │                           # ProjectDocument, SchematicDocument, PcbDocument (+ PcbDesignSettings,
+│   │                           # PcbPlacementState, pcb-*-commands, pcb-* geometry), FileManager,
+│   │                           # project-format, CommandHistory, Viewport, SelectionManager,
+│   │                           # McpBridge, geometry, grid-snap, id-allocator, …
+│   ├── shapes/                 # Drawing and copper primitives shared by both editors
+│   │                           # (shape, polyline, polyline-graph, rect, circle, arc, polygon,
+│   │                           # text, net, wire, noconnect, track, via, pad, copper-fill) and
+│   │                           # shared path editing (path-*, arc-*, shape-join, axis-glow, …)
+│   ├── components/             # Component/symbol ingestion and preview (BuiltInComponents,
+│   │   ├── picker/             # Component picker owners: DOM, search, result list,
+│   │   │                       # online selection, symbol/footprint previews, UI state,
+│   │   │                       # placement hand-off (ComponentPicker.js is the entry point)
+│   │   ├── kicad/              # KiCad fetcher modules: network/cache, symbol and
+│   │   │                       # footprint indexes, S-expression parsing,
+│   │   │                       # symbol conversion and footprint preview parsing
+│   │   └── …                   # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
+│   │                           # ComponentPicker, KiCadFetcher, kicad-index-format,
+│   │                           # LCSCFetcher, Model3D*, …
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
-│   │   └── ui/theme.js         # Shared theme tokens
+│   │   ├── 3d/                 # Arcball controller, model rendering
+│   │   ├── pcb/                # PCB geometry used by the project model and editor
+│   │   │                       # (board-outline, board-shape-geometry, board-geometry,
+│   │   │                       # footprint, reference-text, stroke-font, picture-*)
+│   │   └── ui/                 # UI helpers used by both editors (theme, modal,
+│   │                           # viewport, cursor, export, box-selection, recents,
+│   │                           # ribbon renderer/height, inline-text-overlay,
+│   │                           # property-order, …)
 │   ├── schematic/
-│   │   └── modules/            # Schematic-only interaction modules
-│   │                           # (draw-states, files, shape-management, wire)
+│   │   ├── render/             # Schematic shape/component SVG renderers + WeakMap view state
+│   │   └── modules/            # Schematic-only modules: interaction (mouse, keyboard,
+│   │                           # drag, drawing, draw-states, clipboard, context-menu,
+│   │                           # properties, ribbon + ribbon-description, tool, text-edit), model helpers
+│   │                           # (wire, label-attachment, pin-wire-connect, commands,
+│   │                           # files, shape-management) and schematic-view (the
+│   │                           # entity-SVG lifecycle boundary)
 │   ├── pcb/
-│   │   └── modules/            # PCB-only interaction + I/O modules
-│   │                           # (autorouter family, controls, dsn, footprint,
-│   │                           # gerber, layers, netlist, ratsnest, track-*)
+│   │   └── modules/            # PCB-only modules: host/action owners (viewport-host,
+│   │                           # layer-groups, schematic-sync, component-properties-host,
+│   │                           # selection-actions, pcb-clipboard, autorouter-actions,
+│   │                           # fabrication-actions), tools, rendering, pours, DRC,
+│   │                           # autorouter family and fabrication output
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
-│       ├── SchematicApp.js     # Schematic editor facade
-│       ├── PCBApp.js           # PCB editor facade
-│       ├── schematic.css
-│       └── modules/            # Schematic interaction modules
-│                               # (mouse, keyboard, drag, drawing, clipboard,
-│                               # context-menu, modal, files, export, paper,
-│                               # box-selection, label-attachment,
-│                               # pin-wire-connect, net-validation, …)
+│       ├── SchematicApp.js     # Thin schematic editor facade over src/schematic/modules
+│       ├── PCBApp.js           # Thin PCB editor facade over src/pcb/modules
+│       ├── mcp-session.js      # MCP session dialog (used by AppBootstrap)
+│       └── schematic.css
 ├── workers/
 │   └── cors-proxy.js
-├── tests/                      # Isolated headless regression scripts (test-*.mjs)
-├── tools/                      # Node-side benchmarks + DRC sanity tools
-│                               # (autorouter-benchmark, check-clearance-*,
-│                               # check-via-on-pad, regression, debug-pf-*)
+├── tests/
+│   ├── unit/                   # Isolated headless regression scripts (test-*.mjs),
+│   │                           # pcb-editor-fixture.mjs and helpers/ (fake DOM, …)
+│   └── browser/                # Playwright scenarios run by tools/browser-test.mjs
+├── tools/                      # Regression gate and checks (regression, test, typecheck,
+│                               # check-imports, check-*-editor-access, check-clearance-*),
+│                               # browser-test, serve, benchmarks, release packaging,
+│                               # build-kicad-index (release-time KiCad index)
 └── docs/
-    ├── project_structure.md
-  ├── clearpcb_file_format.md
-    ├── autorouter.md
-    ├── easyeda_pcb_format.md
-    ├── netname_wirelabel_contract.md
-    └── vendoring_npm_packages.md
+    ├── project_structure.md    # This page: layout, enforced rules, owners
+    ├── module-contracts.md     # Index of the per-module behaviour contracts
+    ├── contracts/              # Contract pages by area (editing, model, pours/DRC, …)
+    ├── clearpcb_file_format.md # Canonical project format
+    ├── release-readiness.md    # Open release items and working agreements
+    ├── releases.md             # Branching, CI gates and release checklist
+    └── autorouter.md, mcp.md, easyeda_pcb_format.md, netname_wirelabel_contract.md,
+        shape_join_arcs.md, vendoring_npm_packages.md
 ```
 
 ## Ownership Rules
 
 - `src/core/*`, `src/shapes/*`, `src/components/*`, `src/shared/*` are
   shared by schematic and pcb.
-- `src/schematic/**` and `src/ui/SchematicApp.js` + `src/ui/modules/*`
-  are schematic-only. `PCBApp.js` must not import them.
+- `src/schematic/**` and `src/ui/SchematicApp.js` are schematic-only.
+  `PCBApp.js` must not import them.
 - `src/pcb/**` and `src/ui/PCBApp.js` are pcb-only. Schematic code must
   not import them.
 - `src/ui/AppBootstrap.js` is shared orchestration only (startup, mode
-  switching, platform launch hooks).
+  switching, platform launch hooks). Other `src/ui` files besides the two
+  editor facades and `mcp-session.js` serve only it.
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
+- Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
+  import either editor.
+- `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
+  grid controls, cursors, export helpers, box selection, recents, the shared ribbon
+  renderer and ribbon height, inline text, theme, the Properties panel renderer and control order, pop-up menus,
+  settled number fields). `src/shared/pcb/*` holds PCB geometry that the project
+  model in `core` and the PCB editor both need (board outline and shape
+  geometry, footprint generation, reference text, stroke font, picture artwork).
+  Promote code there, rather than importing across editors, when both sides need it.
 
-## Extracted Services
+`node tools/check-imports.mjs` enforces these import directions as part of the
+regression gate. `tools/import-baseline.json` lists known violations (currently
+none); new ones fail, and fixed ones must be removed so the baseline only shrinks.
 
-- `shapes/arc-edit.js` owns control-arc geometry, sampling, midpoint projection,
-  and curvature-preserving endpoint edits. `shapes/arc-edge.js` owns bulged edges.
-- `shapes/rounded-path.js` owns corner clamping, entry/exit points, SVG paths,
-  and sampling. Uniform rectangles use circular corners; polygon and per-node
-  rounding use quadratic corners. `pcb/modules/board-geometry.js` re-exports
-  the helpers for existing consumers.
-- `shapes/path-geometry.js` owns stroke decomposition, open-stroke hit tests,
-  bounds accumulation, circle hit tests, and indexed/graph handle descriptors.
-- `shapes/path-operations.js` owns chain extraction, reversal, joining, closure,
-  vertex/segment deletion, insertion metadata, collinear cleanup, and rectangle
-  resizing, axis-aligned rectangle classification, and line/arc segment
-  conversion. Both editors use `setPathSegmentType` for path segments and
-  `splitPathAtNode` for splitting. Open-path splits create independent shapes;
-  closed-path splits create an open path with distinct endpoint IDs. Their
-  context menus and floating-handle history remain editor adapters.
-  `Polyline.toEditablePath()` / `applyEditablePath()` adapt stable
-  graph IDs to indexed paths without changing the saved file format.
-- `shapes/shape-drawing.js` owns point-sequence completion, validation, primitive
-  paths, and previews. `shapes/path-interaction.js` owns segment refinement;
-  `shapes/path-snap.js` owns connection/collinear/H-V-45/grid snap precedence
-  and constrained translation, including continuation constraints for both
-  endpoints of a moving segment. Editor adapters supply pins or pads and grids.
-  Open line completion retains a returning segment; only closed polygon paths
-  discard a repeated closing point. Arc straightening uses `BULGE_EPS`, never
-  display formatting; bulge property fields preserve small nonzero values.
-- `shapes/axis-glow.js` owns H/V/45 and straight-through collinear indicator
-  classification and rendering. Both editors use the same colored halos and
-  solid/dashed/dotted centerlines. Schematic wire, T-junction, sticky-wire,
-  and square-aspect guides use this renderer too; there is no separate SVG
-  guide pool. Wire snap results carry explicit alignment descriptors while
-  their electrical snap calculations remain schematic-owned. Square feedback
-  is a blue solid outline in both editors, including PCB drawing and dragging.
-  Rectangles show only square-aspect feedback, not redundant H/V indicators.
-  All indicators refresh on redraw and share
-  finish/cancel cleanup.
-- `shapes/property-preview.js` owns reversible live-property transactions:
-  capture once, mutate and redraw, restore before committing a single history
-  edit, skip unchanged commits, and restore/redraw on cancellation. Snapshots
-  are detached JSON-compatible values supplied by editor adapters. It also
-  enforces the redraw contract: either an explicit full-scene renderer or all
-  four incremental stages:
-  prepare changed targets, render geometry, refresh selection, then refresh
-  derived views. PCB shape and image property inputs use one adapter that
-  refreshes segment overlays and anchors together; schematic numeric inputs
-  use their full-scene renderer, which already includes selection and guides.
-  Commit and cancellation request a final redraw, including any derived work
-  deferred during previews. Property validation, snapshot representation,
-  history commands, and PCB copper-refresh throttling remain editor-owned.
-  Schematic shape properties include precise bulge and circle diameter edits,
-  including multi-selection. Geometry snapshots preserve coupled dimensions
-  and overrides. Whole-shape width/radius edits clear their segment/node
-  overrides; undo restores them. A zero-bulge standalone arc is replaced by a
-  line in the same history operation as the property change.
-- Schematic focused Delete and shape context menus share node/segment deletion
-  actions; without refinement, Delete still removes the entire selection.
-  Standalone arc menus support conversion and deletion. Shape splits retain
-  one pre-split snapshot and an optional temporary remainder; placement commits
-  one batch and Escape restores the original without leaving a remainder.
-- Shared shape editing follows PCB behavior where the editors differed:
-  repeated segment clicks retain refinement, rounded corners keep the base
-  width during segment-width edits, circle radius denotes the outer edge,
-  and Shift suppresses shape snapping. Electrical wire/track connectivity,
-  layer restrictions, rendering chrome, history, and fabrication contours
-  remain editor-specific. Shared geometry must not import either editor.
-- `core/CommandHistory.js` contains only the history engine and base command.
-  Schematic commands are in `schematic/modules/commands.js`.
-- `shared/3d/ArcballController.js` and `shared/3d/model-rendering.js` serve both
-  component previews and the board viewer without importing PCB code.
-- `pcb/modules/project-state.js` owns PCB serialization, detached preparation,
-  restoration and project design parameters.
-- `pcb/modules/copper-model.js` resolves physical pad geometry and logical nets;
-  `copper-connectivity.js` owns common cluster construction and positional unions.
-- `pcb/modules/fill-context.js` supplies reusable collections to copper pours;
-  `copper-artwork.js` resolves DRC artwork primitives.
-- `core/DerivedUpdates.js` batches derived callbacks; `core/spatial-pairs.js`
-  supplies the DRC broad phase.
+Ribbon markup follows the same ownership rule as Properties panels:
+`src/shared/ui/ribbon.js` builds the DOM from editor-local descriptions in
+`src/schematic/modules/ribbon-description.js` and
+`src/pcb/modules/ribbon-description.js`. `index.html` owns only the empty ribbon
+host elements, while editor control modules bind behaviour to the generated stable
+IDs.
 
-`node tools/test.mjs` runs every `tests/test-*.mjs` in an isolated process.
-`node tools/regression.mjs` also runs the autorouter baseline. See
-[review-fixes.md](review-fixes.md) for the review mapping and verification limits.
+Both editors follow the same module rules. A module that needs another module's
+behaviour imports that module's function and calls it directly; it does not go
+through the editor. What the editor itself owns, modules reach through its public
+services, listed and typed in `pcb/modules/pcb-editor-api.js` (`getLayerGroup`,
+`getRoutingParams`, `refreshFills`, `updateRatsnest`, `setStatus`, …) and
+`schematic/modules/schematic-editor-api.js` (`updatePropertiesPanel`, the
+crosshair, `alert`/`confirm`, the cancel helpers, inline text editing, tool
+selection and the command view hooks), rather than its `_`-prefixed members.
+Services are also the seams tests stub. A service both editors offer has one name
+in both (`fitToContent`, `setActiveRibbonTab`, `copySelection`, `alert`).
+PCB modules type the editor they are given: `@param {PcbEditor} app`, where
+`PcbEditor` (in `pcb-editor-api.js`) is the editor class, so the type check knows
+which editor members each module uses. A computation that only reads the board's
+collections (DRC, copper connectivity, the 3D and Gerber builders) takes a
+`PcbBoard` instead, so it can be given a worker snapshot or a filtered copy, and
+state keyed by the editor that any object may read (`refresh-state.js`) takes `object`.
+A function that needs only a few of the editor's collections names them
+(`@param {Pick<PcbEditor, 'tracks'|'vias'>} app`): hit tests, snapping lookups, lock
+and net queries do, so what each one depends on is in its signature.
+Schematic modules likewise type the editor as `SchematicEditor`
+(`schematic-editor-api.js`, the `SchematicApp` class) and a schematic object as
+`SchematicItem` (`SchematicDocument.js`: a shape or component); shape-only arrays
+use `SchematicDrawable`, and `app.selection` is a `SelectionManager<SchematicItem>`.
+Literal `item.type` checks narrow the union, and reusable callback predicates live
+in `core/schematic-items.js`. Shared types have one owner and other files alias
+it: `Point` in `core/geometry.js`, the tool options and restore data in
+`SchematicApp.js`, the interaction state next to `STATE_TABLE` in `draw-states.js`,
+pin snaps in `wire-snap.js`, open and save results in `FileManager.js`.
+Component domain types are owned by `Component.js` for definitions/symbols/pins/graphics, by `LCSCFetcher.js` for EasyEDA/LCSC metadata, and by the KiCad modules for search, footprint availability and footprint preview results.
+Modules call editor methods directly (`app.setPcbStatus(...)`, not
+`app.setPcbStatus?.(...)`): the editor always has them, so an optional call only hides
+a fake that lacks one, and `test-pcb-editor-api` and `test-schematic-editor-api` fail on
+it. Optional calls remain for members that may be absent, such as `refreshPcbRibbon`
+before the ribbon exists, or for a `PcbBoard` that is not the editor. Tests that build a
+plain-object editor spread `pcbEditorStubs()` or `schematicEditorStubs()` from
+`tests/unit/helpers/` and override what they observe.
+`node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
+private editor accesses against `tools/pcb-editor-access-baseline.json`, and
+`node tools/check-schematic-editor-access.mjs` checks the schematic layer
+(`src/schematic`) against `tools/schematic-editor-access-baseline.json`.
+`node tools/check-shared-editor-access.mjs` checks shared code (`src/core`,
+`src/shapes`, `src/components`, `src/shared/ui`, `src/shared/3d`, `src/easyeda`)
+against `tools/shared-editor-access-baseline.json`. All three baselines are
+empty, so any editor-like `app._x`, `editor._x` or `host._x` use fails: call the owning module's export
+(for example `cancelPcbPosePreviews` in `edit-lifecycle.js`) or a public editor
+service instead. They run as hard checks in the regression gate. `test-schematic-module-load-order` loads each
+schematic module first in a fresh process, so a direct import that creates an
+evaluation-order cycle fails.
+
+## State Ownership
+
+- State shared by PCB modules lives in its owning module behind functions, usually
+  a WeakMap keyed by the editor, rather than as `app._x` fields:
+  `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
+  refresh status and refresh suspensions), `fill-refresh.js` (computed-pour
+  scheduling, terminal disposal, cached rerenders and fill-layer clearing),
+  `board-shape-state.js` (board-shape
+  node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
+  SVG elements and hover), `cursor-state.js` (last pointer/crosshair positions),
+  `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
+  board-view panel state), `component-selection.js` (component hover outline,
+  footprint culling/LOD and component-net lookup),
+  `ref-text-geometry.js` (reference-designator element and layout-box view
+  cache),
+  `pcb-hover.js` (coalesced select-tool hover frame state),
+  `pcb-editor-api.js` (the active and stale editor flags plus public editor services),
+  `selection-registry.js` (the PCB SelectionManager per editor),
+  `shared/pcb/board-outline.js` (detached board-dimension preview state),
+  `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
+  visibility and halo caches), `picture-refresh.js` (pending/deferred
+  shape-clearance refresh state), `track-select.js` (selected track node/segment
+  edit), `copper-halos.js` (hover-highlight state), `board-shape-render.js` (rendered
+  board-shape SVG elements), `board-shapes.js` (document-backed shape ID allocation and
+  board-shape previews), `track-snap.js` (the track snap marker), `ratsnest.js` (the net
+  guide line), `track-connections.js` (track/via/pad/shape
+  copper connection discovery), `track-commit.js` (drawn-track command assembly),
+  `save-toast.js` (PCB save
+  toast presentation), `svg-defs.js` (editor-owned SVG `<defs>` cache) and
+  `layers.js` (layer-panel lock bubble timer, registered layer-change hooks and what
+  blocks a placement on a layer), and
+  `pcb-interactions.js` (in-progress interaction slots).
+- In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
+  `pcb-interactions.js` with their owner module and stored in its
+  WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
+  asks the owner through intent APIs such as `getBoardShapeDrag`,
+  `endComponentDrag`, `getTrackDraw`, `cancelFillDraw` or
+  `activeTextInlineEdit`. `pcb-interaction-routing.js` reads the store to route
+  pointer move, release and cancel handlers. `test-pcb-interaction-registry`
+  fails if a slot is unregistered or written outside its owner.
+- `pcb/modules/mouse.js` binds the PCB canvas's mouse events (like the schematic's
+  `mouse.js`). Presses and hover go to the active tool's entry in `PCB_TOOLS`
+  (`pcb-tools.js`); releases go to `releasePcbPointerGestures`.
+- PCB modules call an owning module's functions directly, and reach what the
+  editor itself hosts (its viewport, dirty state, autorouter session, component
+  selection and Properties panels) only through `pcb-editor-api.js` services,
+  never its private members.
+- Schematic modules follow the same pattern. In-progress schematic slots are
+  listed once in `schematic-interactions.js` with their owner module and stored
+  in its import-free WeakMap. Only the owner writes its slot with
+  `setSchematicInteraction`; other code asks owner intent APIs such as
+  `getSchematicTextEdit`, `getSchematicDrag`, `getPendingAnchorDrag`,
+  `isSchematicDrawingActive`, `isPastingClipboard` and `getPlacingComponent`.
+  `test-schematic-interactions` fails if a slot is unregistered, written outside
+  its owner or assigned back onto `SchematicApp`.
+  Slot owners are: `textEdit` → `text-edit.js`, `overlapCyclePress` →
+  `draw-states.js`, `drag` and `pendingAnchorDrag` → `drag.js`, `isDrawing` →
+  `drawing.js`, `pastingClipboard` → `clipboard.js`, and `placingComponent` →
+  `components.js`.
+- Other transient schematic state also stays with an owner module:
+  `draw-states.js` owns the pending segment-toggle and drag-click flags;
+  `drag-gestures.js` owns the reusable drag scratch buffers; `drawing.js` owns one-shot draw snap data; `wire.js`
+  owns wire axis-lock and junction highlight state; `components.js` owns
+  component placement-preview visibility plus the component code tooltip;
+  `mouse.js` owns right-button pan tracking; `ribbon.js` owns the tab activator,
+  height retainer, Escape cleanup and save-toast handler; `tool-ghost.js` owns
+  placement ghosts; `label-attachment.js` owns the label guide; and
+  `schematic-view.js` owns the refined segment-selection overlay. Other modules
+  call exported intent APIs instead of reading `app._…`.
+- `property-editors.js`, `refresh-state.js` and `board-shape-state.js` have no imports,
+  and `pcb-interactions.js` imports only `refresh-state.js` (to note an ended slot),
+  because worker-loaded export and DRC code (or low-level selection plumbing) reads them.
+- Entity IDs come from `core/id-allocator.js`; board shapes use
+  `PcbDocument.shapeIdCounter` through `board-shapes.js` allocation helpers.
+
+## Owner Index
+
+Project and documents:
+
+- `core/ProjectDocument.js` — the single project file: models, registered views,
+  combined serialize/load with rollback, aggregate dirty state.
+- `core/SchematicDocument.js`, `core/PcbDocument.js` — authored entities, loaded
+  preferences and serialization; `core/PcbPlacementState.js` — saved footprint poses.
+- `core/FileManager.js` — file identity, ZIP read/write, autosave and recents;
+  `core/project-format.js`, `core/project-field-aliases.js` — validation and key aliases.
+- `core/CommandHistory.js` — undo/redo engine; `core/id-allocator.js` — entity IDs.
+
+Component library:
+
+- `components/ComponentPicker.js` — public picker facade: construction, public lifecycle
+  methods and wiring to picker owner modules.
+- `components/picker/dom.js` — picker DOM creation, control binding, modal lifecycle and
+  close/destroy cleanup.
+- `components/picker/search.js` — search mode, debounced online queries and KiCad index
+  progress/failure display.
+- `components/picker/results-list.js` — local, EasyEDA and KiCad result-list rendering,
+  lazy mini-preview loading and local selection.
+- `components/picker/online-selection.js` — EasyEDA/KiCad result selection, metadata
+  loading and placeable online definitions.
+- `components/picker/symbol-preview.js` — symbol SVGs, thumbnails, package choices and
+  preview metadata.
+- `components/picker/footprint-preview.js` — footprint SVGs, 3D model previews and
+  KiCad footprint-choice rendering/ranking.
+- `components/picker/ui-state.js` — exact-match helpers plus small picker loading,
+  empty-state and button render states.
+- `components/picker/placement.js` — the final placement hand-off event emitted from
+  the picker to the schematic editor.
+
+PCB editor:
+
+- `pcb/modules/pcb-editor-api.js` — public editor services for PCB modules.
+- `pcb/modules/displayed-collections.js` — which copy of each board collection the
+  editor shows: the ordered table of previews behind `PCBApp`'s collection getters.
+- `pcb/modules/edit-lifecycle.js` — preview cancellation, property-editor disposal,
+  snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
+- `pcb/modules/drag-session.js` — what every drag or live preview defers while it runs
+  (overlays, optionally the board view), the ratlines it keeps live, and restoring both.
+- `pcb/modules/pcb-tools.js` — the tool catalog: one entry per tool (press, hover,
+  target layers, status layer and tip, Properties, ribbon button) and the press dispatcher;
+  `select-tool.js` — the select tool's press phases and hover.
+- `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points;
+  `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
+  with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
+- `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
+- `pcb/modules/schematic-sync.js` — schematic-to-PCB rebuilds, persistent model
+  re-rendering, footprint placement rendering and first-sync fit-to-placed-content.
+- `pcb/modules/viewport-host.js` — PCB viewport creation and view-change hooks;
+  `pcb/modules/layer-groups.js` — SVG layer/overlay group construction and z-order.
+- `pcb/modules/board-shapes.js` — board shapes' document-backed ID allocation, the
+  shared path-edit/profile machinery also used by copper fills, live previews, the
+  selection adapter, handles, node and segment edits, deletion and copper cuts;
+  `board-shape-render.js` — their SVG elements, styles and hover; `board-shape-draw.js`
+  and `board-shape-drag.js` — the shape-drawing tools and shape drags (each owns its
+  interaction slot); `track-shape-conversion.js` — turning tracks into shapes and back;
+  `board-shape-properties.js` — board-shape Properties and shared geometry
+  preview transactions.
+- Tracks: `track-draw.js` — the Track tool's drawing session; `track-snap.js` — where the
+  cursor lands (pads, nodes, vias, copper, grid) for drawing and node drags;
+  `ratsnest.js` — ratlines and the net guide line; `track-drag.js` — node and segment
+  drags; `track-edits.js` — track hit tests and structural edits (split, delete,
+  collapse); `track-drop.js` — what dropped copper joins and the gesture's command;
+  `terminal-drag.js` — via and pad drags; `track-select.js` — track and via selection;
+  `copper-halos.js` — selection and hover halos.
+- `shared/pcb/board-outline.js` — board-outline geometry, canonical/projected
+  board dimensions and the board-dimension preview store shared by render/export
+  helpers; `pcb/modules/board-outline-resize.js` — board-outline draw/selection
+  state, board-size preview transactions and resize gestures, the Board
+  Dimensions dialog and the read-only `isBoardOutlineDrawn()` service used by
+  page/test readiness checks.
+- `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
+  inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
+  the placement); `ref-text-selection.js` — its selection adapter, direct selection
+  and inline-edit entry points.
+- Properties panels by object: `track-properties.js` (tracks, segments, nodes),
+  `via-properties.js` (vias),
+  `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
+  Text tool, and the stroke-text field binder shared with reference designators),
+  `copper-fill-edit.js` (pour-specific fill fields plus the fill edit profile used
+  by the shared board-shape path editor), `board-outline-resize.js` (board size before an
+  outline shape exists, and the Board Dimensions dialog for a new board),
+  `component-properties.js` (components and references) and
+  `multi-selection-properties.js` (the shared properties of a mixed selection).
+  Each describes its panel as data (`shared/ui/property-fields.js`) and shows it
+  through the editor services in `pcb-editor-api.js` (`openPropertyPanel`,
+  `refreshPropertyPanel`, `netNames`, `setPropertiesTitle`, `showPropertiesTab`,
+  `layerLabel`); `PCBApp` hosts the rendering while owner modules keep their
+  tool defaults/previews in per-editor WeakMaps. Track defaults and the New Track
+  panel live in `track-draw.js`; the Fill tool layer/net/radius defaults and
+  drawing session live in `copper-fill-draw.js`, while selected-fill Properties
+  rendering and in-place refresh live in `copper-fill-edit.js`; Via defaults and
+  preview rings live in `via-tool.js`; Pad and Text defaults live with their
+  Properties modules.
+- `pcb/modules/component-properties-host.js` — the per-editor component/reference
+  Properties editor instance and its command wiring.
+- `pcb/modules/ref-text-selection.js` — reference-designator selection, hit-test
+  adapter, drag gestures, overlay group, highlight refresh, glyph rerendering and
+  reference-specific command adapters. Reference boxes remain pure geometry in
+  `ref-text-geometry.js`.
+- `pcb/modules/pcb-text-render.js` — free-text SVG element state, render/remove,
+  refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
+  remains the glyph geometry/color helper.
+- `pcb/modules/component-selection.js` — component hit-testing, hover outline state,
+  footprint culling/LOD, component-net lookup, 3D context-menu entry point and
+  movement/rotation selection adapter.
+- `pcb/modules/selection-actions.js` — editor service entry points for select-all,
+  component selection and free-text selection; `pcb/modules/pcb-clipboard.js` —
+  PCB copy/cut/paste payload capture and in-memory clipboard state.
+- `pcb/modules/copper-fill-selection.js` — copper-fill selection adapter and legacy
+  outline hit-testing for right-click and select-tool press paths.
+- `pcb/modules/pcb-hover.js` — select-tool hover scheduling, pointer coalescing and
+  cursor/overlap feedback state.
+- `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
+  stroke-font caret overlay, commit and cancel); `selectText` and
+  `showTextProperties` are editor services.
+- `pcb/modules/clearance-overlay.js` — the clearance halos (`showClearances`, and
+  incremental refresh for a dragged track, a moved via or a changed shape), plus
+  the visibility flag and halo caches; other modules read its state through
+  `areClearancesVisible`, `getBoardShapeClearance` and `getPadHaloGroup`.
+- PCB board-shape object typing has one model owner: `core/pcb-board-shapes.js`
+  exports `BoardShape`, its kind/copper-mode unions and narrowed variants. PCB
+  editor modules and shared geometry modules alias those owner types instead of
+  redefining the shape record locally.
+- `pcb/modules/copper-cuts.js` — the per-side clip paths that cut copper under
+  copper-removal shapes and board holes (`updateCopperCuts`, an editor service); other
+  modules ask `hasCopperCuts` whether any cut is active.
+- `pcb/modules/removal-hatch.js` — the hatch that fills copper-removal shapes: one SVG
+  `<pattern>` per removal mode in the editor's own `<defs>`, in board units so it zooms
+  with the board (1.8 mm tiles of three 0.1 mm lines, 0.6 mm apart). It is a fill on the
+  shapes themselves, not a canvas overlay, so holes and silk stacked above cover it.
+  Exports strip it (`stripRemovalHatches`).
+- `pcb/modules/debug-tooltip.js` — the footprint shape-data tooltip (Help tab), pinned
+  and unpinned by a stationary right-click.
+- `pcb/modules/layer-changes.js` — what hiding, showing, locking or unlocking a layer,
+  pour or overlay does to the editor (cancels stranded gestures and edits, updates the
+  render groups, prunes the selection); it registers handlers with `layers.js`, and
+  the layer panel calls those handlers directly.
+- `pcb/modules/object-locks.js` — individual object locks alongside layer locks: the
+  combined lock predicates every edit path uses, the undoable lock command, the lock
+  icon's unlock menu and the Properties "Locked" row.
+- `pcb/modules/board3d.js` — the 3D viewer window (`openBoard3DViewer`): opening,
+  syncing with edits, the Appearance panel and exports. Its builders are split by
+  subject: `board3d-params.js` (dimensions, colours, appearance settings),
+  `board3d-board.js` (outline, holes, board slab), `board3d-parts.js` (component
+  bodies and pads), `board3d-layers.js` (copper, mask, silk, text and pictures),
+  `board3d-scene.js` (window styles, host and three.js scene), `board3d-surfaces.js`
+  (worker surface inputs, publishing and the sync scheduler) and `board3d-mesh-ops.js`
+  (mesh merging, outline clipping and hole punching).
+
+Schematic editor:
+
+- `schematic/modules/schematic-editor-api.js` — public editor services for schematic modules.
+- `schematic/modules/shape-focus.js` — the refined node or segment focus within the
+  selected shape, like `pcb/modules/board-shape-state.js`.
+- `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
+  like `pcb/modules/editor-actions.js`.
+- `schematic/modules/schematic-interactions.js` — the one list of in-progress
+  interactions, with PCB's categories, owner modules and import-free WeakMap
+  store; `schematic-interaction-routing.js` — their cancel handlers
+  (counterparts of `pcb-interactions.js` and `pcb-interaction-routing.js`).
+- `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling policy and level of
+  detail; `schematic/render/` — shape and component renderers plus WeakMap view
+  state, including culled flags.
+- `schematic/modules/draw-states.js` — the pointer interaction state machine,
+  overlap-cycle slot owner, pending segment-toggle state and drag-click flags;
+  `drag-gestures.js` — starting and running drags (anchor, segment, move, box
+  selection); `component-snap.js` — where a placed or dragged component lands;
+  `mouse.js`, `keyboard.js`, `ribbon.js`, `context-menu.js` — the input bindings
+  that drive it and the editor actions.
+- `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
+  `drag.js`, `text-edit.js` — drawing, wiring, component placement, paste,
+  drag/pending-anchor slots and inline text; wiring's helpers are `wire-snap.js` (where
+  a wire lands), `wire-reconcile.js` (merging, splitting and connections after an
+  edit), `wire-labels.js` (net names and wire-name labels through merges and splits)
+  and `wire-drag-snap.js` (snaps while wires are dragged); `selection.js` — lock toggling and
+  shape-state capture; `locks.js` —
+  the lock icon's unlock menu (`render/lock-placement.js` places lock icons, using
+  the editors' shared `core/lock-position.js`).
+- `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
+  add/remove/delete/restore work behind the command view hooks.
+- `schematic/modules/properties.js` — the Properties panel (described as data);
+  `property-host.js` — where it is rendered; `files.js` — Open, Save
+  and document loading; `schematic-tools.js` — the tool catalog: one entry per tool
+  (shortcut, ribbon label, set-up, press/move/release and how its draw finishes);
+  `tool.js` — tool selection and persisted tool options;
+  `tool-ghost.js` — single-click placement ghosts.
+
+Derived PCB work:
+
+- `pcb/modules/fill-refresh.js` — coalesced pour recomputation (worker) and adoption;
+  `picture-refresh.js` — debounced picture-copper refresh.
+- `pcb/modules/drc-state.js` — DRC presentation ownership, ratline cache and
+  lifecycle; `drc-refresh.js` — scheduled DRC (worker); `drc-presentation.js` —
+  DRC panel, markers and status.
+- `pcb/modules/autorouter-actions.js` — autorouter editor entry points, session
+  factory, route-result adoption, route-input diagnostics and test-board loading;
+  `pcb/modules/autorouter-session.js` — routing session, worker and lifecycle;
+  `route-input.js` — the router input built from placements, netlist and copper.
+- `pcb/modules/copper-model.js`, `copper-connectivity.js` — physical pads, nets and
+  clusters; `fill-context.js`, `copper-artwork.js` — pour inputs and DRC artwork.
+- `pcb/modules/fabrication-actions.js` — Gerber/BOM/Pick-and-place/DSN/SES and
+  panelization UI actions; `pcb/modules/fabrication-snapshot.js` — detached
+  export inputs and readiness guard.
+
+Shared geometry:
+
+- `shared/pcb/` — board outline and shape geometry, footprints, reference text,
+  stroke font, picture artwork; `core/pcb-placement-geometry.js` — resolved placements.
+- `shapes/arc-edit.js`, `rounded-path.js`, `path-geometry.js`, `path-operations.js`,
+  `shape-drawing.js` — arcs, rounded corners, strokes, path editing, drawing completion.
+- `shapes/property-preview.js` — reversible live-property transactions;
+  `core/grid-snap.js` — displayed-grid magnet.
+- `core/DerivedUpdates.js`, `core/spatial-pairs.js` — batched derived callbacks and the
+  DRC broad phase; `shared/3d/` — arcball control and model rendering.
 
 ## Coordinate & Layer Conventions
 
 - All PCB coordinates are stored in **mm** with **SVG-Y-down** semantics.
   Y is flipped only at the Gerber / Excellon emission boundary.
-- Pad layer names use the short form: `'top' | 'bottom' | 'both'`.
-- Track / SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`.
-
-## PCB Data Model
-
-### Board-Shape Geometry Contract
-
-`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shape-geometry.js` is the
-single source of truth for generic PCB shape semantics across lines,
-rectangles, polygons, arcs, and circles. It resolves:
-
-- normalized line width and copper mode;
-- centerline geometry and whether it is closed;
-- filled-area geometry expanded through the outside half of the outline;
-- circle centerline and outer radii;
-- stroke polygons used by copper-removal clipping;
-- layer policies that force fillable mask and hole shapes to areas, while document graphics honor their fill setting
-  while lines remain strokes.
-
-The SVG editor, Canvas 2D preview, Three.js board view, and Gerber exporter
-consume this descriptor. Backends may choose native output primitives (for
-example a Canvas arc, triangulated Three.js mesh, or Gerber circle aperture),
-but must not independently reinterpret `filled`, `lineWidth`, shape closure,
-radius expansion, or copper-mode aliases.
-
-`board-shape-geometry.js` also owns outline/path generation, physical removal
-contours, bounds, hit tests, and effective width/radius queries. It accepts
-plain PCB shape data in SVG-Y-down millimetres and has no editor, selection,
-history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers
-and the existing image-contour utilities; PCB layer and copper-mode rules
-remain PCB-owned. `board-geometry.js` continues to own footprint and track
-geometry, rather than accumulating unrelated shape editing behavior.
-
-`board-shapes.js` owns interaction, mutation, commands, SVG rendering, and
-properties. It does not re-export geometry functions. All geometry consumers,
-including editor adapters and tests, import directly from
-`board-shape-geometry.js`. Consumers that also need editor operations use
-separate imports for the two responsibilities.
-
-For headless tools and board-design agents:
-
-```js
-import { resolveBoardShapeGeometry, boardShapeBounds } from './src/pcb/modules/board-shape-geometry.js';
-
-const shape = {
-  kind: 'circle', layer: 'top-copper', x: 10, y: 20,
-  radius: 2, lineWidth: 0.2, filled: true, copperMode: 'add',
-};
-const geometry = resolveBoardShapeGeometry(shape);
-const bounds = boardShapeBounds(shape);
-```
-
-Queries do not mutate their inputs, but returned descriptors are not detached
-snapshots: physical contours are evaluated lazily, and image data/contours may
-be borrowed or cached. Treat results as read-only, consume them before mutating
-the source shape, and resolve again after edits. Replace image artwork rather
-than mutating it in place to respect the existing artwork cache. This API
-assumes valid shape data; it does not replace project validation, DRC, or the
-command layer used to apply a design to the editor.
-
-### Tracks and Vias
-
-- `PCBApp.tracks` — array of `Track` polyline-graphs. A Track may change
-  layer mid-run via per-edge `edgeLayers`.
-- `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
-  represented here, including those sitting at a Track's layer-change
-  node. Tracks never carry implicit vias.
-- Decoupling: dragging a Track vertex moves only the vertex; any
-  colocated Via stays put. Dragging a Via moves only the Via.
-- Sources of Vias: interactive draw (`track-draw.js` emits a Via at
-  each layer-change node on finish), autorouter
-  (`autorouter-adapter.js` emits standalone Vias deduped by position),
-  and explicit user placement.
-- In the PCB editor, Vias use a dedicated **Via** display layer. Its
-  visibility and lock state are session preferences and are not serialized
-  into `.cpcb` files; the Hole layer applies only to routed board holes and
-  cutouts.
-- Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
-  read vias exclusively from `PCBApp.vias`.
+- Copper layer and SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`,
+  as do standalone pads (`shapes/pad.js`: `'top-copper' | 'bottom-copper' | 'both'`).
+- Footprint pads generated by `shared/pcb/footprint.js` use the short form
+  `'top' | 'bottom' | 'both'`.
 
 ## Undo / Redo
 
-All mutating PCB operations go through `core/CommandHistory` via
-command classes in `src/pcb/modules/track-commands.js`
-(`AddTrackCommand`, `RemoveTrackCommand`, `ModifyTrackCommand`,
-`MoveVertexCommand`, `AddViaCommand`, `RemoveViaCommand`,
-`MovePlacementCommand`, `SetBoardOutlineCommand`). `AddTrackCommand`
-accepts an optional `vias[]` so a freshly-drawn track and its
-layer-change vias land on the stack as a single atomic step.
+Every authored change goes through `core/CommandHistory` as a command. PCB commands
+come in two layers:
 
-Shapes implement `captureState()` / `applyState()` for serializable
-state snapshots, used by generic modify commands.
+- **Model commands** in `core/pcb-*-commands.js` (track, via, pad, fill, shape, text,
+  lock, placement, outline) change only `PcbDocument`. Tests and `pcb-paste.js` use them
+  directly.
+- **Editor commands** in `pcb/modules` (`track-commands.js`, `pad-commands.js`,
+  `shape-commands.js`, `text-commands.js`, `copper-fill-commands.js`) subclass the
+  model commands under the same names, then re-render the changed objects and
+  refresh derived views such as the ratsnest, clearance halos and pours.
+  `track-commands.js` also defines `CompoundCommand`, which groups several commands
+  into one undo step. `AddTrackCommand` accepts optional `vias[]`, so a drawn track
+  and its layer-change vias are one step. `track-commit.js` builds that drawn-track
+  compound command, using `track-connections.js` for physical copper contact and
+  Net adoption queries.
 
-## Autorouter Architecture
+Schematic commands are in `schematic/modules/commands.js`. Shapes implement
+`captureState()` / `applyState()` for serializable snapshots, used by the generic
+modify commands.
 
-The router lives under `src/pcb/modules/` and is split into three
-modules sharing common infrastructure:
+Every model command (both editors) declares the objects it changes or removes with
+`lockTargets()`. Each editor's `CommandHistory` runs the lock gate in
+`core/edit-guard.js` on new commands, refusing any that would change a locked
+object before it runs. A new command class must declare `lockTargets()`;
+`test-edit-guard` enforces this.
 
-- `autorouter-common.js` — min-heap, `SpatialHash`, geometry,
-  `padPointBlocked` / `padSegmentBlocked`, `CongestionGrid`,
-  `PathfinderGrid`, `astarRoute`, `astarProbe`, path post-processors
-  (`simplifyPath`, `fixAngles`, `optimizePath`, `sanitizeAngles`),
-  `buildCandidateRoutes`, `isValidAngle`, `NODE_KEY` constants.
-- `autorouter-maze.js` — Maze (rip-up) router. Exports `routeAll`,
-  `routeWithMazeRouter`, plus maze-only helpers (`buildMstEdges`,
-  `defaultChainEdges`, `netManhattan`). Holds the `RouteInput` /
-  `RouteResult` typedefs.
-- `autorouter-pathfinder.js` — Negotiated-congestion (McMurchie/Ebeling)
-  router. Exports `routeAllPathfinder`, `routeWithPathfinderRouter`,
-  plus extraction / re-route / verification helpers (`extractFeasibleSubset`,
-  `extractAndReroute`, `geometricVerifyAndDrop`, `smoothPathfinderRoutes`,
-  `unionExtend`, `ripUpSwap`, `astarRouteWithRefinement`,
-  `astarRouteAnyEndpoint`).
+## Checks
 
-`autorouter-worker.js` (Web Worker) imports `routeWithMazeRouter`
-and `routeWithPathfinderRouter`. UI dropdown values are `'maze'`
-and `'pathfinder'`.
-
-### Router I/O Contract
-
-`RouteInput` (from `PCBApp._buildRouteInput()`):
-
-```js
-{
-  connections: [{ net, pads: [{ x, y, width, height, layer, shape, alternates? }] }],
-  allObstaclePads,
-  traceWidth, clearance, viaDiameter,
-  gridStep,
-  bounds,
-}
-```
-
-`RouteResult`:
-
-```js
-{
-  traces: [{ net, layer: 'top'|'bottom', points: [{x,y}], vias?: [{x,y}] }],
-  vias: [{ x, y, net? }],
-  failed: [...],
-  failedConnectionCount,
-  totalConnectionCount,
-}
-```
-
-### Design-Rule Single Source of Truth
-
-`clearance`, `traceWidth`, `viaDiameter` are **never** hardcoded in
-the router or DSN code. They flow from `#pcbClearance`,
-`#pcbTrackWidth`, `#pcbViaDiameter` HTML inputs through
-`PCBApp._getRoutingParams()`. `routeAll`, `routeAllPathfinder`,
-`exportDSN`, and `importDSN` all throw if any of these are missing
-or non-positive. DSN round-trips `viaDiameter` via the
-`via_default` padstack circle radius.
-
-### Pad Obstacle Model
-
-Pad shape vocabulary `'rect' | 'ellipse' | 'oval' | 'polygon'` flows
-through `padPointBlocked` / `padSegmentBlocked` in `autorouter-common.js`:
-
-- `rect` — exact AABB distance with `clearance²` (rounded corners)
-- `ellipse` — circle distance when `hw == hh`; anisotropic ellipse otherwise
-- `oval` — stadium (segment-to-segment distance + minor radius)
-- other — rect bbox fallback (conservative)
-
-Vias are treated as `shape: 'ellipse'` with `hw == hh` so they
-behave as exact circles (not over-blocking squares).
-
-Source pipeline for pad shapes: EasyEDA `PAD~ELLIPSE/RECT/OVAL/POLYGON`
-in `footprint.js`, KiCad circle/oval split in `KiCadFetcher.js`.
-
-### Connection Topology
-
-- Classic / maze router uses a planar **Euclidean MST** (Prim's,
-  `buildMstEdges`) for each net's connection graph. MST in the plane
-  is provably non-crossing; previous nearest-neighbour chains caused
-  visible self-crossings on high-pin nets.
-- Pathfinder still uses the legacy `nncReorderPads` chain — its
-  negotiated-congestion loop was tuned against the chain ordering
-  and multi-start / MST variants tested neutral-to-negative.
-
-### Multi-Pad Pins (`alternates`)
-
-A connection pad may carry `alternates: [{x,y,width,height,layer,shape}, ...]`
-representing other pads sharing the same logical pin (e.g. thermal
-pads with via-stitched copies). Router internals:
-
-- `netPadIdList` is `Array<Array<string>>` — one group per pad
-  (primary + alts). `skipIdsForPair` flattens groups so all alt pad
-  ids are skipped during routing.
-- `astarRouteAnyEndpoint` enumerates `(primary+alts) × (primary+alts)`
-  endpoint pairs, sorted by Manhattan distance, tries each until one
-  succeeds. Used in pathfinder's three A* call sites; classic
-  `routeAll` only benefits from skipIds union (single-endpoint A*).
-
-### Same-Net Via-In-Pad
-
-Same-net vias on pads are **allowed** (required for SMD thermal /
-centre pads only reachable from the opposite layer). Pad obstacle
-records carry both `obj.net = pad.id` (for `skipIds`) and
-`obj.netName = conn.net` (for `isOnPad` `skipNet`). Foreign pads
-still hard-block. `tools/check-clearance-full.mjs` exempts same-net
-via-pad too.
+- `node tools/regression.mjs` — the gate CI runs: import boundaries, the private-access
+  checks for both editors and for shared code (their baselines are empty, so any private
+  access fails), doc references (`tools/check-doc-references.mjs`: every test,
+  file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
+  autorouter baseline on `test-board.json`.
+- `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered. A test
+  that passes but prints a `TypeError`, `ReferenceError`, `SyntaxError` or `RangeError`
+  (a programming error a handler swallowed) counts as failed.
+- `node tools/typecheck.mjs` — a single strict `checkJs` pass for `src/` using
+  `jsconfig.json`. Any TypeScript error fails; type new code fully.
+- `node tools/browser-test.mjs [filter] [--shard=i/n]` — real-browser scenarios (headless
+  Chromium; `HEADED=1` shows the browser; CI runs four shards in parallel). `node tools/serve.mjs [port]` serves the app without
+  dependencies.
+- TypeScript 5.9.3 and Playwright 1.55.0 are not vendored: install them into the
+  git-ignored `node_modules` as CI does (see [README](../README.md#testing)), or set
+  `TSC` / `PLAYWRIGHT`.
+- `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
+- `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
+  query cost on a large synthetic board.
+- Other tools, run by hand:
+  - `autorouter-benchmark.mjs` — routes DSN boards headlessly and writes timings to a
+    git-ignored `benchmark-results-*.json`; `compare-routers.mjs` runs the maze and
+    pathfinder routers on one JSON board side by side.
+  - `check-clearance.mjs` and `check-via-on-pad.mjs` — diagnostics on a routed test
+    board (clearance violations; vias overlapping pad copper).
+  - `build-hershey.mjs` — regenerates `src/shared/pcb/hershey-data.js`, the stroke
+    font's glyphs, from the public-domain Hershey font file.
+  - `generate-esp32-pcm5102a-player.mjs` and `validate-esp32-pcm5102a-player.mjs` —
+    build and check a sample project, `ESP32-PCM5102A-Audio-Player.cpcb`, in the
+    repository root (not committed).
+  - `vendor-vtracer-notices.mjs` — see [vendoring](vendoring_npm_packages.md).
+- Tests call real functions; editor methods run on `tests/unit/pcb-editor-fixture.mjs` or
+  via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
+  evaluates sliced source text; add a small seam when a collaborator must be observed.
+- The PCB fixture uses the editor's real undo history (`createPcbHistory`, with the lock
+  gate). Tests build their DOM with `installFakeDom()` from
+  `tests/unit/helpers/fake-dom.mjs` and add test-specific behaviour on top of it (an
+  element with an id in `document.body`, or one overridden method); `test-fixture-ratchet`
+  fails any test that assigns `globalThis.document` itself, except the one module
+  load-order test it lists with the reason.
+- `test-property-panels-logic-only` keeps Properties panels as descriptions: panel
+  modules use no DOM, and only `shared/ui/property-fields.js` and the editors' hosts
+  build property rows. Panel tests drive the description (`field.preview`/`commit`)
+  or the rendered controls on the fake DOM.
 
 ## Coding & Tooling Conventions
 
 - Vanilla JS ES modules; **no bundler**. Browser loads `src/**` directly.
-- `// @ts-nocheck` files exist in the autorouter modules; propagate to
-  every file when splitting one with the pragma.
+- All source is type-checked (`node tools/typecheck.mjs`); no file opts out with
+  `// @ts-nocheck`.
 - Use `console.info` (not `console.warn`) for diagnostics that must
   survive PowerShell `2>$null` redirection.
-- Node-side benchmarks/DRC checkers in `tools/` import the worker
-  modules directly. They are the authoritative regression gates:
-  - `node tools/regression.mjs` — classic router baseline.
+- Node-side routing checks in `tools/` import the router modules directly:
+  - `node tools/regression.mjs` — maze-router baseline on `test-board.json` (via
+    `check-clearance-full.mjs`).
   - `node tools/check-clearance-pathfinder.mjs <board>.json` —
     pathfinder + post-route geometric clearance check.
 - Vendored libs go in `assets/vendor/` (see
   [docs/vendoring_npm_packages.md](vendoring_npm_packages.md)).
-
-## Known Environmental Gotcha
-
-Microsoft Edge's "Enhance your security on the web" setting
-(`edge://settings/privacy`) disables V8 TurboFan JIT on "unfamiliar"
-sites (rarely-visited HTTPS origins). `localhost` is exempt. Symptom:
-the autorouter worker can run **~8–10× slower** on the deployed site
-than on localhost despite identical bytes. Add the origin to the
-setting's exception list before suspecting code/network issues.
+- If the autorouter is much slower on the hosted site than on `localhost`, suspect
+  Microsoft Edge's "Enhance your security on the web" setting before the code; see
+  [Troubleshooting](../README.md#troubleshooting).

@@ -1,0 +1,494 @@
+
+import { errorMessage, isAbortError } from '../../core/errors.js';
+
+/** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
+/** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
+/** @typedef {{viewport: Viewport}} ViewportExportApp */
+/** @typedef {{getSelection: () => unknown[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection Dynamic selection managers have editor-specific item unions. */
+/** @typedef {{fileName?: string|null}} ExportFileManager */
+/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport}} ExportApp */
+/** @typedef {{x: number, y: number, width: number, height: number}} ExportViewBox */
+
+/**
+ * Exports the schematic to a vector PDF using jsPDF + svg2pdf,
+ * then prompts the user for a save location.
+ * @param {ExportApp} app - Application state.
+ */
+export async function savePdf(app) {
+    // Save current selection before try block so it's accessible in catch
+    const previousSelection = app.selection.getSelection();
+    try {
+        const pdfFileName = (app.fileManager?.fileName || 'schematic')
+            .replace(/\.[^/.]+$/, '') + '.pdf';
+
+        // Clear selection before export to avoid selection handles
+        app.selection.clearSelection();
+        app.renderShapes(true);
+
+        const jsPDF = await loadVectorPdfLibs(app);
+        const { svgNode, paperSize } = cloneViewportSvgForExport(app);
+        const width = Number(svgNode.getAttribute('width'));
+        const height = Number(svgNode.getAttribute('height'));
+
+        // If paper size is set, use paper dimensions for PDF
+        const pdfConfig = paperSize 
+            ? {
+                orientation: paperSize.width >= paperSize.height ? 'landscape' : 'portrait',
+                unit: 'mm',
+                format: [paperSize.width, paperSize.height]
+              }
+            : {
+                orientation: width >= height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [width, height]
+              };
+
+        const JsPdfCtor = /** @type {new (options: object) => {output: (type: 'blob') => Blob}} */ (jsPDF);
+        const pdf = new JsPdfCtor(pdfConfig);
+
+        const w = /** @type {Window & {svg2pdf?: {svg2pdf?: Function, default?: Function}, jspdf?: {jsPDF?: unknown}}} */ (window);
+        const svg2pdf = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
+        if (typeof svg2pdf !== 'function') {
+            throw new Error('svg2pdf is not available');
+        }
+
+        const result = svg2pdf(svgNode, pdf, {
+            x: 0,
+            y: 0,
+            width,
+            height
+        });
+        if (result?.then) {
+            await result;
+        }
+
+        const pdfBlob = pdf.output('blob');
+        await saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
+
+        // Restore previous selection
+        app.selection.selectMultiple(previousSelection, false);
+        app.renderShapes(true);
+    } catch (err) {
+            app.alert('Failed to save PDF: ' + (errorMessage(err)), { title: 'Export Failed' });
+        // Restore selection in case of error
+        app.selection.selectMultiple(previousSelection, false);
+        app.renderShapes(true);
+    }
+}
+
+/**
+ * Prints the schematic via a hidden iframe with proper page sizing and margins.
+ * @param {ExportApp} app - Application state.
+ */
+export async function printSchematic(app) {
+    // Save current selection before try block so it's accessible in catch
+    const previousSelection = app.selection.getSelection();
+    try {
+        // Clear selection before print
+        app.selection.clearSelection();
+        app.renderShapes(true);
+
+        // Create a temporary print window with the SVG
+        const { svgNode, paperSize } = cloneViewportSvgForExport(app);
+        
+        // Get paper dimensions (in mm) - A4 is 210×297mm by default
+        let paperWidth = 210;   // mm
+        let paperHeight = 297;  // mm
+        if (paperSize) {
+            paperWidth = paperSize.width;
+            paperHeight = paperSize.height;
+        }
+        
+        // Keep SVG dimensions in mm for proper print scaling
+        svgNode.setAttribute('width', paperWidth + 'mm');
+        svgNode.setAttribute('height', paperHeight + 'mm');
+
+        // Create an invisible iframe for printing
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.style.width = '1px';
+        iframe.style.height = '1px';
+        document.body.appendChild(iframe);
+
+        // Write HTML content to iframe with proper page sizing.
+        // Use DOM APIs so the SVG (which contains shape/text data that
+        // ultimately comes from user input) is never re-parsed from a
+        // string — no chance of breaking out of the host document.
+        const iframeDoc = iframe.contentDocument || /** @type {Window} */ (iframe.contentWindow).document;
+        iframeDoc.open();
+        iframeDoc.write(`<!DOCTYPE html><html><head><title>Print Schematic</title></head><body></body></html>`);
+        iframeDoc.close();
+
+        const style = iframeDoc.createElement('style');
+        style.textContent = `
+            * { margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; }
+            @page { size: ${paperWidth}mm ${paperHeight}mm; margin: 0 !important; }
+            @media print {
+                body { margin: 0 !important; padding: 5mm !important; }
+                html { margin: 0 !important; padding: 0 !important; }
+            }
+            html { width: 100%; height: 100%; margin: 0 !important; padding: 0 !important; }
+            body { width: 100%; height: 100%; margin: 0 !important; padding: 5mm !important; background: white; overflow: hidden; }
+            svg { width: 100%; height: 100%; display: block; margin: 0 !important; padding: 0 !important; }
+        `;
+        iframeDoc.head.appendChild(style);
+
+        // Import the cloned SVG into the iframe document and append it.
+        const importedSvg = iframeDoc.importNode(svgNode, true);
+        iframeDoc.body.appendChild(importedSvg);
+
+        // Wait for iframe layout, then print. Use a load handler when
+        // possible to avoid the timing race of a fixed setTimeout.
+        const doPrint = () => {
+            try {
+                const iframeWindow = /** @type {Window} */ (iframe.contentWindow);
+                iframeWindow.focus();
+                iframeWindow.print();
+            } finally {
+                // Remove iframe shortly after print dialog opens.
+                setTimeout(() => {
+                    if (iframe.parentNode) document.body.removeChild(iframe);
+                    app.selection.selectMultiple(previousSelection, false);
+                    app.renderShapes(true);
+                }, 500);
+            }
+        };
+        if (/** @type {Window} */ (iframe.contentWindow).document.readyState === 'complete') {
+            // Defer one frame so the appended SVG has laid out.
+            requestAnimationFrame(doPrint);
+        } else {
+            iframe.addEventListener('load', doPrint, { once: true });
+        }
+    } catch (err) {
+            app.alert('Failed to print: ' + (errorMessage(err)), { title: 'Print Failed' });
+        // Restore selection in case of error
+        app.selection.selectMultiple(previousSelection, false);
+        app.renderShapes(true);
+    }
+}
+
+/** Each editor's vector PDF library load, started on its first PDF export. */
+const pdfVectorLoaders = /** @type {WeakMap<object, Promise<Function>>} */ (new WeakMap());
+
+/**
+ * Lazy-loads jspdf and svg2pdf vendor scripts, once per editor.
+ * @param {object} app - The editor exporting.
+ * @returns {Promise<Function>} Resolves to the `jsPDF` constructor.
+ */
+export function loadVectorPdfLibs(app) {
+    const pending = pdfVectorLoaders.get(app);
+    if (pending) return pending;
+
+    /**
+     * @param {string} src
+     * @returns {Promise<void>}
+     */
+    const loadScript = (src) => new Promise((resolve, reject) => {
+        const existing = Array.from(document.scripts).find(s => s.src === src);
+        if (existing) {
+            // Script tag already in DOM — if it has already loaded, resolve immediately
+            if (existing.dataset.loaded === 'true') {
+                resolve();
+            } else if (existing.dataset.failed === 'true') {
+                reject(new Error(`Failed to load ${src}`));
+            } else {
+                existing.addEventListener('load', () => resolve());
+                existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)));
+            }
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = () => { script.dataset.loaded = 'true'; resolve(); };
+        script.onerror = () => { script.dataset.failed = 'true'; reject(new Error(`Failed to load ${src}`)); };
+        document.head.appendChild(script);
+    });
+
+    const loader = (async () => {
+        await loadScript(new URL('../../../assets/vendor/jspdf.umd.min.js', import.meta.url).href);
+        await loadScript(new URL('../../../assets/vendor/svg2pdf.umd.min.js', import.meta.url).href);
+
+        const w = /** @type {Window & {svg2pdf?: {svg2pdf?: Function, default?: Function}, jspdf?: {jsPDF?: unknown}}} */ (window);
+        const svg2pdfFn = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
+        if (!w.jspdf?.jsPDF || typeof svg2pdfFn !== 'function') {
+            throw new Error('Vector PDF libraries failed to load');
+        }
+        return /** @type {Function} */ (w.jspdf.jsPDF);
+    })();
+    pdfVectorLoaders.set(app, loader);
+    return loader;
+}
+
+/**
+ * Deep-clones the viewport SVG, sets viewBox to paper or viewport bounds,
+ * inlines styles, forces monochrome, and removes grid/axes layers.
+ * @param {ViewportExportApp} app - Application state.
+ * @returns {{svgNode: SVGSVGElement, paperSize: PaperSize|null}}
+ */
+export function cloneViewportSvgForExport(app) {
+    const originalSvg = app.viewport.svg;
+    // Culling and low-detail blocks belong to the viewport, not the printed document.
+    const viewportClasses = Array.from(originalSvg.querySelectorAll('.culled, .lod-far'))
+        .map(element => ({ element, culled: element.classList.contains('culled'), lod: element.classList.contains('lod-far') }));
+    let svgNode;
+    try {
+        for (const { element } of viewportClasses) element.classList.remove('culled', 'lod-far');
+        svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
+        inlineSvgComputedStyles(originalSvg, svgNode);
+    } finally {
+        for (const { element, culled, lod } of viewportClasses) {
+            if (culled) element.classList.add('culled');
+            if (lod) element.classList.add('lod-far');
+        }
+    }
+    for (const element of svgNode.querySelectorAll('.cpcb-lod-rect, .shape-anchors, .component-highlight, .text-edit-overlay, .label-connection-guide, .wire-junction-highlight')) {
+        element.remove();
+    }
+    const vb = app.viewport.viewBox;
+    const width = Math.max(1, Math.round(app.viewport.width));
+    const height = Math.max(1, Math.round(app.viewport.height));
+    
+    // If paper size is set, use paper bounds for export instead of viewport
+    const paperSize = app.viewport.paperSize;
+    let exportViewBox = /** @type {ExportViewBox} */ (vb);
+    let exportWidth = width;
+    let exportHeight = height;
+    
+    if (paperSize) {
+        // Paper is positioned at (0, -height) in world coords
+        // Set viewBox to match paper bounds
+        exportViewBox = {
+            x: 0,
+            y: -paperSize.height,
+            width: paperSize.width,
+            height: paperSize.height
+        };
+        exportWidth = paperSize.width;
+        exportHeight = paperSize.height;
+    }
+
+    svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgNode.setAttribute('width', String(exportWidth));
+    svgNode.setAttribute('height', String(exportHeight));
+    svgNode.setAttribute('viewBox', `${exportViewBox.x} ${exportViewBox.y} ${exportViewBox.width} ${exportViewBox.height}`);
+    svgNode.setAttribute('style', 'background:#ffffff');
+
+    forceMonochromeSvg(svgNode);
+
+    const gridLayer = svgNode.querySelector('#gridLayer');
+    if (gridLayer) {
+        gridLayer.remove();
+    }
+
+    const axesLayer = svgNode.querySelector('#axesLayer');
+    if (axesLayer) {
+        axesLayer.remove();
+    }
+    
+    // Keep paper outline if paper size is set
+    const paperOutlineLayer = svgNode.querySelector('#paperOutlineLayer');
+    if (paperOutlineLayer && !paperSize) {
+        // Only remove if no paper size is set
+        paperOutlineLayer.remove();
+    }
+
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('x', String(exportViewBox.x));
+    bgRect.setAttribute('y', String(exportViewBox.y));
+    bgRect.setAttribute('width', String(exportViewBox.width));
+    bgRect.setAttribute('height', String(exportViewBox.height));
+    bgRect.setAttribute('fill', '#ffffff');
+    bgRect.setAttribute('stroke', 'none');
+    svgNode.insertBefore(bgRect, svgNode.firstChild);
+
+    return { svgNode, paperSize };
+}
+
+/**
+ * Walks all SVG descendants and forces strokes/fills to black and text to
+ * black, for print-friendly output.
+ * @param {SVGElement} svgRoot - Root SVG element to process.
+ */
+export function forceMonochromeSvg(svgRoot) {
+    const nodes = svgRoot.querySelectorAll('*');
+    nodes.forEach((el) => {
+        const tag = el.tagName?.toLowerCase();
+        if (!tag) return;
+
+        if (el.getAttribute('opacity') && Number(el.getAttribute('opacity')) !== 0) {
+            el.setAttribute('opacity', '1');
+        }
+
+        if (tag === 'text') {
+            el.setAttribute('fill', '#000000');
+            el.setAttribute('stroke', 'none');
+            return;
+        }
+
+        const fill = el.getAttribute('fill');
+        const stroke = el.getAttribute('stroke');
+
+        if (fill && fill !== 'none' && fill !== 'transparent'
+            && !/^rgba\([^)]*,\s*0(?:\.0*)?\s*\)$/.test(fill)) {
+            el.setAttribute('fill', '#000000');
+        }
+
+        if (stroke && stroke !== 'none') {
+            el.setAttribute('stroke', '#000000');
+        }
+
+        // Safety net: force stroke only when fill is truly missing (null),
+        // NOT when it's explicitly "none" (intentionally invisible element)
+        if (fill === null && (stroke === null || stroke === 'none')) {
+            if (['line', 'path', 'polyline', 'polygon', 'rect', 'circle', 'ellipse'].includes(tag)) {
+                el.setAttribute('stroke', '#000000');
+            }
+        }
+    });
+}
+
+/**
+ * Copies computed CSS properties (fill, stroke, font, etc.) from the live SVG
+ * to a cloned SVG so styles survive serialization.
+ * @param {SVGElement} originalSvg - The live SVG in the DOM.
+ * @param {SVGElement} clonedSvg - The deep-cloned SVG to receive styles.
+ */
+export function inlineSvgComputedStyles(originalSvg, clonedSvg) {
+    const props = [
+        'fill',
+        'stroke',
+        'strokeWidth',
+        'fontSize',
+        'fontFamily',
+        'fontWeight',
+        'fontStyle',
+        'textAnchor',
+        'dominantBaseline',
+        'opacity',
+        'fillOpacity',
+        'strokeOpacity',
+        'display',
+        'visibility',
+    ];
+
+    const origIter = document.createNodeIterator(originalSvg, NodeFilter.SHOW_ELEMENT);
+    const cloneIter = document.createNodeIterator(clonedSvg, NodeFilter.SHOW_ELEMENT);
+
+    let origNode = origIter.nextNode();
+    let cloneNode = cloneIter.nextNode();
+
+    while (origNode && cloneNode) {
+        if (origNode.nodeType === Node.ELEMENT_NODE && cloneNode.nodeType === Node.ELEMENT_NODE) {
+            const origEl = /** @type {Element} */ (origNode);
+            const cloneEl = /** @type {Element} */ (cloneNode);
+            const style = window.getComputedStyle(origEl);
+
+            for (const prop of props) {
+                const cssValue = /** @type {CSSStyleDeclaration & Record<string, string>} */ (style)[prop];
+                if (cssValue && cssValue !== 'initial' && cssValue !== 'inherit') {
+                    const attr = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+                    cloneEl.setAttribute(attr, cssValue);
+                }
+            }
+
+            if (origEl.nodeName.toLowerCase() === 'text') {
+                cloneEl.textContent = origEl.textContent;
+            }
+        }
+
+        origNode = origIter.nextNode();
+        cloneNode = cloneIter.nextNode();
+    }
+}
+
+/**
+ * Saves a Blob using the File System Access API (`showSaveFilePicker`)
+ * with fallback to a download link.
+ * @param {Blob} blob - Data to save.
+ * @param {string} suggestedName - Default file name.
+ * @param {string} mimeType - MIME type for the file.
+ * @param {string[]} extensions - Accepted file extensions (e.g. `['.pdf']`).
+ */
+export async function saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
+    const savePicker = /** @type {((options?: {suggestedName?: string, types?: Array<{description?: string, accept: Record<string, string[]>}>}) => Promise<FileSystemFileHandle>)|undefined} */ (/** @type {Window & {showSaveFilePicker?: unknown}} */ (window).showSaveFilePicker);
+    if (typeof savePicker === 'function') {
+        try {
+            const handle = await savePicker({
+                suggestedName,
+                types: [{ description: 'PDF', accept: { [mimeType]: extensions } }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            return;
+        } catch (err) {
+            if (isAbortError(err)) return;
+            throw err;
+        }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+/**
+ * Returns a Promise resolving to an HTML `<canvas>` with the viewport
+ * rendered as a rasterized image at the given scale.
+ * @param {ViewportExportApp} app - Application state.
+ * @param {number} [scale=2] - Pixel density multiplier.
+ * @returns {Promise<HTMLCanvasElement>}
+ */
+export function renderViewportToCanvas(app, scale = 2) {
+    return new Promise((resolve, reject) => {
+        try {
+            const svgNode = /** @type {SVGSVGElement} */ (app.viewport.svg.cloneNode(true));
+            inlineSvgComputedStyles(app.viewport.svg, svgNode);
+            const vb = app.viewport.viewBox;
+
+            const width = Math.max(1, Math.round(app.viewport.width * scale));
+            const height = Math.max(1, Math.round(app.viewport.height * scale));
+
+            svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            svgNode.setAttribute('width', String(width));
+            svgNode.setAttribute('height', String(height));
+            svgNode.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+
+            const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bgRect.setAttribute('x', String(vb.x));
+            bgRect.setAttribute('y', String(vb.y));
+            bgRect.setAttribute('width', String(vb.width));
+            bgRect.setAttribute('height', String(vb.height));
+            bgRect.setAttribute('fill', '#ffffff');
+            svgNode.insertBefore(bgRect, svgNode.firstChild);
+
+            const svgData = new XMLSerializer().serializeToString(svgNode);
+            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(svgBlob);
+
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+                ctx.drawImage(img, 0, 0, width, height);
+                URL.revokeObjectURL(url);
+                resolve(canvas);
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                reject(new Error('Failed to render SVG'));
+            };
+            img.src = url;
+        } catch (err) {
+            reject(err);
+        }
+    });
+}

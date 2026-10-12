@@ -1,8 +1,13 @@
+/**
+ * @param {{refresh3D: (revision: number) => any, refresh2D: () => void,
+ *   on3DSettled?: (state: {revision: number, applied: boolean, dirty: boolean}) => void}} options
+ */
 export function createBoardViewSync({ refresh3D, refresh2D, on3DSettled = () => {} }) {
     let sourceRevision = 0;
     let applied3DRevision = 0;
     const inFlight = new Set();
 
+    /** @param {number} revision @param {boolean} applied */
     const settle = (revision, applied) => {
         inFlight.delete(revision);
         if (applied) applied3DRevision = Math.max(applied3DRevision, revision);
@@ -11,6 +16,7 @@ export function createBoardViewSync({ refresh3D, refresh2D, on3DSettled = () => 
 
     return {
         invalidate() { return ++sourceRevision; },
+        /** @param {string} view */
         flush(view) {
             if (view === 'top' || view === 'bottom') {
                 return refresh2D();

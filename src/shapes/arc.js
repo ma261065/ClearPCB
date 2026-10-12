@@ -8,39 +8,49 @@ import { Shape } from './shape.js';
 import { pointInPolygon, distanceToSegment, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
 import { projectArcBulge, arcBulgeRatio, arcBulgeFromRatio, controlArcGeometry, sampleControlArc } from './arc-edit.js';
 import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
-import { primitiveShapePath } from './shape-drawing.js';
+
+/** @typedef {import('../core/geometry.js').Point} Point */
+/** @typedef {import('./arc-edit.js').ControlArcShape & {kind: 'arc'}} ControlArcShape */
+/** @typedef {{cx: number, cy: number, radius: number, startAngle: number, endAngle: number, sweepFlag: 0|1}} ArcGeometry */
+/** @typedef {import('./shape.js').ShapeOptions & {startPoint?: Point, endPoint?: Point, bulgePoint?: Point, fill?: boolean, fillAlpha?: number}} ArcOptions */
+/** @typedef {{startPoint: Point, endPoint: Point, bulgePoint: Point, fill: boolean, fillAlpha: number, lineWidth: number}} ArcState */
+/** @typedef {ReturnType<Shape['toJSON']> & {sp: Point, ep: Point, bp: Point, f?: true}} ArcJSON */
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Arc extends Shape {
+    /** @type {'arc'} */
+    type;
+
     /**
-     * @param {Object} [options]
-        * @param {string} [options.id]
-        * @param {string} [options.layer]
-        * @param {string|number} [options.color]
-        * @param {string|number} [options.fillColor]
-        * @param {number} [options.lineWidth]
-        * @param {boolean} [options.visible]
-        * @param {boolean} [options.locked]
-     * @param {{x:number,y:number}} [options.startPoint] - Arc start.
-     * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
-     * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
-     * @param {boolean} [options.fill] - Whether to fill the chord area.
+     * @param {ArcOptions} [options]
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'arc'} */
         this.type = 'arc';
         
         // The ONLY source of truth: three control points
+        /** @type {Point} */
         this._startPoint = options.startPoint || { x: 0, y: 0 };
+        /** @type {Point} */
         this._endPoint = options.endPoint || { x: 10, y: 0 };
+        /** @type {Point} */
         this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
+        /** @type {ArcGeometry|null} */
         this._cachedGeometry = null;
 
         // Fill properties
+        /** @type {boolean} */
         this.fill = options.fill || false;
+        /** @type {number} */
         this.fillAlpha = options.fillAlpha ?? 0.3;
+        /** @type {number|null|undefined} */
+        this._dragBulgeRatio;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this arc. */
+        this.attachedLabels = null;
     }
     
     /** @returns {{x:number,y:number}} Arc start control point. */
@@ -50,7 +60,7 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set startPoint(val) {
         this._startPoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     /** @returns {{x:number,y:number}} Arc end control point. */
     get endPoint() {
@@ -59,14 +69,13 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set endPoint(val) {
         this._endPoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     get bulge() { return bulgeRatio(this._startPoint, this._endPoint, this._bulgePoint); }
 
     set bulge(value) {
         if (!Number.isFinite(value)) return;
         this.bulgePoint = bulgePointFromRatio(this._startPoint, this._endPoint, Math.max(-1, Math.min(1, value)));
-        this.invalidate();
     }
 
     /** @returns {{x:number,y:number}} Bulge (curvature) control point. */
@@ -76,7 +85,7 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set bulgePoint(val) {
         this._bulgePoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     
     /**
@@ -101,7 +110,7 @@ export class Arc extends Shape {
     /**
      * Derive centre, radius, angles, and sweep from the three control points
      * via circumcircle calculation.
-     * @returns {{cx:number, cy:number, radius:number, startAngle:number, endAngle:number, sweepFlag:0|1}}
+     * @returns {ArcGeometry}
      */
     _computeGeometry() {
         const p1 = this._startPoint;
@@ -155,7 +164,10 @@ export class Arc extends Shape {
         return pointsBounds(sampleControlArc(this._controlArc()), this.lineWidth / 2);
     }
     
-    /** @override */
+    /**
+     * @override
+     * @param {Point} point @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0.5) {
         const points = sampleControlArc(this._controlArc());
         return (this.fill && pointInPolygon(point, points)) || hitTestStrokeSegments(point,
@@ -169,6 +181,7 @@ export class Arc extends Shape {
      */
     _isAngleInRange(angle) {
         const TWO_PI = Math.PI * 2;
+        /** @param {number} a */
         const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
         const geo = this._getGeometry();
         angle = mod(angle);
@@ -186,13 +199,17 @@ export class Arc extends Shape {
         }
     }
     
-    /** @override */
+    /**
+     * @override
+     * @param {Point} point
+     */
     distanceTo(point) {
         const points = sampleControlArc(this._controlArc());
         return points.slice(0, -1).reduce((distance, start, index) =>
             Math.min(distance, distanceToSegment(point, start, points[index + 1])), Infinity);
     }
 
+    /** @returns {ControlArcShape} */
     _controlArc() {
         return { kind: 'arc', start: this._startPoint, end: this._endPoint, bulge: this._bulgePoint };
     }
@@ -232,7 +249,10 @@ export class Arc extends Shape {
         };
     }
     
-    /** @override */
+    /**
+     * @override
+     * @param {string} anchorId @param {number} x @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -257,38 +277,10 @@ export class Arc extends Shape {
         return undefined;
     }
 
-    /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        el.textContent = '';
-
-        const arcPath = primitiveShapePath(this._controlArc());
-        const sw = this._getEffectiveStrokeWidth(scale);
-
-        // Fill: chord area (arc + close)
-        if (this.fill) {
-            const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            fillEl.setAttribute('d', `${arcPath} Z`);
-            fillEl.setAttribute('fill', fillColor);
-            fillEl.setAttribute('fill-opacity', String(this.fillAlpha));
-            fillEl.setAttribute('stroke', 'none');
-            el.appendChild(fillEl);
-        }
-
-        // Stroke: arc only (no chord line)
-        const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        strokeEl.setAttribute('d', arcPath);
-        strokeEl.setAttribute('stroke', strokeColor);
-        strokeEl.setAttribute('stroke-width', String(sw));
-        strokeEl.setAttribute('stroke-linecap', 'round');
-        strokeEl.setAttribute('fill', 'none');
-        el.appendChild(strokeEl);
-    }
-    
-    /** @override */
+    /**
+     * @override
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         // Assign new objects through setters so _cachedGeometry is cleared at each step
@@ -302,7 +294,10 @@ export class Arc extends Shape {
     clone() {
         return new Arc(this.toJSON());
     }
-    /** @override */
+    /**
+     * @override
+     * @returns {ArcState}
+     */
     captureState() {
         return {
             startPoint: { x: this._startPoint.x, y: this._startPoint.y },
@@ -319,18 +314,24 @@ export class Arc extends Shape {
         return [
             { key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 },
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
-            { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'lineWidth', label: 'Line Width (mm)', type: 'number', min: 0.05, max: 5, step: 0.05 },
             { key: 'fill',      label: 'Fill',       type: 'checkbox' },
         ];
     }
-    /** @override */
+    /**
+     * @override
+     * @param {ArcState} state
+     */
     applyState(state) {
-        if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
-        if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
-        if (state.bulgePoint) this.bulgePoint = { x: state.bulgePoint.x, y: state.bulgePoint.y };
-        if ('fill' in state) this.fill = state.fill;
-        if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
-        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
+        const startPoint = /** @type {Point|undefined} */ (state.startPoint);
+        const endPoint = /** @type {Point|undefined} */ (state.endPoint);
+        const bulgePoint = /** @type {Point|undefined} */ (state.bulgePoint);
+        if (startPoint) this.startPoint = { x: startPoint.x, y: startPoint.y };
+        if (endPoint) this.endPoint = { x: endPoint.x, y: endPoint.y };
+        if (bulgePoint) this.bulgePoint = { x: bulgePoint.x, y: bulgePoint.y };
+        if (typeof state.fill === 'boolean') this.fill = state.fill;
+        if (typeof state.fillAlpha === 'number') this.fillAlpha = state.fillAlpha;
+        if (typeof state.lineWidth === 'number') this.lineWidth = state.lineWidth;
         this.invalidate();
     }
     
@@ -338,7 +339,10 @@ export class Arc extends Shape {
     getPosition() {
         return { x: this._startPoint.x, y: this._startPoint.y };
     }
-    /** @override — 'none' for the mid anchor, 'grid' for start/end. */
+    /**
+     * @override — 'none' for the mid anchor, 'grid' for start/end.
+     * @param {string} anchorId
+     */
     getAnchorSnapMode(anchorId) {
         return anchorId === 'mid' ? 'none' : 'grid';
     }
@@ -346,14 +350,17 @@ export class Arc extends Shape {
     resetDragState() {
         this._dragBulgeRatio = null;
     }
-    /** @override */
+    /**
+     * @override
+     * @returns {ArcJSON}
+     */
     toJSON() {
-        const json = {
+        const json = /** @type {ArcJSON} */ ({
             ...super.toJSON(),
             sp: { x: _r4(this._startPoint.x), y: _r4(this._startPoint.y) },
             ep: { x: _r4(this._endPoint.x), y: _r4(this._endPoint.y) },
             bp: { x: _r4(this._bulgePoint.x), y: _r4(this._bulgePoint.y) }
-        };
+        });
         if (this.fill) json.f = true;
         return json;
     }

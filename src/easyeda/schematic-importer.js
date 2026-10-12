@@ -21,9 +21,17 @@ function nextShapeId() { return `eda_s${_nextId++}`; }
 function nextCompId() { return `eda_c${_nextId++}`; }
 
 /**
+ * The library that parses an EasyEDA symbol's shapes (ComponentLibrary).
+ * @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('../components/Component.js').ComponentSymbol} ComponentSymbol
+ * @typedef {{_createEasyEDASymbol?: (dataStr: {shape: string[], BBox: null}) => ComponentSymbol|null|undefined}} EasyEDASymbolParser
+ */
+
+/**
  * Main entry point — import an EasyEDA schematic JSON object.
- * @param {object} fileData - Parsed JSON from an EasyEDA .json file
- * @param {object} componentLibrary - ComponentLibrary instance (for EasyEDA symbol parsing)
+ * @param {{schematics?: unknown}|null|undefined} fileData - Parsed JSON from an EasyEDA .json file,
+ *   checked here before use
+ * @param {EasyEDASymbolParser|null|undefined} componentLibrary - parses each component's symbol
  * @returns {object} ClearPCB document (same shape as serializeDocument output)
  */
 export function importEasyEDASchematic(fileData, componentLibrary) {
@@ -51,6 +59,7 @@ export function importEasyEDASchematic(fileData, componentLibrary) {
 
     const shapes = [];
     const components = [];
+    /** @type {Record<string, object>} */
     const defs = {};
 
     // ── Sort shapes by type ──────────────────────────────────────
@@ -130,13 +139,10 @@ export function importEasyEDASchematic(fileData, componentLibrary) {
                 titleBlockData: {}
             },
             shapes,
-            components
+            components,
+            ...(Object.keys(defs).length > 0 ? { defs } : {}),
         }
     };
-
-    if (Object.keys(defs).length > 0) {
-        doc.schematic.defs = defs;
-    }
 
     console.log(`EasyEDA import: ${components.length} components, ${shapes.length} shapes `
         + `(${wireShapes.length} wires, ${flagShapes.length} flags, `
@@ -149,6 +155,8 @@ export function importEasyEDASchematic(fileData, componentLibrary) {
 
 /**
  * Parse a LIB shape string and return a ClearPCB component + definition.
+ * @param {string} libString
+ * @param {EasyEDASymbolParser|null|undefined} componentLibrary
  */
 function _convertLIB(libString, componentLibrary) {
     const segments = libString.split('#@$');
@@ -215,6 +223,7 @@ function _convertLIB(libString, componentLibrary) {
     }
 
     // Build definition
+    /** @type {ComponentDefinition} */
     const definition = {
         name: defName,
         description: value || mfgPart,
@@ -222,8 +231,8 @@ function _convertLIB(libString, componentLibrary) {
         defaultValue: value || mfgPart || '',
         defaultReference: _refPrefix(reference) || 'U?',
         symbol,
-        mpn: mfgPart,
-        package: props.package || '',
+        defaultProperties: { mpn: mfgPart },
+        footprintName: props.package || '',
         _source: 'EasyEDA-Import',
     };
 
@@ -246,6 +255,7 @@ function _convertLIB(libString, componentLibrary) {
     const compId = nextCompId();
 
     const component = {
+        type: 'component',
         id: compId,
         dn: defName,
         x: worldX,
@@ -263,6 +273,7 @@ function _convertLIB(libString, componentLibrary) {
 
 /**
  * Extract a reference designator prefix (e.g. "R" from "R3", "U" from "U1").
+ * @param {string} ref
  */
 function _refPrefix(ref) {
     if (!ref) return '';
@@ -272,6 +283,7 @@ function _refPrefix(ref) {
 
 /**
  * Find the first pin's connection point in sub-shapes.
+ * @param {string[]} subShapes
  */
 function _findFirstPin(subShapes) {
     for (const sub of subShapes) {
@@ -302,6 +314,7 @@ function _findFirstPin(subShapes) {
 /**
  * Convert an EasyEDA W shape to a ClearPCB Wire.
  * W format: W~x1 y1 x2 y2 ...~color~strokeWidth~...
+ * @param {string} wString
  */
 function _convertWire(wString) {
     const parts = wString.split('~');
@@ -318,7 +331,9 @@ function _convertWire(wString) {
     }
 
     // Build graph nodes and edges
+    /** @type {Record<string, number[]>} */
     const graphNodes = {};
+    /** @type {Record<string, string[]>} */
     const graphEdges = {};
     for (let i = 0; i < points.length; i++) {
         graphNodes[`n${i}`] = [points[i].x, points[i].y];
@@ -342,6 +357,7 @@ function _convertWire(wString) {
 /**
  * Convert an EasyEDA F shape (power/net flag) to a ClearPCB Net shape.
  * F format: F~type~x~y~rotation~id~...^^cx~cy^^netName~color~...
+ * @param {string} fString
  */
 function _convertFlag(fString) {
     const mainSegments = fString.split('^^');
@@ -399,6 +415,7 @@ function _convertFlag(fString) {
 /**
  * Convert an EasyEDA T~L shape (net label on wire) to a ClearPCB Net shape.
  * T~L format: T~L~x~y~rotation~color~font~...~comment~text~...
+ * @param {string} tString
  */
 function _convertLabel(tString) {
     const parts = tString.split('~');
@@ -430,6 +447,7 @@ function _convertLabel(tString) {
 /**
  * Convert an EasyEDA O shape (no-connect) to a ClearPCB NoConnect.
  * O format: O~x~y~id~pathData~color~...
+ * @param {string} oString
  */
 function _convertNoConnect(oString) {
     const parts = oString.split('~');
@@ -451,8 +469,11 @@ function _convertNoConnect(oString) {
 /**
  * Parse EasyEDA backtick-delimited properties string.
  * Format: key1`value1`key2`value2`...
+ * @param {string} propsStr
+ * @returns {Record<string, string>}
  */
 function _parseProps(propsStr) {
+    /** @type {Record<string, string>} */
     const result = {};
     if (!propsStr) return result;
     const tokens = propsStr.split('`');

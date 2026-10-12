@@ -1,17 +1,17 @@
-/**
+﻿/**
  * Minimal Gerber RS-274X + Excellon drill export for ClearPCB.
  *
- * Produces a Map of filename → string for the standard board layers:
+ * Produces a Map of filename â†’ string for the standard board layers:
  *   - top-copper.gtl    (tracks, pads, vias, top layer)
  *   - bottom-copper.gbl (tracks, pads, vias, bottom layer)
- *   - top-mask.gts      (soldermask openings, top — pad shape + expansion)
+ *   - top-mask.gts      (soldermask openings, top â€” pad shape + expansion)
  *   - bottom-mask.gbs   (soldermask openings, bottom)
- *   - top-paste.gtp     (stencil apertures, top — SMD pads only)
+ *   - top-paste.gtp     (stencil apertures, top â€” SMD pads only)
  *   - bottom-paste.gbp  (stencil apertures, bottom)
  *   - top-silk.gto      (component reference labels on silkscreen)
  *   - board-outline.gko (closed board boundary and cutouts)
  *   - board-PTH.drl     (Excellon plated through-holes: pads, vias, plated holes)
- *   - board-NPTH.drl    (Excellon non-plated holes: mounting/tooling — when present)
+ *   - board-NPTH.drl    (Excellon non-plated holes: mounting/tooling â€” when present)
  *
  * Coordinate system: ClearPCB stores PCB geometry in SVG-Y-down
  * millimetres (positive Y points down on screen). Gerber files use
@@ -22,7 +22,7 @@
  * which is the modern standard for sub-micron precision in mm.
  */
 
-import { resolveReferenceText } from './reference-text.js';
+import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
 import {
     orthoSwap as _orthoSwap,
     resolvePlacementDrills,
@@ -31,22 +31,40 @@ import {
     MASK_EXPANSION,
     TENT_VIAS,
     padFlashOutline,
-} from './board-geometry.js';
-import { resolveTrackSegments } from './board-geometry.js';
-import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shape-geometry.js';
+} from '../../shared/pcb/board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { deflateSync } from '../../../assets/vendor/fflate.module.js';
 import { regionFillContours } from './region-geometry.js';
-import { getBoardOutline, boardBoundary, rectangleBoardOutline } from './board-outline.js';
+import { getBoardOutline, boardBoundary, rectangleBoardOutline } from '../../shared/pcb/board-outline.js';
 import { buildPanelLayout } from './panelization.js';
 import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
+
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('./copper-fill-geom.js').ClipperPoint} ClipperPoint */
+/** @typedef {import('./panelization.js').PanelLayout} PanelLayout */
+/** @typedef {{x: number, y: number, w: number, h: number, r?: number, points?: Point[], panel?: PanelLayout|null}} GerberBounds */
+/** @typedef {import('../../shapes/pad-geometry.js').PadFlash & {paste?: boolean, mask?: boolean}} GerberPadFlash */
+/** @typedef {{dia: number, x: number, y: number, plated?: boolean, slot?: {x2: number, y2: number}, x2?: number, y2?: number}} GerberDrill */
+/** @typedef {{d: number, op: string}} GerberOp */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} GerberBoardShape */
+/** @typedef {{placements: Map<string, Placement>, tracks?: Track[], vias?: Via[], pads?: Pad[], boardWidth: number, boardHeight: number, boardRadius?: number, boardX?: number, boardY?: number, texts?: PcbText[], fills?: CopperFill[], boardShapes?: GerberBoardShape[], panelization?: object|null}} GerberExportOptions */
+/** @typedef {(key: string, def?: string) => number} ApertureGetter */
 
 const FORMAT = '%FSLAX46Y46*%\n%MOMM*%\n';
 const SCALE = 1e6; // 4.6 fixed-point: multiply mm by 10^6
 
+/** @param {string} header @param {string} body @param {GerberBounds} bounds @param {number|null} [fiducialD] */
 function finishArtwork(header, body, bounds, fiducialD = null) {
-    if (fiducialD !== null) {
+    if (fiducialD !== null && bounds.panel) {
         body += `G04 Panel rail fiducials - DO NOT repeat*\n%LPD*%\nD${fiducialD}*\n`;
         for (const mark of bounds.panel.fiducials) {
             body += `X${_fmt(mark.x)}Y${_fmtY(mark.y)}D03*\n`;
@@ -55,6 +73,7 @@ function finishArtwork(header, body, bounds, fiducialD = null) {
     return header + body + 'M02*\n';
 }
 
+/** @param {PanelLayout} panel */
 function panelScoreFile(panel) {
     let output = 'G04 ClearPCB V-score centerlines - NOT through routes*\n' + FORMAT + '%LPD*%\n%ADD10C,0.1*%\nD10*\n';
     for (const [start, end] of panel.cuts) {
@@ -63,6 +82,7 @@ function panelScoreFile(panel) {
     return output + 'M02*\n';
 }
 
+/** @param {GerberPadFlash} flash @param {ApertureGetter} getAp @param {GerberBounds} [bounds] @returns {GerberOp} */
 function padOperation(flash, getAp, bounds) {
     const contour = padFlashOutline(flash);
     if (bounds?.points && _clipContours([contour], bounds, ClipperLib.ClipType.ctDifference).length) {
@@ -75,21 +95,24 @@ function padOperation(flash, getAp, bounds) {
         || (!round && Math.min(angle, Math.abs(angle - 90), 180 - angle) > 1e-9)) {
         return { d: getAp('C:0.0010'), op: _shapeContourRegion([padFlashOutline(flash)]).trimEnd() };
     }
-    if (_orthoSwap(flash.rotation)) [width, height] = [height, width];
+    if (_orthoSwap(flash.rotation || 0)) [width, height] = [height, width];
     const key = round ? `C:${width.toFixed(4)}`
         : `${flash.shape === 'oval' ? 'O' : 'R'}:${width.toFixed(4)}x${height.toFixed(4)}`;
     return { d: getAp(key), op: `X${_fmt(flash.x)}Y${_fmtY(flash.y)}D03*` };
 }
 
+/** @param {Point[]} points @param {boolean} closed @param {number} width @returns {Point[][]} */
 function _strokeContours(points, closed, width) {
     const offset = new ClipperLib.ClipperOffset(10, 0.001 * SCALE);
     offset.AddPath(points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
         ClipperLib.JoinType.jtRound, closed ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+    /** @type {ClipperPoint[][]} */
     const result = [];
     offset.Execute(result, width * SCALE / 2);
     return result.map(contour => contour.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
+/** @param {Point[]} points @param {boolean} closed @param {number} width @param {GerberBounds} [bounds] */
 function _strokeOperation(points, closed, width, bounds) {
     if (points.length < 2) return '';
     const contours = _strokeContours(points, closed, width);
@@ -102,8 +125,11 @@ function _strokeOperation(points, closed, width, bounds) {
             .map(point => `X${_fmt(point.x)}Y${_fmtY(point.y)}D01*\n`).join('');
 }
 
+/** @param {ReturnType<typeof resolveBoardShapeGeometry>} geometry @param {GerberBounds} [bounds] */
 function _circleOperation(geometry, bounds) {
+    if (!geometry.circle) return '';
     const { x, y, radius, outerRadius } = geometry.circle;
+    /** @param {number} diameter */
     const circleContour = diameter => padFlashOutline({ x, y, w: diameter, h: diameter, shape: 'circle' });
     const contours = [circleContour(outerRadius * 2)];
     const innerRadius = radius - geometry.lineWidth / 2;
@@ -117,6 +143,7 @@ function _circleOperation(geometry, bounds) {
         + `X${_fmt(startX)}Y${_fmtY(y)}I${_fmt(radius)}J0D01*\nG01*\n`;
 }
 
+/** @param {Point[][]} contours @param {GerberBounds} [bounds] @param {number} [operation] @returns {Point[][]} */
 function _clipContours(contours, bounds, operation = ClipperLib.ClipType.ctIntersection) {
     if (!bounds?.points) return contours;
     const clipper = new ClipperLib.Clipper();
@@ -125,11 +152,13 @@ function _clipContours(contours, bounds, operation = ClipperLib.ClipType.ctInter
     ClipperLib.PolyType.ptSubject, true);
     clipper.AddPath(bounds.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
         ClipperLib.PolyType.ptClip, true);
+    /** @type {ClipperPoint[][]} */
     const result = [];
     clipper.Execute(operation, result, ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftNonZero);
     return result.map(contour => contour.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE })));
 }
 
+/** @param {number} x @param {number} y @param {number} radius @param {GerberBounds|null|undefined} bounds */
 function _holeRoutingRadius(x, y, radius, bounds) {
     if (!(radius > 0) || !bounds?.points?.length || !pointInPolygon({ x, y }, bounds.points)) return radius;
     let edgeDistance = Infinity;
@@ -141,9 +170,10 @@ function _holeRoutingRadius(x, y, radius, bounds) {
     return Math.abs(edgeDistance - radius) <= 1 / SCALE ? radius + 0.01 : radius;
 }
 
+/** @param {Point[][]} contours @param {GerberBounds} [bounds] */
 function _shapeContourRegion(contours, bounds) {
     contours = _clipContours(contours, bounds);
-    return regionFillContours(contours).map(contour => {
+    return (/** @type {Point[][]} */ (regionFillContours(contours))).map(contour => {
         let body = 'G36*\n';
         const start = contour[0];
         body += `X${_fmt(start.x)}Y${_fmtY(start.y)}D02*\n`;
@@ -157,16 +187,9 @@ function _shapeContourRegion(contours, bounds) {
 /**
  * Build all gerber/drill files for the current board state.
  *
- * @param {object} opts
- * @param {Map<string, object>} opts.placements   componentId → placement
- * @param {Array<object>} opts.tracks             Track instances
- * @param {Array<object>} opts.vias               Via instances
- * @param {number} opts.boardWidth                mm
- * @param {number} opts.boardHeight               mm
- * @param {number} [opts.boardRadius=0]           corner radius, mm
- * @param {number} [opts.boardX=0]                bottom-left X of board, mm
- * @param {number} [opts.boardY=0]                bottom-left Y of board, mm
- * @returns {Map<string, string>} filename → file contents
+ * @param {GerberExportOptions} opts
+ * @param {(done: number, total: number, name: string) => void} [onProgress]
+ * @returns {Map<string, string>} filename â†’ file contents
  */
 export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
     const {
@@ -182,6 +205,7 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
     // board. Internal data is SVG-Y-down, so for clipping we shift the
     // rectangle into that space. The outline file is emitted in Y-up
     // (the natural gerber convention) so it keeps the caller's bounds.
+    /** @type {GerberBounds} */
     const clipBounds = {
         x: boardX,
         y: -(boardY + boardHeight),
@@ -199,11 +223,33 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         Object.assign(clipBounds, boardBoundary({ boardShapes: [legacy] }));
     }
     if (panel) clipBounds.panel = panel;
+    /** @type {GerberDrill[]} */
+    const placementDrills = [];
+    /** @type {Point[][][]} */
+    const placementCutouts = [];
+    const routedHoleNotes = [];
+    for (const drill of resolvePlacementDrills(placements)) {
+        const contours = drill.slot
+            ? _strokeContours([{ x: drill.x, y: drill.y }, { x: drill.slot.x2, y: drill.slot.y2 }], false, drill.dia)
+            : [padFlashOutline({ x: drill.x, y: drill.y, w: drill.dia, h: drill.dia, shape: 'circle' })];
+        if (clipBounds.points && _clipContours(contours, clipBounds, ClipperLib.ClipType.ctDifference).length
+            && _clipContours(contours, clipBounds).length) {
+            placementCutouts.push(contours);
+            routedHoleNotes.push(`${drill.plated ? 'PLATED' : 'NON-PLATED'}: diameter ${drill.dia.toFixed(6)}, `
+                + `X=${drill.x.toFixed(6)}, Y=${(-drill.y).toFixed(6)}`
+                + (drill.slot ? ` to X=${drill.slot.x2.toFixed(6)}, Y=${(-drill.slot.y2).toFixed(6)}` : ''));
+        } else {
+            placementDrills.push({ ...drill, slot: drill.slot || undefined });
+        }
+    }
+    /** @type {Map<string, string>} */
     const files = new Map();
+    /** @param {string} name @param {() => string} build */
     const emit = (name, build) => {
         onProgress(files.size, 14, name);
         files.set(name, build());
     };
+    /** @type {Array<[string, () => string]>} */
     const layers = [
         ['board.gtl', () => _buildCopper(placements, tracks, vias, 'top-copper', clipBounds, texts, fills, circles, boardShapes, pads)],
         ['board.gbl', () => _buildCopper(placements, tracks, vias, 'bottom-copper', clipBounds, texts, fills, circles, boardShapes, pads)],
@@ -213,16 +259,16 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         ['board.gbp', () => _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', () => _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
         ['board.gbo', () => _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
-        ['board.gko', () => _buildOutline(outlineBounds, boardShapes, clipBounds)],
+        ['board.gko', () => _buildOutline(outlineBounds, boardShapes, clipBounds, placementCutouts)],
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
-        // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placements, vias, boardShapes, clipBounds, pads), clipBounds, false, panel)],
+        // etc.) can tell them apart â€” they key off the -PTH / -NPTH suffix.
+        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placementDrills, vias, boardShapes, clipBounds, pads), clipBounds, false, panel)],
     ];
     for (const [name, build] of layers) emit(name, build);
-    // Only emit the NPTH file when there are non-plated holes — an empty
+    // Only emit the NPTH file when there are non-plated holes â€” an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(boardShapes, placements, clipBounds);
+    const npth = _collectNonPlatedDrills(boardShapes, placementDrills, clipBounds);
     if (npth.length || panel?.drills.length) emit('board-NPTH.drl', () => _buildDrill(npth, clipBounds, true, panel));
     if (panel) {
         if (panel.cuts.length) files.set('board-vscore.gbr', panelScoreFile(panel));
@@ -250,13 +296,22 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
             'Confirm cutter size, copper-to-edge clearance, tab strength and scoring requirements with the manufacturer.',
         ].join('\n') + '\n');
     }
+    if (placementCutouts.length) {
+        files.set('fabrication-notes.txt',
+            'Footprint holes crossing the source-board boundary are supplied as clipped routed openings in board.gko, not as full Excellon drills.\n'
+            + 'Confirm cutter size and any required routed-edge plating with the manufacturer before ordering.\n'
+            + 'The following source-board holes use Gerber Y-up millimetres. Panelized board.gko already repeats their routed profiles.\n'
+            + routedHoleNotes.join('\n') + '\n');
+    }
     onProgress(files.size, files.size, 'Artwork complete');
     return files;
 }
 
-/* ──────────────────────────── board clipping ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ board clipping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/** Point inside or on the board boundary. */
+/** Point inside or on the board boundary.
+ * @param {number} x @param {number} y @param {GerberBounds|null|undefined} b
+ */
 function _inBoard(x, y, b) {
     if (b?.points) return ClipperLib.Clipper.PointInPolygon({ X: _fx(x), Y: _fx(y) },
         b.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))) !== 0;
@@ -265,29 +320,19 @@ function _inBoard(x, y, b) {
     return x >= x0 && x <= x0 + b.w && y >= y0 && y <= y0 + b.h;
 }
 
-/* ──────────────────────────── coords ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ coords â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @param {number} mm */
 const _fx = (mm) => Math.round(mm * SCALE);
+/** @param {number} mm */
 const _fmt = (mm) => String(_fx(mm));
 /** Y-axis emitter: negates because the app stores Y-down but gerber is Y-up. */
+/** @param {number} mm */
 const _fmtY = (mm) => String(_fx(-mm));
 
-/* ──────────────────────────── copper layers ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ copper layers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/**
- * Build the world-space point transform for a placement's pose, matching
- * applyPlacementPose exactly: a local offset (dx,dy) is mirrored (user flip
- * XOR bottom side), rotated by the placement angle and translated to the
- * placement position. Footprint geometry is authored in local mm and oriented
- * purely by this transform, so every pad/silk point must pass through it —
- * otherwise a rotated or flipped part exports at its un-posed position.
- * @param {object} pl
- * @returns {(dx:number, dy:number) => {x:number, y:number}}
- */
-function _poseXform(pl) {
-    return placementPose(pl).xf;
-}
-
+/** @param {Pad} pad @param {number} [expansion] @returns {GerberPadFlash} */
 function _standalonePadFlash(pad, expansion = 0) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
     const width = Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
@@ -301,16 +346,30 @@ function _standalonePadFlash(pad, expansion = 0) {
     };
 }
 
+/**
+ * @param {Map<string, Placement>} placements
+ * @param {Track[]} tracks
+ * @param {Via[]} vias
+ * @param {string} layerId
+ * @param {GerberBounds} bounds
+ * @param {PcbText[]} [texts]
+ * @param {CopperFill[]} [fills]
+ * @param {GerberBoardShape[]} [circles]
+ * @param {GerberBoardShape[]} [boardShapes]
+ * @param {Pad[]} [pads]
+ */
 function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fills = [], circles = [], boardShapes = [], pads = []) {
     const isTop = layerId === 'top-copper';
     // Pads use the footprint/autorouter convention: 'top'|'bottom'|'both'.
     // Tracks use SVG-layer-id form: 'top-copper'|'bottom-copper'.
     const padSide = isTop ? 'top' : 'bottom';
-    /** @type {Map<string, number>} apertureKey → D-code */
+    /** @type {Map<string, number>} apertureKey â†’ D-code */
     const apertures = new Map();
     let nextD = 10;
 
-    const apKey = (kind, ...vals) => `${kind}:${vals.map((v) => v.toFixed?.(4) ?? v).join('x')}`;
+    /** @param {string} kind @param {...(number|string)} vals */
+    const apKey = (kind, ...vals) => `${kind}:${vals.map((v) => typeof v === 'number' ? v.toFixed(4) : v).join('x')}`;
+    /** @param {string} key @param {string} [def] */
     const getAp = (key, def) => {
         let d = apertures.get(key);
         if (d == null) { d = nextD++; apertures.set(key, d); }
@@ -323,7 +382,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
 
     // Pads on this layer (and on 'both').
     for (const flash of resolvePadFlashes(placements, { side: padSide })) {
-        ops.push(padOperation(flash, getAp, bounds));
+        ops.push(padOperation(/** @type {GerberPadFlash} */ (flash), getAp, bounds));
     }
     for (const pad of pads) {
         if (pad.layers === 'both' || pad.layers === layerId) {
@@ -373,6 +432,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
         if (!c) continue;
         const isHole = c.layer === 'hole';
         const geometry = resolveBoardShapeGeometry(c);
+        if (!geometry.circle) continue;
         const rad = geometry.filled ? geometry.circle.outerRadius : geometry.circle.radius;
         if (rad <= 0) continue;
         const onThisLayer = c.layer === layerId;
@@ -388,6 +448,7 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
 
     // User-drawn board shapes on this copper layer. Filled shapes use G36
     // regions; unfilled shapes use their configured stroke width.
+    /** @param {Point[]} outline */
     const shapeRegion = (outline) => _shapeContourRegion([outline], bounds);
     let darkShapeRegions = '';
     let clearShapeRegions = '';
@@ -477,6 +538,9 @@ function _buildCopper(placements, tracks, vias, layerId, bounds, texts = [], fil
  * world mm (SVG-Y-down). Hole-bearing polygons are triangulated into simple
  * dark regions, preserving holes without erasing other islands.
  * Returns '' for no fills.
+ * @param {CopperFill[]} fills
+ * @param {string} layerId
+ * @param {GerberBounds} bounds
  */
 function _buildFillRegions(fills, layerId, bounds) {
     if (!Array.isArray(fills) || !fills.length) return '';
@@ -484,7 +548,7 @@ function _buildFillRegions(fills, layerId, bounds) {
     for (const f of fills) {
         if (f.layer !== layerId) continue;
         if (f.visible === false) continue;
-        const polys = f._computed;
+        const polys = (/** @type {CopperFill & {_computed?: Array<{outer?: Point[], holes?: Point[][]}>}} */ (f))._computed;
         if (!Array.isArray(polys) || !polys.length) continue;
         for (const poly of polys) {
             out += '%LPD*%\n';
@@ -494,7 +558,7 @@ function _buildFillRegions(fills, layerId, bounds) {
     return out;
 }
 
-
+/** @param {string} key */
 function _apertureBody(key) {
     // key formats: "C:0.6000", "R:1.0000x2.0000", "O:1.0000x2.0000"
     const [kind, dims] = key.split(':');
@@ -505,23 +569,18 @@ function _apertureBody(key) {
     return `C,${parts[0]}`;
 }
 
-/* ──────────────────────────── pad-shape gerber helper ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ pad-shape gerber helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
  * Emit a positive-aperture gerber that flashes pad-shaped openings.
  * Used by both soldermask (every pad on this side, inflated by
  * `expansion`) and paste (SMD pads on this side, optionally shrunk).
  *
- * @param {Map<string, object>} placements
- * @param {Array<object>} vias
+ * @param {Map<string, Placement>} placements
+ * @param {Via[]} vias
  * @param {'top'|'bottom'} side
- * @param {object} bounds  board clipping boundary (SVG-Y-down)
- * @param {object} opts
- * @param {number}  opts.expansion          mm added to each side of the pad
- * @param {boolean} opts.includeThruHole    include drilled (THT) pads
- * @param {boolean} opts.includeVias        include standalone vias
- * @param {boolean} opts.includeSmd         include SMD (non-drilled) pads
- * @param {string}  opts.title              human-readable header text
+ * @param {GerberBounds} bounds  board clipping boundary (SVG-Y-down)
+ * @param {{expansion?: number, includeThruHole?: boolean, includeVias?: boolean, includeSmd?: boolean, title?: string, respectPaste?: boolean, respectMask?: boolean, pasteApertures?: boolean, shapeOpenings?: Array<{geometry: ReturnType<typeof resolveBoardShapeGeometry>}>, standalonePads?: Pad[]}} opts
  */
 function _buildPadLayer(placements, vias, side, bounds, opts) {
     const {
@@ -536,10 +595,12 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
         standalonePads = [],
         title = 'Pad Layer',
     } = opts;
-    /** @type {Map<string, number>} apertureKey → D-code */
+    /** @type {Map<string, number>} apertureKey â†’ D-code */
     const apertures = new Map();
     let nextD = 10;
-    const apKey = (kind, ...vals) => `${kind}:${vals.map((v) => v.toFixed?.(4) ?? v).join('x')}`;
+    /** @param {string} kind @param {...(number|string)} vals */
+    const apKey = (kind, ...vals) => `${kind}:${vals.map((v) => typeof v === 'number' ? v.toFixed(4) : v).join('x')}`;
+    /** @param {string} key */
     const getAp = (key) => {
         let d = apertures.get(key);
         if (d == null) { d = nextD++; apertures.set(key, d); }
@@ -549,22 +610,23 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
     const ops = [];
 
     for (const flash of resolvePadFlashes(placements, { side, includeThruHole, includeSmd, expansion })) {
+        const padFlash = /** @type {GerberPadFlash} */ (flash);
         // A copper pad only contributes to the paste/mask layer it actually
         // lists. e.g. a QFN exposed pad is copper+mask but NOT paste (it is
-        // windowpaned by separate apertures) — full-area paste there would
+        // windowpaned by separate apertures) â€” full-area paste there would
         // bridge solder.
-        if (respectPaste && flash.paste === false) continue;
-        if (respectMask && flash.mask === false) continue;
-        ops.push(padOperation(flash, getAp, bounds));
+        if (respectPaste && padFlash.paste === false) continue;
+        if (respectMask && padFlash.mask === false) continue;
+        ops.push(padOperation(padFlash, getAp, bounds));
     }
     for (const pad of standalonePads) {
         ops.push(padOperation(_standalonePadFlash(pad, expansion), getAp, bounds));
     }
 
-    // Standalone paste apertures (no copper) — windowpane stencil openings.
+    // Standalone paste apertures (no copper) â€” windowpane stencil openings.
     if (pasteApertures) {
         for (const flash of resolvePadFlashes(placements, { side, source: 'paste', expansion })) {
-            ops.push(padOperation(flash, getAp, bounds));
+            ops.push(padOperation(/** @type {GerberPadFlash} */ (flash), getAp, bounds));
         }
     }
 
@@ -622,8 +684,9 @@ function _buildPadLayer(placements, vias, side, bounds, opts) {
     return finishArtwork(header, out, bounds, fiducialD);
 }
 
-/* ──────────────────────────── soldermask ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ soldermask â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @param {Map<string, Placement>} placements @param {Via[]} vias @param {'top'|'bottom'} side @param {GerberBounds} bounds @param {GerberBoardShape[]} [boardShapes] @param {Pad[]} [pads] */
 function _buildMask(placements, vias, side, bounds, boardShapes = [], pads = []) {
     // User-drawn soldermask openings: circles on this side's mask layer,
     // copper circles flagged to also open mask (remove-solder-mask /
@@ -655,8 +718,9 @@ function _buildMask(placements, vias, side, bounds, boardShapes = [], pads = [])
     });
 }
 
-/* ──────────────────────────── solder paste ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ solder paste â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @param {Map<string, Placement>} placements @param {'top'|'bottom'} side @param {GerberBounds} bounds */
 function _buildPaste(placements, side, bounds) {
     // Paste stencil only opens for SMD pads. Through-hole pads and vias
     // get no paste (they're soldered after reflow, or tented). Copper pads
@@ -673,8 +737,9 @@ function _buildPaste(placements, side, bounds) {
     });
 }
 
-/* ──────────────────────────── silkscreen ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ silkscreen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
+/** @param {Map<string, Placement>} placements @param {'top'|'bottom'} side @param {GerberBounds} bounds @param {PcbText[]} [texts] @param {GerberBoardShape[]} [boardShapes] */
 function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     // Component silk: footprint silk shapes (lines / circles / paths)
     // plus a small reference designator near each component origin.
@@ -685,9 +750,13 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     // Default aperture for ref-designator strokes.
     out += '%ADD10C,0.15*%\nD10*\n';
     let currentApertureW = 0.15;
-    /** @returns {number} next aperture code starting at 11. */
+    /** @type {Map<string, number>} */
     const apertures = new Map(); // strokeWidth -> code
     let nextCode = 11;
+    /**
+     * @param {number} w
+     * @returns {string}
+     */
     const useAperture = (w) => {
         const key = w.toFixed(4);
         let code = apertures.get(key);
@@ -705,16 +774,17 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         return header + sel;
     };
 
+    /** @param {Point} a @param {Point} b */
     const emitSeg = (a, b) => {
         return _strokeOperation([a, b], false, currentApertureW, bounds);
     };
 
     let body = '';
     for (const [, pl] of placements) {
-        // ── Component silk shapes (resolved into posed, renderer-neutral
+        // â”€â”€ Component silk shapes (resolved into posed, renderer-neutral
         // descriptors). Called per-placement so the aperture/D-code stream
         // keeps the same emission order as the reference designator below.
-        for (const sk of resolveSilk(new Map([[0, pl]]), side)) {
+        for (const sk of /** @type {import('../../shared/pcb/board-geometry.js').SilkDescriptor[]} */ (resolveSilk(new Map([[0, pl]]), side))) {
             const head = useAperture(sk.width);
             if (head) body += head;
             if (sk.kind === 'line') {
@@ -809,9 +879,10 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
     return finishArtwork(out, 'D10*\n' + body, bounds);
 }
 
-/* ──────────────────────────── board outline ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ board outline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-function _buildOutline(b, boardShapes = [], bounds) {
+/** @param {GerberBounds} b @param {GerberBoardShape[]} [boardShapes] @param {GerberBounds} bounds @param {Point[][][]} [placementCutouts] */
+function _buildOutline(b, boardShapes = [], bounds = b, placementCutouts = []) {
     const w = b.w, h = b.h;
     const r = b.r || 0;
     const x0 = b.x || 0, y0 = b.y || 0;
@@ -857,8 +928,10 @@ function _buildOutline(b, boardShapes = [], bounds) {
     // Free-standing board shapes on the HOLE layer are interior cutouts: draw
     // each as a closed contour. Shape outlines are in SVG-Y-down internal
     // coords, so flip Y into the outline file's Y-up frame (y_up = -y_int).
+    /** @type {ClipperPoint[][]} */
     const cutoutPaths = [];
     let crossingCutout = false;
+    /** @param {Point[][]} contours */
     const includeCutout = contours => {
         if (!bounds?.points) return true;
         if (!_clipContours(contours, bounds).length) return false;
@@ -867,6 +940,7 @@ function _buildOutline(b, boardShapes = [], bounds) {
         const union = new ClipperLib.Clipper();
         union.AddPaths(contours.map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
             ClipperLib.PolyType.ptSubject, true);
+        /** @type {ClipperPoint[][]} */
         const paths = [];
         union.Execute(ClipperLib.ClipType.ctUnion, paths,
             ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
@@ -894,21 +968,25 @@ function _buildOutline(b, boardShapes = [], bounds) {
         }
         let contours = geometry.filled ? boardShapeFilledRemovalOutlines(s) : geometry.physicalContours;
         if (!contours) {
+            /** @type {Array<{points: Point[], width: number}>} */
             const strokes = geometry.strokeSegments.length
-                ? geometry.strokeSegments.map(segment => ({ points: [segment.start, segment.end], width: segment.lineWidth }))
+                ? geometry.strokeSegments.map((/** @type {{start: Point, end: Point, lineWidth: number}} */ segment) => ({ points: [segment.start, segment.end], width: segment.lineWidth }))
                 : [{ points: geometry.centerline, width: geometry.lineWidth }];
+            /** @type {ClipperPoint[][]} */
             const paths = [];
             for (const stroke of strokes) {
                 const offset = new ClipperLib.ClipperOffset(10, 0.001 * SCALE);
                 offset.AddPath(stroke.points.map(point => ({ X: _fx(point.x), Y: _fx(point.y) })),
                     ClipperLib.JoinType.jtRound, geometry.centerlineClosed
                         ? ClipperLib.EndType.etClosedLine : ClipperLib.EndType.etOpenRound);
+                /** @type {ClipperPoint[][]} */
                 const expanded = [];
                 offset.Execute(expanded, stroke.width * SCALE / 2);
                 paths.push(...expanded);
             }
             const union = new ClipperLib.Clipper();
             union.AddPaths(paths, ClipperLib.PolyType.ptSubject, true);
+            /** @type {ClipperPoint[][]} */
             const merged = [];
             union.Execute(ClipperLib.ClipType.ctUnion, merged,
                 ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
@@ -923,11 +1001,12 @@ function _buildOutline(b, boardShapes = [], bounds) {
             }
         }
     }
+    for (const contours of placementCutouts) includeCutout(contours);
     if (bounds?.panel || crossingCutout) {
         const clipper = new ClipperLib.Clipper();
         clipper.StrictlySimple = true;
         const panel = bounds.panel;
-        const subject = panel ? panel.contours : [bounds.points];
+        const subject = /** @type {Point[][]} */ (panel ? panel.contours : [bounds.points || []]);
         clipper.AddPaths(subject.map(contour => contour.map(point => ({ X: _fx(point.x), Y: _fx(point.y) }))),
             ClipperLib.PolyType.ptSubject, true);
         const repeatedCutouts = panel ? panel.instances.flatMap(instance => cutoutPaths.map(path =>
@@ -950,13 +1029,21 @@ function _buildOutline(b, boardShapes = [], bounds) {
     return out;
 }
 
-/* ──────────────────────────── drill ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ drill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes. */
-function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null, pads = []) {
+/** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes.
+ * @param {GerberDrill[]} placementDrills
+ * @param {Via[]} vias
+ * @param {GerberBoardShape[]} [boardShapes]
+ * @param {GerberBounds|null} [bounds]
+ * @param {Pad[]} [pads]
+ * @returns {GerberDrill[]}
+ */
+function _collectPlatedDrills(placementDrills, vias, boardShapes = [], bounds = null, pads = []) {
+    /** @type {GerberDrill[]} */
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
-    for (const drill of resolvePlacementDrills(placements)) {
+    for (const drill of placementDrills) {
         if (!drill.plated) continue;
         if (drill.slot) {
             out.push({ dia: drill.dia, x: drill.x, y: drill.y, x2: drill.slot.x2, y2: drill.slot.y2 });
@@ -972,49 +1059,64 @@ function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null,
     }
     for (const circle of boardShapes) {
         if (circle?.kind !== 'circle') continue;
-        if (circle?.layer !== 'hole' || !circle.plated) continue;
-        const dia = 2 * (Number(circle.radius) || 0);
-        if (_holeRoutingRadius(circle.x, circle.y, dia / 2, bounds) > dia / 2) continue;
-        if (bounds && dia > 0 && _clipContours([padFlashOutline({ x: circle.x, y: circle.y, w: dia, h: dia, shape: 'circle' })],
+        const c = /** @type {GerberBoardShape & {x: number, y: number, radius: number}} */ (circle);
+        if (c.layer !== 'hole' || !c.plated) continue;
+        const dia = 2 * (Number(c.radius) || 0);
+        if (_holeRoutingRadius(c.x, c.y, dia / 2, bounds) > dia / 2) continue;
+        if (bounds && dia > 0 && _clipContours([padFlashOutline({ x: c.x, y: c.y, w: dia, h: dia, shape: 'circle' })],
             bounds, ClipperLib.ClipType.ctDifference).length) continue;
-        if (dia > 0) out.push({ dia, x: circle.x, y: circle.y });
+        if (dia > 0) out.push({ dia, x: c.x, y: c.y });
     }
     out.push(..._collectBoardShapeSlots(boardShapes, true, bounds));
     return out;
 }
 
-/** Collect non-plated drills: Hole-layer shapes and footprint mounting holes. */
-function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bounds) {
+/** Collect non-plated drills: Hole-layer shapes and footprint mounting holes.
+ * @param {GerberBoardShape[]} [boardShapes]
+ * @param {GerberDrill[]} [placementDrills]
+ * @param {GerberBounds|null|undefined} bounds
+ * @returns {GerberDrill[]}
+ */
+function _collectNonPlatedDrills(boardShapes = [], placementDrills = [], bounds = null) {
+    /** @type {GerberDrill[]} */
     const out = [];
     // Hole-layer circles drill through the board unless explicitly plated.
     for (const c of boardShapes) {
         if (c?.kind !== 'circle') continue;
-        if (!c || c.layer !== 'hole' || c.plated) continue;
-        const dia = 2 * (Number(c.radius) || 0);
+        const circle = /** @type {GerberBoardShape & {x: number, y: number, radius: number}} */ (c);
+        if (circle.layer !== 'hole' || circle.plated) continue;
+        const dia = 2 * (Number(circle.radius) || 0);
         if (dia <= 0) continue;
-        if (_holeRoutingRadius(c.x, c.y, dia / 2, bounds) > dia / 2) continue;
-        const contour = padFlashOutline({ x: c.x, y: c.y, w: dia, h: dia, shape: 'circle' });
+        if (_holeRoutingRadius(circle.x, circle.y, dia / 2, bounds) > dia / 2) continue;
+        const contour = padFlashOutline({ x: circle.x, y: circle.y, w: dia, h: dia, shape: 'circle' });
         if (bounds?.points && _clipContours([contour], bounds, ClipperLib.ClipType.ctDifference).length) continue;
-        out.push({ dia, x: c.x, y: c.y });
+        out.push({ dia, x: circle.x, y: circle.y });
     }
     // Footprint mechanical / mounting holes (posed 'hole'-layer silk circles),
     // resolved alongside pad drills by the shared resolver.
-    for (const drill of resolvePlacementDrills(placements)) {
+    for (const drill of placementDrills) {
         if (drill.plated) continue;
-        out.push({ dia: drill.dia, x: drill.x, y: drill.y });
+        out.push({ dia: drill.dia, x: drill.x, y: drill.y,
+            ...(drill.slot ? { x2: drill.slot.x2, y2: drill.slot.y2 } : {}) });
     }
     out.push(..._collectBoardShapeSlots(boardShapes, false, bounds));
     return out;
 }
 
-/** Convert each segment of a Hole-layer Line into a round-ended routed slot. */
+/** Convert each segment of a Hole-layer Line into a round-ended routed slot.
+ * @param {GerberBoardShape[]} boardShapes
+ * @param {boolean} plated
+ * @param {GerberBounds|null} [bounds]
+ * @returns {GerberDrill[]}
+ */
 function _collectBoardShapeSlots(boardShapes, plated, bounds = null) {
+    /** @type {GerberDrill[]} */
     const slots = [];
     for (const shape of boardShapes) {
         if (!shape || shape.kind !== 'line' || shape.layer !== 'hole' || !!shape.plated !== plated) continue;
         const geometry = resolveBoardShapeGeometry(shape);
         const segments = geometry.strokeSegments.length ? geometry.strokeSegments
-            : geometry.centerline.slice(1).map((end, index) => ({
+            : (/** @type {Point[]} */ (geometry.centerline)).slice(1).map((end, index) => ({
                 start: geometry.centerline[index], end, lineWidth: geometry.lineWidth,
             }));
         for (const { start, end, lineWidth } of segments) {
@@ -1034,29 +1136,33 @@ function _collectBoardShapeSlots(boardShapes, plated, bounds = null) {
 }
 
 /**
- * Build an Excellon drill file from a flat list of {dia, x, y} drills.
- * @param {Array<{dia:number,x:number,y:number}>} drills
- * @param {object} bounds   board clip bounds
+ * Build an Excellon drill file from a flat list of {dia, x, y} drills; slots
+ * also carry their end point (x2, y2).
+ * @param {Array<{dia:number,x:number,y:number,x2?:number,y2?:number}>} drills
+ * @param {GerberBounds|null} bounds   board clip bounds
  * @param {boolean} [nonPlated]  annotate the header as non-plated
+ * @param {PanelLayout|null} [panel]
  */
 function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
     if (panel) {
         drills = drills.filter(drill => _inBoard(drill.x, drill.y, bounds)
-            && (!Number.isFinite(drill.x2) || _inBoard(drill.x2, drill.y2, bounds)));
+            && (typeof drill.x2 !== 'number' || typeof drill.y2 !== 'number' || _inBoard(drill.x2, drill.y2, bounds)));
         if (nonPlated) drills.push(...panel.drills.map(drill => ({ x: drill.x, y: drill.y, dia: drill.diameter })));
         bounds = null;
     }
-    /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
+    /** @type {Map<number, Array<{x:number,y:number,x2?:number,y2?:number}>>} drill mm â†’ positions (and slot ends) */
     const tools = new Map();
     for (const d of drills) {
         if (!d.dia || d.dia <= 0) continue;
         if (!_inBoard(d.x, d.y, bounds)) continue;
-        const isSlot = Number.isFinite(d.x2) && Number.isFinite(d.y2);
-        if (isSlot && !_inBoard(d.x2, d.y2, bounds)) continue;
+        const slotX = d.x2;
+        const slotY = d.y2;
+        const isSlot = typeof slotX === 'number' && typeof slotY === 'number' && Number.isFinite(slotX) && Number.isFinite(slotY);
+        if (isSlot && !_inBoard(slotX, slotY, bounds)) continue;
         const key = Math.round(d.dia * 1000) / 1000;
         let list = tools.get(key);
         if (!list) { list = []; tools.set(key, list); }
-        list.push(isSlot ? { x: d.x, y: d.y, x2: d.x2, y2: d.y2 } : { x: d.x, y: d.y });
+        list.push(isSlot ? { x: d.x, y: d.y, x2: /** @type {number} */ (slotX), y2: /** @type {number} */ (slotY) } : { x: d.x, y: d.y });
     }
 
     // Header. Use decimal coordinates (universally supported); declare
@@ -1081,9 +1187,9 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
     out += '%\nG90\nG05\n';
     sorted.forEach((dia, i) => {
         out += `T${i + 1}\n`;
-        for (const h of tools.get(dia)) {
+        for (const h of /** @type {Array<{x:number,y:number,x2?:number,y2?:number}>} */ (tools.get(dia))) {
             // Excellon uses Y-up like gerber; flip from our SVG-Y-down data.
-            if (Number.isFinite(h.x2) && Number.isFinite(h.y2)) {
+            if (typeof h.x2 === 'number' && typeof h.y2 === 'number' && Number.isFinite(h.x2) && Number.isFinite(h.y2)) {
                 // Slot: G85 canned routed slot from start to end coordinate.
                 out += `X${h.x.toFixed(3)}Y${(-h.y).toFixed(3)}G85X${h.x2.toFixed(3)}Y${(-h.y2).toFixed(3)}\n`;
             } else {
@@ -1095,10 +1201,10 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
     return out;
 }
 
-/* ──────────────────────────── zip writer ──────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ zip writer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * Build a DEFLATE-compressed ZIP from a Map of filename → string.
+ * Build a DEFLATE-compressed ZIP from a Map of filename â†’ string.
  * Returns a Blob suitable for `URL.createObjectURL`.
  *
  * Implements just the subset of the ZIP spec needed for a flat archive of
@@ -1110,15 +1216,19 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
  */
 export function buildZip(files) {
     const encoder = new TextEncoder();
-    /** @type {Uint8Array[]} */
+    /** @type {Uint8Array<ArrayBuffer>[]} */
     const chunks = [];
+    /** @type {Uint8Array<ArrayBuffer>[]} */
     const central = [];
     let offset = 0;
 
+    /** @param {number} n */
     const u16 = (n) => new Uint8Array([n & 0xff, (n >>> 8) & 0xff]);
+    /** @param {number} n */
     const u32 = (n) => new Uint8Array([
         n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff,
     ]);
+    /** @param {Uint8Array<ArrayBuffer>[]} arrs */
     const concat = (arrs) => {
         const len = arrs.reduce((s, a) => s + a.length, 0);
         const out = new Uint8Array(len);
@@ -1199,6 +1309,7 @@ const _CRC_TABLE = (() => {
     return t;
 })();
 
+/** @param {Uint8Array} bytes */
 function _crc32(bytes) {
     let c = 0xffffffff;
     for (let i = 0; i < bytes.length; i++) {

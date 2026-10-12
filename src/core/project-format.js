@@ -1,6 +1,12 @@
-import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
+import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
+
+/** @param {unknown} value @returns {value is JsonRecord} */
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** @param {...string} names @returns {Set<string>} */
 const fields = (...names) => new Set(names);
 
 const ENVELOPE_FIELDS = fields('version', 'type', 'created', 'schematic', 'pcb');
@@ -8,13 +14,14 @@ const SCHEMATIC_FIELDS = fields('settings', 'shapes', 'components', 'defs');
 const GRID_FIELDS = fields('gridSize', 'gridStyle', 'units', 'gridVisible', 'snapToGrid');
 const SCHEMATIC_SETTINGS_FIELDS = new Set([...GRID_FIELDS,
     'paperSize', 'paperOrientation', 'titleBlock', 'titleBlockInfo', 'titleBlockData']);
-const COMPONENT_FIELDS = fields('type', 'id', 'dn', 'x', 'y', 'rot', 'mir', 'ref', 'val', 'sr', 'sv', 'props', 'v', 'lk');
+const COMPONENT_FIELDS = fields('type', 'id', 'dn', 'x', 'y', 'rot', 'mir', 'ref', 'val', 'sr', 'sv', 'props', 'v', 'lk', 'pkg');
 const DEFINITION_FIELDS = fields('name', 'category', 'description', 'symbol', 'defaultReference', 'defaultValue',
     'defaultProperties', '_source', 'supplier_part_numbers', 'footprintShapes', 'footprintBBox', 'footprintName',
     'model3dObj', 'model3dUrl', 'model3dName', 'has3d');
 const SHAPE_COMMON_FIELDS = fields('id', 'type', 'c', 'l', 'lw', 'v', 'lk');
+/** @type {Record<string, Set<string>>} */
 const SHAPE_FIELDS = {
-    polyline: fields('nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'ir', 'fc'),
+    polyline: fields('nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'ir', 'fc', 'x', 'y', 'w', 'h', 'rot', 'rev', 'cn'),
     wire: fields('nd', 'ed', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'pc', 'wl', 'n', 'lo'),
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
@@ -27,16 +34,17 @@ const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'setting
 const STACKUP_FIELDS = fields('copperLayers');
 const BOARD_FIELDS = fields('width', 'height', 'radius');
 const DESIGN_FIELDS = fields('trackWidth', 'clearance', 'viaDiameter', 'viaDrill', 'units', 'router');
+const OPTIONAL_DESIGN_FIELDS = fields('excludeSameFootprintPadClearance');
 const TRACK_FIELDS = new Set([...SHAPE_COMMON_FIELDS,
     'nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'el', 'ew', 'n', 'w', 'pdc', 'sbs']);
 const VIA_FIELDS = fields('type', 'id', 'x', 'y', 'd', 'dr', 'n', 'lk', 'v', 'span');
 const VIA_SPAN_FIELDS = fields('from', 'to');
 const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 'copperMode', 'plated', 'net',
     'segmentWidths', 'segmentBulges', 'nodeCornerRadii', 'cornerRadius', 'start', 'end', 'bulge',
-    'x', 'y', 'radius', 'name', 'artwork', 'points');
+    'x', 'y', 'radius', 'name', 'artwork', 'points', 'width', 'height', 'rotation', 'reversed', 'locked');
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
-    'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius');
-const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
+    'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius', 'width', 'height', 'rotation', 'reversed');
+const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border', 'locked');
 const PAD_FIELDS = fields('type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'ratio',
     'rotation', 'layers', 'net', 'locked', 'visible');
 const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side', 'refVisible',
@@ -44,14 +52,16 @@ const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side'
 const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 'separation',
     'railTop', 'railBottom', 'railLeft', 'railRight', 'verticalTabsPerEdge', 'horizontalTabsPerEdge',
     'verticalTabOffset', 'horizontalTabOffset', 'horizontalPositioningHoles', 'horizontalFiducials',
-    'verticalPositioningHoles', 'verticalFiducials', 'tabWidth', 'holeDiameter', 'holePitch', 'noteCreated');
+    'verticalPositioningHoles', 'verticalFiducials', 'tabWidth', 'holeDiameter', 'holePitch', 'noteCreated', 'noteTexts');
 const COPPER_MODES = new Set(['add', 'remove-copper', 'remove-solder-mask', 'remove-copper-mask']);
+/** @type {Record<string, Set<string>>} */
 const ARTWORK_FIELDS = {
     'tuples-v1': fields('encoding', 'data'),
     'deflate-tuples-v1': fields('encoding', 'bytes', 'data'),
     'reference-v1': fields('encoding', 'index'),
 };
 
+/** @param {unknown} value */
 function numberedSnippet(value) {
     let text;
     try {
@@ -68,14 +78,17 @@ function numberedSnippet(value) {
     return numbered.join('\n');
 }
 
+/** @param {string} path @param {string} message @param {unknown} value @returns {never} */
 function invalid(path, message, value) {
     throw new Error(`${message}\nLocation: ${path}\nFaulty snippet:\n${numberedSnippet(value)}`);
 }
 
+/** @param {unknown} value @param {string} path @param {string} [message] @returns {asserts value is JsonRecord} */
 function requireRecord(value, path, message = 'Expected an object.') {
     if (!record(value)) invalid(path, message, value);
 }
 
+/** @param {JsonRecord} value @param {Iterable<string>} required @param {string} path */
 function requireFields(value, required, path) {
     for (const key of required) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
@@ -84,6 +97,7 @@ function requireFields(value, required, path) {
     }
 }
 
+/** @param {JsonRecord} value @param {Set<string>} allowed @param {string} path */
 function rejectUnknownFields(value, allowed, path) {
     requireRecord(value, path);
     for (const key of Object.keys(value)) {
@@ -91,6 +105,7 @@ function rejectUnknownFields(value, allowed, path) {
     }
 }
 
+/** @param {JsonRecord} item @param {string} path */
 function validateGraph(item, path) {
     requireRecord(item.nd, `${path}.nd`, 'Graph shapes require an "nd" node map.');
     requireRecord(item.ed, `${path}.ed`, 'Graph shapes require an "ed" edge map.');
@@ -110,59 +125,112 @@ function validateGraph(item, path) {
     }
 }
 
-function validateSchematicShape(item, index) {
+/** @param {JsonRecord} item @param {number} index */
+function validateSchematicItem(item, index) {
     const path = `schematic.shapes[${index}]`;
     requireRecord(item, path);
-    if (!Object.prototype.hasOwnProperty.call(SHAPE_FIELDS, item.type)) {
+    const type = typeof item.type === 'string' ? item.type : '';
+    if (!Object.prototype.hasOwnProperty.call(SHAPE_FIELDS, type)) {
         invalid(`${path}.type`, `Unknown schematic shape type "${item.type}".`, { type: item.type });
     }
-    rejectUnknownFields(item, new Set([...SHAPE_COMMON_FIELDS, ...SHAPE_FIELDS[item.type]]), path);
+    rejectUnknownFields(item, new Set([...SHAPE_COMMON_FIELDS, ...SHAPE_FIELDS[type]]), path);
     requireFields(item, ['id', 'type'], path);
-    if (item.type === 'polyline' || item.type === 'wire') validateGraph(item, path);
+    if (item.type === 'polyline' && ['w', 'h', 'rot', 'rev', 'cn'].some(key => Object.hasOwn(item, key))) {
+        if (item.ir !== true || item.cl !== true || Object.hasOwn(item, 'nd')) {
+            invalid(path, 'A rectangle frame requires a closed rectangle without a coordinate node map.', item);
+        }
+        const frame = { x: item.x, y: item.y, width: item.w, height: item.h, rotation: item.rot, reversed: item.rev };
+        validateFrame(frame, path);
+        if (!Array.isArray(item.cn) || item.cn.length !== 4 || new Set(item.cn).size !== 4
+            || !item.cn.every((id) => typeof id === 'string' && id.length)) {
+            invalid(`${path}.cn`, 'A rectangle requires four distinct corner node IDs.', item.cn);
+        }
+        const cornerNodeIds = /** @type {string[]} */ (item.cn);
+        const points = rectangleFramePoints(frame);
+        validateGraph({ ...item, nd: Object.fromEntries(cornerNodeIds.map((id, i) => [id, [points[i].x, points[i].y]])) }, path);
+        const expected = new Set(cornerNodeIds.map((id, i) => JSON.stringify([id, cornerNodeIds[(i + 1) % 4]].sort())));
+        const edges = /** @type {Record<string, [string, string]>} */ (item.ed);
+        const actual = Object.values(edges).map(edge => JSON.stringify([...edge].sort()));
+        if (actual.length !== 4 || new Set(actual).size !== 4 || actual.some(edge => !expected.has(edge))) {
+            invalid(`${path}.ed`, 'Rectangle edges must connect the four corners in order.', item.ed);
+        }
+    } else if (type === 'polyline' || type === 'wire') validateGraph(item, path);
 }
 
+/** @param {JsonRecord} frame @param {string} path */
+function validateFrame(frame, path) {
+    try {
+        rectangleFramePoints(frame);
+    } catch (error) {
+        invalid(path, error instanceof Error ? error.message : String(error), frame);
+    }
+}
+
+/** @param {JsonRecord} item @param {number} index */
 function validateComponent(item, index) {
     const path = `schematic.components[${index}]`;
     rejectUnknownFields(item, COMPONENT_FIELDS, path);
     requireFields(item, ['type', 'id', 'dn', 'x', 'y', 'ref', 'val'], path);
     if (item.type !== 'component') invalid(`${path}.type`, 'Component type must be "component".', { type: item.type });
+    const definitionName = typeof item.dn === 'string' ? item.dn : '';
+    if (item.pkg !== undefined && !getBuiltInPackageOptions({ name: definitionName, _source: 'Built-in' })
+        .some(option => option.value === item.pkg)) {
+        invalid(`${path}.pkg`, 'Unknown built-in package for this component.', { packageId: item.pkg });
+    }
 }
 
+/** @param {JsonRecord} schematic */
 function validateSchematic(schematic) {
     rejectUnknownFields(schematic, SCHEMATIC_FIELDS, 'schematic');
     requireFields(schematic, ['shapes', 'components'], 'schematic');
     if (schematic.settings !== undefined) {
+        requireRecord(schematic.settings, 'schematic.settings');
         rejectUnknownFields(schematic.settings, SCHEMATIC_SETTINGS_FIELDS, 'schematic.settings');
         validateUnits(schematic.settings, 'schematic.settings');
     }
     if (!Array.isArray(schematic.shapes)) invalid('schematic.shapes', 'Schematic shapes must be an array.', schematic.shapes);
     if (!Array.isArray(schematic.components)) invalid('schematic.components', 'Schematic components must be an array.', schematic.components);
-    schematic.shapes.forEach(validateSchematicShape);
+    schematic.shapes.forEach(validateSchematicItem);
     schematic.components.forEach(validateComponent);
+    schematic.components.forEach((component, index) => {
+        const definitionName = typeof component.dn === 'string' ? component.dn : '';
+        if (component.pkg !== undefined && Object.prototype.hasOwnProperty.call(schematic.defs || {}, definitionName)) {
+            invalid(`schematic.components[${index}].pkg`, 'Package selection requires a built-in library definition.', { definition: component.dn });
+        }
+    });
     if (schematic.defs !== undefined) {
         requireRecord(schematic.defs, 'schematic.defs');
         for (const [name, definition] of Object.entries(schematic.defs)) {
+            requireRecord(definition, `schematic.defs.${name}`);
             rejectUnknownFields(definition, DEFINITION_FIELDS, `schematic.defs.${name}`);
         }
     }
 }
 
+/** @param {JsonRecord} settings @param {string} path */
 function validateUnits(settings, path) {
-    if (settings.units !== undefined && !['mm', 'inch'].includes(settings.units)) {
+    if (settings.units !== undefined && (typeof settings.units !== 'string' || !['mm', 'inch'].includes(settings.units))) {
         invalid(`${path}.units`, 'Units must be "mm" or "inch".', { units: settings.units });
     }
 }
 
+/** @param {JsonRecord} item @param {number} index */
 function validatePcbShape(item, index) {
     const path = `pcb.boardShapes[${index}]`;
     requireRecord(item, path);
     if (item.type === 'fill') {
         rejectUnknownFields(item, FILL_FIELDS, path);
-        requireFields(item, ['type', 'id', 'l', 'pts', 'kind'], path);
-        if (!['polygon', 'rect', 'circle'].includes(item.kind)) {
+        requireFields(item, ['type', 'id', 'l', 'kind'], path);
+        const fillKind = typeof item.kind === 'string' ? item.kind : '';
+        if (!['polygon', 'rect', 'circle'].includes(fillKind)) {
             invalid(`${path}.kind`, 'Copper-fill kind must be "polygon", "rect", or "circle".', { kind: item.kind });
         }
-        if (!Array.isArray(item.pts)
+        if (hasRectangleFrame(item)) {
+            if (item.kind !== 'rect' || Object.hasOwn(item, 'pts')) {
+                invalid(path, 'Only rectangular fills may use a frame, without outline points.', item);
+            }
+            validateFrame(item, path);
+        } else if (!Array.isArray(item.pts)
             || item.pts.some(point => !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite))) {
             invalid(`${path}.pts`, 'Copper-fill points must use canonical [x, y] tuples.', item.pts);
         }
@@ -170,39 +238,68 @@ function validatePcbShape(item, index) {
     }
     rejectUnknownFields(item, BOARD_SHAPE_FIELDS, path);
     requireFields(item, ['id', 'kind', 'layer', 'lineWidth', 'filled', 'copperMode', 'plated', 'net'], path);
-    if (!['line', 'rect', 'polygon', 'arc', 'circle', 'image'].includes(item.kind)) {
+    const kind = typeof item.kind === 'string' ? item.kind : '';
+    if (!['line', 'rect', 'polygon', 'arc', 'circle', 'image'].includes(kind)) {
         invalid(`${path}.kind`, 'Unknown board-shape kind.', { kind: item.kind });
     }
-    if (!COPPER_MODES.has(item.copperMode)) {
+    if (hasRectangleFrame(item)) {
+        if (!['rect', 'image'].includes(kind) || Object.hasOwn(item, 'points')) {
+            invalid(path, 'Only rectangles/images may use a frame, without corner points.', item);
+        }
+        validateFrame(item, path);
+    }
+    if (typeof item.copperMode !== 'string' || !COPPER_MODES.has(item.copperMode)) {
         invalid(`${path}.copperMode`, 'Copper mode must be "add", "remove-copper", "remove-solder-mask", or "remove-copper-mask".',
             { copperMode: item.copperMode });
     }
-    if (item.kind === 'image') {
+    if (kind === 'image') {
         requireRecord(item.artwork, `${path}.artwork`, 'Image artwork is required.');
-        const allowed = ARTWORK_FIELDS[item.artwork.encoding];
+        const encoding = typeof item.artwork.encoding === 'string' ? item.artwork.encoding : '';
+        const allowed = ARTWORK_FIELDS[encoding];
         if (!allowed) invalid(`${path}.artwork.encoding`, 'Unsupported image artwork encoding.', item.artwork);
         rejectUnknownFields(item.artwork, allowed, `${path}.artwork`);
     }
 }
 
+/** @param {JsonRecord} pcb */
 function validatePcb(pcb) {
     rejectUnknownFields(pcb, PCB_FIELDS, 'pcb');
     requireFields(pcb, ['stackup', 'design'], 'pcb');
+    requireRecord(pcb.stackup, 'pcb.stackup');
     rejectUnknownFields(pcb.stackup, STACKUP_FIELDS, 'pcb.stackup');
     requireFields(pcb.stackup, ['copperLayers'], 'pcb.stackup');
-    rejectUnknownFields(pcb.design, DESIGN_FIELDS, 'pcb.design');
+    requireRecord(pcb.design, 'pcb.design');
+    rejectUnknownFields(pcb.design, new Set([...DESIGN_FIELDS, ...OPTIONAL_DESIGN_FIELDS]), 'pcb.design');
     requireFields(pcb.design, DESIGN_FIELDS, 'pcb.design');
+    if (pcb.design.excludeSameFootprintPadClearance !== undefined
+        && typeof pcb.design.excludeSameFootprintPadClearance !== 'boolean') {
+        invalid('pcb.design.excludeSameFootprintPadClearance', 'Expected a boolean.', pcb.design);
+    }
     validateUnits(pcb.design, 'pcb.design');
-    if (pcb.board !== undefined) rejectUnknownFields(pcb.board, BOARD_FIELDS, 'pcb.board');
+    if (pcb.board !== undefined) {
+        requireRecord(pcb.board, 'pcb.board');
+        rejectUnknownFields(pcb.board, BOARD_FIELDS, 'pcb.board');
+    }
     if (pcb.settings !== undefined) {
+        requireRecord(pcb.settings, 'pcb.settings');
         rejectUnknownFields(pcb.settings, GRID_FIELDS, 'pcb.settings');
         validateUnits(pcb.settings, 'pcb.settings');
     }
     if (pcb.panelization != null) {
+        requireRecord(pcb.panelization, 'pcb.panelization');
         rejectUnknownFields(pcb.panelization, PANEL_FIELDS, 'pcb.panelization');
-        requireFields(pcb.panelization, [...PANEL_FIELDS].filter(key => key !== 'noteCreated'), 'pcb.panelization');
+        requireFields(pcb.panelization, [...PANEL_FIELDS].filter(key => key !== 'noteCreated' && key !== 'noteTexts'), 'pcb.panelization');
+        if (pcb.panelization.noteTexts !== undefined) {
+            if (!Array.isArray(pcb.panelization.noteTexts)) invalid('pcb.panelization.noteTexts', 'Expected an array.', {});
+            for (const [index, note] of pcb.panelization.noteTexts.entries()) {
+                const path = `pcb.panelization.noteTexts[${index}]`;
+                requireRecord(note, path);
+                rejectUnknownFields(note, fields('id', 'generatedContent', 'detached'), path);
+                requireFields(note, ['id', 'generatedContent'], path);
+            }
+        }
     }
-    for (const [field, validator] of [
+    for (const [field, validator] of /** @type {Array<[string, (item: JsonRecord, index: number) => void]>} */ ([
         ['tracks', (item, index) => {
             const path = `pcb.tracks[${index}]`;
             rejectUnknownFields(item, TRACK_FIELDS, path);
@@ -225,17 +322,19 @@ function validatePcb(pcb) {
             rejectUnknownFields(item, PAD_FIELDS, path);
             requireFields(item, ['type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'layers'], path);
             if (item.type !== 'pad') invalid(`${path}.type`, 'PCB pad type must be "pad".', { type: item.type });
-            if (!['round', 'stadium', 'square', 'rectangle', 'oval'].includes(item.shape)) {
+            if (typeof item.shape !== 'string' || !['round', 'stadium', 'square', 'rectangle', 'oval'].includes(item.shape)) {
                 invalid(`${path}.shape`, 'Invalid PCB pad shape.', { shape: item.shape });
             }
             if (['stadium', 'rectangle', 'oval'].includes(item.shape)) requireFields(item, ['ratio'], path);
-            if (!['top-copper', 'bottom-copper', 'both'].includes(item.layers)) {
+            if (typeof item.layers !== 'string' || !['top-copper', 'bottom-copper', 'both'].includes(item.layers)) {
                 invalid(`${path}.layers`, 'Pad layers must be top-copper, bottom-copper, or both.', { layers: item.layers });
             }
-            if (!(item.size > 0) || !(item.drill > 0) || item.drill > item.size) {
-                invalid(path, 'Pad size and drill must be positive, with drill no larger than size.', item);
+            const size = Number(item.size);
+            const drill = Number(item.drill);
+            if (!(size > 0) || !(drill >= 0) || drill > size) {
+                invalid(path, 'Pad size must be positive and drill between 0 (no hole) and size.', item);
             }
-            if (['stadium', 'rectangle', 'oval'].includes(item.shape) && !(item.ratio >= 1)) {
+            if (['stadium', 'rectangle', 'oval'].includes(item.shape) && !(Number(item.ratio) >= 1)) {
                 invalid(`${path}.ratio`, 'Elongated pad ratio must be at least 1.', { ratio: item.ratio });
             }
         }],
@@ -245,7 +344,7 @@ function validatePcb(pcb) {
             rejectUnknownFields(item, PCB_TEXT_FIELDS, path);
             requireFields(item, ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'], path);
         }],
-    ]) {
+    ])) {
         if (pcb[field] === undefined) continue;
         if (!Array.isArray(pcb[field])) invalid(`pcb.${field}`, `PCB ${field} must be an array.`, pcb[field]);
         pcb[field].forEach(validator);
@@ -253,6 +352,7 @@ function validatePcb(pcb) {
     if (pcb.placements !== undefined) {
         requireRecord(pcb.placements, 'pcb.placements');
         for (const [id, placement] of Object.entries(pcb.placements)) {
+            requireRecord(placement, `pcb.placements.${id}`);
             rejectUnknownFields(placement, PLACEMENT_FIELDS, `pcb.placements.${id}`);
             requireFields(placement, ['x', 'y', 'rotation'], `pcb.placements.${id}`);
         }
@@ -263,8 +363,10 @@ export function defaultPcbStackup() {
     return { copperLayers: ['top-copper', 'bottom-copper'] };
 }
 
+/** @param {unknown} pcb @returns {string[]} */
 export function validatePcbStackup(pcb) {
     if (pcb == null) return defaultPcbStackup().copperLayers;
+    requireRecord(pcb, 'pcb', 'PCB section must be an object.');
     requireRecord(pcb.stackup, 'pcb.stackup', 'PCB stackup is required.');
     const layers = pcb.stackup.copperLayers;
     if (!Array.isArray(layers) || layers.length < 2 || layers[0] !== 'top-copper'
@@ -286,12 +388,19 @@ export function validatePcbStackup(pcb) {
     if (Array.isArray(pcb?.vias)) {
         for (const via of pcb.vias) {
             if (via?.span === undefined) continue;
-            if (!record(via.span) || !layers.includes(via.span.from) || !layers.includes(via.span.to)
-                || layers.indexOf(via.span.from) >= layers.indexOf(via.span.to)) {
+            const span = /** @type {{from?: unknown, to?: unknown}} */ (via.span);
+            if (!record(span) || typeof span.from !== 'string' || typeof span.to !== 'string'
+                || !layers.includes(span.from) || !layers.includes(span.to)
+                || layers.indexOf(span.from) >= layers.indexOf(span.to)) {
                 invalid(`pcb.vias[${pcb.vias.indexOf(via)}].span`, 'Invalid via copper-layer span.', via.span);
             }
-            for (const pad of pcb?.pads || []) {
-                for (const layer of pad.layers === 'both' ? ['top-copper', 'bottom-copper'] : [pad.layers]) {
+            const pads = Array.isArray(pcb?.pads) ? /** @type {JsonRecord[]} */ (pcb.pads) : [];
+            for (const pad of pads) {
+                const padLayers = pad.layers === 'both' ? ['top-copper', 'bottom-copper'] : [pad.layers];
+                for (const layer of padLayers) {
+                    if (typeof layer !== 'string') {
+                        invalid('pcb.pads', 'Pad layers must be top-copper, bottom-copper, or both.', pad);
+                    }
                     if (!layers.includes(layer)) invalid('pcb.pads', `Undeclared PCB copper layer: ${layer}`, pad);
                 }
             }
@@ -300,24 +409,60 @@ export function validatePcbStackup(pcb) {
     return layers;
 }
 
-export function assertSupportedPcb(pcb) {
-    const layers = validatePcbStackup(normalizePcbSection(pcb));
+/** @param {string[]} layers */
+function assertTwoCopperLayers(layers) {
     if (layers.length !== 2) {
         throw new Error('This project uses multiple copper layers. This editor currently supports only two-layer boards.');
     }
 }
 
+/** @param {unknown} pcb */
+export function assertSupportedPcb(pcb) {
+    assertTwoCopperLayers(validatePcbStackup(normalizePcbSection(pcb)));
+}
+
+/** @param {unknown} data */
 export function validateEditableProject(data) {
     const normalized = validateProject(data);
-    assertSupportedPcb(normalized.pcb);
+    // validateProject has checked the normalized section's stackup; only the layer count remains.
+    const pcb = /** @type {{stackup?: {copperLayers?: string[]}}|undefined} */ (normalized.pcb);
+    assertTwoCopperLayers(pcb?.stackup?.copperLayers || defaultPcbStackup().copperLayers);
     return normalized;
 }
 
+/** A project the loader would reject, so storage refuses to write it. */
+export class ProjectIntegrityError extends Error {
+    /** @param {string} message */
+    constructor(message) {
+        super(message);
+        this.name = 'ProjectIntegrityError';
+    }
+}
+
+/**
+ * Validate a project for storage and return its compact stored form, copying it once.
+ * Storage writes only what the loader accepts, so a save or autosave never leaves a
+ * file or recovery snapshot that would not reopen.
+ * @throws {ProjectIntegrityError}
+ * @param {unknown} data
+ */
+export function storableProject(data) {
+    let normalized;
+    try {
+        normalized = validateEditableProject(data);
+    } catch (error) {
+        throw new ProjectIntegrityError(error instanceof Error ? error.message : String(error));
+    }
+    return compactNormalizedProject(normalized);
+}
+
+/** @param {unknown} data */
 export function repairDuplicateTrackIds(data) {
-    const normalized = normalizeProjectAliases(data);
+    const normalized = /** @type {JsonRecord & {pcb?: {tracks?: JsonRecord[]}, schematic?: {shapes?: JsonRecord[]}}} */ (normalizeProjectAliases(data));
     const tracks = normalized?.pcb?.tracks;
     if (!Array.isArray(tracks)) return { data: normalized, count: 0 };
     const seen = new Set();
+    /** @type {number[]} */
     const duplicates = [];
     tracks.forEach((track, index) => {
         if (!track?.id) return;
@@ -326,7 +471,7 @@ export function repairDuplicateTrackIds(data) {
     });
     if (!duplicates.length) return { data: normalized, count: 0 };
     for (const shape of normalized.schematic?.shapes || []) if (shape?.id) seen.add(shape.id);
-    const repaired = structuredClone(normalized);
+    const repaired = /** @type {JsonRecord & {pcb: {tracks: JsonRecord[]}}} */ (structuredClone(normalized));
     let next = 1;
     for (const index of duplicates) {
         while (seen.has(`shape_${next}`)) next++;
@@ -337,6 +482,53 @@ export function repairDuplicateTrackIds(data) {
     return { data: repaired, count: duplicates.length };
 }
 
+/**
+ * Give later board shapes that repeat an earlier shape's id a fresh `pshape_N` id
+ * (older builds could reuse a converted track's source-shape id). Geometry is kept.
+ */
+/** @param {unknown} data */
+export function repairDuplicateBoardShapeIds(data) {
+    const normalized = /** @type {JsonRecord & {pcb?: {tracks?: JsonRecord[], boardShapes?: JsonRecord[]}}} */ (normalizeProjectAliases(data));
+    const shapes = normalized?.pcb?.boardShapes;
+    if (!Array.isArray(shapes)) return { data: normalized, count: 0 };
+    const seen = new Set();
+    /** @type {number[]} */
+    const duplicates = [];
+    shapes.forEach((shape, index) => {
+        if (!shape?.id) return;
+        if (seen.has(shape.id)) duplicates.push(index);
+        seen.add(shape.id);
+    });
+    if (!duplicates.length) return { data: normalized, count: 0 };
+    for (const track of normalized.pcb?.tracks || []) {
+        const source = record(track?.sbs) ? track.sbs : (record(track?.sourceBoardShape) ? track.sourceBoardShape : null);
+        const sourceId = source?.id;
+        if (sourceId) seen.add(sourceId);
+    }
+    let next = 1 + Math.max(0, ...[...seen].map(id => Number(/^pshape_(\d+)$/.exec(id)?.[1]) || 0));
+    const repaired = /** @type {JsonRecord & {pcb: {boardShapes: JsonRecord[]}}} */ (structuredClone(normalized));
+    for (const index of duplicates) repaired.pcb.boardShapes[index].id = `pshape_${next++}`;
+    return { data: repaired, count: duplicates.length };
+}
+
+/** Repair duplicate track and board-shape ids before loading an opened or recovered project. */
+/** @param {unknown} data */
+export function repairDuplicateIds(data) {
+    const tracks = repairDuplicateTrackIds(data);
+    const shapes = repairDuplicateBoardShapeIds(tracks.data);
+    return { data: shapes.data, tracks: tracks.count, shapes: shapes.count };
+}
+
+/** User-facing summary of {@link repairDuplicateIds}, or null when nothing changed. */
+/** @param {{tracks: number, shapes: number}} repair */
+export function duplicateIdRepairMessage({ tracks, shapes }) {
+    const parts = [[tracks, 'track'], [shapes, 'board shape']].filter(([count]) => count)
+        .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`);
+    if (!parts.length) return null;
+    return `Assigned new IDs to ${parts.join(' and ')} with duplicate IDs. All geometry was kept. Save the project to keep the repaired IDs.`;
+}
+
+/** @param {unknown} data */
 export function validateProject(data) {
     data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {
@@ -350,8 +542,8 @@ export function validateProject(data) {
         validatePcb(data.pcb);
     }
     validatePcbStackup(data.pcb);
-    for (const [section, fields] of [[data.schematic, ['shapes', 'components']],
-        [data.pcb, ['tracks', 'vias', 'pads', 'boardShapes', 'texts']]]) {
+    for (const [section, fields] of /** @type {Array<[JsonRecord|null|undefined, string[]]>} */ ([[data.schematic, ['shapes', 'components']],
+        [data.pcb, ['tracks', 'vias', 'pads', 'boardShapes', 'texts']]])) {
         if (!section) continue;
         for (const field of fields) {
             const items = section[field];
@@ -376,10 +568,14 @@ export function validateProject(data) {
                         invalid(`${field}[${index}].nd`, `Invalid graph coordinates in ${field}`, node);
                     }
                 }
+                const nodeIds = new Set(Array.isArray(item.cn) ? item.cn : Object.keys(nodes || {}));
                 for (const edge of Object.values(edges || {})) {
+                    if (!Array.isArray(edge)) {
+                        invalid(`${field}[${index}].ed`, `Invalid graph edge in ${field}`, edge);
+                    }
                     const from = edge[0];
                     const to = edge[1];
-                    if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, from) || !Object.prototype.hasOwnProperty.call(nodes, to)) {
+                    if (!nodeIds.has(from) || !nodeIds.has(to)) {
                         invalid(`${field}[${index}].ed`, `Dangling graph edge in ${field}`, edge);
                     }
                 }
@@ -387,6 +583,7 @@ export function validateProject(data) {
         }
     }
     for (const section of [data.schematic, data.pcb]) {
+        if (!section) continue;
         for (const key of ['defs', 'settings', 'placements', 'design', 'board']) {
             if (section?.[key] != null && !record(section[key])) invalid(key, `Invalid ${key}`, section[key]);
         }
@@ -405,7 +602,7 @@ export function validateProject(data) {
         }
         if (value && typeof value === 'object' && !visited.has(value)) {
             visited.add(value);
-            for (const child of Object.values(value)) stack.push(child);
+            for (const child of Object.values(/** @type {object} */ (value))) stack.push(child);
         }
     }
     return data;

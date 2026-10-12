@@ -29,6 +29,13 @@ import { Text } from './text.js';
 import { Net } from './net.js';
 import { NoConnect } from './noconnect.js';
 
+/**
+ * @typedef {{type?: string, points?: unknown, labelOffset?: unknown, textOffset?: unknown, [key: string]: unknown}} ShapeData
+ * @typedef {import('../core/SchematicDocument.js').SchematicDrawable|import('./track.js').Track} ShapeInstance
+ * @typedef {new (options?: never) => unknown} ShapeConstructor
+ */
+
+/** @type {Record<string, ShapeConstructor>} */
 const shapeRegistry = {
     polyline: Polyline,
     wire: Wire,
@@ -42,10 +49,12 @@ const shapeRegistry = {
 };
 
 /** Map short serialisation keys back to constructor-friendly long names. */
+/** @type {Record<string, string>} */
 const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
     pts: 'points', n: 'net',
     nd: 'graphNodes', ed: 'graphEdges', pc: 'pinConnections', wl: 'wireLabel',
+    cn: 'cornerNodeIds', rev: 'reversed',
     el: 'edgeLayers', ew: 'edgeWidths', bg: 'edgeBulges', pdc: 'padConnections',
     sbs: 'sourceBoardShape',
     r: 'radius', w: 'width', h: 'height', cr: 'cornerRadius', ncr: 'nodeCornerRadii',
@@ -61,17 +70,20 @@ const SHORT_KEYS = {
 /**
  * Expand short serialisation keys to constructor-friendly long names
  * and unflatten flat point arrays.
- * @param {Object} data - Compact JSON shape data.
- * @returns {Object} Expanded data ready for shape constructor.
+ * @param {ShapeData} data - Compact JSON shape data.
+ * @returns {ShapeData} Expanded data ready for shape constructor.
  */
 function expandShapeData(data) {
+    /** @type {ShapeData} */
     const out = {};
     for (const [k, v] of Object.entries(data)) {
         out[SHORT_KEYS[k] || k] = v;
     }
     // Unflatten flat point arrays: [x0,y0,x1,y1,...] → [{x,y},...]
     if (Array.isArray(out.points) && typeof out.points[0] === 'number') {
+        /** @type {number[]} */
         const flat = out.points;
+        /** @type {Array<{x: number, y: number}>} */
         const pts = [];
         for (let i = 0; i < flat.length - 1; i += 2) pts.push({ x: flat[i], y: flat[i + 1] });
         out.points = pts;
@@ -87,13 +99,28 @@ function expandShapeData(data) {
 }
 
 /**
- * Create a shape from JSON data
+ * Create a PCB track from JSON data.
+ * @overload
+ * @param {ShapeData & {type: 'track'}} data
+ * @returns {Track}
+ */
+/**
+ * Create a schematic shape from JSON data.
+ * @overload
+ * @param {ShapeData} data
+ * @returns {import('../core/SchematicDocument.js').SchematicDrawable}
+ */
+/**
+ * Create a shape from JSON data.
+ * @param {ShapeData} data
+ * @returns {ShapeInstance}
  */
 export function createShape(data) {
     const expanded = expandShapeData(data);
-    const ShapeClass = shapeRegistry[expanded.type];
+    const type = typeof expanded.type === 'string' ? expanded.type : undefined;
+    const ShapeClass = type ? shapeRegistry[type] : undefined;
     if (!ShapeClass) {
         throw new Error(`Unknown shape type: ${expanded.type}`);
     }
-    return new ShapeClass(expanded);
+    return /** @type {ShapeInstance} */ (new ShapeClass(/** @type {never} */ (expanded)));
 }

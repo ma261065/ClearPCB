@@ -14,21 +14,31 @@
  * axis), which also mirrors bottom silk so it reads correctly.
  */
 
-import { resolveReferenceText } from './reference-text.js';
-import { getBoardOutline, boardBoundary } from './board-outline.js';
+import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
+import { getBoardOutline, boardBoundary } from '../../shared/pcb/board-outline.js';
 import {
     resolvePlacementDrills,
     resolvePadFlashes,
     resolveSilk,
     resolvePadMaskOpenings,
     MASK_EXPANSION,
-} from './board-geometry.js';
-import { resolveTrackSegments } from './board-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
+} from '../../shared/pcb/board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
-import { drawPictureCached } from './picture-raster.js';
+import { drawPictureCached } from '../../shared/pcb/picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';
+import { getComputedFill } from './computed-fill-cache.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x:number,y:number,w:number,h:number,r?:number,points?:Point[]}} BoardBounds */
+/** @typedef {{h:number,s:number,v:number,o:number}} LayerStyle */
+/** @typedef {'board'|'soldermask'|'tracks'|'vias'|'silkscreen'|'pads'} LayerStyleKey */
+/** @typedef {Record<LayerStyleKey, LayerStyle>} LayerStyleMap */
+/** @typedef {import('../../shared/pcb/board-shape-geometry.js').ResolvedBoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard & {fills?: import('../../shapes/copper-fill.js').CopperFill[], boardX?: number, boardY?: number, boardWidth?: number, boardHeight?: number, boardRadius?: number, [key:string]: unknown}} Board2DData */
+
+/** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */
 function traceBoardShape(context, geometry) {
     context.beginPath();
     if (geometry.circle) {
@@ -44,6 +54,7 @@ function traceBoardShape(context, geometry) {
     return true;
 }
 
+/** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */
 function drawBoardShape(context, geometry) {
     if (geometry.image) {
         drawPictureCached(context, geometry.image);
@@ -88,6 +99,7 @@ const COL = {
 };
 
 const SOLDERMASK_BASE_RGB = { r: 34, g: 214, b: 62 };
+/** @type {LayerStyleMap} */
 const LAYER_STYLE = {
     board: _makeLayerStyleHSV(32, 52, 42, 255),
     soldermask: _makeLayerStyleHSV(138, 81, 45, 192),
@@ -99,30 +111,35 @@ const LAYER_STYLE = {
 // Toggle solder-mask rendering on board faces.
 const SHOW_SOLDERMASK = true;
 
+/** @param {unknown} v @param {number} fallback */
 function _clampByte(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(255, Math.round(n)));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampAlpha(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampUnit(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(1, n));
 }
 
+/** @param {unknown} v @param {number} fallback */
 function _clampHue(v, fallback) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(0, Math.min(360, Math.round(n)));
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsl(r, g, b) {
     let rn = r / 255;
     let gn = g / 255;
@@ -148,6 +165,7 @@ function _rgbToHsl(r, g, b) {
     return { h: (h / 6) * 360, s, l };
 }
 
+/** @param {number} r @param {number} g @param {number} b */
 function _rgbToHsv(r, g, b) {
     const rn = r / 255;
     const gn = g / 255;
@@ -166,6 +184,7 @@ function _rgbToHsv(r, g, b) {
     return { h: h * 360, s, v };
 }
 
+/** @param {number} h @param {number} s @param {number} v */
 function _hsvToRgb(h, s, v) {
     const hh = (((h % 360) + 360) % 360) / 60;
     const c = v * s;
@@ -185,6 +204,7 @@ function _hsvToRgb(h, s, v) {
     ];
 }
 
+/** @param {number} r @param {number} g @param {number} b @param {number} o */
 function _makeLayerStyle(r, g, b, o) {
     const hsv = _rgbToHsv(r, g, b);
     return { h: hsv.h, s: hsv.s, v: hsv.v, o };
@@ -192,10 +212,12 @@ function _makeLayerStyle(r, g, b, o) {
 
 // HSV in the panel-slider units (H 0-359, S/V 0-100) plus alpha as a byte
 // (0-255). Stored normalised: h degrees, s/v/o in 0-1.
+/** @param {number} h @param {number} s @param {number} v @param {number} oByte */
 function _makeLayerStyleHSV(h, s, v, oByte) {
     return { h, s: s / 100, v: v / 100, o: oByte / 255 };
 }
 
+/** @param {number} h @param {number} s @param {number} l */
 function _hslToRgb(h, s, l) {
     let hNorm = ((h % 360) + 360) % 360;
     hNorm /= 360;
@@ -203,6 +225,7 @@ function _hslToRgb(h, s, l) {
         const v = Math.round(l * 255);
         return [v, v, v];
     }
+    /** @param {number} p @param {number} q @param {number} t */
     const hue2rgb = (p, q, t) => {
         let tt = t;
         if (tt < 0) tt += 1;
@@ -235,6 +258,7 @@ function _applyLayerColors() {
     COL.pad = `rgb(${pr},${pg},${pb})`;
 }
 
+/** @param {number} greenness */
 function _setSolderMaskGreenness(greenness) {
     const [curR, curG, curB] = _hsvToRgb(
         LAYER_STYLE.soldermask.h,
@@ -260,6 +284,7 @@ export function getBoard2DSolderMaskAppearance() {
     };
 }
 
+/** @param {{greenness?: number, opacity?: number}} [appearance] */
 export function setBoard2DSolderMaskAppearance({ greenness, opacity } = {}) {
     if (greenness !== undefined) _setSolderMaskGreenness(greenness);
     if (opacity !== undefined) {
@@ -276,6 +301,7 @@ export function getBoard2DMetalAppearance() {
     };
 }
 
+/** @param {{copperHue?: number, padHue?: number}} [appearance] */
 export function setBoard2DMetalAppearance({ copperHue, padHue } = {}) {
     if (copperHue !== undefined) LAYER_STYLE.tracks.h = _clampHue(copperHue, LAYER_STYLE.tracks.h);
     if (padHue !== undefined) LAYER_STYLE.pads.h = _clampHue(padHue, LAYER_STYLE.pads.h);
@@ -294,8 +320,9 @@ export function getBoard2DLayerStyles() {
     };
 }
 
+/** @param {Partial<LayerStyleMap>} [patch] */
 export function setBoard2DLayerStyles(patch = {}) {
-    for (const key of ['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads']) {
+    for (const key of /** @type {Array<keyof LayerStyleMap>} */ (['board', 'soldermask', 'tracks', 'vias', 'silkscreen', 'pads'])) {
         const next = patch[key];
         if (!next) continue;
         const cur = LAYER_STYLE[key];
@@ -318,6 +345,7 @@ export class Board2D {
         /** @type {'top'|'bottom'} */
         this.side = 'top';
         /** Board + geometry inputs (same shape as exportGerbers). */
+        /** @type {Board2DData|null} */
         this.data = null;
         // View transform (CSS px). screenX = tx + mirror*scale*worldX;
         // screenY = ty + scale*worldY.
@@ -331,6 +359,14 @@ export class Board2D {
         this._onPointerUp = this._onPointerUp.bind(this);
         this._onWheel = this._onWheel.bind(this);
         this._drag = null;
+        /** @type {{canvas: HTMLCanvasElement, x: number, y: number, tx: number, ty: number, scale: number, dpr: number, clipped: boolean}|null} */
+        this._panRaster = null;
+        /** @type {number|null} */
+        this._panFrame = null;
+        /** @type {number|null} */
+        this._zoomTimer = null;
+        /** @type {number|null} */
+        this._zoomMinScale = null;
         canvas.addEventListener('pointerdown', this._onPointerDown);
         canvas.addEventListener('wheel', this._onWheel, { passive: false });
         // Re-render when the canvas CSS box changes (window resize, split-divider
@@ -341,14 +377,23 @@ export class Board2D {
         // 2D mode, so it can't cover this.)
         try {
             this._ro = new ResizeObserver(() => {
-                if (this.canvas.clientWidth && this.canvas.clientHeight) this.render();
+                const dpr = this.canvas.ownerDocument.defaultView?.devicePixelRatio || 1;
+                if (this.canvas.clientWidth && this.canvas.clientHeight &&
+                    (this.canvas.width !== Math.round(this.canvas.clientWidth * dpr) ||
+                    this.canvas.height !== Math.round(this.canvas.clientHeight * dpr))) this.render();
             });
             this._ro.observe(canvas);
         } catch { this._ro = null; }
     }
 
-    /** @param {object} data Same fields passed to exportGerbers. */
-    setData(data) {
+    /** @param {Board2DData} data Same fields passed to exportGerbers.
+     * @param {'top'|'bottom'} [side]
+     */
+    setData(data, side = this.side) {
+        if (side !== this.side) {
+            this.side = side;
+            this._needFit = true;
+        }
         this.data = data;
         this.render();
     }
@@ -374,6 +419,10 @@ export class Board2D {
     }
 
     dispose() {
+        this._cancelPanFrame();
+        this._cancelZoomTimer();
+        this._panRaster = null;
+        this._drag = null;
         try { this._ro?.disconnect(); } catch { /* ignore */ }
         this._ro = null;
         this.canvas.removeEventListener('pointerdown', this._onPointerDown);
@@ -381,6 +430,7 @@ export class Board2D {
         const w = this._dragWin;
         w?.removeEventListener('pointermove', this._onPointerMove);
         w?.removeEventListener('pointerup', this._onPointerUp);
+        w?.removeEventListener('pointercancel', this._onPointerUp);
     }
 
     /** Reframe so the whole board fits with a margin, then render. */
@@ -397,7 +447,7 @@ export class Board2D {
     get mirror() { return this.side === 'bottom' ? -1 : 1; }
 
     _boardRect() {
-        const d = this.data || {};
+        const d = /** @type {Partial<Board2DData>} */ (this.data || {});
         if (getBoardOutline(d)) return boardBoundary(d);
         const h = d.boardHeight || 80;
         // exportGerbers' boardX/boardY are the Y-up bottom-left corner; the rest
@@ -412,6 +462,7 @@ export class Board2D {
         };
     }
 
+    /** @param {number} cssW @param {number} cssH */
     _fitNow(cssW, cssH) {
         const b = this._boardRect();
         const margin = 20;
@@ -430,6 +481,7 @@ export class Board2D {
      * Lower bound on `scale` (px/mm) for zoom-out: half the scale at which the
      * board just fits the viewport, so it can never shrink to a few pixels.
      */
+    /** @param {number} cssW @param {number} cssH */
     _minScale(cssW, cssH) {
         const b = this._boardRect();
         const margin = 20;
@@ -443,11 +495,14 @@ export class Board2D {
 
     /** @param {PointerEvent} e */
     _onPointerDown(e) {
+        if ((e.button !== 0 && e.button !== 2) || this._drag) return;
+        this._panRaster ||= this._capturePanRaster();
         this._drag = { x: e.clientX, y: e.clientY };
         this._dragWin = this.canvas.ownerDocument?.defaultView || window;
         this.canvas.setPointerCapture?.(e.pointerId);
         this._dragWin.addEventListener('pointermove', this._onPointerMove);
         this._dragWin.addEventListener('pointerup', this._onPointerUp);
+        this._dragWin.addEventListener('pointercancel', this._onPointerUp);
     }
 
     /** @param {PointerEvent} e */
@@ -456,16 +511,95 @@ export class Board2D {
         this.tx += e.clientX - this._drag.x;
         this.ty += e.clientY - this._drag.y;
         this._drag = { x: e.clientX, y: e.clientY };
-        this.render();
+        this._scheduleRasterPaint();
+    }
+
+    _scheduleRasterPaint() {
+        if (this._panFrame === null) {
+            const owner = this.canvas.ownerDocument?.defaultView || window;
+            this._panFrame = owner.requestAnimationFrame(() => {
+                this._panFrame = null;
+                if (this._drag || this._zoomTimer !== null) this._paintPanRaster();
+            });
+        }
     }
 
     /** @param {PointerEvent} e */
     _onPointerUp(e) {
+        if (!this._drag) return;
+        this._cancelPanFrame();
         this._drag = null;
         this.canvas.releasePointerCapture?.(e.pointerId);
         const w = this._dragWin || window;
         w.removeEventListener('pointermove', this._onPointerMove);
         w.removeEventListener('pointerup', this._onPointerUp);
+        w.removeEventListener('pointercancel', this._onPointerUp);
+        this.render();
+    }
+
+    _cancelPanFrame() {
+        if (this._panFrame === null) return;
+        (this.canvas.ownerDocument?.defaultView || window).cancelAnimationFrame(this._panFrame);
+        this._panFrame = null;
+    }
+
+    _cancelZoomTimer() {
+        if (this._zoomTimer !== null) {
+            (this.canvas.ownerDocument?.defaultView || window).clearTimeout(this._zoomTimer);
+        }
+        this._zoomTimer = null;
+        this._zoomMinScale = null;
+    }
+
+    /** Capture full board artwork at this zoom, with bounded overscan for exceptionally large views. */
+    _capturePanRaster() {
+        const owner = this.canvas.ownerDocument || document;
+        const dpr = owner.defaultView?.devicePixelRatio || 1;
+        const board = this._boardRect();
+        const margin = 4 * dpr;
+        let y = Math.floor((this.ty + this.scale * board.y) * dpr) - margin;
+        const left = this.tx + this.mirror * this.scale * board.x;
+        const right = this.tx + this.mirror * this.scale * (board.x + board.w);
+        let x = Math.floor(Math.min(left, right) * dpr) - margin;
+        let width = Math.ceil(board.w * this.scale * dpr) + margin * 2;
+        let height = Math.ceil(board.h * this.scale * dpr) + margin * 2;
+        // At extreme zoom, bound the capture to an overscanned viewport.
+        const clipped = width > 4096 || height > 4096;
+        if (clipped) {
+            width = Math.max(this.canvas.width, Math.min(4096, this.canvas.width * 2));
+            height = Math.max(this.canvas.height, Math.min(4096, this.canvas.height * 2));
+            x = Math.floor((this.canvas.width - width) / 2);
+            y = Math.floor((this.canvas.height - height) / 2);
+        }
+        const canvas = owner.createElement('canvas');
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Board view navigation requires a 2D canvas.');
+        context.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
+            this.tx * dpr - x, this.ty * dpr - y);
+        if (this.data) this._paintBoard(context);
+        return { canvas, x, y, tx: this.tx, ty: this.ty, scale: this.scale, dpr, clipped };
+    }
+
+    _paintPanRaster() {
+        let raster = this._panRaster ||= this._capturePanRaster();
+        let k = this.scale / raster.scale;
+        let x = k * raster.x + (this.tx - k * raster.tx) * raster.dpr;
+        let y = k * raster.y + (this.ty - k * raster.ty) * raster.dpr;
+        if (raster.clipped && (x > 0 || y > 0 ||
+            x + k * raster.canvas.width < this.canvas.width ||
+            y + k * raster.canvas.height < this.canvas.height)) {
+            raster = this._panRaster = this._capturePanRaster();
+            k = 1;
+            x = raster.x;
+            y = raster.y;
+        }
+        const ctx = this.ctx;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        paintViewerBackground(ctx, this.canvas.width, this.canvas.height);
+        ctx.drawImage(raster.canvas, x, y, k * raster.canvas.width, k * raster.canvas.height);
     }
 
     /** @param {WheelEvent} e */
@@ -477,19 +611,31 @@ export class Board2D {
         const factor = Math.pow(1.0015, -e.deltaY);
         // Floor the zoom-out so the board can't shrink to a few pixels: never
         // smaller than half the scale at which it just fits the viewport.
-        const minScale = this._minScale(rect.width || 1, rect.height || 1);
+        const minScale = this._zoomMinScale ?? this._minScale(rect.width || 1, rect.height || 1);
         const next = Math.max(minScale, Math.min(2000, this.scale * factor));
+        if (next === this.scale) return;
+        this._panRaster ||= this._capturePanRaster();
         const k = next / this.scale;
         // Keep the world point under the cursor fixed while zooming.
         this.tx = px - k * (px - this.tx);
         this.ty = py - k * (py - this.ty);
         this.scale = next;
-        this.render();
+        this._cancelZoomTimer();
+        this._zoomMinScale = minScale;
+        const owner = this.canvas.ownerDocument?.defaultView || window;
+        this._zoomTimer = owner.setTimeout(() => {
+            this._zoomTimer = null;
+            this.render();
+        }, 300);
+        this._scheduleRasterPaint();
     }
 
     /* ── rendering ────────────────────────────────────────────────────── */
 
     render() {
+        this._cancelPanFrame();
+        this._cancelZoomTimer();
+        this._panRaster = null;
         const cv = this.canvas;
         const cssW = cv.clientWidth || 1;
         const cssH = cv.clientHeight || 1;
@@ -512,11 +658,28 @@ export class Board2D {
             return;
         }
 
-        // World→device: fold the device-pixel-ratio and the left↔right mirror
-        // into the transform so all geometry can be drawn in millimetres.
-        ctx.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
-            this.tx * dpr, this.ty * dpr);
+        if (this._exportScale) {
+            ctx.setTransform(this.mirror * this.scale * dpr, 0, 0, this.scale * dpr,
+                this.tx * dpr, this.ty * dpr);
+            this._paintBoard(ctx);
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.globalCompositeOperation = 'destination-over';
+            paintViewerBackground(ctx, cv.width, cv.height);
+            ctx.restore();
+            return;
+        }
+        // Keep the transparent artwork from this render: starting navigation
+        // must not rebuild the board before its first frame can be displayed.
+        this._panRaster = this._capturePanRaster();
+        paintViewerBackground(ctx, cv.width, cv.height);
+        ctx.drawImage(this._panRaster.canvas, this._panRaster.x, this._panRaster.y);
+    }
 
+    /** Paint transparent board artwork, independent of the screen-space background.
+     * @param {CanvasRenderingContext2D} ctx
+     */
+    _paintBoard(ctx) {
         this._drawBoard(ctx);
         // Clip artwork to the board outline so copper/silk that
         // spill past the edge (e.g. pads on the rim) are cropped to the board.
@@ -532,11 +695,6 @@ export class Board2D {
         // Holes paint last so a bore/cutout reads as open through every layer —
         // including silk, which is never printed over a drilled hole.
         this._drawHoles(ctx);
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalCompositeOperation = 'destination-over';
-        paintViewerBackground(ctx, cv.width, cv.height);
-        ctx.restore();
     }
 
     /**
@@ -569,6 +727,7 @@ export class Board2D {
     }
 
     /** Rounded board substrate with a bare-FR4 edge stroke. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawBoard(ctx) {
         const b = this._boardRect();
         this._boardPath(ctx, b);
@@ -584,9 +743,10 @@ export class Board2D {
         ctx.restore();
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {BoardBounds} bounds */
     _boardPath(ctx, bounds) {
         if (!bounds.points) {
-            this._roundRectPath(ctx, bounds.x, bounds.y, bounds.w, bounds.h, bounds.r);
+            this._roundRectPath(ctx, bounds.x, bounds.y, bounds.w, bounds.h, bounds.r || 0);
             return;
         }
         ctx.beginPath();
@@ -595,6 +755,7 @@ export class Board2D {
         ctx.closePath();
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {number} x @param {number} y @param {number} w @param {number} h @param {number} r */
     _roundRectPath(ctx, x, y, w, h, r) {
         const rad = Math.max(0, Math.min(r || 0, w / 2, h / 2));
         ctx.beginPath();
@@ -615,13 +776,15 @@ export class Board2D {
      * naturally shows only where it exists; elsewhere raw board is visible.
      * Supports mask-layer circles (always filled openings) and copper-layer
      * circles using remove-solder-mask / remove-copper-mask modes. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawMaskOpenings(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         ctx.fillStyle = COL.rawBoard;
         ctx.strokeStyle = COL.rawBoard;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        for (const flash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
+        for (const rawFlash of resolvePadMaskOpenings(d.placements || new Map(), this.side)) {
+            const flash = /** @type {{x:number,y:number,w:number,h:number,shape:string,rad:number}} */ (rawFlash);
             this._fillPad(ctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
         const copperLayer = `${this.side}-copper`;
@@ -651,6 +814,7 @@ export class Board2D {
 
     /** Solder-mask topcoat for the active side. Painted over copper, then
      * openings are punched out so exposed regions reveal copper/raw board. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawSolderMask(ctx) {
         const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
         layerCanvas.width = ctx.canvas.width;
@@ -680,13 +844,15 @@ export class Board2D {
     }
 
     /** Copper for the active side: tracks, pad flashes and via barrels. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawCopper(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         const top = this.side === 'top';
         const padSide = top ? 'top' : 'bottom';
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
         const copperCol = COL.copper;
 
+        /** @param {import('../../core/pcb-board-shapes.js').BoardShape} shape @param {BoardShapeGeometry} [geometry] */
         const drawCopperShape = (shape, geometry = resolveBoardShapeGeometry(shape)) => {
             drawBoardShape(cctx, geometry);
         };
@@ -697,7 +863,7 @@ export class Board2D {
         const layerCanvas = (ctx.canvas.ownerDocument?.createElement('canvas')) || document.createElement('canvas');
         layerCanvas.width = ctx.canvas.width;
         layerCanvas.height = ctx.canvas.height;
-        const cctx = layerCanvas.getContext('2d');
+        const cctx = /** @type {CanvasRenderingContext2D} */ (layerCanvas.getContext('2d'));
         if (!cctx) return;
         cctx.setTransform(ctx.getTransform());
         cctx.globalAlpha = LAYER_STYLE.tracks.o;
@@ -708,7 +874,7 @@ export class Board2D {
         for (const fill of (d.fills || [])) {
             if (fill?.visible === false) continue;
             if (fill?.layer !== copperLayer) continue;
-            const polys = fill?._computed;
+            const polys = getComputedFill(fill);
             if (!Array.isArray(polys) || polys.length === 0) continue;
             cctx.beginPath();
             for (const ex of polys) {
@@ -774,7 +940,8 @@ export class Board2D {
         cctx.save();
         cctx.globalAlpha = LAYER_STYLE.pads.o;
         cctx.fillStyle = COL.pad;
-        for (const flash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
+        for (const rawFlash of resolvePadFlashes(d.placements || new Map(), { side: padSide })) {
+            const flash = /** @type {{x:number,y:number,w:number,h:number,shape:string,rad:number}} */ (rawFlash);
             this._fillPad(cctx, flash.x, flash.y, flash.w, flash.h, flash.shape, flash.rad);
         }
         for (const pad of (d.pads || [])) {
@@ -825,6 +992,7 @@ export class Board2D {
         // mask opening (_drawMaskOpenings) and copper subtraction above.
     }
 
+    /** @param {CanvasRenderingContext2D} ctx @param {number} cx @param {number} cy @param {number} w @param {number} h @param {string} shape */
     _padPath(ctx, cx, cy, w, h, shape) {
         ctx.beginPath();
         if (shape === 'circle') {
@@ -841,6 +1009,7 @@ export class Board2D {
 
     /** Flash a pad, rotating its shape by the placement angle (so a 90°/270°
      *  part swaps width/height and oblique parts tilt) before filling. */
+    /** @param {CanvasRenderingContext2D} ctx @param {number} cx @param {number} cy @param {number} w @param {number} h @param {string} shape @param {number} rad */
     _fillPad(ctx, cx, cy, w, h, shape, rad) {
         if (rad) {
             ctx.save();
@@ -857,8 +1026,9 @@ export class Board2D {
 
     /** Drilled holes (THT pad drills, via drills) punched through to the
      *  background so the bore reads as an open hole, not a dark disc. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawHoles(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
         ctx.fillStyle = '#000';
@@ -903,7 +1073,7 @@ export class Board2D {
             const geometry = resolveBoardShapeGeometry(s);
             if (geometry.filled) {
                 for (const outline of boardShapeFilledRemovalOutlines(s)) {
-                    if (!traceBoardShape(ctx, { path: outline, pathClosed: true })) continue;
+                    if (!traceBoardShape(ctx, /** @type {BoardShapeGeometry} */ ({ path: outline, pathClosed: true }))) continue;
                     ctx.fill();
                 }
             } else {
@@ -919,8 +1089,9 @@ export class Board2D {
     }
 
     /** Silkscreen for the active side: shapes, ref designators, free text. */
+    /** @param {CanvasRenderingContext2D} ctx */
     _drawSilk(ctx) {
-        const d = this.data;
+        const d = /** @type {Board2DData} */ (this.data);
         const top = this.side === 'top';
         const wantLayer = top ? 'top-silk' : 'bottom-silk';
         ctx.save();
@@ -939,7 +1110,8 @@ export class Board2D {
             ctx.stroke();
         };
 
-        for (const sk of resolveSilk(d.placements || new Map(), this.side)) {
+        for (const rawSk of resolveSilk(d.placements || new Map(), this.side)) {
+            const sk = /** @type {import('../../shared/pcb/board-geometry.js').SilkDescriptor} */ (rawSk);
             if (sk.kind === 'line') {
                 stroke([[{ x: sk.x1, y: sk.y1 }, { x: sk.x2, y: sk.y2 }]], sk.width);
             } else if (sk.kind === 'circle') {

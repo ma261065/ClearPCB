@@ -10,44 +10,63 @@
  * Checks implemented:
  *   1. Clearance — copper of different nets, on a shared layer, closer than
  *      the design-rule Clearance gap (pad/pad, pad/track, pad/via, track/
- *      track, track/via, via/via). Pads within the SAME footprint are
- *      trusted (intra-footprint pad geometry is defined by the part, not the
- *      layout) and skipped to avoid flooding on fine-pitch ICs.
+ *      track, track/via, via/via). Same-footprint pad clearance is checked
+ *      unless explicitly excluded by the Design setting.
  *   2. Via annular ring — copper ring (diameter − drill)/2 below a minimum,
  *      and invalid drills (drill ≥ diameter or non-positive).
  *   3. Incomplete connections — every remaining ratsnest line (an air wire
  *      between copper that should be joined but isn't yet) is a violation.
  *   4. Shorted nets — two or more distinct named nets electrically bonded by
- *      coincident copper (a track/via/pad junction tying nets together).
+ *      touching copper, including segment-interior and stroked-edge overlaps.
  *      Each bonded component reports one detected contact for its marker.
+ *   5. Minimum sizes — track edge width, Via diameter and Via drill below
+ *      the corresponding routing design rules.
  *
  * Distances are edge-to-edge in millimetres. Pads use posed physical outlines;
  * copper-removal artwork is subtracted per layer before clearance and shorts.
  * Contact markers account for stroke widths and the empty bores of vias.
  * Additive copper pictures are checked as solid transformed rectangles,
  * independent of the pixels used to render and manufacture the artwork.
- * The object pair represented by a short is not repeated as a zero-clearance
- * error. Other offending pairs remain reportable, even in the same copper group.
+ * Contacts between named nets in a shorted copper group are not repeated as
+ * zero-clearance errors. Positive gaps and unassigned copper remain reportable.
  */
 
 import { resolveCopperPads } from './copper-model.js';
-import { resolveTrackSegments } from './board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
+import { getComputedFill } from './computed-fill-cache.js';
 import { subtractCopperArtwork } from './copper-removal.js';
-import { spatialPairs } from '../../core/spatial-pairs.js';
+import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
+import { spatialPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
 import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior, strokedPointDistance } from './arc-clearance.js';
+import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
+import { PCB_MIN_VIA_ANNULAR_RING } from '../../core/PcbDesignSettings.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} Bounds */
+/** @typedef {{dist:number,x:number,y:number}} DistanceResult */
+/** @typedef {Record<string, any>} CopperFeature */
+/** @typedef {{pads:CopperFeature[],segments:CopperFeature[],vias:CopperFeature[],areas:CopperFeature[],circles:CopperFeature[],arcs:CopperFeature[]}} CopperCollection */
+/** @typedef {{clearance?: number, minAnnularRing?: number, trackWidth?: number, viaDiameter?: number, viaDrill?: number, excludeSameFootprintPadClearance?: boolean, ratlines?: import('./drc-state.js').Ratline[]}} DrcRules */
+/** @typedef {{type?: string, r?: number, a?: Point, b?: Point, net?: string, pair?: unknown}|any} DrcMarker */
+/** @typedef {{id:string,rule:string,severity:string,message:string,x:number,y:number,marker:DrcMarker}} DrcViolation */
+/** @typedef {{ok: boolean, violations: DrcViolation[], counts: {errors: number, warnings: number}}} DrcResult */
+/** @typedef {{nets:string[], point:Point, features:Set<CopperFeature>, contactFeatures:Set<CopperFeature>}} ShortResult */
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
-const DEFAULT_MIN_ANNULAR_RING = 0.05;
+const DEFAULT_MIN_ANNULAR_RING = PCB_MIN_VIA_ANNULAR_RING;
 
 /** Numeric tolerance (mm) so coincident-by-design copper isn't flagged. */
 const EPS = 1e-4;
 
 /* ───────────────────────── Geometry helpers ───────────────────────── */
 
-/** Closest point on segment [a,b] to point p, returned as {x,y}. */
+/** Closest point on segment [a,b] to point p, returned as {x,y}.
+ * @param {number} px @param {number} py @param {number} ax @param {number} ay @param {number} bx @param {number} by
+ */
 function closestOnSegment(px, py, ax, ay, bx, by) {
     const dx = bx - ax;
     const dy = by - ay;
@@ -61,6 +80,9 @@ function closestOnSegment(px, py, ax, ay, bx, by) {
 /**
  * Intersection point of segments [p1,p2] and [p3,p4], or null if they don't
  * cross. Used to anchor a marker at the actual crossing rather than a midpoint.
+ * @param {number} p1x @param {number} p1y @param {number} p2x @param {number} p2y
+ * @param {number} p3x @param {number} p3y @param {number} p4x @param {number} p4y
+ * @returns {Point|null}
  */
 function segmentsIntersectionPoint(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y) {
     const d = (p2x - p1x) * (p4y - p3y) - (p2y - p1y) * (p4x - p3x);
@@ -74,7 +96,10 @@ function segmentsIntersectionPoint(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y) {
 /**
  * Centreline distance between segments, with a marker on their stroked copper
  * overlap (or halfway across the copper gap).
- * @returns {{dist:number, x:number, y:number}}
+ * @param {number} ax @param {number} ay @param {number} bx @param {number} by
+ * @param {number} cx @param {number} cy @param {number} dx @param {number} dy
+ * @param {number} [firstWidth] @param {number} [secondWidth]
+ * @returns {DistanceResult}
  */
 function segmentSegmentDistance(ax, ay, bx, by, cx, cy, dx, dy, firstWidth = 0, secondWidth = 0) {
     const hit = segmentsIntersectionPoint(ax, ay, bx, by, cx, cy, dx, dy);
@@ -103,20 +128,17 @@ function segmentSegmentDistance(ax, ay, bx, by, cx, cy, dx, dy, firstWidth = 0, 
     return { dist: best, x: bx2, y: by2 };
 }
 
-/** Quantised coordinate key (0.1 µm grid) — coincident points share a key. */
-function coincKey(x, y) {
-    return `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
-}
-
 /* ───────────────────── Copper primitive collection ───────────────── */
 
 /** Normalize a track edge layer ('top-copper') to 'top' / 'bottom'. */
+/** @param {unknown} layer */
 function normLayer(layer) {
     if (typeof layer === 'string' && layer.startsWith('bottom')) return 'bottom';
     return 'top';
 }
 
 /** Do two layer descriptors share a copper layer? 'both' matches anything. */
+/** @param {unknown} a @param {unknown} b */
 function layersOverlap(a, b) {
     if (a === 'both' || b === 'both') return true;
     return a === b;
@@ -128,6 +150,8 @@ function layersOverlap(a, b) {
  * Net"). Unconnected copper is not assigned to any signal, so two no-net
  * features are not a clearance violation. A no-net feature is still kept clear
  * of any named net.
+ * @param {unknown} a
+ * @param {unknown} b
  */
 function sameNet(a, b) {
     return (a || '') === (b || '');
@@ -135,30 +159,36 @@ function sameNet(a, b) {
 
 /**
  * Collect every copper primitive from the board into flat arrays.
- * @param {object} app - PCBApp instance.
- * @returns {{pads:Array, segments:Array, vias:Array, areas:Array, circles:Array, arcs:Array}}
+ * @param {PcbBoard} app
+ * @returns {CopperCollection}
  */
 export function collectCopper(app) {
+    /** @type {CopperFeature[]} */
     const pads = [];
+    /** @type {CopperFeature[]} */
     const segments = [];
+    /** @type {CopperFeature[]} */
     const vias = [];
 
     for (const pad of resolveCopperPads(app, { physical: true })) {
         pads.push({ ...pad, kind: 'pad', pin: pad.number,
+            layer: pad.layer === 'both' ? 'both' : normLayer(pad.layer),
             uid: `pad:${pad.componentId}.${pad.padId}`, label: `${pad.reference}.${pad.number}` });
     }
 
     // Track segments (per edge — each edge carries its own layer/width).
-    for (const track of (app.tracks || [])) {
+    for (const [trackIndex, track] of (app.tracks || []).entries()) {
         if (!track?.edges || !track?.nodes) continue;
+        const keyId = `trk:${track.id || `?${trackIndex}`}`;
         for (const [index, segment] of resolveTrackSegments(track).entries()) {
             const { edgeId, start: a, end: b, width } = segment;
             const layer = normLayer(segment.layer);
             segments.push({
                 kind: 'track',
-                uid: `trk:${track.id || '?'}:${edgeId}:${index}`,
-                keyId: `trk:${track.id || '?'}`,
+                uid: `${keyId}:${edgeId}:${index}`,
+                keyId,
                 trackId: track.id || track,
+                edgeId,
                 label: track.net ? `Track ${track.net}` : 'Track',
                 ax: a.x, ay: a.y, bx: b.x, by: b.y,
                 hw: width / 2,
@@ -170,7 +200,7 @@ export function collectCopper(app) {
 
     // Standalone vias (through-hole — present on both copper layers).
     for (const via of (app.vias || [])) {
-        const dia = via.diameter || via.size || 0.6;
+        const dia = via.diameter ?? via.size ?? 0.6;
         vias.push({
             uid: `via:${via.id || `${via.x},${via.y}`}`,
             kind: 'via',
@@ -192,10 +222,13 @@ export function collectCopper(app) {
 }
 
 /** Retain the physical junction that first joins two differently named copper groups. */
+/** @param {Array<Record<string, any>>} features */
 function shortConnectivity(features) {
     const parent = new Map(features.map(feature => [feature, feature]));
     const net = new Map(features.map(feature => [feature, feature.net || '']));
+    /** @type {Map<any, {point: Point, features: Set<any>}>} */
     const contact = new Map();
+    /** @param {any} feature */
     const find = feature => {
         let root = feature;
         while (parent.get(root) !== root) root = parent.get(root);
@@ -206,7 +239,8 @@ function shortConnectivity(features) {
         }
         return root;
     };
-    const union = (first, second, point) => {
+    /** @param {any} first @param {any} second @param {Point} [point] */
+    const union = (first, second, point = { x: first.x || 0, y: first.y || 0 }) => {
         const a = find(first), b = find(second);
         if (a === b) return;
         const junction = contact.get(a) || contact.get(b) ||
@@ -217,95 +251,126 @@ function shortConnectivity(features) {
         if (junction) contact.set(b, junction);
     };
     const shorts = () => {
+        /** @type {Map<any, {nets:Set<string>, features:Set<any>}>} */
         const groups = new Map();
         for (const feature of features) {
             const root = find(feature);
             if (!groups.has(root)) groups.set(root, { nets: new Set(), features: new Set() });
-            const group = groups.get(root);
+            const group = /** @type {{nets:Set<string>, features:Set<any>}} */ (groups.get(root));
             if (feature.net) group.nets.add(feature.net);
             group.features.add(feature);
         }
         return [...groups].filter(([, group]) => group.nets.size > 1)
-            .map(([root, group]) => ({
-                nets: [...group.nets].sort(), point: contact.get(root).point,
-                features: group.features, contactFeatures: contact.get(root).features,
-            }));
+            .map(([root, group]) => {
+                const junction = /** @type {{point: Point, features: Set<any>}} */ (contact.get(root));
+                return {
+                    nets: [...group.nets].sort(), point: junction.point,
+                    features: group.features, contactFeatures: junction.features,
+                };
+            });
     };
     return { union, shorts };
-}
-
-/**
- * Detect shorted nets: two or more distinct named nets electrically bonded by
- * coincident copper. Net-agnostic union-find over pad/via/track-segment
- * terminals (mirrors the ratsnest connectivity model, but unions ACROSS nets
- * so cross-net bonds surface instead of being hidden). Distinct nets are taken
- * from any copper (pad/track/via net) within each bonded component.
- * @returns {Array<{nets:string[], point:{x:number,y:number}, features:Set<object>, contactFeatures:Set<object>}>}
- */
-function detectShorts({ pads, segments, vias }, distance) {
-    const normL = (l) => (l === 'both' ? 'all' : l);
-
-    /** @type {Array<{x:number,y:number,layer:string,net:string,isPad:boolean,feature:object}>} */
-    const terms = [];
-    for (const p of pads) {
-        terms.push({ x: p.x, y: p.y, layer: normL(p.layer), net: p.net || '', isPad: true, feature: p });
-    }
-    for (const v of vias) {
-        terms.push({ x: v.x, y: v.y, layer: 'all', net: v.net || '', isPad: false, feature: v });
-    }
-    // Each track segment contributes two endpoints, bonded to each other.
-    /** @type {Array<[number,number]>} */
-    const segPairs = [];
-    for (const s of segments) {
-        const i = terms.length;
-        terms.push({ x: s.ax, y: s.ay, layer: normL(s.layer), net: s.net || '', isPad: false, feature: s });
-        terms.push({ x: s.bx, y: s.by, layer: normL(s.layer), net: s.net || '', isPad: false, feature: s });
-        segPairs.push([i, i + 1]);
-    }
-
-    const connectivity = shortConnectivity(terms);
-
-    // 1) Bond the two endpoints of each track segment.
-    for (const [i, j] of segPairs) connectivity.union(terms[i], terms[j]);
-
-    // 2) Bond coincident, layer-compatible terminals.
-    const compat = (a, b) => a === b || a === 'all' || b === 'all';
-    /** @type {Map<string, number[]>} */
-    const buckets = new Map();
-    for (let i = 0; i < terms.length; i++) {
-        const k = coincKey(terms[i].x, terms[i].y);
-        let arr = buckets.get(k);
-        if (!arr) { arr = []; buckets.set(k, arr); }
-        arr.push(i);
-    }
-    for (const arr of buckets.values()) {
-        if (arr.length < 2) continue;
-        for (let a = 0; a < arr.length; a++) {
-            for (let b = a + 1; b < arr.length; b++) {
-                const first = terms[arr[a]], second = terms[arr[b]];
-                if (compat(first.layer, second.layer)) {
-                    if (first.feature.kind === 'via' || second.feature.kind === 'via') {
-                        const contact = distance(first.feature, second.feature);
-                        if (contact.dist <= EPS) connectivity.union(first, second, { x: contact.x, y: contact.y });
-                    } else connectivity.union(first, second, { x: first.x, y: first.y });
-                }
-            }
-        }
-    }
-
-    return connectivity.shorts().map(short => ({
-        ...short, features: new Set([...short.features].map(term => term.feature)),
-        contactFeatures: new Set([...short.contactFeatures].map(term => term.feature)),
-    }));
 }
 
 /* ──────────────────────────── DRC runner ──────────────────────────── */
 
 let _vid = 0;
+/** @param {CopperFeature} first @param {CopperFeature} second */
 function copperPairKey(first, second) {
     return [first.keyId || first.uid || first.label, second.keyId || second.uid || second.label].sort().join('~');
 }
 
+/** @param {CopperFeature} first @param {CopperFeature} second */
+function markerPair(first, second) {
+    return [first, second].map(feature => ({
+        key: feature.keyId || feature.uid || feature.label,
+        ...(feature.componentId != null ? { componentId: feature.componentId } : {}),
+    }));
+}
+
+/**
+ * Recheck only the selected entity pair against the displayed (possibly preview) geometry.
+ * @param {PcbEditor} app
+ * @param {DrcViolation} violation
+ * @param {DrcRules} [rules]
+ */
+export function resolveDrcPairMarker(app, violation, rules = {}) {
+    const pair = violation.marker?.pair;
+    if (!pair || pair.length !== 2) return null;
+    const keys = new Set(pair.map((/** @type {{key:string}} */ item) => item.key));
+    const components = new Set(pair.map((/** @type {{componentId?:string}} */ item) => item.componentId).filter(/** @param {string|undefined} id */ (id) => id != null));
+    const shapes = (app.boardShapes || []).filter(/** @param {CopperFeature} shape */ (shape) => keys.has(`shape:${shape.id}`)
+        || keys.has(`fill:${shape.id}`)
+        || ['remove-copper', 'remove-copper-mask'].includes(normalizeShapeCopperMode(shape.copperMode)));
+    const fills = (app.copperFills || shapes.filter(/** @param {CopperFeature} shape */ (shape) => shape.type === 'fill'))
+        .filter(/** @param {CopperFeature} fill */ (fill) => keys.has(`fill:${fill.id}`));
+    if (fills.length && (isFillRefreshPending(app) || fillRefreshError(app))) return null;
+    const copper = collectCopper({
+        tracks: (app.tracks || []).filter(/** @param {CopperFeature} track */ (track) => keys.has(`trk:${track.id}`)),
+        vias: (app.vias || []).filter(/** @param {CopperFeature} via */ (via) => keys.has(`via:${via.id}`)),
+        pads: (app.pads || []).filter(/** @param {CopperFeature} pad */ (pad) => keys.has(`pad:null.${pad.id}`)),
+        texts: new Map([...(app.texts || [])].filter((entry) => keys.has(`text:${entry[0]}`))),
+        placements: new Map([...(app.placements || [])].filter((entry) => components.has(entry[0]))),
+        netlist: components.size ? app.netlist : [], boardShapes: shapes, copperFills: fills,
+    });
+    const features = subtractCopperArtwork(Object.values(copper).flat().filter(/** @param {CopperFeature} feature */ (feature) =>
+        keys.has(feature.keyId || feature.uid || feature.label)), shapes, featureBounds);
+    const first = features.filter(/** @param {CopperFeature} feature */ (feature) => (feature.keyId || feature.uid || feature.label) === pair[0].key);
+    const second = features.filter(/** @param {CopperFeature} feature */ (feature) => (feature.keyId || feature.uid || feature.label) === pair[1].key);
+    const ruleClearance = rules.clearance;
+    const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
+    const distance = createCopperDistanceChecker(clearance);
+    const closest = closestCopperPair(first, second, clearance, distance, violation.rule === 'short', violation,
+        rules.excludeSameFootprintPadClearance);
+    return closest ? { ...violation, x: closest.x, y: closest.y } : null;
+}
+
+/** Use the same physical witness for full reports and selected-pair live markers.
+ * @param {CopperFeature[]} first @param {CopperFeature[]} second @param {number} clearance
+ * @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance
+ * @param {boolean} short @param {Point} anchor @param {boolean} [excludeSameFootprintPadClearance]
+ * @returns {DistanceResult|null}
+ */
+function closestCopperPair(first, second, clearance, distance, short, anchor, excludeSameFootprintPadClearance = false) {
+    /** @type {DistanceResult|null} */
+    let closest = null;
+    for (const [a, b] of spatialCrossPairsPrepared(
+        prepareSpatialOrder(first, featureBounds), prepareSpatialOrder(second, featureBounds), clearance)) {
+        if (!layersOverlap(a.layer, b.layer)) continue;
+        // A short's joining pair can be an unassigned bridge between named groups.
+        if (sameNet(a.net, b.net) && !(short && !a.net && !b.net)) continue;
+        if (!short && excludeSameFootprintPadClearance && sameFootprintPads(a, b)) continue;
+        if (a.trackId && a.trackId === b.trackId) continue;
+        const gap = distance(a, b);
+        if (gap.dist < clearance - EPS && (!closest || gap.dist < closest.dist
+            || gap.dist === closest.dist && Math.hypot(gap.x - anchor.x, gap.y - anchor.y)
+                < Math.hypot(closest.x - anchor.x, closest.y - anchor.y))) closest = gap;
+    }
+    return closest;
+}
+
+/** @param {CopperFeature} first @param {CopperFeature} second */
+function sameFootprintPads(first, second) {
+    return (first.originalKind || first.kind) === 'pad' && (second.originalKind || second.kind) === 'pad'
+        && first.componentId != null && first.componentId === second.componentId;
+}
+
+/** @param {CopperFeature[]} features */
+function hasMultipleNamedNets(features) {
+    let net;
+    for (const feature of features) {
+        if (!feature.net) continue;
+        if (net && net !== feature.net) return true;
+        net = feature.net;
+    }
+    return false;
+}
+
+/**
+ * @param {string} rule @param {string} severity @param {string} message
+ * @param {number} x @param {number} y @param {any} marker @param {string} [key]
+ * @returns {DrcViolation}
+ */
 function makeViolation(rule, severity, message, x, y, marker, key) {
     // Stable id: derive from a content key when provided so the same physical
     // violation keeps its id across re-runs (an unrelated edit elsewhere won't
@@ -316,31 +381,74 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
 
 /**
  * Run all design-rule checks against the board.
- * @param {object} app - PCBApp instance.
- * @param {object} rules - { clearance, minAnnularRing, ratlines }. `ratlines`
+ * @param {PcbBoard} app
+ * @param {DrcRules} rules - Routing minimum sizes, clearance and minAnnularRing. `ratlines`
  *   is an array of { net, x1, y1, x2, y2 } air wires (remaining ratsnest),
  *   each reported as an incomplete-connection violation.
- * @returns {{ok:boolean, violations:Array, counts:{errors:number, warnings:number}}}
+ * @returns {{ok:boolean, violations:DrcViolation[], counts:{errors:number, warnings:number}}}
  */
 export function runDRC(app, rules = {}) {
-    const clearance = Number.isFinite(rules.clearance) && rules.clearance > 0 ? rules.clearance : 0.1;
-    const minRing = Number.isFinite(rules.minAnnularRing) && rules.minAnnularRing > 0
-        ? rules.minAnnularRing : DEFAULT_MIN_ANNULAR_RING;
+    return runDrcInputs(collectDrcInputs(app, rules));
+}
 
-    const { pads, segments, vias, areas, circles, arcs } = collectCopper(app);
+/** Physical inputs shared by direct checks and detached worker snapshots.
+ * @param {PcbBoard} app
+ * @param {DrcRules} [rules]
+ * @param {{pending: boolean, error: any}} [fill] Pour status; detached snapshots pass the editor's.
+ */
+export function collectDrcInputs(app, rules = {}, fill = { pending: isFillRefreshPending(app), error: fillRefreshError(app) }) {
+    const fills = (app.copperFills || (app.boardShapes || []).filter(/** @param {CopperFeature} shape */ (shape) => shape.type === 'fill')).map(/** @param {CopperFeature} fill */ (fill) => ({
+        id: fill.id, point: fill.outline?.[0] || { x: fill.x || 0, y: fill.y || 0 },
+        computed: getComputedFill(/** @type {import('../../shapes/copper-fill.js').CopperFill} */ (fill)) != null,
+    }));
+    return { copper: collectCopper(app), boardShapes: app.boardShapes || [], fills, rules,
+        fillPending: !!fill.pending, fillFailed: !!fill.error };
+}
+
+/**
+ * DOM-free checker over physical features; fragment identities are created within this pass.
+ * @param {{copper: CopperCollection, boardShapes: any[], fills: Array<{id:string, point:Point, computed:boolean}>, fillPending?: boolean, fillFailed?: boolean,
+ *   rules?: DrcRules}} inputs
+ */
+export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPending, fillFailed }) {
+    if (rules.excludeSameFootprintPadClearance !== undefined
+        && typeof rules.excludeSameFootprintPadClearance !== 'boolean') {
+        throw new Error('DRC same-footprint pad clearance exclusion must be a boolean.');
+    }
+    const ruleClearance = rules.clearance;
+    const ruleMinRing = rules.minAnnularRing;
+    const clearance = typeof ruleClearance === 'number' && Number.isFinite(ruleClearance) && ruleClearance > 0 ? ruleClearance : 0.1;
+    const minRing = typeof ruleMinRing === 'number' && Number.isFinite(ruleMinRing) && ruleMinRing > 0
+        ? ruleMinRing : DEFAULT_MIN_ANNULAR_RING;
+    for (const key of /** @type {const} */ (['trackWidth', 'viaDiameter', 'viaDrill'])) {
+        const value = rules[key];
+        if (value !== undefined && (!Number.isFinite(value) || value <= 0)) {
+            throw new Error(`DRC ${key} must be a positive finite value in millimetres.`);
+        }
+    }
+
+    const { pads, segments, vias, areas, circles, arcs } = copper;
+    /** @type {DrcViolation[]} */
     const violations = [];
-    for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
-        if (fill._computed != null) continue;
-        const point = (fill.getOutline?.() || fill.outline)?.[0] || { x: 0, y: 0 };
-        violations.push(makeViolation('fill', 'error', 'Copper pour has not been computed.',
+    for (const fill of fills) {
+        if (fill.computed && !fillPending && !fillFailed) continue;
+        const point = fill.point;
+        const message = fillFailed
+            ? 'Copper pour refresh failed; displayed copper is not current.'
+            : fillPending ? 'Copper pour refresh is pending; displayed copper is not current.'
+                : 'Copper pour has not been computed.';
+        violations.push(makeViolation('fill', 'error', message,
             point.x, point.y, null, `fill-pending|${fill.id}`));
     }
 
+    /** @param {number} n */
     const fmt = (n) => `${n.toFixed(3)} mm`;
 
     // Helper to record a clearance violation with a leader-line marker between
     // the two offending features.
+    /** @type {Map<string, {v:DrcViolation, gap:number}>} */
     const clearanceByKey = new Map();
+    /** @param {number} gap @param {number} x @param {number} y @param {string} aLabel @param {string} bLabel @param {CopperFeature} fa @param {CopperFeature} fb */
     const addClearance = (gap, x, y, aLabel, bLabel, fa, fb) => {
         // Key on the two features' stable entity identities (not the location,
         // and for tracks not the individual edge) so the violation keeps its id
@@ -351,7 +459,7 @@ export function runDRC(app, rules = {}) {
             'clearance', 'error',
             `Clearance ${fmt(gap)} < ${fmt(clearance)} between ${aLabel} and ${bLabel}`,
             x, y,
-            { type: 'clearance', a: featureAnchor(fa), b: featureAnchor(fb) },
+            { type: 'clearance', a: featureAnchor(fa), b: featureAnchor(fb), pair: markerPair(fa, fb) },
             key,
         );
         // The same pair of entities can touch at more than one point (e.g. two
@@ -368,9 +476,12 @@ export function runDRC(app, rules = {}) {
 
     const copperDistance = createCopperDistanceChecker(clearance);
     const originalCopper = [...pads, ...segments, ...vias, ...areas, ...circles, ...arcs];
-    const remainingCopper = subtractCopperArtwork(originalCopper, app.boardShapes, featureBounds);
-    const shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias }, copperDistance)
-        : detectRemainingShorts(remainingCopper, copperDistance);
+    const remainingCopper = subtractCopperArtwork(originalCopper, boardShapes, featureBounds);
+    /** @type {ShortResult[]} */
+    let shorts = [];
+    if (hasMultipleNamedNets(remainingCopper)) {
+        shorts = detectRemainingShorts(remainingCopper, copperDistance);
+    }
     const shortByFeature = new Map();
     for (const short of shorts) {
         const [first, second] = short.contactFeatures;
@@ -379,16 +490,51 @@ export function runDRC(app, rules = {}) {
     }
     for (const [first, second] of spatialPairs(remainingCopper, featureBounds, clearance)) {
         if (!layersOverlap(first.layer, second.layer) || sameNet(first.net, second.net)) continue;
-        if ((first.originalKind || first.kind) === 'pad' && (second.originalKind || second.kind) === 'pad'
-            && first.componentId === second.componentId) continue;
+        if (rules.excludeSameFootprintPadClearance && sameFootprintPads(first, second)) continue;
         if (first.trackId && first.trackId === second.trackId) continue;
         const distance = copperDistance(first, second);
-        // Match both the reported pair and its connected component.
+        // Named-net contacts belong to the shorted group; keep positive gaps
+        // and unassigned-copper concerns distinct from its representative marker.
         const short = shortByFeature.get(first);
         if (distance.dist <= EPS && short && short === shortByFeature.get(second)
-            && short.pairKey === copperPairKey(first, second)) continue;
+            && (first.net && second.net || short.pairKey === copperPairKey(first, second))) continue;
         if (distance.dist < clearance - EPS) {
             addClearance(distance.dist, distance.x, distance.y, first.label, second.label, first, second);
+        }
+    }
+
+    /* ---- Minimum authored track/Via sizes ---- */
+
+    if (rules.trackWidth !== undefined) {
+        /** @type {Map<string, CopperFeature[]>} */
+        const narrowEdges = new Map();
+        for (const segment of segments) {
+            if (segment.edgeId == null || segment.hw * 2 >= rules.trackWidth - EPS) continue;
+            const key = `track-width|${segment.keyId}:${segment.edgeId}`;
+            if (!narrowEdges.has(key)) narrowEdges.set(key, []);
+            /** @type {CopperFeature[]} */ (narrowEdges.get(key)).push(segment);
+        }
+        for (const [key, edge] of narrowEdges) {
+            const segment = edge[Math.floor(edge.length / 2)];
+            const point = featureAnchor(segment);
+            violations.push(makeViolation(
+                'track-width', 'error',
+                `${segment.label}: width ${fmt(segment.hw * 2)} < ${fmt(rules.trackWidth)}`,
+                point.x, point.y, { type: 'size', x: point.x, y: point.y }, key,
+            ));
+        }
+    }
+
+    for (const via of vias) {
+        for (const [rule, dimension, minimum, label] of /** @type {Array<[string, number, number|undefined, string]>} */ ([
+            ['via-diameter', via.diameter, rules.viaDiameter, 'diameter'],
+            ['via-drill', via.drill, rules.viaDrill, 'drill'],
+        ])) {
+            if (minimum === undefined || dimension >= minimum - EPS) continue;
+            violations.push(makeViolation(
+                rule, 'error', `${via.label}: ${label} ${fmt(dimension)} < ${fmt(minimum)}`,
+                via.x, via.y, { type: 'ring', x: via.x, y: via.y, r: via.r }, `${rule}|${via.uid}`,
+            ));
         }
     }
 
@@ -439,16 +585,50 @@ export function runDRC(app, rules = {}) {
         ));
     }
 
-    /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
+    /* ---- Shorted nets (distinct nets bonded by physical copper contact) ---- */
 
+    const featuresByKey = new Map();
+    for (const feature of remainingCopper) {
+        const key = feature.keyId || feature.uid || feature.label;
+        if (!featuresByKey.has(key)) featuresByKey.set(key, []);
+        featuresByKey.get(key).push(feature);
+    }
+    const shortKeyCounts = new Map();
     for (const sh of shorts) {
+        const key = sh.nets.join('~');
+        shortKeyCounts.set(key, (shortKeyCounts.get(key) || 0) + 1);
+    }
+    /** @type {Map<string, ShortResult[]>} */
+    const shortsByKey = new Map();
+    for (const sh of shorts) {
+        let key = `short|${sh.nets.join('~')}`;
+        if (shortKeyCounts.get(sh.nets.join('~')) > 1) {
+            key += `|${[...sh.features].map(feature => feature.uid).sort().join('~')}`;
+        }
+        if (!shortsByKey.has(key)) shortsByKey.set(key, []);
+        /** @type {ShortResult[]} */ (shortsByKey.get(key)).push(sh);
+    }
+    /** @type {Map<ShortResult, string>} */
+    const keysByShort = new Map();
+    for (const [key, groups] of shortsByKey) {
+        // Clipped islands share primitive IDs. Order by geometry, not sweep contact
+        // or collection order, so selection survives an unchanged board recheck.
+        const ordered = groups.map(sh => ({ sh, geometry: groups.length > 1 ? shortGeometryKey(sh) : '' }))
+            .sort((a, b) => a.geometry < b.geometry ? -1 : a.geometry > b.geometry ? 1 : 0);
+        ordered.forEach(({ sh }, index) => keysByShort.set(sh, groups.length > 1 ? `${key}|island:${index}` : key));
+    }
+    for (const sh of shorts) {
+        const [first, second] = sh.contactFeatures;
+        const pair = markerPair(first, second);
+        const witness = closestCopperPair(featuresByKey.get(pair[0].key), featuresByKey.get(pair[1].key),
+            clearance, copperDistance, true, sh.point);
         const msg = sh.nets.length > 2
             ? `Shorted nets: ${sh.nets.join(', ')}`
             : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
         violations.push(makeViolation(
-            'short', 'error', msg, sh.point.x, sh.point.y,
-            { type: 'short' },
-            `short|${sh.nets.join('~')}`,
+            'short', 'error', msg, witness?.x ?? sh.point.x, witness?.y ?? sh.point.y,
+            { type: 'short', pair },
+            keysByShort.get(sh),
         ));
     }
 
@@ -460,6 +640,18 @@ export function runDRC(app, rules = {}) {
     return { ok: violations.length === 0, violations, counts: { errors, warnings } };
 }
 
+/** @param {ShortResult} short */
+function shortGeometryKey(short) {
+    return [...short.features].map(feature => {
+        const bounds = featureBounds(feature);
+        const outline = (feature.outer || feature.outline || []).map(/** @param {Point} point */ point => `${point.x},${point.y}`).sort();
+        return JSON.stringify([feature.uid, feature.layer, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY, outline]);
+    }).sort().join('~');
+}
+
+/** Detect shorts over all surviving physical copper, with or without removal artwork.
+ * @param {CopperFeature[]} features @param {(first:CopperFeature, second:CopperFeature) => DistanceResult} distance @returns {ShortResult[]}
+ */
 function detectRemainingShorts(features, distance) {
     const connectivity = shortConnectivity(features);
     for (const [first, second] of spatialPairs(features, featureBounds, EPS)) {
@@ -484,12 +676,30 @@ function detectRemainingShorts(features, distance) {
 }
 
 /** A representative anchor point for a copper feature (for marker leaders). */
+/** @param {CopperFeature|null|undefined} f @returns {Point} */
 function featureAnchor(f) {
     if (!f) return { x: 0, y: 0 };
     if (f.kind === 'track') return { x: (f.ax + f.bx) / 2, y: (f.ay + f.by) / 2 };
     return { x: f.x, y: f.y };
 }
 
+/** @param {Point[]} points @returns {Bounds} */
+function ringBounds(points) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const point of points) {
+        minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
+    }
+    return { minX, minY, maxX, maxY };
+}
+
+/** @param {Bounds} bounds @param {Point} point */
+function boundsContainPoint(bounds, point) {
+    return point.x >= bounds.minX && point.x <= bounds.maxX
+        && point.y >= bounds.minY && point.y <= bounds.maxY;
+}
+
+/** @param {CopperFeature} feature @returns {Bounds} */
 function featureBounds(feature) {
     if (feature.kind === 'arc') {
         const radius = feature.radius + feature.hw;
@@ -505,12 +715,7 @@ function featureBounds(feature) {
         minY: Math.min(feature.ay, feature.by) - feature.hw, maxY: Math.max(feature.ay, feature.by) + feature.hw,
     };
     if (feature.kind === 'area' || feature.kind === 'pad') {
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const point of feature.outer || feature.outline) {
-            minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
-            maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
-        }
-        return { minX, minY, maxX, maxY };
+        return ringBounds(feature.outer || feature.outline);
     }
     const halfWidth = feature.kind === 'via' ? feature.r : feature.hw;
     const halfHeight = feature.kind === 'via' ? feature.r : feature.hh;
@@ -518,25 +723,34 @@ function featureBounds(feature) {
         minY: feature.y - halfHeight, maxY: feature.y + halfHeight };
 }
 
+/** @param {CopperFeature} feature @returns {Array<[Point, Point]>} */
 function featureEdges(feature) {
     if (feature.kind === 'track') return [[{ x: feature.ax, y: feature.ay }, { x: feature.bx, y: feature.by }]];
     if (feature.kind === 'via') return [[{ x: feature.x, y: feature.y }, { x: feature.x, y: feature.y }]];
     const rings = feature.kind === 'area' ? [feature.outer, ...feature.holes] : [feature.outline];
-    return rings.flatMap((ring) => ring.map((point, index) => [point, ring[(index + 1) % ring.length]]));
+    return rings.flatMap((/** @type {Point[]} */ ring) => ring.map((point, index) =>
+        /** @type {[Point, Point]} */ ([point, ring[(index + 1) % ring.length]])));
 }
 
-function containsCopper(feature, point) {
+/** @param {CopperFeature} feature @param {Point} point @param {Bounds[]|null} [holeBounds] */
+function containsCopper(feature, point, holeBounds = null) {
     if (feature.kind === 'arc') return containsArcInterior(feature, point);
     if (feature.kind === 'area') return pointInPolygon(point, feature.outer)
-        && !feature.holes.some((hole) => pointInPolygon(point, hole));
+        && !feature.holes.some((/** @type {Point[]} */ hole, /** @type {number} */ index) =>
+            (!holeBounds || boundsContainPoint(holeBounds[index], point)) && pointInPolygon(point, hole));
     if (feature.kind !== 'pad') return false;
     return pointInPolygon(point, feature.outline);
 }
 
 /** A checker owns one immutable DRC snapshot; gaps beyond clearance may return Infinity. */
 export function createCopperDistanceChecker(clearance = Infinity) {
+    /** @type {WeakMap<CopperFeature, {bounds: Bounds, edges: Array<{start:Point,end:Point,index:number,minX:number,minY:number,maxX:number,maxY:number}>, ordered?: any}>} */
     const cache = new WeakMap();
+    /** @type {WeakMap<CopperFeature, CopperFeature>} */
     const viaCircles = new WeakMap();
+    /** @type {WeakMap<CopperFeature, Bounds[]>} */
+    const holeBounds = new WeakMap();
+    /** @param {CopperFeature} feature @returns {CopperFeature} */
     const copperGeometry = (feature) => {
         if (feature.kind !== 'via') return feature;
         let circle = viaCircles.get(feature);
@@ -547,32 +761,57 @@ export function createCopperDistanceChecker(clearance = Infinity) {
         }
         return circle;
     };
+    /** @param {CopperFeature} feature */
     const boundary = (feature) => {
         let result = cache.get(feature);
         if (!result) {
             result = {
                 bounds: featureBounds(feature),
-                edges: featureEdges(feature).map(([start, end]) => ({
-                    start, end,
+                edges: featureEdges(feature).map(([start, end], index) => ({
+                    start, end, index,
                     minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
                     minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y),
                 })),
             };
+            for (const edge of result.edges) {
+                result.bounds.minX = Math.min(result.bounds.minX, edge.minX);
+                result.bounds.minY = Math.min(result.bounds.minY, edge.minY);
+                result.bounds.maxX = Math.max(result.bounds.maxX, edge.maxX);
+                result.bounds.maxY = Math.max(result.bounds.maxY, edge.maxY);
+            }
             cache.set(feature, result);
         }
         return result;
     };
-    const contains = (feature, bounds, point) => point.x >= bounds.minX && point.x <= bounds.maxX
-        && point.y >= bounds.minY && point.y <= bounds.maxY && containsCopper(feature, point);
+    /** @param {{edges:Array<any>, ordered?: any}} boundary */
+    const orderedEdges = (boundary) => boundary.ordered ||= prepareSpatialOrder(boundary.edges, edge => edge);
+    /** @param {CopperFeature} feature @param {Bounds} bounds @param {Point} point */
+    const contains = (feature, bounds, point) => {
+        if (!boundsContainPoint(bounds, point)) return false;
+        let holes;
+        if (feature.kind === 'area') {
+            holes = holeBounds.get(feature);
+            if (!holes) {
+                holes = feature.holes.map(ringBounds);
+                holeBounds.set(feature, holes);
+            }
+        }
+        return containsCopper(feature, point, holes);
+    };
+    /** @param {CopperFeature} feature */
     const radius = (feature) => feature.kind === 'via' ? feature.r : feature.kind === 'track' ? feature.hw : 0;
+    /** @param {CopperFeature} arc @returns {[Point, Point]} */
     const chord = (arc) => [arcPoint(arc, arc.startAngle), arcPoint(arc, arc.endAngle)];
+    /** @param {CopperFeature} arc @returns {CopperFeature} */
     const chordFeature = (arc) => {
         const [start, end] = chord(arc);
         return { kind: 'track', ax: start.x, ay: start.y, bx: end.x, by: end.y, hw: arc.hw };
     };
+    /** @param {CopperFeature} arc @param {CopperFeature} other @returns {DistanceResult} */
     const arcDistance = (arc, other) => {
         const start = arcPoint(arc, arc.startAngle);
         if (containsCopper(other, start)) return { dist: 0, ...start };
+        /** @type {DistanceResult[]} */
         let candidates = [];
         if (other.kind === 'arc') {
             const otherStart = arcPoint(other, other.startAngle);
@@ -604,6 +843,7 @@ export function createCopperDistanceChecker(clearance = Infinity) {
         return candidates.reduce((best, candidate) => candidate.dist < best.dist ? candidate : best,
             { dist: Infinity, x: 0, y: 0 });
     };
+    /** @param {CopperFeature} first @param {CopperFeature} second @returns {DistanceResult} */
     return (first, second) => {
         first = copperGeometry(first);
         second = copperGeometry(second);
@@ -633,17 +873,22 @@ export function createCopperDistanceChecker(clearance = Infinity) {
         const combinedRadius = radius(first) + radius(second);
         let limit = clearance + combinedRadius + EPS;
         let nearest = { dist: Infinity, x: 0, y: 0 };
-        for (const edge of firstBoundary.edges) {
-            for (const other of secondBoundary.edges) {
-                const gapX = Math.max(0, edge.minX - other.maxX, other.minX - edge.maxX);
-                const gapY = Math.max(0, edge.minY - other.maxY, other.minY - edge.maxY);
-                if (gapX > limit || gapY > limit || gapX * gapX + gapY * gapY > limit * limit) continue;
-                const candidate = segmentSegmentDistance(edge.start.x, edge.start.y, edge.end.x, edge.end.y,
-                    other.start.x, other.start.y, other.end.x, other.end.y, radius(first), radius(second));
-                if (candidate.dist < nearest.dist) {
-                    nearest = candidate;
-                    limit = Math.min(limit, nearest.dist + EPS);
-                }
+        let firstIndex = Infinity, secondIndex = Infinity;
+        const firstOrder = filterSpatialOrder(orderedEdges(firstBoundary), secondBoundary.bounds, limit);
+        const secondOrder = filterSpatialOrder(orderedEdges(secondBoundary), firstBoundary.bounds, limit);
+        for (const [edge, other] of spatialCrossPairsPrepared(firstOrder, secondOrder, limit)) {
+            const gapX = Math.max(0, edge.minX - other.maxX, other.minX - edge.maxX);
+            const gapY = Math.max(0, edge.minY - other.maxY, other.minY - edge.maxY);
+            if (gapX > limit || gapY > limit || gapX * gapX + gapY * gapY > limit * limit) continue;
+            const candidate = segmentSegmentDistance(edge.start.x, edge.start.y, edge.end.x, edge.end.y,
+                other.start.x, other.start.y, other.end.x, other.end.y, radius(first), radius(second));
+            // Sweeps reorder candidates; equal gaps retain the original nested-loop witness.
+            if (candidate.dist < nearest.dist || (candidate.dist === nearest.dist && Number.isFinite(candidate.dist)
+                && (edge.index < firstIndex || (edge.index === firstIndex && other.index < secondIndex)))) {
+                nearest = candidate;
+                firstIndex = edge.index;
+                secondIndex = other.index;
+                limit = Math.min(limit, nearest.dist + EPS);
             }
         }
         nearest.dist = Math.max(0, nearest.dist - combinedRadius);

@@ -26,10 +26,21 @@ export class Model3DViewer {
      * @param {HTMLElement} container host element; the canvas fills it
      */
     constructor(container) {
+        /** @type {HTMLElement} */
         this.container = container;
         this._disposed = false;
         this._raf = 0;
+        // Vendored three.js has minified inferred types; keep instances wildcard-typed at this boundary.
+        /** @type {*|null} */
         this._mesh = null;
+        /** @type {*|null} */
+        this._material = null;
+        /** @type {*|null} */
+        this._bodyMaterial = null;
+        /** @type {*[]|null} */
+        this._materials = null;
+        /** @type {ResizeObserver|null|undefined} */
+        this._resizeObs = undefined;
 
         const w = Math.max(1, container.clientWidth || 1);
         const h = Math.max(1, container.clientHeight || 1);
@@ -40,6 +51,7 @@ export class Model3DViewer {
         canvas.style.display = 'block';
         canvas.style.cursor = 'grab';
         canvas.style.touchAction = 'none';
+        /** @type {HTMLCanvasElement|null} */
         this.canvas = canvas;
         container.appendChild(canvas);
 
@@ -63,6 +75,7 @@ export class Model3DViewer {
         const scene = new THREE.Scene();
         this.scene = scene;
 
+        /** @type {*} Vendored three.js camera type is minified. */
         const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 20000);
         camera.position.set(60, 50, 80);
         this.camera = camera;
@@ -78,9 +91,10 @@ export class Model3DViewer {
         scene.add(key);
         scene.add(fill);
         scene.add(glint);
-        this._key = key;
-        this._fill = fill;
-        this._glint = glint;
+        // The vendored three.js build is minified, so its inferred types are unusable.
+        this._key = /** @type {*} */ (key);
+        this._fill = /** @type {*} */ (fill);
+        this._glint = /** @type {*} */ (glint);
 
         const controls = new ArcballController(camera, canvas);
         controls.rotateSpeed = 1.0;
@@ -119,6 +133,7 @@ export class Model3DViewer {
         geo.computeBoundingSphere();
 
         this._material = null;
+        /** @type {*} Vendored three.js accepts either one material or a material array. */
         let meshMaterial;
         // meshToGeometry split the model into one draw group per material
         // colour, preserving the OBJ's authoring order. makeComponentGroupMaterials
@@ -142,7 +157,10 @@ export class Model3DViewer {
         return true;
     }
 
-    /** Position the camera to frame a model of the given bounding radius. */
+    /**
+     * Position the camera to frame a model of the given bounding radius.
+     * @param {number} radius
+     */
     _frame(radius) {
         const r = Math.max(0.001, radius);
         const fov = (this.camera.fov * Math.PI) / 180;

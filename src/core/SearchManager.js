@@ -15,7 +15,12 @@
 
 import { storageManager } from './StorageManager.js';
 
-/** @typedef {any} ComponentLibrary */
+/** @typedef {import('../components/ComponentLibrary.js').ComponentLibrary} ComponentLibrary */
+/** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('../components/kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult */
+/** @typedef {import('../components/LCSCFetcher.js').LCSCSearchResult} LCSCSearchResult */
+/** @typedef {{local: ComponentDefinition[], kicad: SymbolSearchResult[], lcsc: LCSCSearchResult[]}} SearchResults */
+/** @typedef {ComponentDefinition|SymbolSearchResult|LCSCSearchResult} SearchResult */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
@@ -31,6 +36,7 @@ export class SearchManager {
      */
     constructor(componentLibrary) {
         this.library = componentLibrary;
+        /** @type {Map<string, unknown>} */
         this.searchCache = new Map();
         this.stats = {
             cacheHits: 0,
@@ -68,6 +74,8 @@ export class SearchManager {
 
     /**
      * Search local library
+     * @param {string} query
+     * @returns {ComponentDefinition[]}
      */
     searchLocal(query) {
         if (!query || query.length === 0) {
@@ -78,9 +86,10 @@ export class SearchManager {
 
     /**
      * Read cached search results if valid.
+     * @template T
      * @param {string} cacheKey
-     * @param {(results: any) => boolean} [isValid]
-     * @returns {any|null}
+     * @param {(results: unknown) => boolean} [isValid]
+     * @returns {T|null}
      */
     _getCachedSearchResults(cacheKey, isValid) {
         if (!this.searchCache.has(cacheKey)) {
@@ -95,14 +104,14 @@ export class SearchManager {
         }
 
         this.stats.cacheHits++;
-        return cached;
+        return /** @type {T} */ (cached);
     }
 
     /**
      * Cache search results in memory and localStorage.
      * @param {string} cacheKey
      * @param {string} storageKey
-     * @param {any} results
+     * @param {unknown} results
      * @param {number} ttl
      */
     _cacheSearchResults(cacheKey, storageKey, results, ttl) {
@@ -163,18 +172,19 @@ export class SearchManager {
 
     /**
      * Whether a result set is a single proxy/CORS error payload.
-     * @param {any} results
+     * @param {unknown} results
      * @returns {boolean}
      */
     _isSingleErrorResult(results) {
-        return !!(results && results.length === 1 && results[0]?.error);
+        return Array.isArray(results) && results.length === 1 && !!results[0]?.error;
     }
 
     /**
      * Log and return a default empty search result list.
+     * @template T
      * @param {string} source
      * @param {unknown} error
-     * @returns {Array}
+     * @returns {T[]}
      */
     _handleSearchError(source, error) {
         console.error(`SearchManager: ${source} search error:`, error);
@@ -191,15 +201,16 @@ export class SearchManager {
 
     /**
      * Execute a remote search with shared cache/miss/error handling.
+     * @template T
      * @param {Object} options
      * @param {'KiCad'|'LCSC'} options.source
      * @param {'kicad'|'lcsc'} options.domain
      * @param {string} options.storageQuery
      * @param {string} options.cacheKey
-     * @param {(results: any) => boolean} options.isCacheValid
-     * @param {() => Promise<any>} options.fetcher
-     * @param {(results: any) => boolean} options.shouldCache
-     * @returns {Promise<Array>}
+     * @param {(results: unknown) => boolean} options.isCacheValid
+     * @param {() => Promise<T[]>} options.fetcher
+     * @param {(results: T[]) => boolean} options.shouldCache
+     * @returns {Promise<T[]>}
      */
     async _runRemoteSearch({ source, domain, storageQuery, cacheKey, isCacheValid, fetcher, shouldCache }) {
         const cached = this._getCachedSearchResults(cacheKey, isCacheValid);
@@ -228,6 +239,8 @@ export class SearchManager {
 
     /**
      * Search KiCad library with caching
+     * @param {string} query
+     * @returns {Promise<SymbolSearchResult[]>}
      */
     async searchKiCad(query) {
         if (!this._isRemoteSearchQueryValid(query)) {
@@ -248,6 +261,8 @@ export class SearchManager {
 
     /**
      * Search LCSC with caching
+     * @param {string} query
+     * @returns {Promise<LCSCSearchResult[]>}
      */
     async searchLCSC(query) {
         if (!this._isRemoteSearchQueryValid(query)) {
@@ -270,6 +285,9 @@ export class SearchManager {
     /**
      * Unified search with fallback chain
      * Tries: LCSC -> KiCad -> Local
+     * @param {string} query
+     * @param {'auto'|'local'|'online'} [mode]
+     * @returns {Promise<SearchResults|{local: ComponentDefinition[]}>}
      */
     async search(query, mode = 'auto') {
         if (!query || query.length === 0) {
@@ -278,6 +296,7 @@ export class SearchManager {
 
         this.stats.searchCount++;
 
+        /** @type {SearchResults} */
         const results = {
             local: [],
             kicad: [],
@@ -308,7 +327,7 @@ export class SearchManager {
     /**
      * Cache a fetched entity value with a fixed TTL.
      * @param {string} cacheKey
-     * @param {any} value
+     * @param {ComponentDefinition|null} value
      */
     _cacheFetchedEntity(cacheKey, value) {
         if (!value) {
@@ -319,6 +338,8 @@ export class SearchManager {
 
     /**
      * Fetch and cache a component from LCSC
+     * @param {string} lcscId
+     * @returns {Promise<ComponentDefinition|null>}
      */
     async fetchFromLCSC(lcscId) {
         try {
@@ -333,6 +354,9 @@ export class SearchManager {
 
     /**
      * Fetch and cache a KiCad symbol
+     * @param {string} library
+     * @param {string} symbolName
+     * @returns {Promise<ComponentDefinition|null>}
      */
     async fetchFromKiCad(library, symbolName) {
         try {
@@ -347,6 +371,9 @@ export class SearchManager {
 
     /**
      * Validate search results format
+     * @param {unknown} results
+     * @param {'local'|'kicad'|'lcsc'|string} [type]
+     * @returns {SearchResult[]}
      */
     validateResults(results, type = 'local') {
         if (!Array.isArray(results)) {
@@ -371,6 +398,8 @@ export class SearchManager {
 
     /**
      * Get cached component definition by name
+     * @param {string} name
+     * @returns {ComponentDefinition|null}
      */
     getCachedComponent(name) {
         try {
@@ -384,6 +413,8 @@ export class SearchManager {
 
     /**
      * Cache a component definition
+     * @param {ComponentDefinition} component
+     * @param {number} [ttl]
      */
     cacheComponent(component, ttl = ENTITY_CACHE_TTL_MS) {
         try {

@@ -1,4 +1,9 @@
+/** @typedef {Object<string, *>} JsonRecord */
+/** @typedef {'short'|'long'} AliasTarget */
+
+/** @param {unknown} value @param {string} key */
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+/** @param {unknown} value @returns {value is JsonRecord} */
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const GRID = {
@@ -16,6 +21,7 @@ const SCHEMATIC_SHAPE = {
     nd: 'graphNodes', ed: 'graphEdges', cl: 'closed', f: 'fill', fa: 'fillAlpha',
     cr: 'cornerRadius', ncr: 'nodeCornerRadii', bg: 'edgeBulges', ew: 'edgeWidths',
     ir: 'isRect', fc: 'fillColor', pc: 'pinConnections', wl: 'wireLabel',
+    w: 'width', h: 'height', rev: 'reversed', cn: 'cornerNodeIds',
     n: 'net', lo: 'labelOffset', sp: 'startPoint', ep: 'endPoint', bp: 'bulgePoint',
     t: 'text', fs: 'fontSize', ff: 'fontFamily', ta: 'textAnchor', rot: 'rotation',
     cid: 'componentId', fk: 'fieldKey', att: 'attachment', bd: 'border',
@@ -24,6 +30,7 @@ const SCHEMATIC_SHAPE = {
 const COMPONENT = {
     dn: 'definitionName', rot: 'rotation', mir: 'mirror', ref: 'reference', val: 'value',
     sr: 'showReference', sv: 'showValue', props: 'properties', v: 'visible', lk: 'locked',
+    pkg: 'packageId',
 };
 const PIN_CONNECTION = { cid: 'componentId', pn: 'pinNumber' };
 const DEFINITION = {
@@ -54,7 +61,7 @@ const STACKUP = { cl: 'copperLayers' };
 const BOARD = { w: 'width', h: 'height', r: 'radius' };
 const DESIGN = {
     tw: 'trackWidth', cl: 'clearance', vd: 'viaDiameter', dr: 'viaDrill',
-    u: 'units', rt: 'router',
+    u: 'units', rt: 'router', epc: 'excludeSameFootprintPadClearance',
 };
 const TRACK = {
     ...SHAPE_COMMON,
@@ -71,14 +78,17 @@ const BOARD_SHAPE = {
     p: 'plated', n: 'net', sw: 'segmentWidths', sb: 'segmentBulges',
     ncr: 'nodeCornerRadii', cr: 'cornerRadius', sp: 'start', ep: 'end',
     bp: 'bulge', r: 'radius', nm: 'name', aw: 'artwork', pts: 'points',
+    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed', lk: 'locked',
 };
 const FILL_BASE = { l: 'layer', pts: 'points', n: 'net', lk: 'locked', v: 'visible' };
 const FILL_GEOMETRY = {
     k: 'kind', cr: 'cornerRadius', ncr: 'nodeCornerRadii', sb: 'segmentBulges', r: 'radius',
+    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed',
 };
 const ARTWORK = { e: 'encoding', b: 'bytes', d: 'data', i: 'index' };
 const PCB_TEXT = {
     t: 'content', s: 'size', rot: 'rotation', l: 'layer', lw: 'strokeWidth', bd: 'border',
+    lk: 'locked',
 };
 const PAD = {
     sh: 'shape', s: 'size', dr: 'drill', ra: 'ratio', rot: 'rotation',
@@ -95,9 +105,10 @@ const PANEL = {
     vo: 'verticalTabOffset', ho: 'horizontalTabOffset',
     vph: 'verticalPositioningHoles', hf: 'horizontalFiducials',
     hph: 'horizontalPositioningHoles', vf: 'verticalFiducials',
-    tw: 'tabWidth', hd: 'holeDiameter', hp: 'holePitch', nc: 'noteCreated',
+    tw: 'tabWidth', hd: 'holeDiameter', hp: 'holePitch', nc: 'noteCreated', nt: 'noteTexts',
 };
 
+/** @param {unknown} left @param {unknown} right @returns {boolean} */
 function equivalent(left, right) {
     if (Object.is(left, right)) return true;
     if (Array.isArray(left) || Array.isArray(right)) {
@@ -112,6 +123,7 @@ function equivalent(left, right) {
         && leftKeys.every((key, index) => key === rightKeys[index] && equivalent(left[key], right[key]));
 }
 
+/** @param {string} path @param {string} shortKey @param {string} longKey @param {unknown} value */
 function conflict(path, shortKey, longKey, value) {
     const snippet = JSON.stringify(value, null, 2)
         .split('\n')
@@ -120,6 +132,7 @@ function conflict(path, shortKey, longKey, value) {
     throw new Error(`Conflicting fields "${shortKey}" and "${longKey}".\nLocation: ${path}.${shortKey}\nFaulty snippet:\n${snippet}`);
 }
 
+/** @param {unknown} value @param {Record<string, string>} aliases @param {AliasTarget} target @param {string} path */
 function convertRecord(value, aliases, target, path) {
     if (!record(value)) return value;
     for (const [shortKey, longKey] of Object.entries(aliases)) {
@@ -134,6 +147,7 @@ function convertRecord(value, aliases, target, path) {
     return value;
 }
 
+/** @param {unknown} schematic @param {AliasTarget} target */
 function transformSchematic(schematic, target) {
     if (!record(schematic)) return schematic;
     convertRecord(schematic.settings, SCHEMATIC_SETTINGS, target, 'schematic.settings');
@@ -170,7 +184,9 @@ function transformSchematic(schematic, target) {
     return schematic;
 }
 
+/** @param {unknown} shape @param {AliasTarget} target @param {string} path */
 function transformBoardShape(shape, target, path) {
+    if (!record(shape)) return shape;
     if (shape?.type === 'fill') {
         convertRecord(shape, FILL_BASE, 'short', path);
         convertRecord(shape, FILL_GEOMETRY, target, path);
@@ -181,6 +197,7 @@ function transformBoardShape(shape, target, path) {
     convertRecord(artwork, ARTWORK, target, `${path}.artwork`);
 }
 
+/** @param {unknown} pcb @param {AliasTarget} target */
 function transformPcb(pcb, target) {
     if (!record(pcb)) return pcb;
     convertRecord(pcb.stackup, STACKUP, target, 'pcb.stackup');
@@ -216,10 +233,12 @@ function transformPcb(pcb, target) {
     return pcb;
 }
 
+/** @param {unknown} pcb */
 export function normalizePcbSection(pcb) {
     return transformPcb(structuredClone(pcb), 'long');
 }
 
+/** @param {unknown} data */
 export function normalizeProjectAliases(data) {
     const normalized = structuredClone(data);
     if (!record(normalized)) return normalized;
@@ -228,10 +247,19 @@ export function normalizeProjectAliases(data) {
     return normalized;
 }
 
+/** @param {unknown} data */
 export function compactProjectAliases(data) {
-    const compact = normalizeProjectAliases(data);
-    if (!record(compact)) return compact;
-    transformSchematic(compact.schematic, 'short');
-    transformPcb(compact.pcb, 'short');
-    return compact;
+    return compactNormalizedProject(normalizeProjectAliases(data));
+}
+
+/**
+ * Compact, in place, a project already in the form {@link normalizeProjectAliases}
+ * returns. Saves a copy when the caller owns the normalized object.
+ */
+/** @param {unknown} normalized */
+export function compactNormalizedProject(normalized) {
+    if (!record(normalized)) return normalized;
+    transformSchematic(normalized.schematic, 'short');
+    transformPcb(normalized.pcb, 'short');
+    return normalized;
 }

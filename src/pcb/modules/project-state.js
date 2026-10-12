@@ -1,283 +1,145 @@
-import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './footprint.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
-import { reconcileRatsnest } from './track-draw.js';
+import { reconcileRatsnest } from './ratsnest.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
-import { createPcbText, serializePcbText } from './pcb-text.js';
-import { serializeBoardShapes, loadBoardShapes, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
-import { validBoardOutline, getBoardOutline, syncBoardOutlineDimensions } from './board-outline.js';
-import { Track } from '../../shapes/track.js';
-import { Via, resetViaIdCounter, updateViaIdCounter } from '../../shapes/via.js';
-import { Pad, resetPadIdCounter, updatePadIdCounter } from '../../shapes/pad.js';
+import { cancelShapeDraw } from './board-shape-draw.js';
+import { clearBoardShapeElements, renderBoardShape } from './board-shape-render.js';
+import { endBoardShapeDrag, getBoardShapeDrag } from './board-shape-drag.js';
+import { clearTextElements, renderText } from './pcb-text-render.js';
+import { getBoardOutline } from '../../shared/pcb/board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
-import { updateFillIdCounter } from '../../shapes/copper-fill.js';
-import { createShape } from '../../shapes/index.js';
-import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
-import { panelSettings } from './panelization.js';
+import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
-import { assertSupportedPcb, defaultPcbStackup } from '../../core/project-format.js';
-import { compactProjectAliases, normalizePcbSection } from '../../core/project-field-aliases.js';
+import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
+import { clearPcbSelectionAnchors } from './selection-anchors.js';
+import { refreshDesignSettings } from './design-settings.js';
+import { PcbDocument } from '../../core/PcbDocument.js';
+import { isBoardShape } from '../../core/pcb-board-shapes.js';
+import { cancelPcbPosePreviews, disposePcbPropertyEditors } from './edit-lifecycle.js';
+import { cancelPcbDrawingMode } from './tool-lifecycle.js';
+import { setHoveredBoardShape } from './board-shape-state.js';
+import { refreshBoardView } from './refresh-state.js';
+import { isEditorActive, setEditorStale } from './pcb-editor-api.js';
+import { clearDrcResults, resetDrc } from './drc-state.js';
+import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
+import { clearFillGroups } from './fill-refresh.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {ReturnType<typeof PcbDocument.prepare>} PreparedPcb */
 
-const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
-
-/** @param {any} app */
+/** @param {PcbEditor} app */
 export function serializePcb(app) {
-    /** @type {Record<string, {x:number, y:number, rotation:number, locked?:boolean, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
-    const placements = {};
-    for (const [id, p] of app._placementOverrides) {
-        placements[id] = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
-        if (p.locked) placements[id].locked = true;
-        if (p.mirror) placements[id].mirror = true;
-        if (p.side === 'bottom') placements[id].side = 'bottom';
-        if (p.refVisible === false) placements[id].refVisible = false;
-        if (p.refDx) placements[id].refDx = round4(p.refDx);
-        if (p.refDy) placements[id].refDy = round4(p.refDy);
-        if (p.refRot) placements[id].refRot = round4(p.refRot);
-        if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = round4(p.refSize);
-        if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = round4(p.refStrokeWidth);
-    }
-    // Per-project design rules (track/clearance/via sizes are canonical mm;
-    // units/router record the user's display + routing preferences).
-    const routing = app._getRoutingParams();
-    const design = {
-        trackWidth: round4(routing.trackWidth),
-        clearance: round4(routing.clearance),
-        viaDiameter: round4(routing.viaDiameter),
-        viaDrill: round4(routing.viaDrill),
-        units: /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'))?.value || 'mm',
-        router: app._getRouterMode(),
-    };
-    const pcb = {
-        stackup: defaultPcbStackup(),
-        board: {
-            width: round4(app._boardWidth),
-            height: round4(app._boardHeight),
-            radius: round4(app._boardRadius),
-        },
-        design,
-        ...(app.panelization ? { panelization: panelSettings(app.panelization) } : {}),
-        settings: serializeGridSettings(app.viewport),
-        tracks: app.tracks.map(t => t.toJSON()),
-        vias: app.vias.map(v => v.toJSON()),
-        pads: (app.pads || []).map(pad => pad.toJSON()),
-        boardShapes: serializeBoardShapes(app),
-        texts: [...app.texts.values()].map(text => {
-            const saved = serializePcbText(text);
-            return { ...saved, x: round4(saved.x), y: round4(saved.y), size: round4(saved.size),
-                rotation: round4(saved.rotation), strokeWidth: round4(saved.strokeWidth) };
-        }),
-        placements,
-    };
-    return compactProjectAliases({ pcb }).pcb;
+    return app.pcbDocument.serialize(serializeGridSettings(app.viewport));
 }
 
+/** @param {any} data Parsed PCB JSON is validated and normalized by PcbDocument.prepare. */
 export function preparePcb(data) {
-    data = normalizePcbSection(data);
-    assertSupportedPcb(data);
-    const panelization = data?.panelization ? panelSettings(data.panelization) : null;
-    for (const shape of data?.boardShapes || []) {
-        if (shape.layer === 'board-outline' && !validBoardOutline(shape)) {
-            throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
-        }
-    }
-    const stage = { boardShapes: [], _shapeIdCounter: 1 };
-    loadBoardShapes(stage, data?.boardShapes, { render: false, strict: true });
-    const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
-    if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
-        throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
-    }
-    const tracks = (data?.tracks || []).map((item) => {
-        const track = createShape(item);
-        if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
-        return track;
-    });
-    return { data, tracks, vias: (data?.vias || []).map((item) => Via.fromJSON(item)),
-        pads: (data?.pads || []).map((item) => new Pad(item)),
-        texts: (data?.texts || []).map((item) => createPcbText(item)),
-        boardShapes: stage.boardShapes, shapeIdCounter: stage._shapeIdCounter, panelization };
+    return PcbDocument.prepare(data);
 }
 
-/** @param {any} app */
+/** @param {PcbEditor} app @param {any} data Parsed PCB JSON is validated and normalized by PcbDocument.prepare. @param {PreparedPcb} [prepared] */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
+    app.cancelAutoRoute();
     if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;
-    const render = app._active !== false;
-    if (!render) app._stale = true;
+    const render = isEditorActive(app);
+    if (!render) setEditorStale(app, true);
     // Need a viewport in place before we can render into layer
     // groups (autosave-recovery may call this before the user has
     // ever activated the PCB tab).
-    app._ensureViewport();
-    // Drop any existing tracks/vias and their SVG.
+    app.ensureViewport();
+    cancelPcbPosePreviews(app);
+    disposePcbPropertyEditors(app);
+    cancelPcbDrawingMode(app);
+    closeBoardDimensionsDialog(app);
+    // Deselection can redraw old objects, so do it before removing their SVG.
+    resetPcbSelection(app);
+    clearPcbSelectionAnchors(app);
+    clearTrackSelection(app);
+    // Remove entity SVG before clearing the model.
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
-    app.pads ||= [];
     for (const pad of app.pads) removePadElements(pad);
-    app.tracks.length = 0;
-    app.vias.length = 0;
-    app.pads.length = 0;
-    resetViaIdCounter();
-    resetPadIdCounter();
-    for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
-    app.boardShapes.length = 0;
-    app._shapeIdCounter = 1;
-    app._hoveredShape = null;
-    app._shapeDraw = null;
-    app._shapeDrag = null;
-    app._updateCopperCuts?.();
+    clearTextElements(app);
+    clearBoardShapeElements(app);
+    app.pcbDocument.clear();
+    resetDrc(app);
+    setHoveredBoardShape(app, null);
+    cancelShapeDraw(app);
+    if (getBoardShapeDrag(app)) endBoardShapeDrag(app, false);
+    app.updateCopperCuts();
     // Copper pours live in boardShapes; clear their SVG state.
-    app._clearFillGroups?.();
-    // Drop any existing free-standing texts.
-    for (const id of app._textElements.keys()) app._removeTextElement(id);
-    app.texts.clear();
-    clearTrackSelection(app);
+    clearFillGroups(app);
     app.history.clear?.();
 
     // A new/opened document invalidates any current DRC results, so close
     // the problem panel and clear its marker/leader.
-    app._closeDRCPanel?.();
-    app._drcSelectedId = null;
-    app._clearDRCMarker?.();
-    app._drcViolations = [];
+    clearDrcResults(app);
 
     // Reset the board outline to "undrawn" so a document without board
     // dimensions (a brand-new board) prompts for them on activation, and a
     // loaded document gets a clean slate before its outline is restored.
-    app._selectBoardOutline?.(false);
-    app._getLayerGroup('board-outline')
+    selectBoardOutline(app, false);
+    app.getLayerGroup('board-outline')
         ?.querySelector('.pcb-board-outline')?.remove();
-    app._boardOutlineDrawn = false;
-    app._boardWidth = 100;
-    app._boardHeight = 80;
-    app._boardRadius = 0;
-
-    // Restore manual footprint position overrides. These are applied when
-    // _placeFootprints rebuilds the placements from the schematic; if
-    // placements already exist (sync ran first), re-apply immediately.
-    app._placementOverrides.clear();
+    setBoardOutlineDrawn(app, false);
 
     if (!data) {
         app.placements.clear();
         app.netlist = [];
+        syncPcbSelection(app);
         app.markSectionClean();
-        app._board3d?.refresh?.();
+        refreshBoardView(app);
         return;
     }
 
-    // Restore per-project design parameters (track/clearance/via sizes,
-    // units, router) onto the ribbon inputs.
-    app._applyProjectDesignParams(data.design);
+    app.pcbDocument.loadContent(data, prepared);
+    if (data.design) refreshDesignSettings(app);
     restoreGridSettings(app, data.settings);
 
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
     if (getBoardOutline(prepared) || (data.board && data.board.width > 0 && data.board.height > 0)) {
-        app._boardWidth = data.board?.width || 100;
-        app._boardHeight = data.board?.height || 80;
-        app._boardRadius = data.board?.radius || 0;
-        const outline = prepared.boardShapes.find(shape => shape.layer === 'board-outline');
-        if (outline) app.boardShapes.push(outline);
-        if (outline) syncBoardOutlineDimensions(app);
-        if (render) app._drawBoardOutline();
-        else app._boardOutlineDrawn = true;
+        if (render) drawBoardOutline(app);
+        else setBoardOutlineDrawn(app, true);
     }
 
     if (data.placements && typeof data.placements === 'object') {
-        for (const [id, p] of Object.entries(data.placements)) {
-            if (!p) continue;
-            app._placementOverrides.set(id, {
-                x: Number(p.x) || 0,
-                y: Number(p.y) || 0,
-                rotation: Number(p.rotation) || 0,
-                locked: !!p.locked,
-                mirror: !!p.mirror,
-                side: p.side === 'bottom' ? 'bottom' : 'top',
-                refVisible: p.refVisible !== false,
-                refDx: Number(p.refDx) || 0,
-                refDy: Number(p.refDy) || 0,
-                refRot: ((Number(p.refRot) || 0) % 360 + 360) % 360,
-                refSize: Number(p.refSize) || REF_DEFAULT_SIZE,
-                refStrokeWidth: Number(p.refStrokeWidth) || REF_DEFAULT_STROKE,
-            });
-        }
-        if (render && app.placements.size) app._applyPlacementOverrides();
+        if (render && app.placements.size) app.applyPlacementOverrides();
     }
 
-    for (const track of prepared.tracks) {
-        app.tracks.push(track);
-        if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
-            viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-            viaDrill: app._getRoutingParams?.()?.viaDrill,
+    for (const track of app.tracks) {
+        if (render) renderTrack(track, /** @param {string} id */ (id) => app.getLayerGroup(id), {
+            viaDiameter: app.getRoutingParams()?.viaDiameter,
+            viaDrill: app.getRoutingParams()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
         });
     }
-    for (const via of prepared.vias) {
-        updateViaIdCounter(via.id);
-        app.vias.push(via);
-        if (render) renderVia(via, (id) => app._getLayerGroup(id));
+    for (const via of app.vias) {
+        if (render) renderVia(via, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
-    for (const pad of prepared.pads) {
-        updatePadIdCounter(pad.id);
-        app.pads.push(pad);
-        if (render) renderPad(pad, (id) => app._getLayerGroup(id));
+    for (const pad of app.pads) {
+        if (render) renderPad(pad, /** @param {string} id */ (id) => app.getLayerGroup(id));
     }
-    app._shapeIdCounter = prepared.shapeIdCounter;
     for (const shape of prepared.boardShapes) {
-        if (!app.boardShapes.includes(shape)) app.boardShapes.push(shape);
-        if (shape.type === 'fill') updateFillIdCounter(shape.id);
-        else if (render) renderBoardShape(app, shape, { skipCopperUpdate: true });
+        if (!render || !isBoardShape(shape) || shape.layer === 'board-outline') continue;
+        renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
-    if (render) app._updateCopperCuts?.();
-    for (const text of prepared.texts) {
-        app.texts.set(text.id, text);
-        if (render) app._renderText(text);
+    if (render) app.updateCopperCuts();
+    for (const text of app.texts.values()) {
+        if (render) renderText(app, text);
     }
     // Re-evaluate ratlines once the model is in place.
     if (render) {
-        app._refreshClearanceHalos?.();
+        app.refreshClearanceHalos();
         reconcileRatsnest(app);
         // Compute and render the pours now that obstacles are loaded.
-        app._refreshFills();
+        app.refreshFills();
     }
     // Loading a document is not a user edit — start from a clean slate so
     // a freshly opened/recovered board isn't immediately treated as having
     // unsaved PCB changes (which would re-trigger autosave after a save).
-    app.panelization = prepared.panelization ? { ...prepared.panelization } : null;
+    app.panelization = prepared.panelization;
+    syncPcbSelection(app);
     if (render) renderPanelPreview(app);
-    app._isDirty = false;
-}
-
-/** @param {any} app */
-export function applyProjectDesignParams(app, design) {
-    if (!design || typeof design !== 'object') return;
-    const inputEl = (id) => /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-    const units = design.units === 'inch' ? 'inch' : 'mm';
-    const unitsEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouteUnits'));
-    const routerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbRouterMode'));
-    if (unitsEl) unitsEl.value = units;
-    if (routerEl && (design.router === 'pathfinder' || design.router === 'maze')) routerEl.value = design.router;
-    const fromMM = units === 'inch' ? 1 / 25.4 : 1;
-    const digits = units === 'inch' ? 4 : 3;
-    const map = { trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance', viaDiameter: 'pcbViaDiameter', viaDrill: 'pcbViaDrill' };
-    for (const [key, id] of Object.entries(map)) {
-        const mmVal = Number(design[key]);
-        const el = inputEl(id);
-        if (el && Number.isFinite(mmVal) && mmVal > 0) {
-            el.value = String(Number((mmVal * fromMM).toFixed(digits)));
-            el.step = units === 'inch' ? '0.001' : '0.01';
-        }
-    }
-    // Keep the unit-toggle baseline (owned by controls.js) in sync, else a
-    // later unit switch early-returns and leaves mismatched values.
-    app._routeParamUnit = units;
-    // Mirror controls.js saveDesignParams so these also become the working
-    // defaults (key must match DESIGN_PARAMS_KEY in controls.js).
-    try {
-        /** @type {Record<string, string>} */
-        const stored = { units, router: routerEl?.value || 'maze' };
-        for (const id of ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill']) {
-            const el = inputEl(id);
-            if (el) stored[id] = el.value;
-        }
-        localStorage.setItem('clearpcb_pcb_design_params', JSON.stringify(stored));
-    } catch { /* storage unavailable — ignore */ }
+    app.markSectionClean();
 }

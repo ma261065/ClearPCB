@@ -11,16 +11,23 @@
  * - Graceful degradation for older browsers
  */
 
+/**
+ * @typedef {{element: Element, data: unknown, rendered: boolean}} LazyItem
+ * @typedef {{element: Element, item: LazyItem}} RenderQueueItem
+ * @typedef {(element: Element, item: LazyItem) => void|Promise<void>} LazyCallback
+ * @typedef {object} LazyLoaderOptions
+ * @property {Element} [container]
+ * @property {LazyCallback} [renderCallback]
+ * @property {LazyCallback} [unrenderCallback]
+ * @property {number} [threshold]
+ * @property {string} [rootMargin]
+ * @property {number} [batchSize]
+ */
+
 export class LazyLoader {
     /**
      * Create a new LazyLoader.
-     * @param {Object} [options]
-     * @param {HTMLElement} [options.container] - Scroll container to observe
-     * @param {Function} [options.renderCallback] - Called when an item becomes visible
-     * @param {Function} [options.unrenderCallback] - Called when an item leaves the viewport
-     * @param {number} [options.threshold=0.1] - Intersection ratio to trigger rendering
-     * @param {string} [options.rootMargin='50px'] - Margin around the root for early loading
-     * @param {number} [options.batchSize=10] - Number of items to render per batch
+     * @param {LazyLoaderOptions} [options]
      */
     constructor(options = {}) {
         this.container = options.container || null;
@@ -30,9 +37,13 @@ export class LazyLoader {
         this.rootMargin = options.rootMargin || '50px'; // Load 50px before/after viewport
         this.batchSize = options.batchSize || 10; // Render items in batches
         
+        /** @type {IntersectionObserver|null} */
         this.observer = null;
+        /** @type {Map<Element, LazyItem>} */
         this.items = new Map();
+        /** @type {RenderQueueItem[]} */
         this.renderQueue = [];
+        /** @type {number|null} */
         this.renderTimer = null;
         this.isSupported = 'IntersectionObserver' in window;
         
@@ -72,6 +83,10 @@ export class LazyLoader {
     /**
      * Queue an item for rendering (batches renders for efficiency)
      */
+    /**
+     * @param {Element} element
+     * @param {LazyItem} item
+     */
     _queueRender(element, item) {
         if (item.rendered) return;
 
@@ -98,7 +113,7 @@ export class LazyLoader {
         }
 
         while (this.renderQueue.length > 0) {
-            const { element, item } = this.renderQueue.shift();
+            const { element, item } = /** @type {RenderQueueItem} */ (this.renderQueue.shift());
             
             try {
                 this.renderCallback(element, item);
@@ -111,23 +126,24 @@ export class LazyLoader {
 
     /**
      * Register an item for lazy loading
-     * @param {HTMLElement} element - The DOM element to observe
-     * @param {*} data - Associated data (passed to callbacks)
+     * @param {Element} element - The DOM element to observe
+     * @param {unknown} data - Associated data (passed to callbacks)
      */
     register(element, data = null) {
         if (!this.isSupported) {
             // Fallback: render immediately if IntersectionObserver not available
-            this.renderCallback(element, { data, rendered: false });
+            this.renderCallback(element, /** @type {LazyItem} */ ({ data, rendered: false }));
             return;
         }
 
         const item = { element, data, rendered: false };
         this.items.set(element, item);
-        this.observer.observe(element);
+        /** @type {IntersectionObserver} */ (this.observer).observe(element);
     }
 
     /**
      * Unregister an item and stop observing
+     * @param {Element} element
      */
     unregister(element) {
         if (this.observer) {
@@ -155,6 +171,7 @@ export class LazyLoader {
     /**
      * Get statistics about rendered items
      */
+    /** @returns {{rendered:number,total:number,queued:number}} */
     getStats() {
         let rendered = 0;
         let total = 0;

@@ -13,6 +13,12 @@
 import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
 export { COLLINEAR_EPSILON };
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{componentId: string, pinNumber: string|number, [key: string]: unknown}} WireRecord Pin connection records are shared legacy bags across command/sticky-wire modules. */
+/** @typedef {Record<string, unknown>} WireRecordInput */
+/** @typedef {import('./polyline-graph.js').PolylineGraphOptions & {net?: string, wireLabel?: string, labelOffset?: Point, graphNodes?: import('./polyline-graph.js').GraphNodeInput, graphEdges?: import('./polyline-graph.js').GraphEdgeInput, pinConnections?: Record<string, WireRecordInput>}} WireOptions */
+/** @typedef {import('./polyline-graph.js').PolylineGraphState & {pinConnections: Record<string, WireRecord>, net?: string, wireLabel?: string, labelOffset?: Point}} WireState */
+
 /** Default wire stroke color. */
 export const WIRE_COLOR = '#00cc66';
 
@@ -26,6 +32,7 @@ const WIRE_LABEL_FONT_SIZE = 1.4;
 const WIRE_LABEL_DEFAULT_OFFSET_Y = -0.5;
 
 // ── Wire label tracking (Wnnnn) ───────────────────────────────────
+/** @type {Set<string>} */
 const _usedWireLabels = new Set();
 
 /** Allocate the lowest unused wire label (W0001, W0002, …). */
@@ -38,11 +45,13 @@ export function nextWireLabel() {
 }
 
 /** Register a loaded label so it won't be reused. */
+/** @param {string|null|undefined} label */
 export function bumpWireLabelCounter(label) {
     if (label) _usedWireLabels.add(label);
 }
 
 /** Free a label so it can be reused (call when a wire is deleted). */
+/** @param {string|null|undefined} label */
 export function freeWireLabel(label) {
     if (label) _usedWireLabels.delete(label);
 }
@@ -53,8 +62,10 @@ export function resetWireLabelCounter() {
 }
 
 // ── Net name tracking (Net0001, Net0002, …, auto-assigned if not explicitly set) ──
+/** @type {Set<string>} */
 const _usedNetNames = new Set();
 
+/** @param {string|null|undefined} name */
 function _normalizeAutoNetName(name) {
     if (typeof name !== 'string') return null;
     const m = name.trim().match(/^net(\d+)$/i);
@@ -72,12 +83,14 @@ export function nextNetName() {
 }
 
 /** Register a loaded net name so it won't be reused. */
+/** @param {string|null|undefined} name */
 export function bumpNetNameCounter(name) {
     const normalized = _normalizeAutoNetName(name);
     if (normalized) _usedNetNames.add(normalized);
 }
 
 /** Free a net name so it can be reused (call when a wire is deleted). */
+/** @param {string|null|undefined} name */
 export function freeNetName(name) {
     const normalized = _normalizeAutoNetName(name);
     if (normalized) _usedNetNames.delete(normalized);
@@ -89,73 +102,100 @@ export function resetNetNameCounter() {
 }
 
 export class Wire extends PolylineGraph {
+    /** @type {'wire'} */
+    type;
 
     /* ──────────────────────── constructor ──────────────────────── */
 
+    /** @param {WireOptions} [options] */
     constructor(options = {}) {
         super({ color: WIRE_COLOR, lineWidth: WIRE_WIDTH, ...options });
+        /** @type {'wire'} */
         this.type = 'wire';
 
         // Wire-specific: pin connections
+        /** @type {Map<string, WireRecord>} */
         this.pinConnections = new Map();
 
         // Net name (auto-assigned if not provided)
         if (options.net) {
+            /** @type {string} */
             this.net = options.net;
             bumpNetNameCounter(options.net);
         } else {
+            /** @type {string} */
             this.net = nextNetName();
         }
 
         // Human-readable wire label (Wnnnn)
         if (options.wireLabel) {
+            /** @type {string} */
             this.wireLabel = options.wireLabel;
             bumpWireLabelCounter(options.wireLabel);
         } else {
+            /** @type {string} */
             this.wireLabel = nextWireLabel();
         }
 
         // Label display offset (relative to wire centroid)
+        /** @type {Point} */
         this.labelOffset = options.labelOffset
             ? { x: options.labelOffset.x || 0, y: options.labelOffset.y || 0 }
             : { x: 0, y: WIRE_LABEL_DEFAULT_OFFSET_Y };
 
         /** Reference to the linked label Text shape. */
+        /** @type {import('./text.js').Text|null} */
         this.labelText = null;
 
-        /** @type {Set<any>|null} Wire-name labels attached to this wire. */
+        /** @type {Set<import('./text.js').Text>|null|undefined} Wire-name labels attached to this wire. */
         this.attachedLabels = null;
+        /** @type {boolean|undefined} */
+        this._pendingLabelVisible = undefined;
+        /** @type {(Point & {rotation?: number})|undefined} */
+        this._pendingLabelPosition = undefined;
 
         // Load pin connections from graph data
         if (options.graphNodes && options.graphEdges && options.pinConnections) {
             for (const [nid, conn] of Object.entries(options.pinConnections))
-                this.pinConnections.set(nid, { ...conn });
+                this.pinConnections.set(nid, /** @type {WireRecord} */ ({ ...conn }));
         }
     }
 
     /* ──────────────────── Wire-specific graph overrides ───────────── */
 
-    /** @override — also clean up pinConnections when removing a node. */
+    /**
+     * @override — also clean up pinConnections when removing a node.
+     * @param {string} nodeId
+     */
     removeNode(nodeId) {
         this.pinConnections.delete(nodeId);
         super.removeNode(nodeId);
     }
 
-    /** @override — handle pinConnections during merge. */
+    /**
+     * @override — handle pinConnections during merge.
+     * @param {string} keepId @param {string} removeId
+     */
     mergeNodes(keepId, removeId) {
         if (keepId === removeId) return;
         if (this.pinConnections.has(removeId) && !this.pinConnections.has(keepId))
-            this.pinConnections.set(keepId, this.pinConnections.get(removeId));
+            this.pinConnections.set(keepId, /** @type {WireRecord} */ (this.pinConnections.get(removeId)));
         this.pinConnections.delete(removeId);
         super.mergeNodes(keepId, removeId);
     }
 
-    /** @override — protect pin-connected nodes from graph simplification. */
+    /**
+     * @override — protect pin-connected nodes from graph simplification.
+     * @param {string} nodeId
+     */
     _isProtectedNode(nodeId) {
         return this.pinConnections.has(nodeId);
     }
 
-    /** @override — handle pinConnections + net names during absorb. */
+    /**
+     * @override — handle pinConnections + net names during absorb.
+     * @param {Wire} other @param {Map<string, string>} remap
+     */
     _onAbsorb(other, remap) {
         if (other.pinConnections) {
             for (const [oldNid, conn] of other.pinConnections) {
@@ -167,27 +207,40 @@ export class Wire extends PolylineGraph {
         if (!this.net && other.net) this.net = other.net;
     }
 
-    /** @override — create Wire instances for subgraph extraction. */
+    /**
+     * @override — create Wire instances for subgraph extraction.
+     * @returns {PolylineGraph}
+     */
     _createSubgraphInstance() {
-        return new Wire({ color: this.color, lineWidth: this.lineWidth, net: this.net });
+        return /** @type {PolylineGraph} */ (/** @type {unknown} */ (new Wire({ color: this.color, lineWidth: this.lineWidth, net: this.net })));
     }
 
-    /** @override — copy pinConnections into extracted subgraph. */
+    /**
+     * @override — copy pinConnections into extracted subgraph.
+     * @param {PolylineGraph} sub @param {Set<string>} nodeIds
+     */
     _onExtractSubgraph(sub, nodeIds) {
+        const wireSub = /** @type {Wire} */ (/** @type {unknown} */ (sub));
         for (const nid of nodeIds) {
             if (this.pinConnections.has(nid))
-                sub.pinConnections.set(nid, { ...this.pinConnections.get(nid) });
+                wireSub.pinConnections.set(nid, { .../** @type {WireRecord} */ (this.pinConnections.get(nid)) });
         }
     }
 
-    /** @override — also delete pinConnection when deleting an anchor. */
+    /**
+     * @override — also delete pinConnection when deleting an anchor.
+     * @param {string} anchorId
+     */
     deleteAnchor(anchorId) {
         const result = super.deleteAnchor(anchorId);
         if (result) this.pinConnections.delete(anchorId);
         return result;
     }
 
-    /** @override — also move linked label text. */
+    /**
+     * @override — also move linked label text.
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         super.move(dx, dy);
         if (this.labelText) {
@@ -197,7 +250,10 @@ export class Wire extends PolylineGraph {
         }
     }
 
-    /** @override */
+    /**
+     * @override
+     * @returns {PolylineGraph}
+     */
     clone() {
         const c = new Wire({
             color: this.color, lineWidth: this.lineWidth,
@@ -206,15 +262,15 @@ export class Wire extends PolylineGraph {
             labelOffset: { x: this.labelOffset.x, y: this.labelOffset.y },
         });
         for (const [id, p] of this.nodes) c.nodes.set(id, { x: p.x, y: p.y });
-        for (const [id, e] of this.edges) c.edges.set(id, { from: e.from, to: e.to });
+        for (const [id, e] of this.edges) c.edges.set(id, { from: e.from, to: e.to, bulge: e.bulge || 0 });
         for (const [id, cn] of this.pinConnections) c.pinConnections.set(id, { ...cn });
-        return c;
+        return /** @type {PolylineGraph} */ (/** @type {unknown} */ (c));
     }
 
     /** @override — includes pinConnections, net, wireLabel, labelOffset. */
     captureState() {
-        const s = super.captureState();
-        s.pinConnections = {};
+        /** @type {WireState} */
+        const s = { ...super.captureState(), pinConnections: {} };
         for (const [id, c] of this.pinConnections) s.pinConnections[id] = { ...c };
         s.net = this.net;
         s.wireLabel = this.wireLabel;
@@ -222,27 +278,31 @@ export class Wire extends PolylineGraph {
         return s;
     }
 
-    /** @override — restores pinConnections, net, wireLabel, labelOffset. */
+    /**
+     * @override — restores pinConnections, net, wireLabel, labelOffset.
+     * @param {WireState} state
+     */
     applyState(state) {
         // Let base restore nodes/edges
-        super.applyState(state);
+        super.applyState(/** @type {Partial<ReturnType<PolylineGraph['captureState']>>} */ (state));
         // Restore wire-specific state
         if (state.pinConnections) {
             this.pinConnections = new Map();
-            for (const [id, c] of Object.entries(state.pinConnections)) this.pinConnections.set(id, { ...c });
+            for (const [id, c] of Object.entries(/** @type {Record<string, WireRecord>} */ (state.pinConnections))) this.pinConnections.set(id, { ...c });
         }
         if ('net' in state) this.net = state.net || '';
         if (state.wireLabel) {
             freeWireLabel(this.wireLabel);
-            this.wireLabel = state.wireLabel;
-            bumpWireLabelCounter(state.wireLabel);
+            this.wireLabel = /** @type {string} */ (state.wireLabel);
+            bumpWireLabelCounter(this.wireLabel);
             if (this.labelText) {
-                this.labelText.text = state.wireLabel;
+                this.labelText.text = this.wireLabel;
                 this.labelText.invalidate();
             }
         }
         if (state.labelOffset) {
-            this.labelOffset = { x: state.labelOffset.x || 0, y: state.labelOffset.y || 0 };
+            const offset = /** @type {Point} */ (state.labelOffset);
+            this.labelOffset = { x: offset.x || 0, y: offset.y || 0 };
         }
         this.invalidate();
     }
@@ -281,51 +341,17 @@ export class Wire extends PolylineGraph {
         return { x: c.x + this.labelOffset.x, y: c.y + this.labelOffset.y };
     }
 
-    /* ──────────────────── SVG rendering ────────────────────────── */
-
-    /** @override — adds blue tint when attached label is selected. */
-    _updateElement(el, strokeColor, _fillColor, scale) {
-        // When any attached label text is selected but the wire isn't, tint blue
-        const attachedSelected = this.attachedLabels instanceof Set
-            && Array.from(this.attachedLabels).some(label => label?.selected);
-        if (!this.selected && !this.hovered && (this.labelText?.selected || attachedSelected)) {
-            strokeColor = 'var(--sch-selection, #3399ff)';
-        }
-        super._updateElement(el, strokeColor, _fillColor, scale);
-        // Pin-connection dots: mark each wire node that lands on a component
-        // pin so it's visually clear the wire is actually connected (not just
-        // crossing/touching). Sized to match the branch junction dots.
-        if (this.pinConnections && this.pinConnections.size > 0) {
-            const NS = 'http://www.w3.org/2000/svg';
-            const r = Math.max(0.4, 2.5 / scale);
-            for (const nid of this.pinConnections.keys()) {
-                const pos = this.nodes.get(nid);
-                if (!pos) continue;
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', pos.x);
-                c.setAttribute('cy', pos.y);
-                c.setAttribute('r', String(r));
-                c.setAttribute('fill', strokeColor);
-                c.setAttribute('stroke', 'none');
-                c.classList.add('pin-connection-dot');
-                el.appendChild(c);
-            }
-        }
-        // Invalidate label text so it turns blue/normal with the wire
-        if (this.labelText) this.labelText.invalidate();
-    }
-
     /* ──────────────────── serialization ────────────────────────── */
 
     /**
      * Serialise to a compact JSON-friendly object.
      * Uses short keys (nd, ed, pc, wl, n) for file size.
-     * @returns {object}
+     * @returns {ReturnType<PolylineGraph['toJSON']> & {type: string, pc?: Record<string, WireRecord>, wl: string, n?: string, lo?: number[]}}
      */
     toJSON() {
-        const json = { ...super.toJSON(), type: 'wire' };
-        delete json.c;
-        delete json.f;
+        const json = /** @type {ReturnType<PolylineGraph['toJSON']> & {type: string, pc?: Record<string, WireRecord>, wl: string, n?: string, lo?: number[]}} */ ({ ...super.toJSON(), type: 'wire' });
+        delete /** @type {{c?: unknown}} */ (json).c;
+        delete /** @type {{f?: unknown}} */ (json).f;
         json.wl = this.wireLabel;
         if (this.pinConnections.size > 0) {
             json.pc = {};
@@ -333,6 +359,7 @@ export class Wire extends PolylineGraph {
         }
         if (this.net) json.n = this.net;
         if (this.labelOffset.x !== 0 || this.labelOffset.y !== WIRE_LABEL_DEFAULT_OFFSET_Y) {
+            /** @param {number} v */
             const r = v => Math.round(v * 10000) / 10000;
             json.lo = [r(this.labelOffset.x), r(this.labelOffset.y)];
         }

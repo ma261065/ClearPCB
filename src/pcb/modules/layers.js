@@ -5,8 +5,58 @@
  * visibility and lock state. The panel auto-expands on hover and shows a
  * color swatch, name, lock toggle, and visibility eye for every layer.
  */
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
+/** @typedef {{onLayerVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onLayerLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onCopperFillVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onCopperFillLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onOverlayVisibilityChanged?: (app: PcbEditor, overlayId: string, visible: boolean) => void}} LayerChangeHandlers */
+const lockedBubbleTimers = new WeakMap();
+/** @type {LayerChangeHandlers} */
+let layerChangeHandlers = {};
+
+/** @param {LayerChangeHandlers} handlers */
+export function registerLayerChangeHandlers(handlers) {
+    layerChangeHandlers = handlers;
+}
+
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} visible */
+export function notifyLayerVisibilityChanged(app, layerId, visible) {
+    layerChangeHandlers.onLayerVisibilityChanged?.(app, layerId, visible);
+}
+
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} locked */
+export function notifyLayerLockChanged(app, layerId, locked) {
+    layerChangeHandlers.onLayerLockChanged?.(app, layerId, locked);
+}
+
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} visible */
+export function notifyCopperFillVisibilityChanged(app, layerId, visible) {
+    layerChangeHandlers.onCopperFillVisibilityChanged?.(app, layerId, visible);
+}
+
+/** @param {PcbEditor} app @param {string} layerId @param {boolean} locked */
+export function notifyCopperFillLockChanged(app, layerId, locked) {
+    layerChangeHandlers.onCopperFillLockChanged?.(app, layerId, locked);
+}
+
+/** @param {PcbEditor} app @param {string} overlayId @param {boolean} visible */
+export function notifyOverlayVisibilityChanged(app, overlayId, visible) {
+    layerChangeHandlers.onOverlayVisibilityChanged?.(app, overlayId, visible);
+}
+
+/** @param {PcbEditor} app */
+export function applyLayerPrefsToRender(app) {
+    for (const l of PCB_LAYERS) {
+        notifyLayerVisibilityChanged(app, l.id, l.visible);
+        notifyLayerLockChanged(app, l.id, l.locked);
+    }
+    for (const f of PCB_COPPER_FILLS) {
+        notifyCopperFillVisibilityChanged(app, f.id, f.visible);
+        notifyCopperFillLockChanged(app, f.id, f.locked);
+    }
+    for (const ov of PCB_OVERLAYS) {
+        notifyOverlayVisibilityChanged(app, ov.id, ov.visible);
+    }
+}
 
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
@@ -28,7 +78,9 @@ export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
 export const PCB_SELECTION_HIGHLIGHT_OPACITY = 0.5;
 export const PCB_HOVER_HIGHLIGHT_OPACITY = 0.25;
 
-/** Blend a PCB display color toward white by the requested highlight opacity. */
+/** Blend a PCB display color toward white by the requested highlight opacity.
+ * @param {string} color @param {number} opacity
+ */
 export function pcbHighlightColor(color, opacity) {
     const channels = color.match(/[\da-f]{2}/gi);
     if (!channels || channels.length !== 3) return color;
@@ -38,13 +90,17 @@ export function pcbHighlightColor(color, opacity) {
     }).join('')}`;
 }
 
-/** Return a selected color equivalent to the shared white halo. */
+/** Return a selected color equivalent to the shared white halo.
+ * @param {string} layerId
+ */
 export function pcbLayerSelectionColor(layerId) {
     const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
     return pcbHighlightColor(color, PCB_SELECTION_HIGHLIGHT_OPACITY);
 }
 
-/** Return a hover color equivalent to the shared white halo. */
+/** Return a hover color equivalent to the shared white halo.
+ * @param {string} layerId
+ */
 export function pcbLayerHoverColor(layerId) {
     const color = PCB_LAYERS.find((layer) => layer.id === layerId)?.color || '#ffffff';
     return pcbHighlightColor(color, PCB_HOVER_HIGHLIGHT_OPACITY);
@@ -84,6 +140,14 @@ export function isCopperFillVisible(copperLayerId) {
 }
 
 /**
+ * The layer panel's name for a layer ("Top Copper", "Hole"); unknown ids come back unchanged.
+ * @param {string} layerId
+ */
+export function pcbLayerName(layerId) {
+    return PCB_LAYERS.find(layer => layer.id === layerId)?.name || layerId;
+}
+
+/**
  * True when the copper pour on the given copper layer is locked (read-only)
  * via the Copper Fill section's lock toggle.
  * @param {string} copperLayerId
@@ -94,44 +158,102 @@ export function isCopperFillLocked(copperLayerId) {
     return !!(def && def.locked);
 }
 
-/** Set a PCB layer lock through its panel control so all UI state stays in sync. */
+/**
+ * Set a PCB layer lock through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} locked
+ */
 export function setPcbLayerLocked(app, layerId, locked) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
     if (!layer || layer.locked === !!locked) return;
-    const button = document.querySelector(
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
         `.pcb-layer-row[data-layer-id="${layerId}"] .lock-btn`,
-    );
+    ));
     if (button) {
         button.click();
         return;
     }
     layer.locked = !!locked;
-    app._onLayerLockChanged?.(layerId, layer.locked);
+    notifyLayerLockChanged(app, layerId, layer.locked);
 }
 
-/** Unlock a PCB layer through its panel control so all UI state stays in sync. */
+/**
+ * Unlock a PCB layer through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ */
 export function unlockPcbLayer(app, layerId) {
     setPcbLayerLocked(app, layerId, false);
 }
 
-/** Set a copper-fill lock through its panel control. */
+/**
+ * Set a copper-fill lock through its panel control.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} locked
+ */
 export function setPcbCopperFillLocked(app, layerId, locked) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
     if (!fill || fill.locked === !!locked) return;
-    const button = document.querySelector(
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
         `.pcb-layer-row[data-fill-id="${layerId}"] .lock-btn`,
-    );
+    ));
     if (button) {
         button.click();
         return;
     }
     fill.locked = !!locked;
-    app._onCopperFillLockChanged?.(layerId, fill.locked);
+    notifyCopperFillLockChanged(app, layerId, fill.locked);
 }
 
-/** Unlock a copper-fill layer through its panel control. */
+/**
+ * Unlock a copper-fill layer through its panel control.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ */
 export function unlockPcbCopperFill(app, layerId) {
     setPcbCopperFillLocked(app, layerId, false);
+}
+
+/**
+ * Show or hide a PCB layer through its panel control so all UI state stays in sync.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} visible
+ */
+export function setPcbLayerVisible(app, layerId, visible) {
+    const layer = PCB_LAYERS.find(item => item.id === layerId);
+    if (!layer || layer.visible === !!visible) return;
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
+        `.pcb-layer-row[data-layer-id="${layerId}"] .vis-btn`,
+    ));
+    if (button) {
+        button.click();
+        return;
+    }
+    layer.visible = !!visible;
+    notifyLayerVisibilityChanged(app, layerId, layer.visible);
+}
+
+/**
+ * Show or hide one side's pours through the Copper Fill row's eye.
+ * @param {PcbEditor} app
+ * @param {string} layerId
+ * @param {boolean} visible
+ */
+export function setPcbCopperFillVisible(app, layerId, visible) {
+    const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
+    if (!fill || fill.visible === !!visible) return;
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
+        `.pcb-layer-row[data-fill-id="${layerId}"] .vis-btn`,
+    ));
+    if (button) {
+        button.click();
+        return;
+    }
+    fill.visible = !!visible;
+    notifyCopperFillVisibilityChanged(app, layerId, fill.visible);
 }
 
 /**
@@ -144,6 +266,37 @@ export function unlockPcbCopperFill(app, layerId) {
 export function isLayerLocked(layerId) {
     const def = PCB_LAYERS.find(l => l.id === layerId);
     return !!(def && def.locked);
+}
+
+// Native options need text; the variation selector requests a monochrome lock.
+const LOCK_OPTION_SUFFIX = ' \u{1F512}\uFE0E';
+
+/**
+ * A layer as a Properties select option (shared/ui/property-fields.js): a locked layer
+ * is disabled and marked, and refreshPcbLayerOptions keeps it current.
+ * @param {string} layerId
+ * @param {string} label
+ * @param {{layers?: string[], fill?: boolean, visibleOnly?: boolean}} [options]
+ * @returns {import('../../shared/ui/property-fields.js').PropertyOption}
+ */
+export function pcbLayerOption(layerId, label, { layers = [layerId], fill = false, visibleOnly = false } = {}) {
+    const locked = layers.some(isLayerLocked) || fill && isCopperFillLocked(layerId);
+    return { value: layerId, label: `${label}${locked ? LOCK_OPTION_SUFFIX : ''}`,
+        disabled: locked || visibleOnly && layers.some(id => !isLayerVisible(id)),
+        dataset: { pcbLayerLabel: label, pcbLayerIds: layers.join(','), pcbFillLayer: fill ? layerId : '',
+            pcbLayerVisibleOnly: visibleOnly ? 'true' : '' } };
+}
+
+/** @param {string} layerId */
+export function refreshPcbLayerOptions(layerId) {
+    for (const option of document.querySelectorAll('option[data-pcb-layer-label]')) {
+        const element = /** @type {HTMLOptionElement} */ (option);
+        const layers = element.dataset.pcbLayerIds?.split(',') || [element.value];
+        if (!layers.includes(layerId) && element.dataset.pcbFillLayer !== layerId) continue;
+        const locked = layers.some(isLayerLocked) || !!element.dataset.pcbFillLayer && isCopperFillLocked(element.dataset.pcbFillLayer);
+        element.disabled = locked || element.dataset.pcbLayerVisibleOnly === 'true' && layers.some(id => !isLayerVisible(id));
+        element.textContent = `${element.dataset.pcbLayerLabel}${locked ? LOCK_OPTION_SUFFIX : ''}`;
+    }
 }
 
 /**
@@ -195,6 +348,7 @@ let _savePrefsScheduled = false;
 
 function _writeLayerPrefs() {
     try {
+        /** @type {{layers: Record<string, {visible: boolean, locked: boolean}>, fills: Record<string, {visible: boolean, locked: boolean}>, overlays: Record<string, {visible: boolean}>}} */
         const data = {
             layers: {},
             fills: {},
@@ -282,7 +436,7 @@ const PIN_SVG = `<svg width="28" height="28" viewBox="3.5 0.5 7 13" fill="none" 
 
 /**
  * Build the layer panel inside #pcbLayerPanel and wire events.
- * @param {object} app - PCBApp instance
+ * @param {PcbEditor} app
  */
 export function buildLayerPanel(app) {
     const panel = document.getElementById('pcbLayerPanel');
@@ -371,7 +525,7 @@ export function buildLayerPanel(app) {
         layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
         for (const layer of panelLayers) {
             layer.visible = allLayersVisible;
-            app._onLayerVisibilityChanged?.(layer.id, allLayersVisible);
+            notifyLayerVisibilityChanged(app, layer.id, allLayersVisible);
         }
         // Update only LAYER row eyes (not overlay rows or the other master).
         for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
@@ -397,7 +551,7 @@ export function buildLayerPanel(app) {
         syncMasterLock();
         for (const layer of panelLayers) {
             layer.locked = allLayersLocked;
-            app._onLayerLockChanged?.(layer.id, allLayersLocked);
+            notifyLayerLockChanged(app, layer.id, allLayersLocked);
         }
         // Update only LAYER row lock buttons.
         for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
@@ -439,7 +593,7 @@ export function buildLayerPanel(app) {
             lockBtn.classList.toggle('active', layer.locked);
             lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
             lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
-            app._onLayerLockChanged?.(layer.id, layer.locked);
+            notifyLayerLockChanged(app, layer.id, layer.locked);
             // Keep the master lock in sync with the per-row states.
             allLayersLocked = panelLayers.every(l => l.locked);
             syncMasterLock();
@@ -456,7 +610,7 @@ export function buildLayerPanel(app) {
             layer.visible = !layer.visible;
             visBtn.classList.toggle('active', layer.visible);
             visBtn.innerHTML = layer.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-            app._onLayerVisibilityChanged?.(layer.id, layer.visible);
+            notifyLayerVisibilityChanged(app, layer.id, layer.visible);
             allLayersVisible = panelLayers.every(layer => layer.visible);
             layersMasterEye.classList.toggle('active', allLayersVisible);
             layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
@@ -483,7 +637,7 @@ export function buildLayerPanel(app) {
             cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             for (const f of PCB_COPPER_FILLS) {
                 f.visible = allFillsVisible;
-                app._onCopperFillVisibilityChanged?.(f.id, allFillsVisible);
+                notifyCopperFillVisibilityChanged(app, f.id, allFillsVisible);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
                 const visBtn = row.querySelector('.vis-btn');
@@ -508,7 +662,7 @@ export function buildLayerPanel(app) {
             syncCfMasterLock();
             for (const f of PCB_COPPER_FILLS) {
                 f.locked = allFillsLocked;
-                app._onCopperFillLockChanged?.(f.id, allFillsLocked);
+                notifyCopperFillLockChanged(app, f.id, allFillsLocked);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
                 const lockBtn = /** @type {HTMLButtonElement|null} */ (row.querySelector('.lock-btn'));
@@ -546,7 +700,7 @@ export function buildLayerPanel(app) {
                 lockBtn.classList.toggle('active', f.locked);
                 lockBtn.innerHTML = f.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
                 lockBtn.title = f.locked ? 'Unlock copper fill' : 'Lock copper fill';
-                app._onCopperFillLockChanged?.(f.id, f.locked);
+                notifyCopperFillLockChanged(app, f.id, f.locked);
                 allFillsLocked = PCB_COPPER_FILLS.every(x => x.locked);
                 syncCfMasterLock();
             });
@@ -562,7 +716,7 @@ export function buildLayerPanel(app) {
                 f.visible = !f.visible;
                 visBtn.classList.toggle('active', f.visible);
                 visBtn.innerHTML = f.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-                app._onCopperFillVisibilityChanged?.(f.id, f.visible);
+                notifyCopperFillVisibilityChanged(app, f.id, f.visible);
                 allFillsVisible = PCB_COPPER_FILLS.every(x => x.visible);
                 cfMasterEye.classList.toggle('active', allFillsVisible);
                 cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
@@ -589,7 +743,7 @@ export function buildLayerPanel(app) {
             overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             for (const ov of PCB_OVERLAYS) {
                 ov.visible = allOverlaysVisible;
-                app._onOverlayVisibilityChanged?.(ov.id, allOverlaysVisible);
+                notifyOverlayVisibilityChanged(app, ov.id, allOverlaysVisible);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-overlays')) {
                 const visBtn = row.querySelector('.vis-btn');
@@ -627,7 +781,7 @@ export function buildLayerPanel(app) {
                 ov.visible = !ov.visible;
                 visBtn.classList.toggle('active', ov.visible);
                 visBtn.innerHTML = ov.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-                app._onOverlayVisibilityChanged?.(ov.id, ov.visible);
+                notifyOverlayVisibilityChanged(app, ov.id, ov.visible);
                 allOverlaysVisible = PCB_OVERLAYS.every(overlay => overlay.visible);
                 overlaysMasterEye.classList.toggle('active', allOverlaysVisible);
                 overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
@@ -640,21 +794,93 @@ export function buildLayerPanel(app) {
 
 }
 /**
+ * A layer-panel row a new object would be drawn on: a layer, or (`fill`) one side's
+ * Copper Fill row, which locks or hides that side's pours.
+ * @typedef {{id: string, fill?: boolean}} PlacementLayer
+ * @typedef {PlacementLayer & {reason: 'locked'|'hidden'}} PlacementBlock
+ */
+
+/** @param {PlacementLayer} target @param {'locked'|'hidden'} reason */
+function placementBlocked(target, reason) {
+    if (target.fill) return reason === 'locked' ? isCopperFillLocked(target.id) : !isCopperFillVisible(target.id);
+    return reason === 'locked' ? isLayerLocked(target.id) : !isLayerVisible(target.id);
+}
+
+/**
+ * Why nothing may be placed on these rows, or null. Nothing is drawn on a locked row,
+ * nor on a hidden one, where the new object would be invisible. A lock is reported first.
+ * @param {PlacementLayer[]} targets
+ * @returns {PlacementBlock|null}
+ */
+export function placementBlock(targets) {
+    for (const reason of /** @type {const} */ (['locked', 'hidden'])) {
+        const target = targets.find(item => placementBlocked(item, reason));
+        if (target) return { id: target.id, fill: !!target.fill, reason };
+    }
+    return null;
+}
+
+/** The layer panel's name for a blocked row: "Via", "Top Silk", "Top Copper Fill".
+ * @param {PlacementBlock} block
+ */
+export function placementBlockName(block) {
+    if (!block.fill) return pcbLayerName(block.id);
+    return `${PCB_COPPER_FILLS.find(fill => fill.id === block.id)?.name || pcbLayerName(block.id)} Copper Fill`;
+}
+
+/** "“Via” is locked" / "“Top Silk” is hidden".
+ * @param {PlacementBlock} block
+ */
+export function placementBlockMessage(block) {
+    return `“${placementBlockName(block)}” is ${block.reason}`;
+}
+
+/**
+ * Refuse placement onto a locked or hidden row and report why in the status bar.
+ * A hidden-layer refusal also shows a non-actionable popup at the press.
+ * @param {PcbEditor} app
+ * @param {PlacementLayer[]} targets every row the placed object would occupy
+ * @param {{clientX: number, clientY: number}} [event] the press, to anchor the bubble
+ * @returns {boolean} true when the press was refused
+ */
+export function refuseBlockedPlacement(app, targets, event) {
+    const block = placementBlock(targets);
+    if (!block) return false;
+    app.setStatus(placementBlockMessage(block));
+    if (block.reason === 'hidden') {
+        showLayerBubble(app, block, event ? { x: event.clientX, y: event.clientY } : undefined,
+            { message: `${placementBlockName(block)} layer hidden` });
+    }
+    return true;
+}
+
+/**
  * Show a small speech bubble explaining why a locked layer/object can't be
  * selected. Anchors to the layer's row in the panel by default, or to a given
  * client-space point (e.g. the mouse cursor) when `anchor` is provided.
  * Auto-dismisses after a short delay.
- * @param {object} app
+ * @param {PcbEditor} app
  * @param {string} layerId
  * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
  */
 export function showLockedLayerBubble(app, layerId, anchor) {
+    showLayerBubble(app, { id: layerId, reason: 'locked' }, anchor);
+}
+
+/**
+ * Speech bubble saying a row is locked or hidden, beside `anchor` or the row itself.
+ * @param {PcbEditor} app
+ * @param {PlacementBlock} block
+ * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
+ * @param {{message?: string}} [options]
+ */
+export function showLayerBubble(app, block, anchor, { message = placementBlockMessage(block) } = {}) {
     const panel = document.getElementById('pcbLayerPanel');
     const row = panel
-        ? panel.querySelector(`.pcb-layer-row[data-layer-id="${layerId}"]`)
+        ? panel.querySelector(block.fill ? `.pcb-layer-row[data-fill-id="${block.id}"]`
+            : `.pcb-layer-row[data-layer-id="${block.id}"]`)
         : null;
     if (!row && !anchor) return;
-    const def = PCB_LAYERS.find(l => l.id === layerId);
 
     let bubble = document.getElementById('pcbLockedLayerBubble');
     if (!bubble) {
@@ -663,9 +889,17 @@ export function showLockedLayerBubble(app, layerId, anchor) {
         bubble.className = 'pcb-locked-bubble';
         document.body.appendChild(bubble);
     }
-    bubble.innerHTML =
-        `<span class="pcb-locked-bubble-icon">${LOCK_CLOSED_SVG}</span>`
-        + `<span>“${def ? def.name : 'This layer'}” is locked</span>`;
+    const hide = () => {
+        clearTimeout(lockedBubbleTimers.get(app));
+        bubble.classList.remove('pcb-locked-bubble-show');
+        bubble.style.display = 'none';
+    };
+    const icon = block.reason === 'locked' ? LOCK_CLOSED_SVG : EYE_CLOSED_SVG;
+    bubble.innerHTML = `<span class="pcb-locked-bubble-icon">${icon}</span>`;
+    const text = document.createElement('span');
+    text.className = 'pcb-locked-bubble-text';
+    text.textContent = message;
+    bubble.appendChild(text);
 
     // Resolve the anchor point (client space). Default to the row's left edge.
     let anchorX, anchorY;
@@ -698,7 +932,10 @@ export function showLockedLayerBubble(app, layerId, anchor) {
         window.innerHeight - margin - height / 2
     );
     bubble.style.top = `${top}px`;
-    bubble.style.left = `${flip ? anchorX + 10 : anchorX - 10}px`;
+    const left = flip
+        ? Math.max(margin, Math.min(anchorX + 10, window.innerWidth - margin - width))
+        : Math.max(margin + width, Math.min(anchorX - 10, window.innerWidth - margin));
+    bubble.style.left = `${left}px`;
 
     // Restart the pop-in animation each time it's triggered.
     bubble.classList.remove('pcb-locked-bubble-show');
@@ -706,9 +943,10 @@ export function showLockedLayerBubble(app, layerId, anchor) {
     void bubble.offsetWidth;
     bubble.classList.add('pcb-locked-bubble-show');
 
-    clearTimeout(app._lockedBubbleTimer);
-    app._lockedBubbleTimer = setTimeout(() => {
-        bubble.classList.remove('pcb-locked-bubble-show');
-        bubble.style.display = 'none';
-    }, 2400);
+    const linger = 2400;
+    const schedule = () => {
+        clearTimeout(lockedBubbleTimers.get(app));
+        lockedBubbleTimers.set(app, setTimeout(hide, linger));
+    };
+    schedule();
 }

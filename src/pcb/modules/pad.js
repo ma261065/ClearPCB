@@ -1,72 +1,23 @@
-import { padFlashOutline } from './board-geometry.js';
+import { padLayers, padOutline } from '../../shapes/pad-geometry.js';
+export { padLayers, padOutline, padBounds, padHitTest, padFlash } from '../../shapes/pad-geometry.js';
 import { textColorForLayer } from './pcb-text.js';
 import { renderDrillBore } from './drill-bore.js';
+/** @typedef {import('../../shapes/pad.js').Pad} Pad */
 
 const NS = 'http://www.w3.org/2000/svg';
 
-function flashShape(pad) {
-    if (pad.shape === 'round') return 'circle';
-    if (pad.shape === 'oval') return 'ellipse';
-    if (pad.shape === 'stadium') return 'oval';
-    return 'rect';
-}
+/** @type {WeakMap<object, SVGElement[]>} */
+const padElements = new WeakMap();
 
-export function padLayers(pad) {
-    if (pad.layers === 'both') return ['top-copper', 'bottom-copper'];
-    return [pad.layers];
-}
-
-export function padOutline(pad) {
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    const width = Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
-    const height = Number.isFinite(pad.height) ? pad.height : pad.size;
-    return padFlashOutline({
-        x: pad.x,
-        y: pad.y,
-        w: width,
-        h: height,
-        shape: flashShape(pad),
-        rad: -(pad.rotation || 0) * Math.PI / 180,
-    });
-}
-
-export function padBounds(pad) {
-    const points = padOutline(pad);
-    const radius = pad.drill / 2;
-    return {
-        minX: Math.min(pad.x - radius, ...points.map(point => point.x)),
-        minY: Math.min(pad.y - radius, ...points.map(point => point.y)),
-        maxX: Math.max(pad.x + radius, ...points.map(point => point.x)),
-        maxY: Math.max(pad.y + radius, ...points.map(point => point.y)),
-    };
-}
-
-export function padHitTest(pad, point) {
-    const angle = (pad.rotation || 0) * Math.PI / 180;
-    const dx = point.x - pad.x;
-    const dy = point.y - pad.y;
-    const x = dx * Math.cos(angle) - dy * Math.sin(angle);
-    const y = dx * Math.sin(angle) + dy * Math.cos(angle);
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    const halfWidth = (Number.isFinite(pad.width) ? pad.width : pad.size * ratio) / 2;
-    const halfHeight = (Number.isFinite(pad.height) ? pad.height : pad.size) / 2;
-    if (pad.shape === 'round' || pad.shape === 'oval') {
-        return (x / halfWidth) ** 2 + (y / halfHeight) ** 2 <= 1;
-    }
-    if (pad.shape === 'stadium') {
-        const radius = halfHeight;
-        const straight = Math.max(0, halfWidth - radius);
-        const nearestX = Math.max(-straight, Math.min(straight, x));
-        return Math.hypot(x - nearestX, y) <= radius;
-    }
-    return Math.abs(x) <= halfWidth && Math.abs(y) <= halfHeight;
-}
-
+/**
+ * @param {Pad} pad
+ * @param {Element|null|undefined} root
+ */
 export function updatePadHighlightGeometry(pad, root) {
     if (!root?.querySelectorAll) return;
     const points = padOutline({ ...pad, x: 0, y: 0 })
         .map(point => `${point.x},${point.y}`).join(' ');
-    for (const element of root.querySelectorAll('[data-pad-id]')) {
+    for (const element of /** @type {NodeListOf<SVGElement>} */ (root.querySelectorAll('[data-pad-id]'))) {
         if (element.dataset.padId !== pad.id
             || (!element.classList.contains('pcb-track-hover')
                 && !element.classList.contains('pcb-box-pad-sel'))) continue;
@@ -75,11 +26,13 @@ export function updatePadHighlightGeometry(pad, root) {
     }
 }
 
+/** @param {Pad} pad */
 export function removePadElements(pad) {
-    for (const element of pad._svgElements || []) element.remove();
-    pad._svgElements = null;
+    for (const element of padElements.get(pad) || []) element.remove();
+    padElements.delete(pad);
 }
 
+/** @param {Pad} pad */
 export function padCopperPathD(pad) {
     const points = padOutline(pad);
     if (!points.length) return '';
@@ -93,6 +46,11 @@ export function padCopperPathD(pad) {
     return path;
 }
 
+/**
+ * @param {Pad} pad
+ * @param {(layer: string) => SVGGElement|null} getLayerGroup
+ * @param {string|null} [strokeOverride]
+ */
 export function renderPad(pad, getLayerGroup, strokeOverride = null) {
     removePadElements(pad);
     if (pad.visible === false) return;
@@ -112,16 +70,5 @@ export function renderPad(pad, getLayerGroup, strokeOverride = null) {
         const drill = renderDrillBore(pad, getLayerGroup(`${layer}-pad-drills`), 'pcb-pad-drill', 'pad');
         if (drill) elements.push(drill);
     }
-    pad._svgElements = elements;
-}
-
-export function padFlash(pad) {
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    return {
-        x: pad.x, y: pad.y,
-        w: Number.isFinite(pad.width) ? pad.width : pad.size * ratio,
-        h: Number.isFinite(pad.height) ? pad.height : pad.size,
-        shape: flashShape(pad), rotation: pad.rotation,
-        rad: -(pad.rotation || 0) * Math.PI / 180,
-    };
+    padElements.set(pad, elements);
 }

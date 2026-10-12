@@ -1,0 +1,280 @@
+# Schematic Editor
+
+Part of the [module contracts](../module-contracts.md). Schematic-only view
+lifecycle, deliberate differences from the PCB editor, startup and the component
+picker.
+
+## View Lifecycle
+
+`schematic/modules/schematic-view.js` is the schematic view lifecycle. It is the
+only schematic editor module that creates, attaches, redraws, culls, detaches or
+discards entity SVG.
+
+The module owns `renderShapes()`, viewport culling policy, level of detail,
+refined-segment overlays and the lifecycle helpers
+(`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
+`withContentDetached`, ...). Shape and component entities are model-only.
+Renderers in `src/schematic/render/` own shape SVG, anchor handles, component
+symbols, highlights, pin dots and lock icons. Their WeakMap view state is keyed
+by entity identity in `shape-view-state.js`.
+
+Viewport-culled flags live in the same `shape-view-state.js` store. They are
+read through schematic-view accessors and SelectionManager's editor-supplied
+`isCulled` predicate, not on model objects. Commands, file loading and theme
+changes call lifecycle/render helpers for entity SVG. Transient UI modules own
+their own preview or overlay DOM, such as clipboard ghosts, drawing previews,
+label guides, text-edit overlays and tool ghosts, without writing entity
+`element`, `anchorsGroup`, `pinElements` or `render()` fields.
+Clean shapes only take the zoom fast path (stroke-width update) when the scale
+has changed since the previous `renderShapes()` pass, so hover frames do no
+per-shape view lookups.
+`test-schematic-view-boundary` tests the helpers and fails on new
+view-lifecycle code elsewhere in the schematic editor.
+
+## Interactions and Previews
+
+In-progress interactions follow the PCB editor's contract.
+`schematic/modules/schematic-interactions.js` is the one list of them, in
+cancellation priority, with PCB's categories (`gesture`, `drawing`) and a
+`blocksSnapshot` flag: inline text edit, the WeakMap-owned `overlapCyclePress`
+slot, drag (anchor, segment and move drags and box selection), pending midpoint
+split, drawing, paste and component placement. Each slot value lives in the
+registry's import-free WeakMap and has one writer owner:
+`text-edit.js`, `draw-states.js`, `drag.js`, `drawing.js`, `clipboard.js` or
+`components.js`. `schematic-interaction-routing.js` holds each one's cancel
+handler. Everything that needs to know what is in
+progress derives from the table:
+the snapshot guard (`SchematicApp.isSectionEditing()`, with the Properties live
+preview), Escape (cancels the highest-priority interaction), Undo/Redo (drawing
+blocks it, inline text, paste and placement are only cancelled, pointer previews
+are cancelled and history then steps, as in the PCB editor), tool switching
+(commits inline text and cancels everything else except a placement the Component tool keeps), New
+(cancels everything) and selection actions (delete, cut, paste, nudge, flip,
+rotate, select all wait while anything is in progress). `interactionState` in
+`draw-states.js` drives pointer dispatch; `resolveState()` derives it from
+the same registry store and owner-module predicates. Other modules read through
+owner intent APIs such as `getSchematicDrag`, `getPendingAnchorDrag`,
+`isSchematicDrawingActive`, `isPastingClipboard`, `getPlacingComponent` and
+`getSchematicTextEdit`. `test-schematic-interactions` checks the table, routes,
+guards and owner-only slot writes.
+
+Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as
+each PCB tool is in `pcb-tools.js`. The entry defines its name, shortcut, ribbon
+label, selection setup (the component picker, Net defaults or a placement ghost)
+and pointer handlers before and during a draw.
+
+A draw finishes the same three ways for every tool: a stationary right-click
+finishes it at the pointer
+(`finishAtPointer`), a double-click or Enter finishes it with the points already
+placed (`finishInPlace`), and releasing the button finishes single-click draws only
+(tools marked `multiClick` keep drawing). The `toolActive` and `drawing` mouse states,
+the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read the
+entry (`test-schematic-tools`).
+
+Switching tools commits an active inline text edit before the new tool clears
+selection or updates the Properties panel. In Properties, Enter and
+Escape belong to the focused control: Enter commits that field without completing
+an in-progress drawing, and Escape cancels its live preview without blurring the
+field or applying the canvas-level Escape action. Enter and Escape on the canvas
+retain their normal drawing and cancellation behavior.
+
+Inline text editing supports Ctrl+A (Cmd+A on macOS), Shift+Left/Right,
+Ctrl/Cmd+Shift+Left/Right for word selection, and Shift+Home/End. A translucent
+highlight shows the selected text. Typing replaces the selection; Backspace and
+Delete remove it. An unshifted arrow collapses the selection to that end, and
+clicking places the caret and clears selection. Enter commits the entire edit as
+one undoable change; Escape restores the original text.
+PCB inline text uses the native input selection shortcuts and the same highlight.
+Unbordered schematic text retains a transparent, non-interactive padded rectangle
+inside its SVG group so Edge invalidates the full ink area during upward dragging,
+including descenders. This rectangle does not affect authored border state or
+selection bounds; unbordered text bounds are measured from its glyph element.
+Text hit testing adds at most 10% of its font size outside its measured bounds,
+instead of inheriting the full thin-wire screen-pixel allowance at low zoom.
+Its hidden origin anchor is not hit-testable; selected text is dragged by its body,
+without an extra circular grab area extending left or below the baseline.
+Filled circles render separate fill and stroke circles. The fill ends at the
+inner edge of the stroke, so translucent hover highlighting does not double-paint
+the inner half of the line. Outer dimensions and authored radius remain unchanged.
+Existing wire-node/segment alignment and sticky wires on moved components use
+the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
+effective grid spacing. They do not force alignment from half a grid cell away.
+For component drags, automatic sticky bridge/bend nodes are traversed to find
+the stationary wire reference. A pin stub kept orthogonal by construction is
+not an H/V snap target. Alignment feedback uses final displayed geometry after
+pin magnets and sticky updates, so a later hard-pin snap cannot leave stale
+guides behind. Component drags show blue/dotted collinearity feedback only when
+the bridge's dogleg can collapse against a stationary wire node; ordinary H/V
+orientation is not useful feedback for these automatically orthogonal wires.
+The full generated bridge path and the next nonzero stationary segment are
+checked together: retained corners, reversals and curved continuations do not
+receive a collinearity indicator merely because the pin-to-corner stub is straight.
+Accepted guides extend through all forward collinear stationary segments to the
+end of the straightened prefix, stopping at bends, junctions, pin attachments,
+curves and reversals. Later unrelated wire turns do not suppress a guide for an
+already eliminable pin-side dogleg.
+New-wire drawing retains its orthogonal routing constraints and pin/connection snaps.
+Wire anchor drags also compose compatible constraints: a segment target may
+slide along its own axis to the incident wire's H/V/45 alignment intersection.
+Exact pin/node targets stay exact and retain only guides already true at that
+point. Thus hard-target yellow feedback does not erase a compatible axis guide.
+Wire rendering distinguishes unjoined interior crossings without authoring
+geometry: two parallel canvas-colored side strokes are drawn just outside the
+visually upper wire, each exactly one screen pixel wide. Normal stacking follows
+document render order; selecting a wire raises it and transfers the cue to it.
+The existing wire itself remains
+untouched, so hover and selection cannot produce a local foreground box. The
+local cue follows zoom, theme and curved-edge tangent sampling. Intersections at either edge's
+authored endpoint are left to normal node/T-junction rendering.
+At angled crossings, each side stroke follows its own intersection interval
+with the crossed wire rather than being centred on the centreline intersection.
+Because there is no wider crosswise under-stroke, no end-cap dashes appear at
+extreme zoom. The side strokes span the crossed wire's complete rendered width;
+their junction-local length is not capped below that required coverage.
+Text uses shortcut T. With the Text tool active or standalone Text selected,
+the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
+standalone Text over a wire shows the same yellow attachment target as placement;
+dropping attaches it. Movement and attachment undo together. Attached text offers
+“Detach from wire” or “Detach from shape” according to its owner, in Properties
+(with an explanatory tooltip) and its context menu;
+detachment is undoable. Component reference/value fields are not reattached this way.
+The attachment tip is hidden for text already attached to a shape or wire and returns after detachment.
+Hover attachment targets are available only for unattached text. Dragging attached
+text changes its offset from its existing owner without offering or adopting another
+shape or wire; detach explicitly before attaching it elsewhere.
+Text connection guides use the rendered stroke geometry for graph-based owners,
+including curved edges and rounded corners, rather than their invisible control chords.
+
+Print and PDF share `shared/ui/export.js`'s SVG clone. The clone preserves computed
+visibility, display and paint opacity, removes viewport-only component LOD placeholders
+and interaction overlays, and retains full component detail regardless of viewport
+culling. Monochrome conversion keeps transparent repaint bounds invisible rather than
+turning them into filled black rectangles; the live viewport state is restored after cloning.
+
+Transient schematic state is owned where it is used rather than on `SchematicApp`:
+
+- `draw-states.js` owns the mouse state table, draw snap result, pending
+  shape-segment toggles, overlap-cycle adapter and drag/click flags.
+- `drag-gestures.js` owns drag start/update flows and reusable drag scratch
+  buffers; `drag.js` owns the registry slots and commit/cancel lifecycle.
+- `component-snap.js` owns pin snapping for component placement and component
+  drags.
+- `drawing.js` owns generic drawing sessions and one-shot draw snap data.
+- `wire.js` owns wire drawing preview state, axis lock, junction dots and snap
+  highlights. Cursor snapping lives in `wire-snap.js`; drag snap guides live in
+  `wire-drag-snap.js`; merge, split and connection reconciliation lives in
+  `wire-reconcile.js`; wire label and net-name rules live in `wire-labels.js`.
+- `components.js` owns component tooltip and placement preview state.
+- `ribbon.js`, `mouse.js`, `tool-ghost.js`, `label-attachment.js` and
+  `schematic-view.js` own ribbon handlers, right-click pan tracking, tool
+  ghosts, label guides and refined segment-selection overlays respectively.
+
+The mechanism behind a preview differs from the PCB editor's on purpose. PCB
+previews edit detached copies because pours, DRC, ratsnest and the 3D view would
+otherwise recompute from half-finished geometry. The schematic has no such
+background work, and much of what a drag affects follows the authored entities
+live (sticky wires, attached labels, junction dots, label guides, text
+measurement), so schematic previews and drags edit the authored entities and
+restore them on cancel: anchor and segment drags from their before-states, a move
+drag from a snapshot of the moved selection, its field and label texts and every
+wire taken at its first movement. The cost is that each gesture must restore
+everything it touched; `tests/browser/schematic-cancel-isolation.mjs` cancels every
+gesture by Escape, tool switch and Undo and checks the model and history are
+unchanged, the counterpart of the PCB preview-isolation tests. Snapshots cannot
+see a half-finished edit because `ProjectDocument` refuses to snapshot while
+`isSectionEditing()` is true.
+
+## Object Locks
+
+Locks follow the PCB editor's rules (see [PCB Editing](pcb-editing.md#object-locks));
+the schematic has no layer locks, so a shape or component's own `locked` flag
+(saved as `lk`) is the whole story. A field text that belongs to another object (a
+component's reference or value, a wire's name, a net label's text) has no lock of its
+own and follows its owner's, as a PCB reference designator follows its component
+(`shapes/lock-owner.js`: `lockOwner`, `isSchematicLocked`, `hasOwnLock`); its
+Properties show no Locked checkbox and its lock icon offers to unlock the owner.
+Detachable labels and free texts keep their own lock. Every lock check uses
+`isSchematicLocked`. A locked object can be selected (by click, Select All or the
+marquee) but not moved, edited or deleted:
+
+- Move drags and arrow nudges carry only the unlocked part of the selection, and
+  their snapping, sticky-wire and junction helpers see only that part; grabbing a
+  locked member of a selection moves the rest. Rotate and flip skip locked
+  components (their Transform buttons are disabled when the whole selection is
+  locked); Delete and Cut skip locked objects; Copy takes them, and pasted copies
+  start unlocked.
+- Properties edits apply to the unlocked members only; a field is read-only only when
+  every selected object is locked. The Locked checkbox (mixed for a mixed selection)
+  locks or unlocks the whole selection as one undo step; it appears whenever any
+  selected object has its own lock, even alongside owned field texts.
+- A selected locked object shows a lock icon instead of edit handles.
+  `render/lock-placement.js` places it with the shared `core/lock-position.js`:
+  just outside the object's outline (closed shapes as one loop, wires and lines by
+  their stroked segments, other entities by their world bounds), beside the part
+  nearest the press that selected it (`SelectionManager.lockPointer`, recorded by
+  `mouse.js`). Component locks are drawn in world space next to the symbol, so they
+  never rotate or mirror with it. Clicking the icon opens a menu to unlock that
+  object (`locks.js`), undoable.
+
+`test-schematic-lock-placement` and `tests/browser/schematic-locks.mjs` cover these.
+
+The same lock gate as the PCB editor (`core/edit-guard.js`) refuses any new schematic
+command whose `lockTargets()` include a locked object. A refused drag commit restores
+the gesture as Escape would. Schematic gestures edit live entities and then `record`
+the result, so side effects recorded that way (wires stretched or merged by a move)
+are outside the gate, like copper following a PCB part.
+
+## Startup and Component Picker
+
+Schematic startup immediately starts KiCad index loading in the background,
+without awaiting the download, to minimize the wait on first picker use.
+Opening the Online picker or starting a search joins the shared in-flight load,
+uses its warmed result, or retries a failed load. Switching an open picker from
+Local to Online retains that behavior; Local mode does not add a separate
+request.
+
+`ComponentPicker.js` owns the picker shell and delegates DOM, results, search,
+preview and placement behavior to `src/components/picker/`. `KiCadFetcher.js`
+owns the public fetcher state and delegates KiCad index, network, symbol and
+footprint work to `src/components/kicad/`. The index module owns cache
+hydration, in-flight loading and stale-cache refresh.
+A released site serves a prebuilt index (`assets/kicad-index.json`, see
+[releases.md](../releases.md#kicad-library-index)); the fetcher uses it, and its KiCad
+tag, before any cache or GitLab request, and falls back to them when it is absent or invalid.
+Progress belongs to the current visible empty-query picker, and searches retain
+their generation guard. Exhausting every index ref rejects explicitly without
+publishing incomplete data or replacing a usable cached index. First-search
+initialization errors use the normal search error/finally path rather than
+leaving the loading state active indefinitely.
+
+The component picker header has an accessible 36-by-36-pixel close button with
+a 24-pixel X and shared dialog-close hover/focus styling. Button, Escape and
+programmatic/toggle closure share cleanup and emit `component:pickerClosed` once
+per open-to-closed transition.
+The tool owner returns Component mode to Select and cancels placement;
+closing during a switch to another tool does not override that new tool.
+Choosing Place Component does not dismiss the picker or switch back to Select.
+Returning to Select with no selection also activates Home, so cancelling a
+drawing tool with Escape does not leave an empty Properties tab. Selection
+properties remain visible when switching to Select with a selection.
+The picker's "Exact match" checkbox filters the current Online (EasyEDA/KiCad)
+or Local results to those whose part number, manufacturer part number or name
+equals the search text, ignoring case (`components/picker/ui-state.js`
+`isExactNameMatch()`); toggling it re-filters without a new online search.
+
+## Text Orientation and Field Guides
+
+Schematic Text, including component reference and value text, supports all four
+quarter-turn orientations (0, 90, 180 and 270 degrees).
+New Text and selected Text Properties provide matching Orientation dropdowns
+with these four angles. New Text sets the placement default; selected Text changes
+the selected objects in one undoable action. R rotates right by 90 degrees.
+`textOrientation` (`shapes/text.js`) snaps other stored angles to the nearest
+quarter turn when a document loads. PCB references keep free
+rotation.
+
+While a component's reference or value text is selected or edited, a dotted guide
+joins it to the component: from the symbol's outline (its local bounds grown by
+0.5 mm) to the text's outline, never from the component's centre. Other attached
+labels lead from their attachment point (`label-attachment.js` `updateLabelGuide`;
+`test-reference-selection-overlay`).

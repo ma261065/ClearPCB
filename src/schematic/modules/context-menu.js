@@ -1,0 +1,1017 @@
+/**
+ * Context menus and related operations for wire anchors, segments,
+ * and T-junctions.
+ *
+ * Extracted from mouse.js so the menu-building DOM code and the
+ * junction / segment deletion logic are co-located and easy to find.
+ */
+
+import { ModifyShapeCommand, ModifyPropertyCommand, BatchCommand, AddShapeCommand, DeleteShapesCommand } from './commands.js';
+import { VERTEX_EPSILON } from './wire.js';
+import { applySplitLabelRules, applySplitNetRules } from './wire-labels.js';
+import { TextAttachmentCommand } from './label-attachment.js';
+import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
+import { deletePathSegment, setPathSegmentType, collapseCollinearPath, splitPathAtNode } from '../../shapes/path-operations.js';
+import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
+import { clearDragState, cancelSchematicPathSplit, getSchematicDrag, setSchematicDrag } from './drag.js';
+import { Polyline } from '../../shapes/polyline.js';
+import { Arc } from '../../shapes/arc.js';
+import { addShapeInternal } from './shape-management.js';
+import { applyShapeState, captureShapeState } from './selection.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
+import { setDidSchematicDrag } from './draw-states.js';
+import { isWireItem as isWireShape, isPolylineItem as isPolylineShape, isArcItem as isArcShape, isNoConnectItem as isNoConnectShape } from '../../core/schematic-items.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {SchematicItem} ShapeModel */
+/** @typedef {import('../../shapes/wire.js').Wire} WireShape */
+/** @typedef {import('../../shapes/polyline.js').Polyline} PolylineShape */
+/** @typedef {import('../../shapes/arc.js').Arc} ArcShape */
+/** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnectShape */
+/** @typedef {import('../../shapes/text.js').Text} TextShape */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{wire: WireShape, nodeId: string}} WireNodeRef */
+/** @typedef {{junctionWire: WireShape, junctionNodeId: string, wireToDrag: WireShape|null, dragAnchorId: string|null, allConnecting: WireNodeRef[]}} TJunctionInfo */
+/** @typedef {{text: string, onClick: () => void}} ContextMenuItem */
+/** @typedef {{startPoint: Point, endPoint: Point, lineWidth?: number}} ArcLineState */
+
+/** @param {WireShape} wire */
+function getWireSplitLabelMeta(wire) {
+    /** @type {(Point & {rotation?: number})|undefined} Runtime wire label restore state may include rotation. */
+    const pendingLabelPosition = wire._pendingLabelPosition;
+    const attached = wire.attachedLabels instanceof Set
+        ? Array.from(wire.attachedLabels).filter(label =>
+            label?.type === 'text'
+            && label.fieldKey === 'label'
+            && label.parentComponent === wire
+        )
+        : [];
+    const primary = attached.find(label => label?.attachment?.wireName === true)
+        || attached.find(label => String(label?.text || '').toLowerCase() === String(wire.wireLabel || '').toLowerCase())
+        || attached[0]
+        || null;
+
+    const preSplitVisible = primary?.visible ?? wire.labelText?.visible ?? wire._pendingLabelVisible ?? false;
+    const preSplitLabelPosition = primary
+        ? { x: primary.x, y: primary.y, rotation: primary.rotation || 0 }
+        : (wire.labelText
+            ? { x: wire.labelText.x, y: wire.labelText.y, rotation: wire.labelText.rotation }
+            : (pendingLabelPosition
+                ? {
+                    x: pendingLabelPosition.x,
+                    y: pendingLabelPosition.y,
+                    rotation: pendingLabelPosition.rotation ?? 0
+                }
+                : null));
+    return { preSplitVisible, preSplitLabelPosition };
+}
+
+/**
+ * @param {WireShape} shape
+ * @param {string} anchorId
+ * @returns {Point|null}
+ */
+function getWireAnchorPosition(shape, anchorId) {
+    if (!shape?.nodes?.has(anchorId)) return null;
+    const pos = shape.nodes.get(anchorId);
+    return pos ? { x: pos.x, y: pos.y } : null;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {Point|null} pos
+ * @returns {NoConnectShape[]}
+ */
+function findNoConnectsAtPosition(app, pos) {
+    if (!pos) return [];
+    /** @type {NoConnectShape[]} */
+    const matches = [];
+    for (const s of app.shapes) {
+        if (isNoConnectShape(s) && Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON) {
+            matches.push(s);
+        }
+    }
+    return matches;
+}
+
+// ─── T-junction detection ──────────────────────────────────────────
+
+/**
+ * Detect whether an anchor point on a wire is at a T-junction (degree ≥ 3 node).
+ * In the graph model, a junction is simply a node with 3+ incident edges.
+ * We also check for cross-wire junctions (same position, different graph).
+ *
+ * Returned object:
+ *   junctionWire   – the wire containing the junction node
+ *   junctionNodeId – node ID of the junction
+ *   wireToDrag     – a wire whose leaf node can be detached and dragged
+ *                    (null when multiple connecting wires exist)
+ *   dragAnchorId   – anchor id on wireToDrag (the leaf node ID)
+ *   allConnecting  – array of { wire, nodeId } for every wire with a node here
+ * @param {SchematicEditor} app
+ * @param {SchematicItem} shape
+ * @param {string} anchorId
+ * @returns {TJunctionInfo|null}
+ */
+export function detectTJunction(app, shape, anchorId) {
+    if (!isWireShape(shape)) return null;
+    if (!shape.nodes.has(anchorId)) return null;
+    const pos = shape.nodes.get(anchorId);
+
+    // Case 1: intra-graph junction — degree ≥ 3 within a single graph
+    if (shape.degree(anchorId) >= 3) {
+        // Find leaf-node wires that connect here from OTHER graphs
+        const crossWires = [];
+        for (const other of app.shapes) {
+            if (other === shape || !isWireShape(other)) continue;
+            const nid = other.nodeAt(pos, VERTEX_EPSILON);
+            if (nid && other.degree(nid) === 1) {
+                crossWires.push({ wire: other, nodeId: nid });
+            }
+        }
+        return {
+            junctionWire: shape,
+            junctionNodeId: anchorId,
+            wireToDrag: null,   // degree ≥ 3 in same graph — no single wire to drag
+            dragAnchorId: null,
+            allConnecting: [
+                { wire: shape, nodeId: anchorId },
+                ...crossWires
+            ]
+        };
+    }
+
+    // Case 2: cross-graph junction — leaf nodes from multiple wires meet at same point
+    /** @type {WireNodeRef[]} */
+    const connectingHere = [{ wire: /** @type {WireShape} */ (shape), nodeId: anchorId }];
+    for (const other of app.shapes) {
+        if (other === shape || !isWireShape(other)) continue;
+        const nid = other.nodeAt(pos, VERTEX_EPSILON);
+        if (nid) connectingHere.push({ wire: /** @type {WireShape} */ (other), nodeId: nid });
+    }
+    if (connectingHere.length < 2) return null;
+
+    // Find one wire with a leaf node here to drag
+    const leafEntry = connectingHere.find(c => c.wire.degree(c.nodeId) === 1);
+    return {
+        junctionWire: shape,
+        junctionNodeId: anchorId,
+        wireToDrag: leafEntry ? leafEntry.wire : null,
+        dragAnchorId: leafEntry ? leafEntry.nodeId : null,
+        allConnecting: connectingHere
+    };
+}
+
+// ─── Junction / wire / segment deletion ────────────────────────────
+
+/**
+ * Delete a T-junction: split the degree-≥3 node so each branch becomes
+ * a separate wire.  Fully undoable.
+ * @param {SchematicEditor} app
+ * @param {TJunctionInfo} junctionInfo
+ */
+export function deleteJunction(app, junctionInfo) {
+    const { junctionWire, junctionNodeId } = junctionInfo;
+    if (!junctionWire || !junctionNodeId) return;
+    if (!app.shapes.includes(junctionWire)) return;
+
+    const wire = junctionWire;
+    const deg = wire.degree(junctionNodeId);
+    if (deg < 3) return;
+
+    // Capture true pre-split snapshots so undo can restore the original
+    // single-wire junction state (including label visibility ownership).
+    const preSplitWireStates = new Map();
+    for (const s of app.shapes) {
+        if (s.type === 'wire') preSplitWireStates.set(s, s.captureState());
+    }
+    const preSplitLabelTextStates = new Map();
+    for (const [w] of preSplitWireStates) {
+        if (w.labelText && app.shapes.includes(w.labelText)) {
+            preSplitLabelTextStates.set(w.labelText, w.labelText.captureState());
+        }
+    }
+
+    const pos = wire.nodes.get(junctionNodeId);
+    if (!pos) return;
+
+    // Split the junction node: give each incident edge its own node copy.
+    // Pick the branch most perpendicular to the dominant direction to detach.
+    const incidents = [...wire.incidentEdges(junctionNodeId)];
+
+    // Compute unit direction vectors for each incident edge
+    const dirs = incidents.map(({ otherNode }) => {
+        const other = wire.nodes.get(otherNode);
+        const dx = other.x - pos.x, dy = other.y - pos.y;
+        const len = Math.hypot(dx, dy) || 1;
+        return { x: dx / len, y: dy / len };
+    });
+
+    // Find the dominant direction: the pair of edges most closely forming
+    // a straight line (dot product closest to -1 = 180°).
+    let bestDot = Infinity;
+    let dominantA = -1, dominantB = -1;
+    for (let i = 0; i < dirs.length; i++) {
+        for (let j = i + 1; j < dirs.length; j++) {
+            const dot = dirs[i].x * dirs[j].x + dirs[i].y * dirs[j].y;
+            if (dot < bestDot) { bestDot = dot; dominantA = i; dominantB = j; }
+        }
+    }
+
+    // The drag target is the edge NOT part of the dominant pair
+    let dragEdgeIdx;
+    if (incidents.length === 3 && dominantA >= 0 && dominantB >= 0) {
+        dragEdgeIdx = incidents.findIndex((_, i) => i !== dominantA && i !== dominantB);
+    } else {
+        // Fallback for 4+ edges: pick the edge most perpendicular to the dominant direction
+        const domDir = dirs[dominantA];
+        let maxPerp = -Infinity;
+        dragEdgeIdx = 0;
+        for (let i = 0; i < dirs.length; i++) {
+            if (i === dominantA || i === dominantB) continue;
+            const perp = Math.abs(domDir.x * dirs[i].y - domDir.y * dirs[i].x); // |cross product|
+            if (perp > maxPerp) { maxPerp = perp; dragEdgeIdx = i; }
+        }
+    }
+
+    let dragNewNodeId = null;
+    // Only detach the drag edge — keep the dominant pair connected at the junction.
+    // This avoids creating unnecessary fragments that get merged back immediately.
+    {
+        const dragIncident = incidents[dragEdgeIdx];
+        dragNewNodeId = wire.addNode(pos.x, pos.y);
+        const edge = wire.edges.get(dragIncident.edgeId);
+        if (edge.from === junctionNodeId) edge.from = dragNewNodeId;
+        if (edge.to === junctionNodeId) edge.to = dragNewNodeId;
+    }
+
+    // Split disconnected components into separate wire objects
+    const comps = /** @type {Set<string>[]} */ (wire.connectedComponents());
+    let dragWire = wire;
+    /** @type {WireShape[]} */
+    const newFragments = [];
+    const preSplitLabel = wire.wireLabel;
+    const preSplitNet = wire.net;
+    const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wire);
+    if (comps.length > 1) {
+        comps.sort((a, b) => b.size - a.size);
+        for (let i = 1; i < comps.length; i++) {
+            const sub = /** @type {WireShape} */ (wire.extractSubgraph(comps[i]));
+            if (sub.edges.size > 0) {
+                addShapeInternal(app, sub);
+                newFragments.push(sub);
+                // Track which wire owns the drag node
+                if (dragNewNodeId && comps[i].has(dragNewNodeId)) {
+                    // Node IDs are preserved by extractSubgraph
+                    dragWire = sub;
+                }
+            }
+        }
+        const keepSet = comps[0];
+        for (const nid of [...wire.nodes.keys()]) {
+            if (!keepSet.has(nid)) wire.removeNode(nid);
+        }
+
+        // ── Split label rules ──
+        // Winner = post-split wire with most segments, keeps original label.
+        // All post-split wires inherit pre-split visibility.
+        applySplitLabelRules(/** @type {WireShape} */ (wire), newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition, app);
+        applySplitNetRules(/** @type {WireShape} */ (wire), newFragments, preSplitNet);
+    }
+    wire.invalidate();
+
+    // Capture before-states for the drag wire (and any TJ-linked wires)
+    // so commitAnchorDrag can build the undo batch.
+    const dragBefore = captureShapeState(app, /** @type {ShapeModel} */ (dragWire));
+    const anchorWireStates = new Map();
+    // Include the original wire (and any other split-off wires) so
+    // commitAnchorDrag snapshots them correctly.
+    for (const s of app.shapes) {
+        if (s.type === 'wire' && s !== dragWire) {
+            anchorWireStates.set(s, s.captureState());
+        }
+    }
+
+    const pt = { x: pos.x, y: pos.y };
+
+    // Select the freed wire and enter anchor drag mode
+    app.selection.clearSelection();
+    app.selection.select(dragWire, false);
+
+    setSchematicDrag(app, {
+        mode: 'anchor',
+        shape: dragWire,
+        beforeState: dragBefore,
+        start: { ...pt },
+        startScreen: null,
+        anchorId: dragNewNodeId,
+        wireAnchorOriginal: { ...pt },
+        tjLinks: [],
+        wireStates: anchorWireStates,
+        excludePin: null,
+        ncLinks: [],
+        junctionBeforeWireStates: preSplitWireStates,
+        junctionBeforeLabelTextStates: preSplitLabelTextStates
+    });
+    app.interactionState = 'anchorDrag';
+    setDidSchematicDrag(app, false);
+
+    app.renderShapes(true);
+    app.showCrosshair();
+    app.updateCrosshair(pt);
+    app.viewport.svg.style.cursor = 'move';
+}
+
+/** @param {SchematicEditor} app */
+function finishShapeRefinement(app) {
+    setShapeNodeFocus(app, null);
+    setShapeSegmentFocus(app, null);
+    app.selection.notifyChanged();
+    app.renderShapes(true);
+}
+
+/** @param {SchematicEditor} app */
+function finishShapeRemoval(app) {
+    // Commands already remove selected IDs, so clearSelection() may not notify.
+    app.selection.clearSelection({ notify: false });
+    finishShapeRefinement(app);
+}
+
+/**
+ * Delete a wire segment (edge).  If the wire has only one edge, delete the
+ * whole wire.  Otherwise remove the edge and split into connected components,
+ * keeping only components with at least one edge.
+ * @param {SchematicEditor} app
+ * @param {WireShape|PolylineShape} wire
+ * @param {string|null} edgeId
+ */
+export function deleteWireSegment(app, wire, edgeId) {
+    if (edgeId === null || wire.locked || !wire.edges.has(edgeId)) return;
+    const path = isPolylineShape(wire) ? wire.toEditablePath() : null;
+    if (path) {
+        const parts = deletePathSegment(path, Object.values(path.edgeIds).indexOf(edgeId));
+        if (!parts) return;
+        const batch = new BatchCommand('Delete segment');
+        batch.add(new DeleteShapesCommand(app, [wire]));
+        for (const part of parts) {
+            const fragment = /** @type {PolylineShape} */ (wire.clone());
+            fragment.applyEditablePath(part);
+            fragment.fill = false;
+            batch.add(new AddShapeCommand(app, fragment));
+        }
+        app.history.execute(batch);
+        finishShapeRemoval(app);
+        return;
+    }
+    // Segment deletion reaches the graph fallback only for wire segments.
+    const wireGraph = /** @type {WireShape} */ (wire);
+    if (wireGraph.edges.size <= 1) {
+        deleteWire(app, wireGraph);
+        return;
+    }
+
+    const batch = new BatchCommand('Delete segment');
+
+    // Capture before state
+    const beforeState = wireGraph.captureState();
+    const preSplitLabel = wireGraph.wireLabel;
+    const { preSplitVisible, preSplitLabelPosition } = getWireSplitLabelMeta(wireGraph);
+
+    // Remove the edge
+    wireGraph.removeEdge(edgeId);
+
+    // Clean up: merge collinear degree-2 nodes, remove isolated nodes, etc.
+    wireGraph.cleanGraph();
+
+    // If the wire is now empty, just delete it
+    if (wireGraph.edges.size === 0) {
+        wireGraph.applyState(beforeState);
+        deleteWire(app, wireGraph);
+        return;
+    }
+
+    // Split into connected components
+    const components = /** @type {Set<string>[]} */ (wireGraph.connectedComponents());
+    if (components.length <= 1) {
+        // Still one connected component — just modify in place
+        const afterState = wireGraph.captureState();
+        wireGraph.applyState(beforeState);
+        batch.add(new ModifyShapeCommand(app, wireGraph, beforeState, afterState));
+    } else {
+        // Multiple components — delete original, create new wires for each component with edges
+        batch.add(new DeleteShapesCommand(app, [wireGraph]));
+        /** @type {WireShape[]} */
+        const fragments = [];
+        for (const nodeSet of components) {
+            const sub = /** @type {WireShape} */ (wireGraph.extractSubgraph(nodeSet));
+            if (sub.edges.size > 0) {
+                fragments.push(sub);
+            }
+        }
+
+        if (fragments.length > 0) {
+            applySplitLabelRules(fragments[0], fragments.slice(1), preSplitLabel, preSplitVisible, preSplitLabelPosition);
+            for (const sub of fragments) {
+                batch.add(new AddShapeCommand(app, sub));
+            }
+        }
+
+        // Restore original for undo
+        wireGraph.applyState(beforeState);
+    }
+
+    app.history.execute(batch);
+    app.selection.notifyChanged();
+}
+
+/**
+ * Delete an entire wire (with undo).
+ * @param {SchematicEditor} app
+ * @param {WireShape} wire
+ */
+export function deleteWire(app, wire) {
+    const batch = new BatchCommand('Delete wire');
+    batch.add(new DeleteShapesCommand(app, [wire]));
+    app.history.execute(batch);
+    finishShapeRemoval(app);
+}
+
+/**
+ * Delete a polyline node, retaining surviving geometry and its selection.
+ * @param {SchematicEditor} app
+ * @param {PolylineShape} shape
+ * @param {string} nodeId
+ * @returns {boolean}
+ */
+export function deleteSchematicShapeNode(app, shape, nodeId) {
+    if (shape?.type !== 'polyline' || shape.locked || !shape.nodes.has(nodeId)) return false;
+    if (shape.edges.size <= 1) {
+        app.history.execute(new DeleteShapesCommand(app, [shape]));
+        finishShapeRemoval(app);
+        return true;
+    } else {
+        const before = shape.captureState();
+        if (!shape.deleteAnchor(nodeId)) return false;
+        if (!shape.closed) shape.fill = false;
+        const after = shape.captureState();
+        shape.applyState(before);
+        app.history.execute(new ModifyShapeCommand(app, shape, before, after));
+    }
+    app.fileManager?.setDirty?.(true);
+    finishShapeRefinement(app);
+    return true;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @returns {boolean}
+ */
+export function deleteFocusedSchematicShape(app) {
+    const selected = app.selection.getSelection();
+    if (selected.length !== 1 || selected[0].locked) return false;
+    const shape = selected[0];
+    if (!isPolylineShape(shape)) return false;
+    const nodeId = getShapeNodeFocus(app)?.shapeId === shape.id ? getShapeNodeFocus(app).nodeId : null;
+    const edgeId = getShapeSegmentFocus(app)?.shapeId === shape.id ? getShapeSegmentFocus(app).edgeId : null;
+    if (!shape.nodes.has(nodeId) && !shape.edges.has(edgeId)) return false;
+    const drag = getSchematicDrag(app);
+    if (drag?.shape === shape) {
+        const splitting = !!drag.pathSplit;
+        cancelSchematicPathSplit(app);
+        if (drag.beforeState) shape.applyState(drag.beforeState);
+        clearDragState(app);
+        app.interactionState = 'idle';
+        setDidSchematicDrag(app, false);
+        app.hideCrosshair();
+        app.viewport.svg.style.cursor = '';
+        if (splitting) {
+            finishShapeRefinement(app);
+            return true;
+        }
+    }
+    if (shape.nodes.has(nodeId)) return deleteSchematicShapeNode(app, shape, nodeId);
+    deleteWireSegment(app, shape, edgeId);
+    return true;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {WireShape|PolylineShape} shape
+ * @param {string} anchorId
+ */
+export function splitAnchorAndDrag(app, shape, anchorId) {
+    if (shape?.locked) return;
+    if (!shape?.nodes?.has(anchorId)) return;
+    const pos = shape.nodes.get(anchorId);
+    if (!pos) return;
+
+    const beforeState = captureShapeState(app, /** @type {ShapeModel} */ (shape));
+
+    if (isPolylineShape(shape)) {
+        const path = shape.toEditablePath();
+        const split = path && splitPathAtNode(path, Object.values(path.nodeIds).indexOf(anchorId));
+        if (!split) return;
+        const remainder = split.remainder ? shape.clone() : null;
+        if (remainder) {
+            remainder.applyEditablePath(split.remainder);
+            remainder.fill = false;
+            app.commandAddShape(remainder);
+        }
+        shape.applyEditablePath(split.moving);
+        shape.fill = false;
+        setShapeNodeFocus(app, null);
+        setShapeSegmentFocus(app, null);
+        app.selection.clearSelection();
+        app.selection.select(shape, false);
+        setSchematicDrag(app, {
+            mode: 'anchor', shape, beforeState, anchorId: shape.getOrderedNodeIds()[0],
+            start: { ...pos }, startScreen: null, wireAnchorOriginal: { ...pos },
+            tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            pathSplit: true, splitRemainder: remainder,
+        });
+        app.interactionState = 'anchorDrag';
+        setDidSchematicDrag(app, true);
+        app.renderShapes(true);
+        app.showCrosshair();
+        app.updateCrosshair(pos);
+        app.viewport.svg.style.cursor = 'move';
+        app.updatePropertiesPanel(app.selection.getSelection());
+        return;
+    }
+
+    // Pick one of the two edges to detach to the new node
+    const edges = shape.incidentEdges(anchorId);
+    if (edges.length < 2) return;
+    const edgeToDetach = [edges[0].edgeId];
+
+    const newNodeId = shape.splitNode(anchorId, edgeToDetach);
+    if (!newNodeId) return;
+
+    // Splitting a closed shape opens it
+    if (shape.closed) {
+        shape.closed = false;
+        if ('isRect' in shape) shape.isRect = false;
+    }
+
+    // For wires, capture T-junction links at this position
+    /** @type {Array<{otherWire: WireShape, otherNodeId: string}>} */
+    const tjLinks = [];
+    const wireStates = new Map();
+    for (const other of app.shapes) {
+        if (other === shape || !isWireShape(other)) continue;
+        const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+        if (otherNid) {
+            tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+            if (!wireStates.has(other)) wireStates.set(other, captureShapeState(app, other));
+        }
+    }
+
+    app.selection.clearSelection();
+    app.selection.select(shape, false);
+
+    setSchematicDrag(app, {
+        mode: 'anchor',
+        shape,
+        beforeState,
+        start: { x: pos.x, y: pos.y },
+        startScreen: null,
+        anchorId: newNodeId,
+        wireAnchorOriginal: { x: pos.x, y: pos.y },
+        tjLinks,
+        wireStates: wireStates.size > 0 ? wireStates : null,
+        excludePin: null,
+        ncLinks: [],
+        junctionBeforeWireStates: null,
+        junctionBeforeLabelTextStates: null
+    });
+    app.interactionState = 'anchorDrag';
+    setDidSchematicDrag(app, false);
+
+    app.renderShapes(true);
+    app.showCrosshair();
+    app.updateCrosshair(pos);
+    app.viewport.svg.style.cursor = 'move';
+}
+
+/**
+ * Disconnect a wire endpoint from a pin and immediately enter anchor-drag,
+ * mirroring the user flow of "Split junction".
+ * @param {SchematicEditor} app
+ * @param {WireShape} wire
+ * @param {string} anchorId
+ */
+function disconnectPinAndDrag(app, wire, anchorId) {
+    if (!wire || !wire.nodes.has(anchorId)) return;
+    const conn = wire.pinConnections?.get(anchorId);
+    const pos = wire.nodes.get(anchorId);
+    if (!conn || !pos) return;
+
+    const beforeState = captureShapeState(app, /** @type {ShapeModel} */ (wire));
+
+    /** @type {Array<{otherWire: WireShape, otherNodeId: string}>} */
+    const tjLinks = [];
+    const wireStates = new Map();
+    for (const other of app.shapes) {
+        if (other === wire || !isWireShape(other)) continue;
+        const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
+        if (otherNid) {
+            tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+            if (!wireStates.has(other)) wireStates.set(other, captureShapeState(app, other));
+        }
+    }
+
+    /** @type {Array<{nc: NoConnectShape, before: ReturnType<NoConnectShape['captureState']>}>} */
+    const ncLinks = [];
+    for (const s of app.shapes) {
+        if (!isNoConnectShape(s)) continue;
+        if (Math.hypot(s.x - pos.x, s.y - pos.y) < VERTEX_EPSILON) {
+            ncLinks.push({ nc: s, before: s.captureState() });
+        }
+    }
+
+    app.selection.clearSelection();
+    app.selection.select(wire, false);
+
+    setSchematicDrag(app, {
+        mode: 'anchor',
+        shape: wire,
+        beforeState,
+        start: { x: pos.x, y: pos.y },
+        startScreen: null,
+        anchorId,
+        wireAnchorOriginal: { x: pos.x, y: pos.y },
+        tjLinks,
+        wireStates,
+        excludePin: {
+            component: { id: conn.componentId },
+            pin: { number: conn.pinNumber },
+            worldPos: { x: pos.x, y: pos.y }
+        },
+        ncLinks,
+        junctionBeforeWireStates: null,
+        junctionBeforeLabelTextStates: null
+    });
+    app.interactionState = 'anchorDrag';
+    setDidSchematicDrag(app, false);
+
+    app.renderShapes(true);
+    app.showCrosshair();
+    app.updateCrosshair(pos);
+    app.viewport.svg.style.cursor = 'move';
+}
+
+// ─── Context menu UI ───────────────────────────────────────────────
+
+const MENU_ID = 'schematicContextMenu';
+
+/**
+ * Open the schematic's context menu (the editors' shared menu, shared/ui/context-menu.js).
+ * @param {ContextMenuItem[]} items
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function createContextMenu(items, clientX, clientY) {
+    return showContextMenu(MENU_ID, items, clientX, clientY, { className: 'anchor-context-menu' });
+}
+
+/**
+ * Show a lightweight context menu for anchor point operations.
+ * @param {SchematicEditor} app
+ * @param {WireShape|PolylineShape} shape
+ * @param {string} anchorId
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {boolean} [canDeletePoint]
+ * @param {TJunctionInfo|null} [junctionInfo]
+ */
+export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint = true, junctionInfo = null) {
+    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: anchorId });
+    setShapeSegmentFocus(app, null);
+    app.updatePropertiesPanel(app.selection.getSelection());
+    createContextMenu(schematicAnchorActions(app, shape, anchorId, canDeletePoint, junctionInfo), clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {WireShape|PolylineShape} shape @param {string} anchorId
+ * @param {boolean} [canDeletePoint] @param {TJunctionInfo|null} [junctionInfo]
+ * @returns {ContextMenuItem[]}
+ */
+export function schematicAnchorActions(app, shape, anchorId, canDeletePoint = true, junctionInfo = null) {
+    if (shape.locked) return [];
+    /** @type {ContextMenuItem[]} */
+    const items = [];
+    const canDisconnectPin = isWireShape(shape) && shape.pinConnections.has(anchorId);
+    const canSplit = shape.nodes.has(anchorId) && shape.degree(anchorId) === 2;
+
+    if (canSplit) {
+        items.push({
+            text: 'Split',
+            onClick: () => splitAnchorAndDrag(app, shape, anchorId)
+        });
+    }
+
+    if (isPolylineShape(shape) && !shape.locked && shape.nodes.has(anchorId)) {
+        items.push({ text: 'Delete node', onClick: () => deleteSchematicShapeNode(app, shape, anchorId) });
+    } else if (canDeletePoint && isWireShape(shape)) {
+        items.push({
+            text: 'Delete point',
+            onClick: () => {
+                const beforeState = captureShapeState(app, /** @type {ShapeModel} */ (shape));
+                const anchorPos = getWireAnchorPosition(shape, anchorId);
+                const attachedNCs = findNoConnectsAtPosition(app, anchorPos);
+                if (shape.deleteAnchor(anchorId)) {
+                    const afterState = captureShapeState(app, /** @type {ShapeModel} */ (shape));
+                    applyShapeState(app, /** @type {ShapeModel} */ (shape), beforeState);
+                    const batch = new BatchCommand('Delete point');
+                    batch.add(new ModifyShapeCommand(app, shape, beforeState, afterState));
+                    if (attachedNCs.length > 0) {
+                        batch.add(new DeleteShapesCommand(app, attachedNCs));
+                    }
+                    app.history.execute(batch);
+                    app.selection.keepSelected(shape);
+                    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
+                }
+            }
+        });
+    }
+
+    if (junctionInfo) {
+        items.push({
+            text: 'Split junction',
+            onClick: () => deleteJunction(app, junctionInfo)
+        });
+    }
+
+    if (canDisconnectPin) {
+        items.push({
+            text: 'Disconnect pin',
+            onClick: () => disconnectPinAndDrag(app, shape, anchorId)
+        });
+    }
+
+    return items;
+}
+
+/**
+ * Remove the currently visible anchor/segment context menu and its
+ * global event listeners. Safe to call when no menu is open.
+ */
+export function dismissAnchorContextMenu() {
+    dismissContextMenu(MENU_ID);
+}
+
+/**
+ * Show a context menu for wire segment operations (delete segment).
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ * @param {string} edgeId
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
+    if (shape.locked) return;
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
+    setShapeNodeFocus(app, null);
+    app.updatePropertiesPanel(app.selection.getSelection());
+    const items = schematicSegmentActions(app, shape, edgeId, true);
+    if (items.length) createContextMenu(items, clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {SchematicDrawable} shape @param {string|null} edgeId
+ * @param {boolean} [floating] @returns {ContextMenuItem[]}
+ */
+export function schematicSegmentActions(app, shape, edgeId, floating = false) {
+    if (shape.locked) return [];
+    if (isArcShape(shape)) {
+        return [
+            { text: 'Convert to Line', onClick: () => setSchematicShapeSegmentType(app, shape, null, 'line') },
+            { text: 'Delete arc', onClick: () => deleteSchematicItem(app, shape) },
+        ];
+    }
+    // Segment menus are only opened for graph segment hits.
+    const segmentShape = /** @type {WireShape|PolylineShape} */ (shape);
+    /** @type {ContextMenuItem[]} */
+    const items = [];
+
+    if (isPolylineShape(segmentShape) && !segmentShape.locked && edgeId != null && segmentShape.edges.has(edgeId)) {
+        const curved = Math.abs(segmentShape.edges.get(edgeId).bulge || 0) >= BULGE_EPS;
+        items.push({
+            text: `Convert to ${curved ? 'Line' : 'Arc'}${segmentShape.edges.size === 1 ? '' : ' Segment'}`,
+            onClick: () => setSchematicShapeSegmentType(app, segmentShape, edgeId, curved ? 'line' : 'arc', { floating: floating && !curved }),
+        });
+    }
+
+    if (edgeId != null && segmentShape.edges.size > 1) {
+        items.push({
+            text: 'Delete Segment',
+            onClick: () => deleteWireSegment(app, segmentShape, edgeId)
+        });
+    }
+
+    if (isWireShape(segmentShape)) {
+        items.push({
+            text: 'Delete Wire',
+            onClick: () => deleteWire(app, segmentShape)
+        });
+    }
+
+    if (isPolylineShape(segmentShape)) {
+        const label = segmentShape.edges.size === 1
+            ? Math.abs(segmentShape.edges.values().next().value.bulge || 0) >= BULGE_EPS ? 'arc' : 'line'
+            : 'shape';
+        items.push({ text: `Delete ${label}`, onClick: () => deleteSchematicItem(app, segmentShape) });
+    }
+
+    return items;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+function deleteSchematicItem(app, shape) {
+    if (shape.locked) return;
+    app.history.execute(new DeleteShapesCommand(app, [shape]));
+    finishShapeRemoval(app);
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {BatchCommand} batch
+ * @param {ArcShape} shape
+ * @param {ArcLineState} [state]
+ * @returns {Polyline}
+ */
+export function appendArcToLineCommand(app, batch, shape, state = /** @type {ArcLineState} */ (shape.captureState())) {
+    const line = new Polyline({
+        points: [state.startPoint, state.endPoint], lineWidth: state.lineWidth ?? shape.lineWidth,
+        color: shape.color, layer: shape.layer, visible: shape.visible, locked: shape.locked,
+        fill: false, fillColor: shape.fillColor, fillAlpha: shape.fillAlpha,
+    });
+    batch.add(new DeleteShapesCommand(app, [shape]));
+    batch.add(new AddShapeCommand(app, line));
+    return line;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicItem} shape
+ * @param {string|null} edgeId
+ * @param {'line'|'arc'|null} type
+ * @param {{floating?: boolean}} [options]
+ * @returns {boolean|undefined}
+ */
+export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floating = false } = {}) {
+    if (isArcShape(shape) && type === 'line' && !shape.locked) {
+        const batch = new BatchCommand('Convert arc to line');
+        const line = appendArcToLineCommand(app, batch, shape);
+        app.history.execute(batch);
+        setShapeSegmentFocus(app, { shapeId: line.id, edgeId: [...line.edges.keys()][0] });
+        setShapeNodeFocus(app, null);
+        app.selection.select(line, false);
+        app.fileManager?.setDirty?.(true);
+        app.renderShapes(true);
+        return true;
+    }
+    if (!isPolylineShape(shape) || shape.locked || !shape.edges.has(/** @type {string} */ (edgeId))) return false;
+    const segmentEdgeId = /** @type {string} */ (edgeId);
+    const path = shape.toEditablePath();
+    if (!path || !setPathSegmentType(path, Object.values(path.edgeIds).indexOf(segmentEdgeId), /** @type {'line'|'arc'} */ (type))) return false;
+    if (!shape.closed && path.points.length === 2 && type === 'arc') {
+        const geometry = arcFromBulge(path.points[0], path.points[1], path.segmentBulges[0]);
+        if (!geometry) return false;
+        const arc = new Arc({
+            startPoint: { ...path.points[0] }, endPoint: { ...path.points[1] }, bulgePoint: geometry.bulgePoint,
+            lineWidth: path.segmentWidths?.[0] ?? shape.lineWidth,
+            color: shape.color, layer: shape.layer, visible: shape.visible, locked: shape.locked,
+            fill: false, fillColor: shape.fillColor, fillAlpha: shape.fillAlpha,
+        });
+        const command = new BatchCommand('Convert line to arc');
+        command.add(new DeleteShapesCommand(app, [shape]));
+        command.add(new AddShapeCommand(app, arc));
+        if (floating) {
+            command.execute();
+            const point = arc.bulgePoint;
+            setSchematicDrag(app, {
+                mode: 'anchor', shape: arc, beforeState: arc.captureState(), anchorId: 'mid',
+                start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
+                conversion: { command, original: shape },
+                tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            });
+            app.interactionState = 'anchorDrag';
+            setDidSchematicDrag(app, true);
+            app.showCrosshair();
+            app.updateCrosshair(point);
+            app.viewport.svg.style.cursor = 'move';
+        } else app.history.execute(command);
+        setShapeSegmentFocus(app, null);
+        setShapeNodeFocus(app, null);
+        app.selection.select(arc, false);
+        app.renderShapes(true);
+        return true;
+    }
+    const before = shape.captureState();
+    if (type === 'line') collapseCollinearPath(path);
+    shape.applyEditablePath(path);
+    const after = shape.captureState();
+    setShapeSegmentFocus(app, shape.edges.has(segmentEdgeId) ? { shapeId: shape.id, edgeId: segmentEdgeId } : null);
+    setShapeNodeFocus(app, null);
+    if (floating && type === 'arc') {
+        const edge = shape.edges.get(segmentEdgeId);
+        const arc = /** @type {NonNullable<ReturnType<typeof arcFromBulge>>} */ (arcFromBulge(shape.nodes.get(edge.from), shape.nodes.get(edge.to), edge.bulge));
+        const point = arc.bulgePoint;
+        setSchematicDrag(app, {
+            mode: 'anchor', shape, beforeState: before, anchorId: `bulge_${segmentEdgeId}`,
+            start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
+            tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
+            junctionBeforeWireStates: null, junctionBeforeLabelTextStates: null,
+        });
+        app.interactionState = 'anchorDrag';
+        setDidSchematicDrag(app, true);
+        app.renderShapes(true);
+        app.showCrosshair();
+        app.updateCrosshair(point);
+        app.viewport.svg.style.cursor = 'move';
+    } else {
+        shape.applyState(before);
+        app.history.execute(new ModifyShapeCommand(app, shape, before, after));
+        app.fileManager?.setDirty?.(true);
+    }
+    app.selection.notifyChanged();
+    return true;
+}
+
+/**
+ * Show a context menu for attached labels.
+ * @param {SchematicEditor} app
+ * @param {SchematicItem} labelShape
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showLabelContextMenu(app, labelShape, clientX, clientY) {
+    // Label context menus are opened only from Text label hits.
+    const label = /** @type {TextShape} */ (labelShape);
+    createContextMenu(schematicTextActions(app, label), clientX, clientY);
+}
+
+/** @param {SchematicEditor} app @param {TextShape} label @returns {ContextMenuItem[]} */
+export function schematicTextActions(app, label) {
+    /** @type {ContextMenuItem[]} */
+    if (label.locked) return [];
+    const items = [];
+    const isAttached = label.fieldKey === 'label' && !!label.parentComponent;
+
+    if (isAttached) {
+        items.push({
+            text: label.parentComponent?.type === 'wire' ? 'Detach from wire' : 'Detach from shape',
+            onClick: () => {
+                app.history.execute(new TextAttachmentCommand(app, label, null));
+                app.selection.select(label, false);
+            }
+        });
+    }
+
+    items.push({
+        text: 'Delete Text',
+        onClick: () => {
+            app.history.execute(new DeleteShapesCommand(app, [label]));
+            app.renderShapes(true);
+            app.fileManager.setDirty(true);
+        }
+    });
+
+    return items;
+}
+
+/**
+ * Show a context menu for a placed component. Currently exposes "Show 3D",
+ * which opens the interactive 3D model viewer in a floating pop-out. The
+ * caller only invokes this when the component actually carries an OBJ model.
+ * @param {SchematicEditor} app
+ * @param {Component} component - The component instance (has `definition.model3dObj`).
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showComponentContextMenu(app, component, clientX, clientY) {
+    const modelData = component?.definition;
+    if (!hasAny3DModel(modelData)) return;
+
+    createContextMenu([{
+        text: '\uD83E\uDDCA Show 3D',
+        onClick: async () => {
+            const title = buildComponent3DTitle({
+                reference: component.reference,
+                value: component.value,
+                source: modelData._source,
+            });
+            try {
+                const ok = await openComponent3DFromData({ data: modelData, title });
+                if (!ok) console.warn('No renderable 3D model found for component');
+            } catch (err) {
+                console.error('Failed to open 3D pop-out:', err);
+            }
+        }
+    }], clientX, clientY);
+}

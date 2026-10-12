@@ -19,13 +19,27 @@ import { LCSCFetcher } from './LCSCFetcher.js';
 import { KiCadFetcher } from './KiCadFetcher.js';
 import { storageManager } from '../core/StorageManager.js';
 
+/**
+ * @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('./Component.js').ComponentSymbol} ComponentSymbol
+ * @typedef {import('./Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic
+ * @typedef {import('./Component.js').ComponentSymbolPin} ComponentSymbolPin
+ * @typedef {import('./Component.js').ComponentSymbolPinOrientation} ComponentSymbolPinOrientation
+ * @typedef {import('./Component.js').ComponentSymbolTextPosition} ComponentSymbolTextPosition
+ * @typedef {import('./LCSCFetcher.js').LCSCMetadata} LCSCMetadata
+ * @typedef {import('./LCSCFetcher.js').EasyEDADataStr} EasyEDADataStr
+ * @typedef {import('./kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult
+ */
+
 export class ComponentLibrary {
     /** Initialise the component library, loading built-in and user components. */
     constructor() {
         // Component definitions by name
+        /** @type {Map<string, ComponentDefinition>} */
         this.definitions = new Map();
         
         // Categories for organization
+        /** @type {Map<string, string[]>} */
         this.categories = new Map();
         
         // LCSC fetcher (metadata, pricing, stock)
@@ -61,7 +75,7 @@ export class ComponentLibrary {
             const components = storageManager.get('clearpcb_user_components');
             if (components && Array.isArray(components)) {
                 for (const def of components) {
-                    this.addDefinition(def, 'User');
+                    this.addDefinition(/** @type {ComponentDefinition} */ (def), 'User');
                 }
             }
         } catch (e) {
@@ -74,6 +88,7 @@ export class ComponentLibrary {
      */
     _saveUserComponents() {
         try {
+            /** @type {ComponentDefinition[]} */
             const userComponents = [];
             for (const [name, def] of this.definitions) {
                 if (def._source === 'User') {
@@ -88,6 +103,9 @@ export class ComponentLibrary {
     
     /**
      * Add a component definition to the library
+     * @param {ComponentDefinition} definition
+     * @param {string} [source='User']
+     * @returns {ComponentDefinition}
      */
     addDefinition(definition, source = 'User') {
         // Validate definition
@@ -117,7 +135,7 @@ export class ComponentLibrary {
         if (!this.categories.has(category)) {
             this.categories.set(category, []);
         }
-        const catList = this.categories.get(category);
+        const catList = /** @type {string[]} */ (this.categories.get(category));
         if (!catList.includes(definition.name)) {
             catList.push(definition.name);
         }
@@ -132,6 +150,8 @@ export class ComponentLibrary {
     
     /**
      * Get a component definition by name
+     * @param {string} name
+     * @returns {ComponentDefinition|null}
      */
     getDefinition(name) {
         return this.definitions.get(name) || null;
@@ -139,14 +159,17 @@ export class ComponentLibrary {
     
     /**
      * Get all definitions in a category
+     * @param {string} category
+     * @returns {ComponentDefinition[]}
      */
     getByCategory(category) {
         const names = this.categories.get(category) || [];
-        return names.map(name => this.definitions.get(name)).filter(Boolean);
+        return /** @type {ComponentDefinition[]} */ (names.map(name => this.definitions.get(name)).filter(Boolean));
     }
     
     /**
      * Get all category names
+     * @returns {string[]}
      */
     getCategoryNames() {
         return Array.from(this.categories.keys()).sort();
@@ -154,6 +177,7 @@ export class ComponentLibrary {
     
     /**
      * Get all component definitions
+     * @returns {ComponentDefinition[]}
      */
     getAllDefinitions() {
         return Array.from(this.definitions.values());
@@ -161,6 +185,8 @@ export class ComponentLibrary {
     
     /**
      * Search local library
+     * @param {string} query
+     * @returns {ComponentDefinition[]}
      */
     searchLocal(query) {
         const lowerQuery = query.toLowerCase();
@@ -183,6 +209,8 @@ export class ComponentLibrary {
     
     /**
      * Remove a definition from the library
+     * @param {string} name
+     * @returns {boolean}
      */
     removeDefinition(name) {
         const def = this.definitions.get(name);
@@ -212,6 +240,9 @@ export class ComponentLibrary {
     
     /**
      * Create a component instance from a definition
+     * @param {string} definitionName
+     * @param {Object} [options]
+     * @returns {Component}
      */
     createComponent(definitionName, options = {}) {
         const def = this.getDefinition(definitionName);
@@ -224,7 +255,7 @@ export class ComponentLibrary {
     /**
      * Search LCSC for components (metadata only)
      * @param {string} query - Search query
-     * @returns {Promise<Array>} Search results with pricing/stock info
+     * @returns {Promise<LCSCMetadata[]>} Search results with pricing/stock info
      */
     async searchLCSC(query) {
         return this.lcscFetcher.search(query);
@@ -233,7 +264,7 @@ export class ComponentLibrary {
     /**
      * Fetch a complete component from LCSC + KiCad
      * @param {string} lcscId - LCSC part number (e.g., "C46749")
-     * @returns {Promise<object>} Component definition with symbol and metadata
+     * @returns {Promise<ComponentDefinition>} Component definition with symbol and metadata
      */
     async fetchFromLCSC(lcscId) {
         // Check if already cached
@@ -322,6 +353,8 @@ export class ComponentLibrary {
     
     /**
      * Create a generic symbol when no KiCad match is found
+     * @param {LCSCMetadata} metadata
+     * @returns {ComponentSymbol}
      */
     _createGenericSymbol(metadata) {
         const category = (metadata.category || '').toLowerCase();
@@ -358,8 +391,8 @@ export class ComponentLibrary {
     /**
      * Parse an EasyEDA symbol data object into an internal symbol definition.
      * Converts raw EasyEDA coordinates to local coords scaled by 0.254.
-     * @param {Object} dataStr - EasyEDA symbol payload (contains `.shape` array and optional `.BBox`)
-     * @returns {Object|null} Symbol definition or null on failure
+     * @param {EasyEDADataStr} dataStr - EasyEDA symbol payload (contains `.shape` array and optional `.BBox`)
+     * @returns {ComponentSymbol|null} Symbol definition or null on failure
      */
     _createEasyEDASymbol(dataStr) {
         if (!dataStr || !Array.isArray(dataStr.shape)) {
@@ -370,7 +403,9 @@ export class ComponentLibrary {
         const bbox = dataStr.BBox || dataStr.bbox || null;
         const hasBBox = bbox && Number.isFinite(bbox.x) && Number.isFinite(bbox.y) && Number.isFinite(bbox.width) && Number.isFinite(bbox.height);
 
+        /** @type {ComponentSymbolGraphic[]} */
         const rawGraphics = [];
+        /** @type {ComponentSymbolPin[]} */
         const rawPins = [];
 
         let minX = Infinity;
@@ -378,7 +413,7 @@ export class ComponentLibrary {
         let maxX = -Infinity;
         let maxY = -Infinity;
 
-        const includePoint = (x, y) => {
+        const includePoint = (/** @type {number} */ x, /** @type {number} */ y) => {
             if (!Number.isFinite(x) || !Number.isFinite(y)) return;
             minX = Math.min(minX, x);
             minY = Math.min(minY, y);
@@ -386,9 +421,9 @@ export class ComponentLibrary {
             maxY = Math.max(maxY, y);
         };
 
-        const includePin = (pin) => {
+        const includePin = (/** @type {ComponentSymbolPin} */ pin) => {
             includePoint(pin.x, pin.y);
-            const length = Number.isFinite(pin.length) ? pin.length : 0;
+            const length = Number.isFinite(pin.length) ? /** @type {number} */ (pin.length) : 0;
             switch (pin.orientation) {
                 case 'right':
                     includePoint(pin.x + length, pin.y);
@@ -532,7 +567,7 @@ export class ComponentLibrary {
      * Handles line (L), polyline (PL), polygon (PG), rect (R), circle (C),
      * ellipse (E), arc (A), and path (PT) types.
      * @param {string} shape - Tilde-separated shape string
-     * @returns {Object|null} Graphic descriptor or null if unrecognised
+     * @returns {ComponentSymbolGraphic|null} Graphic descriptor or null if unrecognised
      */
     _parseEasyEDAGraphic(shape) {
         const parts = shape.split('~');
@@ -547,6 +582,7 @@ export class ComponentLibrary {
             case 'PL': {
                 const coords = (parts[1] || '').trim().split(/\s+/).map(Number);
                 if (coords.length < 4) return null;
+                /** @type {Array<[number, number]>} */
                 const points = [];
                 for (let i = 0; i < coords.length - 1; i += 2) {
                     points.push([coords[i], coords[i + 1]]);
@@ -562,6 +598,7 @@ export class ComponentLibrary {
             case 'PG': {
                 const coords = (parts[1] || '').trim().split(/\s+/).map(Number);
                 if (coords.length < 6) return null;
+                /** @type {Array<[number, number]>} */
                 const points = [];
                 for (let i = 0; i < coords.length - 1; i += 2) {
                     points.push([coords[i], coords[i + 1]]);
@@ -681,7 +718,7 @@ export class ComponentLibrary {
      * Parse an EasyEDA pin shape string into a pin descriptor.
      * Extracts connection point, orientation, name/number and label positions.
      * @param {string} shape - Pin shape string (segments joined by '^^')
-     * @returns {Object|null} Pin descriptor or null on failure
+     * @returns {ComponentSymbolPin|null} Pin descriptor or null on failure
      */
     _parseEasyEDAPin(shape) {
         const segments = shape.split('^^');
@@ -741,6 +778,7 @@ export class ComponentLibrary {
         let number = headerNumber;
         let namePos = null;
         let numberPos = null;
+        /** @type {Array<{text:string, pos:ComponentSymbolTextPosition}>} */
         const labelEntries = [];
         for (const segment of segments.slice(1)) {
             if (typeof segment !== 'string' || !segment.includes('~')) continue;
@@ -766,14 +804,15 @@ export class ComponentLibrary {
             if (!Number.isFinite(labelFontSize)) {
                 labelFontSize = 7;
             }
+            const anchor = /** @type {'start'|'end'|'middle'|undefined} */ ((labelAnchor === 'start' || labelAnchor === 'end' || labelAnchor === 'middle')
+                ? labelAnchor
+                : undefined);
             const pos = (Number.isFinite(labelX) && Number.isFinite(labelY))
                 ? {
                     x: labelX,
                     y: labelY,
                     rotation: Number.isFinite(labelRot) ? labelRot : 0,
-                    anchor: (labelAnchor === 'start' || labelAnchor === 'end' || labelAnchor === 'middle')
-                        ? labelAnchor
-                        : undefined,
+                    anchor,
                     fontFamily: labelFontFamily,
                     fontSize: labelFontSize
                 }
@@ -825,7 +864,7 @@ export class ComponentLibrary {
      * Extract orientation and length from an EasyEDA pin path string.
      * Handles M...h, M...v, and M...L formats.
      * @param {string} path - SVG path data (e.g. 'M 0 0 h 10')
-     * @returns {{orientation: string, length: number}|null}
+     * @returns {{orientation: ComponentSymbolPinOrientation, length: number}|null}
      */
     _parseEasyEDAPinPath(path) {
         const hMatch = path.match(/M\s*(-?\d+(?:\.\d+)?)\s*[ ,]\s*(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)/i);
@@ -886,14 +925,14 @@ export class ComponentLibrary {
 
     /**
      * Translate and scale an EasyEDA graphic from raw coordinates to local symbol space.
-     * @param {Object} graphic - Graphic descriptor from _parseEasyEDAGraphic
+     * @param {ComponentSymbolGraphic} graphic - Graphic descriptor from _parseEasyEDAGraphic
      * @param {number} offsetX - X origin offset (subtracted before scaling)
      * @param {number} offsetY - Y origin offset
      * @param {number} scale - Coordinate scale factor (typically 0.254)
-     * @returns {Object} Transformed graphic
+     * @returns {ComponentSymbolGraphic} Transformed graphic
      */
     _transformEasyEDAGraphic(graphic, offsetX, offsetY, scale) {
-        const strokeWidth = Number.isFinite(graphic.strokeWidth) ? graphic.strokeWidth * scale : 0.254;
+        const strokeWidth = Number.isFinite(graphic.strokeWidth) ? /** @type {number} */ (graphic.strokeWidth) * scale : 0.254;
 
         switch (graphic.type) {
             case 'line':
@@ -906,14 +945,16 @@ export class ComponentLibrary {
                     strokeWidth
                 };
             case 'rect':
+                const rx = Number.isFinite(graphic.rx) ? /** @type {number} */ (graphic.rx) * scale * 0.5 : undefined;
+                const ry = Number.isFinite(graphic.ry) ? /** @type {number} */ (graphic.ry) * scale * 0.5 : undefined;
                 return {
                     ...graphic,
                     x: (graphic.x - offsetX) * scale,
                     y: (graphic.y - offsetY) * scale,
                     width: graphic.width * scale,
                     height: graphic.height * scale,
-                    rx: Number.isFinite(graphic.rx) ? graphic.rx * scale * 0.5 : undefined,
-                    ry: Number.isFinite(graphic.ry) ? graphic.ry * scale * 0.5 : undefined,
+                    rx,
+                    ry,
                     strokeWidth
                 };
             case 'circle':
@@ -928,7 +969,7 @@ export class ComponentLibrary {
             case 'polygon':
                 return {
                     ...graphic,
-                    points: (graphic.points || []).map(p => [
+                    points: (graphic.points || []).map((/** @type {[number, number]} */ p) => [
                         (p[0] - offsetX) * scale,
                         (p[1] - offsetY) * scale
                     ]),
@@ -945,7 +986,7 @@ export class ComponentLibrary {
             case 'path':
                 // SVG transform includes scale, which automatically scales stroke-width
                 // Use same calculation as other shapes, it will match after transform
-                const pathStrokeWidth = Number.isFinite(graphic.strokeWidth) ? graphic.strokeWidth * scale : 0.254;
+                const pathStrokeWidth = Number.isFinite(graphic.strokeWidth) ? /** @type {number} */ (graphic.strokeWidth) * scale : 0.254;
                 return {
                     ...graphic,
                     transform: `translate(${(-offsetX) * scale},${(-offsetY) * scale}) scale(${scale})`,
@@ -958,27 +999,29 @@ export class ComponentLibrary {
 
     /**
      * Translate and scale an EasyEDA pin (position, length, path data, label positions).
-     * @param {Object} pin - Pin descriptor from _parseEasyEDAPin
+     * @param {ComponentSymbolPin} pin - Pin descriptor from _parseEasyEDAPin
      * @param {number} offsetX - X origin offset
      * @param {number} offsetY - Y origin offset
      * @param {number} scale - Coordinate scale factor
-     * @returns {Object} Transformed pin
+     * @returns {ComponentSymbolPin} Transformed pin
      */
     _transformEasyEDAPin(pin, offsetX, offsetY, scale) {
-        const scaleFont = (pos) => {
-            if (!pos) return null;
+        const scaleFont = (/** @type {ComponentSymbolTextPosition|null|undefined} */ pos) => {
+            if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+            const x = Number(pos.x);
+            const y = Number(pos.y);
             const fontSize = Number.isFinite(pos.fontSize)
-                ? pos.fontSize * scale
+                ? /** @type {number} */ (pos.fontSize) * scale
                 : null;
             // EasyEDA positions text by its top-left corner.  Shift y up
             // by half the cap-height so `dominant-baseline: middle` centres
             // the text at the intended visual midpoint.
             const capHeightFraction = 0.4;   // approx cap-height / fontSize
-            const yShift = fontSize ? fontSize * capHeightFraction : 0;
+            const yShift = fontSize ? /** @type {number} */ (fontSize) * capHeightFraction : 0;
             return {
                 ...pos,
-                x: (pos.x - offsetX) * scale,
-                y: (pos.y - offsetY) * scale - yShift,
+                x: (x - offsetX) * scale,
+                y: (y - offsetY) * scale - yShift,
                 fontSize
             };
         };
@@ -991,7 +1034,7 @@ export class ComponentLibrary {
             // Transform coordinates in path: M x y h dx, M x y v dy, M x y L x2 y2
             transformedPathData = transformedPathData.replace(
                 /M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/g,
-                (match, x, y) => {
+                (/** @type {string} */ match, /** @type {string} */ x, /** @type {string} */ y) => {
                     const tx = (Number(x) - offsetX) * scale;
                     const ty = (Number(y) - offsetY) * scale;
                     return `M ${tx} ${ty}`;
@@ -1000,7 +1043,7 @@ export class ComponentLibrary {
             // Transform h/v values
             transformedPathData = transformedPathData.replace(
                 /([hv])\s*(-?\d+(?:\.\d+)?)/gi,
-                (match, cmd, val) => {
+                (/** @type {string} */ match, /** @type {string} */ cmd, /** @type {string} */ val) => {
                     const tv = Number(val) * scale;
                     return `${cmd} ${tv}`;
                 }
@@ -1008,7 +1051,7 @@ export class ComponentLibrary {
             // Transform L coordinates
             transformedPathData = transformedPathData.replace(
                 /L\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)/gi,
-                (match, x, y) => {
+                (/** @type {string} */ match, /** @type {string} */ x, /** @type {string} */ y) => {
                     const tx = (Number(x) - offsetX) * scale;
                     const ty = (Number(y) - offsetY) * scale;
                     return `L ${tx} ${ty}`;
@@ -1020,7 +1063,7 @@ export class ComponentLibrary {
             ...pin,
             x: (pin.x - offsetX) * scale,
             y: (pin.y - offsetY) * scale,
-            length: Number.isFinite(pin.length) ? pin.length * scale : null,
+            length: Number.isFinite(pin.length) ? /** @type {number} */ (pin.length) * scale : null,
             _pathData: transformedPathData,
             namePos,
             numberPos
@@ -1030,7 +1073,7 @@ export class ComponentLibrary {
     /**
      * Estimate the number of pins for a component from its footprint pad data
      * or package string.
-     * @param {Object} metadata - LCSC component metadata
+     * @param {LCSCMetadata} metadata - LCSC component metadata
      * @returns {number} Estimated pin count (0 if unknown)
      */
     _estimatePinCount(metadata) {
@@ -1065,13 +1108,14 @@ export class ComponentLibrary {
     /**
      * Create a generic inline symbol (pins down the left side, body rectangle).
      * @param {number} pinCount - Number of pins
-     * @returns {Object} Symbol definition
+     * @returns {ComponentSymbol} Symbol definition
      */
     _createGenericInlineSymbol(pinCount) {
         const spacing = 2.54;
         const width = 6;
         const height = Math.max(6, (pinCount - 1) * spacing + 2);
 
+        /** @type {ComponentSymbol} */
         const symbol = {
             width: width + 4,
             height: height,
@@ -1109,7 +1153,7 @@ export class ComponentLibrary {
 
     /**
      * Create a 3-pin toggle switch symbol.
-     * @returns {Object} Symbol definition
+     * @returns {ComponentSymbol} Symbol definition
      */
     _createSwitch3PinSymbol() {
         return {
@@ -1130,6 +1174,8 @@ export class ComponentLibrary {
     
     /**
      * Create a generic IC symbol (rectangle with pins)
+     * @param {LCSCMetadata & {pinCount?: number}} metadata
+     * @returns {ComponentSymbol}
      */
     _createGenericICSymbol(metadata) {
         // Try to estimate pin count from package
@@ -1147,6 +1193,7 @@ export class ComponentLibrary {
         const height = (pinsPerSide + 1) * pinSpacing;
         const width = 10;
         
+        /** @type {ComponentSymbol} */
         const symbol = {
             width: width + 10,
             height: height + 4,
@@ -1199,6 +1246,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic resistor symbol
+     * @returns {ComponentSymbol}
      */
     _createResistorSymbol() {
         return {
@@ -1226,6 +1274,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic capacitor symbol
+     * @returns {ComponentSymbol}
      */
     _createCapacitorSymbol() {
         return {
@@ -1245,6 +1294,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic inductor symbol
+     * @returns {ComponentSymbol}
      */
     _createInductorSymbol() {
         return {
@@ -1269,6 +1319,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic diode symbol
+     * @returns {ComponentSymbol}
      */
     _createDiodeSymbol() {
         return {
@@ -1294,6 +1345,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic LED symbol
+     * @returns {ComponentSymbol}
      */
     _createLEDSymbol() {
         return {
@@ -1322,6 +1374,7 @@ export class ComponentLibrary {
     
     /**
      * Create generic transistor symbol (NPN)
+     * @returns {ComponentSymbol}
      */
     _createTransistorSymbol() {
         return {
@@ -1347,7 +1400,7 @@ export class ComponentLibrary {
     /**
      * Search KiCad libraries for symbols
      * @param {string} query - Search query (part name)
-     * @returns {Promise<Array>} Matching symbols
+     * @returns {Promise<SymbolSearchResult[]>} Matching symbols
      */
     async searchKiCad(query) {
         return this.kicadFetcher.searchSymbols(query);
@@ -1355,6 +1408,7 @@ export class ComponentLibrary {
     
     /**
      * Export library to JSON
+     * @returns {string}
      */
     exportToJSON() {
         const components = [];
@@ -1370,9 +1424,11 @@ export class ComponentLibrary {
     
     /**
      * Import library from JSON
+     * @param {string} json
+     * @returns {number}
      */
     importFromJSON(json) {
-        const components = JSON.parse(json);
+        const components = /** @type {ComponentDefinition[]} */ (JSON.parse(json));
         let imported = 0;
         
         for (const def of components) {
@@ -1389,6 +1445,7 @@ export class ComponentLibrary {
 }
 
 // Singleton instance
+/** @type {ComponentLibrary|null} */
 let libraryInstance = null;
 
 /**

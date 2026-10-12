@@ -1,0 +1,672 @@
+import { ModifyShapeCommand } from './commands.js';
+import { viewElementOf } from './schematic-view.js';
+import { validateNetNameAtPoint } from './net-validation.js';
+import {
+    getTextEditBoxGeometry,
+    measureTextAdvance,
+    measureTextGlyphBBox,
+} from '../../core/text-edit-geometry.js';
+import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+import { isWireItem as isWireShape } from '../../core/schematic-items.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/wire.js').Wire} WireShape */
+/** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
+/** @typedef {import('../../shared/ui/inline-text-overlay.js').InlineTextOverlay} InlineTextOverlay */
+/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, selectionAnchor?: number|null, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
+/** @typedef {{x: number, width: number}} CaretProbe */
+
+/**
+ * @param {SchematicEditor} app
+ * @returns {TextEditState|null}
+ */
+export function getSchematicTextEdit(app) {
+    return getSchematicInteraction(app, 'textEdit');
+}
+
+/** @param {SchematicEditor} app */
+export function hasSchematicTextEdit(app) {
+    return !!getSchematicTextEdit(app);
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {TextEditState|null} state
+ */
+function setSchematicTextEdit(app, state) {
+    setSchematicInteraction(app, 'textEdit', state);
+}
+
+/**
+ * Begins inline text editing on a text shape: initializes caret, creates
+ * the overlay box and blinking caret.
+ * @param {SchematicEditor} app
+ * @param {import('../../shapes/text.js').Text} shape - Text shape to edit.
+ */
+export function startTextEdit(app, shape) {
+    if (!shape || !shape.supportsInlineEdit) return;
+    if (isSchematicLocked(shape)) return;
+
+    // When editing from Select mode, keep the shape selected so render
+    // ordering stays stable while typing. During placement-mode text entry,
+    // avoid forcing selection so the properties panel doesn't jump in.
+    const editingFromSelectMode = app.currentTool === 'select';
+    if (editingFromSelectMode && app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+        app.renderShapes(true);
+    }
+
+    const activeEl = document.activeElement;
+    if (activeEl instanceof HTMLElement && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'SELECT' || activeEl.tagName === 'TEXTAREA')) {
+        activeEl.blur();
+    }
+
+    const activeEdit = getSchematicTextEdit(app);
+    if (activeEdit && activeEdit.shape === shape) {
+        updateTextEditOverlay(app);
+        return;
+    }
+
+    if (activeEdit) {
+        endTextEdit(app, true);
+    }
+
+    const initialText = typeof shape.text === 'string' ? shape.text : '';
+    const shapeWithCaret = /** @type {import('../../shapes/text.js').Text & {_lastCaretIndex?: number}} */ (shape);
+    const storedCaret = Number.isFinite(shapeWithCaret._lastCaretIndex) ? /** @type {number} */ (shapeWithCaret._lastCaretIndex) : null;
+    const initialCaret = storedCaret === null
+        ? initialText.length
+        : Math.max(0, Math.min(initialText.length, storedCaret));
+
+    setSchematicTextEdit(app, {
+        shape,
+        originalText: initialText,
+        caretIndex: initialCaret,
+        selectionAnchor: null,
+        overlay: null,
+        overlayGroup: null,
+        overlayBox: null,
+        overlayCaret: null,
+        overlayBlink: null,
+        blinkTimeoutId: null,
+        overlayOffset: null
+    });
+
+    ensureOverlay(app);
+    updateTextEditOverlay(app);
+
+}
+
+/**
+ * Ends text editing. If `commit` is true, creates an undo command for the
+ * text change and syncs to the parent component; otherwise reverts.
+ * Cleans up the overlay.
+ * @param {SchematicEditor} app
+ * @param {boolean} [commit=true] - Whether to commit the edit.
+ */
+export function endTextEdit(app, commit = true) {
+    const state = getSchematicTextEdit(app);
+    if (!state) return;
+    const shape = state.shape;
+
+    if (state.shape) {
+        const textLength = (state.shape.text || '').length;
+        const caret = state.caretIndex ?? textLength;
+        state.shape._lastCaretIndex = Math.max(0, Math.min(textLength, caret));
+    }
+
+    if (!commit) {
+        state.shape.text = state.originalText;
+        if (typeof state.shape.invalidate === 'function') {
+            state.shape.invalidate();
+        }
+        app.renderShapes(true);
+    } else if (state.shape.text !== state.originalText) {
+        // Enforce unique references for component field texts
+        if (state.shape.parentComponent && state.shape.fieldKey === 'reference' && state.shape.text) {
+            const dup = app.components.find(c =>
+                c.reference.toUpperCase() === state.shape.text.toUpperCase() &&
+                c !== state.shape.parentComponent);
+            if (dup) {
+                    app.alert(`Reference "${state.shape.text}" is already used by another component.`, { title: 'Duplicate Reference' });
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                // Skip command creation — fall through to cleanup
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
+        // Enforce unique wire labels
+        if (state.shape.parentComponent?.type === 'wire' && state.shape.fieldKey === 'wireLabel' && state.shape.text) {
+            const parentWire = state.shape.parentComponent;
+            let dup = null;
+            for (const s of app.shapes) {
+                if (!isWireShape(s) || s === parentWire) continue;
+                if (s.wireLabel.toUpperCase() === state.shape.text.toUpperCase()) {
+                    dup = s;
+                    break;
+                }
+            }
+            if (dup) {
+                    app.alert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
+        if (state.shape.parentComponent?.type === 'net' && state.shape.fieldKey === 'net') {
+            if (!state.shape.text || !state.shape.text.trim()) {
+                app.alert('Net name cannot be empty.', { title: 'Invalid Net Name' });
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+            const parentnet = /** @type {{x: number, y: number, id: string}} */ (state.shape.parentComponent);
+            const check = validateNetNameAtPoint(
+                app,
+                { x: parentnet.x, y: parentnet.y },
+                state.shape.text,
+                parentnet.id
+            );
+            if (!check.ok) {
+                    app.alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
+                state.shape.text = state.originalText;
+                if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
+                app.renderShapes(true);
+                _cleanupTextEditState(state, app, shape);
+                return;
+            }
+        }
+
+        // Create undo command for the text change
+        const beforeState = { text: state.originalText };
+        const afterState = { text: state.shape.text };
+        // Temporarily revert so execute() applies the new text
+        state.shape.text = state.originalText;
+        const command = new ModifyShapeCommand(app, state.shape, beforeState, afterState);
+        // The command also syncs the text to its parent (Net label, wire name or component field).
+        app.history.execute(command);
+    }
+
+    // Refresh properties panel so it reflects the updated text
+    const sel = app.selection.getSelection();
+    if (sel.length > 0) app.updatePropertiesPanel(sel);
+
+    state.overlay?.destroy();
+    state.overlay = null;
+    state.overlayGroup = null;
+    state.overlayBox = null;
+    state.overlayCaret = null;
+    state.overlayBlink = null;
+    state.blinkTimer = null;
+    if (state.blinkTimeoutId) {
+        clearTimeout(state.blinkTimeoutId);
+        state.blinkTimeoutId = null;
+    }
+
+    setSchematicTextEdit(app, null);
+
+    if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+    }
+}
+
+/**
+ * Handles all keystrokes during text editing: arrow keys, Home/End,
+ * Backspace, Delete, printable characters, Enter (commit), Escape (cancel).
+ * @param {SchematicEditor} app
+ * @param {KeyboardEvent} e - The keyboard event.
+ * @returns {boolean} `true` if the key was consumed.
+ */
+export function handleTextEditKey(app, e) {
+    const state = getSchematicTextEdit(app);
+    if (!state) return false;
+
+    const shape = state.shape;
+    const text = typeof shape.text === 'string' ? shape.text : '';
+    const caret = state.caretIndex ?? text.length;
+    const anchor = state.selectionAnchor ?? caret;
+    const selectionStart = Math.min(caret, anchor);
+    const selectionEnd = Math.max(caret, anchor);
+    const hasSelection = selectionStart !== selectionEnd;
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        state.selectionAnchor = 0;
+        state.caretIndex = text.length;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+        let next = caret;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = text.length;
+        else if (!e.shiftKey && hasSelection) next = e.key === 'ArrowLeft' ? selectionStart : selectionEnd;
+        else if (e.key === 'ArrowLeft') next = e.ctrlKey || e.metaKey
+            ? findWordBoundaryLeft(text, caret) : Math.max(0, caret - 1);
+        else next = e.ctrlKey || e.metaKey ? findWordBoundaryRight(text, caret) : Math.min(text.length, caret + 1);
+        state.selectionAnchor = e.shiftKey ? anchor : null;
+        state.caretIndex = next;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'Escape') {
+        endTextEdit(app, false);
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return true;
+    }
+
+    if (e.key === 'Enter') {
+        endTextEdit(app, true);
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return true;
+    }
+
+    if (e.key === 'Backspace') {
+        if (hasSelection) updateText(app, text.slice(0, selectionStart) + text.slice(selectionEnd), selectionStart);
+        else if (caret > 0) {
+            const nextText = text.slice(0, caret - 1) + text.slice(caret);
+            updateText(app, nextText, caret - 1);
+        }
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key === 'Delete') {
+        if (hasSelection) updateText(app, text.slice(0, selectionStart) + text.slice(selectionEnd), selectionStart);
+        else if (caret < text.length) {
+            const nextText = text.slice(0, caret) + text.slice(caret + 1);
+            updateText(app, nextText, caret);
+        }
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const nextText = text.slice(0, selectionStart) + e.key + text.slice(selectionEnd);
+        updateText(app, nextText, selectionStart + 1);
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
+
+    // Consume other keys so they don't trigger
+    // browser defaults or app shortcuts while editing text.
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+}
+
+/**
+ * Repositions and resizes the text-edit overlay box and caret based on
+ * the text shape's current bounding box and caret index.
+ * @param {SchematicEditor} app
+ */
+export function updateTextEditOverlay(app) {
+    const state = getSchematicTextEdit(app);
+    if (!state || !state.shape || !state.overlayGroup) return;
+    if (isSchematicLocked(state.shape)) {
+        endTextEdit(app, true);
+        return;
+    }
+
+    const shape = state.shape;
+    const el = viewElementOf(shape);
+    if (!el) {
+        state.overlayGroup.style.display = 'none';
+        return;
+    }
+
+    // For shapes with a text element inside a group (e.g. Net),
+    // use the shape's textEditOrigin if available, otherwise shape.x/y.
+    const editOrigin = shape.getTextEditOrigin?.() || { x: shape.x, y: shape.y };
+    const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
+    const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
+    const nudgeX = state.overlayOffset?.x || 0;
+    const nudgeY = state.overlayOffset?.y || 0;
+    // Apply same rotation as the text shape so the edit overlay aligns
+    const rot = shape.rotation || 0;
+    let groupTransform = `translate(${originX + nudgeX} ${originY + nudgeY})`;
+    if (rot) groupTransform += ` rotate(${rot})`;
+    state.overlayGroup.setAttribute('transform', groupTransform);
+
+    let bbox = measureTextGlyphBBox(shape, el);
+
+    const textValue = typeof shape.text === 'string' ? shape.text : '';
+    if (bbox && bbox.width === 0 && bbox.height === 0) {
+        bbox = null;
+    }
+
+    const box = getTextEditBoxGeometry(shape, el, bbox);
+    if (!box) {
+        state.overlayGroup.style.display = 'none';
+        return;
+    }
+
+    const caretProbe = { x: box.contentX + originX, width: box.contentWidth };
+    const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
+    const caretX = caretXAbs - originX;
+    const selectionX = state.selectionAnchor == null ? caretX
+        : getCaretX(app, shape, el, caretProbe, state.selectionAnchor) - originX;
+    const caretExtension = box.contentHeight * 0.15;
+    state.overlay?.updateGeometry({
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        caretX,
+        selectionStartX: selectionX,
+        selectionEndX: caretX,
+        caretTop: box.contentY - caretExtension,
+        caretBottom: box.contentY + box.contentHeight + caretExtension,
+        transform: groupTransform,
+    });
+}
+
+/**
+ * Applies an incremental pixel offset to the text-edit overlay group
+ * (used during drag to keep the overlay in sync).
+ * @param {SchematicEditor} app
+ * @param {number} dx - Horizontal offset in world units.
+ * @param {number} dy - Vertical offset in world units.
+ */
+export function nudgeTextEditOverlay(app, dx, dy) {
+    const state = getSchematicTextEdit(app);
+    if (!state || !state.overlayGroup) return;
+
+    const nextX = (state.overlayOffset?.x || 0) + dx;
+    const nextY = (state.overlayOffset?.y || 0) + dy;
+    state.overlayOffset = { x: nextX, y: nextY };
+    const editOrigin = state.shape?.getTextEditOrigin?.() || { x: state.shape?.x, y: state.shape?.y };
+    const originX = Number.isFinite(editOrigin.x) ? editOrigin.x : 0;
+    const originY = Number.isFinite(editOrigin.y) ? editOrigin.y : 0;
+    const rot = state.shape?.rotation || 0;
+    let t = `translate(${originX + nextX} ${originY + nextY})`;
+    if (rot) t += ` rotate(${rot})`;
+    state.overlayGroup.setAttribute('transform', t);
+}
+
+/**
+ * Sets the text caret position from a screen-space click coordinate
+ * using `getCharNumAtPosition`.
+ * @param {SchematicEditor} app
+ * @param {{x: number, y: number}} screenPos - Screen-space click position.
+ */
+export function setTextCaretFromScreen(app, screenPos) {
+    const state = getSchematicTextEdit(app);
+    if (!state || !state.shape) return;
+    state.selectionAnchor = null;
+
+    const shapeEl = viewElementOf(state.shape);
+    const ownTextEl = state.shape.type === 'text'
+        ? Array.from(shapeEl?.children || []).find(
+            child => String(child.tagName || '').toLowerCase() === 'text',
+        )
+        : null;
+    const el = ownTextEl || shapeEl;
+    const textEl = /** @type {SVGElement & Partial<SVGTextContentElement>} */ (el);
+    if (!textEl || typeof textEl.getCharNumAtPosition !== 'function' || typeof textEl.getScreenCTM !== 'function') {
+        state.caretIndex = (state.shape.text || '').length;
+        updateTextEditOverlay(app);
+        return;
+    }
+
+    try {
+        const rect = app.viewport.svg.getBoundingClientRect();
+        const pt = app.viewport.svg.createSVGPoint();
+        pt.x = screenPos.x + rect.left;
+        pt.y = screenPos.y + rect.top;
+        const ctm = textEl.getScreenCTM();
+        const localPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+        const idx = textEl.getCharNumAtPosition(localPt);
+        if (idx >= 0) {
+            const start = textEl.getStartPositionOfChar?.(idx);
+            const end = textEl.getEndPositionOfChar?.(idx);
+            const midpoint = start && end ? (start.x + end.x) / 2 : null;
+            state.caretIndex = midpoint !== null && Number.isFinite(midpoint) && localPt.x >= midpoint ? idx + 1 : idx;
+        } else {
+            const textLength = (state.shape.text || '').length;
+            const start = textLength > 0 ? textEl.getStartPositionOfChar?.(0) : null;
+            state.caretIndex = start && Number.isFinite(start.x) && localPt.x < start.x
+                ? 0
+                : textLength;
+        }
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+    } catch (e) {
+        state.caretIndex = (state.shape.text || '').length;
+        updateTextEditOverlay(app);
+        resetCaretBlink(state);
+    }
+}
+
+/** @param {string|undefined} ch */
+function isWordChar(ch) {
+    if (!ch) return false;
+    return /[\p{L}\p{N}_]/u.test(ch);
+}
+
+/**
+ * @param {string} text
+ * @param {number} index
+ */
+function findWordBoundaryLeft(text, index) {
+    let i = Math.max(0, Math.min(text.length, index));
+    if (i === 0) return 0;
+    while (i > 0 && !isWordChar(text[i - 1])) {
+        i -= 1;
+    }
+    while (i > 0 && isWordChar(text[i - 1])) {
+        i -= 1;
+    }
+    return i;
+}
+
+/**
+ * @param {string} text
+ * @param {number} index
+ */
+function findWordBoundaryRight(text, index) {
+    let i = Math.max(0, Math.min(text.length, index));
+    if (i >= text.length) return text.length;
+    if (isWordChar(text[i])) {
+        while (i < text.length && isWordChar(text[i])) {
+            i += 1;
+        }
+    }
+    while (i < text.length && !isWordChar(text[i])) {
+        i += 1;
+    }
+    return i;
+}
+
+/** @param {SchematicEditor} app */
+function ensureOverlay(app) {
+    const state = getSchematicTextEdit(app);
+    if (!state || state.overlayGroup) return;
+
+    const overlay = createInlineTextOverlay(
+        /** @param {SVGGElement} group */
+        group => {
+            if (typeof app.viewport.addInteractionOverlay === 'function') {
+                app.viewport.addInteractionOverlay(group);
+            } else {
+                app.viewport.addContent(group);
+            }
+        },
+        { emphasized: true },
+    );
+    state.overlay = overlay;
+    state.overlayGroup = overlay.group;
+    state.overlayBox = overlay.box;
+    state.overlayCaret = overlay.caret;
+    state.overlayBlink = null;
+    state.blinkTimer = overlay.blinkTimer;
+}
+
+/**
+ * @param {TextEditState|null} state
+ * @param {number} [_delay]
+ */
+function resetCaretBlink(state, _delay = 300) {
+    state?.overlay?.keepCaretVisible();
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {string} nextText
+ * @param {number} caretIndex
+ */
+function updateText(app, nextText, caretIndex) {
+    const state = getSchematicTextEdit(app);
+    if (!state) return;
+
+    state.shape.text = nextText;
+    if (typeof state.shape.invalidate === 'function') {
+        state.shape.invalidate();
+    }
+    state.caretIndex = caretIndex;
+    state.selectionAnchor = null;
+    app.fileManager.setDirty(true);
+    app.renderShapes(true);
+    updateTextEditOverlay(app);
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {EditableTextShape} shape
+ * @param {SVGElement & Partial<SVGTextContentElement>} el
+ * @param {CaretProbe} bbox
+ * @param {number} caretIndex
+ * @returns {number}
+ */
+function getCaretX(app, shape, el, bbox, caretIndex) {
+    const textValue = typeof shape.text === 'string' ? shape.text : '';
+    const clampedIndex = Math.max(0, Math.min(caretIndex, textValue.length));
+    const advance = measureTextAdvance(shape, textValue.slice(0, clampedIndex));
+    if (advance !== null && Number.isFinite(advance)) return bbox.x + advance;
+
+    if (!el || caretIndex <= 0) {
+        // Caret at position 0 — left edge of first character
+        try {
+            if (typeof el?.getStartPositionOfChar === 'function' && (shape.text || '').length > 0) {
+                const start = el.getStartPositionOfChar(0);
+                if (start && Number.isFinite(start.x)) return start.x;
+            }
+        } catch (e) { /* fall through */ }
+        return Number.isFinite(bbox?.x) ? bbox.x : 0;
+    }
+
+    try {
+        // Use getEndPositionOfChar for the character just before the caret.
+        // This works correctly for all text-anchor values (start/middle/end).
+        if (typeof el.getEndPositionOfChar === 'function' && clampedIndex > 0) {
+            const endPos = el.getEndPositionOfChar(clampedIndex - 1);
+            if (endPos && Number.isFinite(endPos.x)) return endPos.x;
+        }
+
+        // Fallback: clone-based measurement for texts with spaces
+        if (textValue.includes(' ') && app?.viewport) {
+            const measured = measureCaretWithClone(app, el, textValue, clampedIndex);
+            if (measured !== null && Number.isFinite(measured)) return measured;
+        }
+
+        // Fallback: start + substring length (only reliable for text-anchor="start")
+        if (typeof el.getSubStringLength === 'function' && typeof el.getStartPositionOfChar === 'function') {
+            const start = el.getStartPositionOfChar(0);
+            const length = el.getSubStringLength(0, clampedIndex);
+            if (start && Number.isFinite(start.x) && Number.isFinite(length)) {
+                return start.x + length;
+            }
+        }
+    } catch (e) {
+        // fall through
+    }
+
+    const textLength = (shape.text || '').length || 1;
+    return bbox.x + (bbox.width * (caretIndex / textLength));
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {SVGElement & Partial<SVGTextContentElement>} el
+ * @param {string} textValue
+ * @param {number} caretIndex
+ * @returns {number|null}
+ */
+function measureCaretWithClone(app, el, textValue, caretIndex) {
+    try {
+        const temp = /** @type {SVGTextContentElement} */ (el.cloneNode(true));
+        temp.textContent = textValue;
+        temp.setAttribute('xml:space', 'preserve');
+        temp.style.whiteSpace = 'pre';
+        temp.setAttribute('visibility', 'hidden');
+        temp.setAttribute('pointer-events', 'none');
+        app.viewport.addContent(temp);
+        if (typeof temp.getSubStringLength === 'function' && typeof temp.getStartPositionOfChar === 'function') {
+            const clampedIndex = Math.max(0, Math.min(caretIndex, textValue.length));
+            const start = temp.getStartPositionOfChar(0);
+            const length = temp.getSubStringLength(0, clampedIndex);
+            if (temp.parentNode) {
+                temp.parentNode.removeChild(temp);
+            }
+            if (start && Number.isFinite(start.x) && Number.isFinite(length)) {
+                return start.x + length;
+            }
+        }
+        if (temp.parentNode) {
+            temp.parentNode.removeChild(temp);
+        }
+    } catch (e) {
+        return null;
+    }
+    return null;
+}
+
+/**
+ * Clean up text-edit overlay state (used for early abort).
+ * @param {TextEditState} state
+ * @param {SchematicEditor} app
+ * @param {EditableTextShape|null} shape
+ */
+function _cleanupTextEditState(state, app, shape) {
+    state.overlay?.destroy();
+    state.overlay = null;
+    state.overlayGroup = null;
+    state.overlayBox = null;
+    state.overlayCaret = null;
+    state.overlayBlink = null;
+    state.blinkTimer = null;
+    if (state.blinkTimeoutId) {
+        clearTimeout(state.blinkTimeoutId);
+        state.blinkTimeoutId = null;
+    }
+    setSchematicTextEdit(app, null);
+    if (shape && app.selection && !app.selection.isSelected(shape)) {
+        app.selection.select(shape, false);
+    }
+}

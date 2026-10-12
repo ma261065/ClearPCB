@@ -1,25 +1,36 @@
 import { snapToGridLines } from '../../core/grid-snap.js';
 import { resolvePathPoint, resolvePathTranslation, pathContinuationConstraints } from '../../shapes/path-snap.js';
-import { findNearbyPin } from './wire.js';
+import { findNearbyPin } from './wire-snap.js';
 import { axisAlignment, pathAlignmentSegments, renderAxisGlow, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { snapArcBulgeToChord } from '../../shapes/arc-edit.js';
+import { isSchematicDrawingActive } from './drawing.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/polyline.js').Polyline} Polyline */
+/** @typedef {import('../../shapes/arc.js').Arc} Arc */
+/** @typedef {import('../../shapes/path-snap.js').PathDragConstraint} PathDragConstraint */
+/** @typedef {{x: number, y: number}} Point */
 
+/** @param {SchematicEditor} app @param {SchematicItem} shape @param {string} anchorId @param {Point} point */
 export function snapShapeBulge(app, shape, anchorId, point) {
-    const edge = shape.type === 'polyline' ? shape.edges.get(anchorId.slice(6)) : null;
-    const start = edge ? shape.nodes.get(edge.from) : shape.startPoint;
-    const end = edge ? shape.nodes.get(edge.to) : shape.endPoint;
+    const graph = shape.type === 'polyline' ? shape : null;
+    const edge = graph ? graph.edges.get(anchorId.slice(6)) : null;
+    const start = edge && graph ? graph.nodes.get(edge.from) : shape.type === 'arc' ? shape.startPoint : null;
+    const end = edge && graph ? graph.nodes.get(edge.to) : shape.type === 'arc' ? shape.endPoint : null;
     if (!start || !end || app.viewport.shiftHeld) return point;
     const snapped = snapShapePoint(app, point);
     const threshold = 8 / Math.max(0.01, app.viewport.scale || 1);
     return snapArcBulgeToChord(start, end, point, snapped, threshold);
 }
 
+/** @param {SchematicEditor} app @param {SchematicItem} shape @param {string[]} anchorIds @param {string[]} [excludedEdges] */
 export function renderShapeAlignment(app, shape, anchorIds, excludedEdges = []) {
     let segments = [];
     if (shape.type === 'polyline') {
-        const path = shape.toEditablePath();
+        const graph = shape;
+        const path = graph.toEditablePath();
         if (path) {
             const nodeIds = Object.values(path.nodeIds);
             const edgeIds = Object.values(path.edgeIds);
@@ -30,10 +41,10 @@ export function renderShapeAlignment(app, shape, anchorIds, excludedEdges = []) 
                     segments = [{ a: path.points[index], b: path.points[(index + 1) % path.points.length],
                         width: path.segmentWidths[index], collinear: true }];
                 }
-            } else if (shape.isRect) {
+            } else if (graph.isRect) {
                 segments = squareAlignmentSegments(path.points, Object.values(path.segmentWidths));
             } else {
-                segments = pathAlignmentSegments(path.points, shape.closed,
+                segments = pathAlignmentSegments(path.points, graph.closed,
                     anchorIds.map(id => nodeIds.indexOf(id)), Object.values(path.segmentWidths),
                     Object.values(path.segmentBulges), excludedEdges.map(id => edgeIds.indexOf(id)));
                 edgeIds.forEach((edgeId, index) => {
@@ -47,18 +58,20 @@ export function renderShapeAlignment(app, shape, anchorIds, excludedEdges = []) 
             }
         }
     } else if (shape.type === 'arc') {
-        const start = shape.getStartPoint(), end = shape.getEndPoint();
+        const arc = shape;
+        const start = arc.getStartPoint(), end = arc.getEndPoint();
         if (anchorIds.includes('mid') || anchorIds.includes('bulge')) {
-            if (Math.abs(bulgeRatio(start, end, shape.bulgePoint)) < BULGE_EPS) {
-                segments = [{ a: start, b: end, width: shape.lineWidth, collinear: true }];
+            if (Math.abs(bulgeRatio(start, end, arc.bulgePoint)) < BULGE_EPS) {
+                segments = [{ a: start, b: end, width: arc.lineWidth, collinear: true }];
             }
         } else if (anchorIds.includes('start') || anchorIds.includes('end')) {
-            segments = pathAlignmentSegments([start, end], false, [0], [shape.lineWidth]);
+            segments = pathAlignmentSegments([start, end], false, [0], [arc.lineWidth]);
         }
     }
     renderAxisGlow(app, segments);
 }
 
+/** @param {SchematicEditor} app @param {Point} point @param {Point[]} [neighbours] @param {Array<[Point, Point]>} [continuations] */
 export function snapShapePoint(app, point, neighbours = [], continuations = []) {
     const viewport = app.viewport;
     if (viewport.shiftHeld) return { ...point };
@@ -69,6 +82,7 @@ export function snapShapePoint(app, point, neighbours = [], continuations = []) 
     return resolvePathPoint(point, neighbours, { x: grid.x, y: grid.y }, threshold, target?.worldPos, continuations);
 }
 
+/** @param {Polyline} shape @param {string} anchorId */
 export function shapeContinuationConstraints(shape, anchorId) {
     if (shape.isRect) return [];
     const path = shape.toEditablePath();
@@ -77,19 +91,21 @@ export function shapeContinuationConstraints(shape, anchorId) {
     return index < 0 ? [] : pathContinuationConstraints(path.points, shape.closed, index, path.segmentBulges);
 }
 
+/** @param {SchematicEditor} app @param {Point} point */
 export function snapShapeDrawingPoint(app, point) {
     if (app.currentTool === 'arc' && app.arcEndpoint) return point;
-    const previous = !app.isDrawing ? null : app.currentTool === 'line' ? app.linePoints?.at(-1)
+    const previous = !isSchematicDrawingActive(app) ? null : app.currentTool === 'line' ? app.linePoints?.at(-1)
         : app.currentTool === 'polygon' ? app.polygonPoints?.at(-1) : app.drawStart;
     const points = app.currentTool === 'line' ? app.linePoints : app.currentTool === 'polygon' ? app.polygonPoints : null;
-    const continuations = app.isDrawing && points?.length
+    const continuations = isSchematicDrawingActive(app) && points?.length
         ? pathContinuationConstraints([...points, point], false, points.length) : [];
     return snapShapePoint(app, point, previous ? [previous] : [], continuations);
 }
 
+/** @param {SchematicEditor} app @param {Point[]} points @param {Point} delta @param {Point[]} [neighbours] @param {PathDragConstraint[]} [constraints] */
 export function snapShapeTranslation(app, points, delta, neighbours = [], constraints = []) {
     if (app.viewport.shiftHeld) return delta;
     return resolvePathTranslation(points, delta, neighbours, constraints, 8 / Math.max(0.01, app.viewport.scale || 1),
-        (point, tolerance) => findNearbyPin(app.components || [], point, tolerance, app.shapes || [])?.worldPos,
+        (point, tolerance) => findNearbyPin(app.components || [], point, tolerance, app.shapes || [])?.worldPos || null,
         (point, fixed) => snapShapePoint(app, point, fixed));
 }

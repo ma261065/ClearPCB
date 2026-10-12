@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Autorouter regression gate.
 //
-// Runs all tests/ regression scripts plus a full clearance check on test-board.json
+// Runs all tests/unit/ regression scripts plus a full clearance check on test-board.json
 // and asserts against the documented baseline. Exits 0 if all checks pass,
 // nonzero on any regression. Intended to be run before committing autorouter
 // changes.
@@ -10,17 +10,20 @@
 //   node tools/regression.mjs
 //
 // HARD checks (cause exit code 1):
-//   - geometry primitive test exits cleanly
+//   - import boundaries match tools/import-baseline.json
+//   - PCB editor access matches tools/pcb-editor-access-baseline.json
+//   - schematic editor access matches tools/schematic-editor-access-baseline.json
+//   - regression suite exits cleanly
 //   - check-clearance-full exits cleanly
 //   - total connection count matches baseline
 //   - routed connection count >= baseline (must not route fewer)
 //   - clearance violations == 0
 //
 // SOFT checks (warn only):
-//   - trace count == baseline   (routing-output stability indicator)
+//   - track count == baseline   (routing-output stability indicator)
 //   - via count == baseline     (routing-output stability indicator)
 //
-// Soft checks exist so legitimate quality wins (e.g. fewer traces for the
+// Soft checks exist so legitimate quality wins (e.g. fewer tracks for the
 // same routed count) don't fail the gate — but any divergence is logged so
 // the change author can review whether the routing change was intended.
 
@@ -31,33 +34,42 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
 
-// Baseline locked after commit `fced078` (numeric A* keys).
-// Mean elapsed ~110s on a typical dev machine; timing is informational only.
+// Baseline: the committed test-board.json, routed by the maze router. The first
+// baseline (65 routed, 239 tracks, 174 vias; fced078) predates the board's commit
+// (1743893) and was never reproduced on it: every commit since routes it to exactly
+// 74/76 with 288 tracks and 214 vias, on Windows and on the Linux CI runner alike.
+// Routing fewer connections is a hard failure; update these numbers deliberately
+// (and say why in the commit) when a router change improves them.
+// Elapsed ~100-150s; timing is machine-dependent and informational only.
 const BASELINE = {
     board: 'test-board.json',
-    routed: 65,
+    routed: 74,
     total: 76,
-    traces: 239,
-    vias: 174,
+    tracks: 288,
+    vias: 214,
     violations: 0,
 };
 
 let failures = 0;
 let warnings = 0;
 
-function run(cmd, args) {
+function run(cmd, args, capture = false) {
     console.log(`\n$ ${cmd} ${args.join(' ')}`);
     const t0 = Date.now();
-    const r = spawnSync(cmd, args, { cwd: repoRoot, encoding: 'utf8', shell: false });
+    // Only the clearance summary needs capture; the suite can exceed maxBuffer.
+    const r = spawnSync(cmd, args, {
+        cwd: repoRoot, encoding: 'utf8', shell: false,
+        stdio: capture ? ['inherit', 'pipe', 'inherit'] : 'inherit',
+    });
     const dt = Date.now() - t0;
+    if (r.stdout) process.stdout.write(r.stdout);
     if (r.error) {
         console.error('FAIL  process error:', r.error.message);
         failures++;
         return { code: -1, out: '', dt };
     }
-    process.stdout.write(r.stdout);
-    if (r.stderr) process.stderr.write(r.stderr);
-    return { code: r.status, out: r.stdout, dt };
+    if (r.signal) console.error(`FAIL  process terminated by signal: ${r.signal}`);
+    return { code: r.status, out: r.stdout || '', dt };
 }
 
 function hardCheck(cond, msg) {
@@ -72,20 +84,35 @@ function softCheck(cond, msg) {
 
 console.log('=== ClearPCB Autorouter Regression Gate ===');
 
-// 1. Geometry primitive smoke test
-console.log('\n--- [1/2] isolated regression suite ---');
+// 1. Documented import-direction rules, editor private-member access and doc references
+console.log('\n--- [1/3] architecture boundaries and doc references ---');
+{
+    const imports = run(process.execPath, ['tools/check-imports.mjs']);
+    hardCheck(imports.code === 0, 'import boundaries match tools/import-baseline.json');
+    const access = run(process.execPath, ['tools/check-pcb-editor-access.mjs']);
+    hardCheck(access.code === 0, 'PCB editor access matches tools/pcb-editor-access-baseline.json');
+    const schematicAccess = run(process.execPath, ['tools/check-schematic-editor-access.mjs']);
+    hardCheck(schematicAccess.code === 0, 'schematic editor access matches tools/schematic-editor-access-baseline.json');
+    const sharedAccess = run(process.execPath, ['tools/check-shared-editor-access.mjs']);
+    hardCheck(sharedAccess.code === 0, 'shared editor access matches tools/shared-editor-access-baseline.json');
+    const docs = run(process.execPath, ['tools/check-doc-references.mjs']);
+    hardCheck(docs.code === 0, 'doc references to tests, files and pages resolve');
+}
+
+// 2. Isolated regression suite
+console.log('\n--- [2/3] isolated regression suite ---');
 {
     const r = run(process.execPath, ['tools/test.mjs']);
     hardCheck(r.code === 0, 'regression suite exits cleanly');
 }
 
-// 2. Full clearance regression on test-board.json
-console.log('\n--- [2/2] full clearance check on test-board.json ---');
+// 3. Full clearance regression on test-board.json
+console.log('\n--- [3/3] full clearance check on test-board.json ---');
 {
-    const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board]);
+    const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board], true);
     hardCheck(r.code === 0, 'check-clearance-full exits cleanly');
 
-    const routedMatch = r.out.match(/Routed (\d+)\/(\d+) connections, (\d+) traces, (\d+) vias/);
+    const routedMatch = r.out.match(/Routed (\d+)\/(\d+) connections, (\d+) tracks, (\d+) vias/);
     const violMatch = r.out.match(/Total violations:\s*(\d+)/);
 
     if (!routedMatch || !violMatch) {
@@ -94,7 +121,7 @@ console.log('\n--- [2/2] full clearance check on test-board.json ---');
     } else {
         const routed = parseInt(routedMatch[1], 10);
         const total = parseInt(routedMatch[2], 10);
-        const traces = parseInt(routedMatch[3], 10);
+        const tracks = parseInt(routedMatch[3], 10);
         const vias = parseInt(routedMatch[4], 10);
         const violations = parseInt(violMatch[1], 10);
 
@@ -104,13 +131,13 @@ console.log('\n--- [2/2] full clearance check on test-board.json ---');
             `routed >= ${BASELINE.routed} (got ${routed})`);
         hardCheck(violations === BASELINE.violations,
             `clearance violations == ${BASELINE.violations} (got ${violations})`);
-        softCheck(traces === BASELINE.traces,
-            `traces == ${BASELINE.traces} (got ${traces})`);
+        softCheck(tracks === BASELINE.tracks,
+            `tracks == ${BASELINE.tracks} (got ${tracks})`);
         softCheck(vias === BASELINE.vias,
             `vias == ${BASELINE.vias} (got ${vias})`);
 
         console.log(`INFO  elapsed ${(r.dt / 1000).toFixed(1)}s ` +
-            `(baseline ~110s; timing is machine-dependent and informational)`);
+            `(typically 100-150s; timing is machine-dependent and informational)`);
     }
 }
 
@@ -121,8 +148,8 @@ if (failures === 0) {
     console.log(warnings === 0
         ? 'REGRESSION GATE: PASS'
         : 'REGRESSION GATE: PASS (with soft warnings — review routing diff)');
-    process.exit(0);
 } else {
     console.log('REGRESSION GATE: FAIL');
-    process.exit(1);
 }
+// Let pending stdout/stderr writes drain when CI captures output through pipes.
+process.exitCode = failures === 0 ? 0 : 1;

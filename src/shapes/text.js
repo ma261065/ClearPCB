@@ -4,40 +4,70 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { getTextEditBoxGeometry } from '../core/text-edit-geometry.js';
+import { hasOwnLock } from './lock-owner.js';
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x:number,y:number,width:number,height:number}} TextBBox */
+/** @typedef {import('../core/SchematicDocument.js').SchematicItem} TextParent */
+/** @typedef {any} TextAttachment Label/wire attachment payloads are built incrementally by legacy modules. */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: 0|90|180|270, border?: boolean, attachment?: TextAttachment|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
+/** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: TextAttachment}} TextJSON */
+
+/** @type {null | ((text: Text) => TextBBox|null|undefined)} */
+let textMeasurer = null;
+
+/** @param {null | ((text: Text) => TextBBox|null|undefined)} fn */
+export function setTextMeasurer(fn) {
+    textMeasurer = typeof fn === 'function' ? fn : null;
+}
+
+/**
+ * Schematic text uses quarter-turn orientations, like components.
+ * @param {number} [rotation]
+ * @returns {0|90|180|270}
+ */
+export function textOrientation(rotation = 0) {
+    const angle = ((Number(rotation) || 0) % 360 + 360) % 360;
+    return /** @type {0|90|180|270} */ ((Math.round(angle / 90) * 90) % 360);
+}
+
 export class Text extends Shape {
+    /** @type {'text'} */
+    type;
+
     /**
-     * @param {Object} [options]
-        * @param {string|number} [options.color] - Text colour.
-        * @param {string|number|null} [options.fillColor] - Fill colour override.
-     * @param {number} [options.x=0]            - Anchor X in mm.
-     * @param {number} [options.y=0]            - Anchor Y in mm.
-     * @param {string} [options.text='']        - Display text.
-     * @param {number} [options.fontSize=2.0]   - Font size in mm.
-     * @param {string} [options.fontFamily='Arial'] - CSS font family.
-     * @param {string} [options.textAnchor='start'] - SVG text-anchor.
-     * @param {boolean} [options.border=false] - Draw a padded rectangular outline.
+     * @param {TextOptions} [options]
      */
     constructor(options = {}) {
         super(options);
+        /** @type {'text'} */
         this.type = 'text';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        /** @type {string} */
         this.text = typeof options.text === 'string' ? options.text : '';
+        /** @type {number} */
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.0, {
             min: 1,
             max: 50,
             default: 2.0,
             name: 'fontSize'
         });
+        /** @type {string} */
         this.fontFamily = options.fontFamily || 'Arial';
+        /** @type {string} */
         this.textAnchor = options.textAnchor || 'start';
-        this.rotation = options.rotation || 0;
+        /** @type {0|90|180|270} */
+        this.rotation = textOrientation(options.rotation);
+        /** @type {boolean} */
         this.border = !!options.border;
 
         // Text is rendered as a filled glyph, so its fill follows `color`
@@ -47,9 +77,16 @@ export class Text extends Shape {
         if (options.fillColor == null) this.fillColor = this.color;
         
         // Component field linkage (set externally, not via constructor)
+        /** @type {TextParent|null} */
         this.parentComponent = null;
+        /** @type {string|null} */
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
+        /** @type {TextAttachment|null} */
         this.attachment = options.attachment || null;
+        /** @type {Set<Text>|null|undefined} Labels attached to this text. */
+        this.attachedLabels = null;
+        /** @type {string|undefined} */
+        this._pendingComponentId;
     }
 
     _syncLinkedParentAfterGeometryChange() {
@@ -61,13 +98,15 @@ export class Text extends Shape {
     /** @override — uses SVG `getBBox()` when rendered, else estimates from text length. */
     _calculateBounds() {
         let localBounds;
-        if (this.element) {
+        if (textMeasurer) {
             try {
-                const bbox = this.element.getBBox();
-                localBounds = {
-                    minX: bbox.x, minY: bbox.y,
-                    maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height
-                };
+                const bbox = textMeasurer(this);
+                if (bbox) {
+                    localBounds = {
+                        minX: bbox.x, minY: bbox.y,
+                        maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height
+                    };
+                }
             } catch (e) { /* fall through to estimate */ }
         }
 
@@ -112,8 +151,14 @@ export class Text extends Shape {
         return { minX: rMinX, minY: rMinY, maxX: rMaxX, maxY: rMaxY };
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {Point} point @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0.5) {
+        // Text already has an area target; the thin-line screen tolerance should
+        // not make small labels selectable far outside their displayed bounds.
+        tolerance = Math.min(tolerance, this.fontSize * 0.1);
         if (!this.rotation) {
             const bounds = this.getBounds();
             return (
@@ -135,10 +180,10 @@ export class Text extends Shape {
 
         // Get un-rotated bounds for the local-space test
         let localBounds;
-        if (this.element) {
+        if (textMeasurer) {
             try {
-                const bbox = this.element.getBBox();
-                localBounds = { minX: bbox.x, minY: bbox.y, maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height };
+                const bbox = textMeasurer(this);
+                if (bbox) localBounds = { minX: bbox.x, minY: bbox.y, maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height };
             } catch (e) { /* fall through */ }
         }
         if (!localBounds) {
@@ -164,7 +209,18 @@ export class Text extends Shape {
             { id: 'pos', x: this.x, y: this.y, cursor: 'move', hidden: true }
         ];
     }
-    /** @override */
+    /** Text moves by its body; the hidden origin is not a separate grab handle.
+     * @override
+     * @param {Point} _point
+     * @param {number} _scale
+     */
+    hitTestAnchor(_point, _scale) {
+        return null;
+    }
+    /**
+     * @override
+     * @param {string} anchorId @param {number} x @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -175,60 +231,10 @@ export class Text extends Shape {
         return undefined;
     }
 
-    /** @override */
-    _createElement() {
-        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
-        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
-        return group;
-    }
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        const borderEl = el.children[0];
-        const textEl = el.children[1];
-        textEl.setAttribute('x', this.x);
-        textEl.setAttribute('y', this.y);
-        // When parent component is selected but this field text isn't,
-        // tint blue to show ownership
-        if (this.parentComponent?.selected && !this.selected && !this.hovered) {
-            fillColor = 'var(--sch-selection, #3399ff)';
-        }
-        textEl.setAttribute('fill', fillColor);
-        textEl.setAttribute('font-size', this.fontSize);
-        textEl.setAttribute('font-family', this.fontFamily);
-        textEl.setAttribute('text-anchor', this.textAnchor);
-        textEl.setAttribute('dominant-baseline', 'alphabetic');
-        textEl.setAttribute('alignment-baseline', 'alphabetic');
-        textEl.setAttribute('text-rendering', 'geometricPrecision');
-        textEl.setAttribute('xml:space', 'preserve');
-        textEl.style.whiteSpace = 'pre';
-        textEl.textContent = typeof this.text === 'string' ? this.text : '';
-        textEl.setAttribute('stroke', 'none');
-        textEl.removeAttribute('stroke-width');
-
-        if (this.border) {
-            const box = getTextEditBoxGeometry(this, textEl);
-            const borderWidth = Math.max(this.lineWidth, 1 / scale);
-            borderEl.setAttribute('x', String(box.x + box.originX));
-            borderEl.setAttribute('y', String(box.y + box.originY));
-            borderEl.setAttribute('width', String(box.width));
-            borderEl.setAttribute('height', String(box.height));
-            borderEl.setAttribute('fill', 'none');
-            borderEl.setAttribute('stroke', fillColor);
-            borderEl.setAttribute('stroke-width', String(borderWidth));
-            borderEl.removeAttribute('display');
-        } else {
-            borderEl.setAttribute('display', 'none');
-        }
-        // Apply rotation around text anchor point
-        if (this.rotation) {
-            el.setAttribute('transform', `rotate(${this.rotation}, ${this.x}, ${this.y})`);
-        } else {
-            el.removeAttribute('transform');
-        }
-    }
-
-    /** @override */
+    /**
+     * @override
+     * @param {number} dx @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -237,10 +243,6 @@ export class Text extends Shape {
         this._syncLinkedParentAfterGeometryChange();
     }
 
-    /** @override — text shapes have no visible stroke. */
-    _getEffectiveStrokeWidth(scale) {
-        return 0;
-    }
     /** @override */
     clone() {
         return new Text({
@@ -258,7 +260,7 @@ export class Text extends Shape {
     
     /** @override */
     captureState() {
-        const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation, border: this.border };
+        const state = /** @type {TextState} */ ({ x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation, border: this.border });
         if (this.attachment) state.attachment = { ...this.attachment };
         else state.attachment = null;
         state.parentComponentId = this.parentComponent?.id || null;
@@ -268,14 +270,17 @@ export class Text extends Shape {
         return state;
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {TextState} state
+     */
     applyState(state) {
         super.applyState(state);
         if ('attachment' in state) {
-            this.attachment = state.attachment ? { ...state.attachment } : null;
+            this.attachment = state.attachment ? { .../** @type {TextAttachment} */ (state.attachment) } : null;
         }
         if ('fieldKey' in state) {
-            this.fieldKey = state.fieldKey;
+            this.fieldKey = /** @type {string|null} */ (state.fieldKey ?? null);
         }
         this._syncLinkedParentAfterGeometryChange();
     }
@@ -285,16 +290,15 @@ export class Text extends Shape {
             // Component/wire field text — show text content as editable, plus size
             const label = this.fieldKey === 'reference' ? 'Reference'
                         : this.fieldKey === 'wireLabel' ? 'Name'
-                        : this.fieldKey === 'label' ? 'Label'
+                        : this.fieldKey === 'label' ? 'Text'
                         : 'Value';
+            /** @type {ReturnType<import('./shape.js').Shape['getPropertyDescriptors']>} */
             const descriptors = [
-                { key: 'locked',   label: 'Locked',    type: 'checkbox' },
+                // An owned field text follows its owner's lock (lock-owner.js); a detachable label has its own.
+                ...(hasOwnLock(this) ? [{ key: 'locked', label: 'Locked', type: 'checkbox' }] : []),
                 { key: 'text',     label,               type: 'text' },
-                { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+                { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
-            if (this.fieldKey === 'reference') {
-                descriptors.push({ key: 'rotation', label: 'Rotation', type: 'number', step: 15 });
-            }
             if (this.fieldKey === 'label') {
                 descriptors.push({ key: 'border', label: 'Border', type: 'checkbox' });
             }
@@ -302,8 +306,8 @@ export class Text extends Shape {
         }
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
-            { key: 'text',     label: 'Label',      type: 'text' },
-            { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+            { key: 'text',     label: 'Text',      type: 'text' },
+            { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
         ];
     }
@@ -314,12 +318,12 @@ export class Text extends Shape {
     }
     /** @override */
     toJSON() {
-        const json = {
+        const json = /** @type {TextJSON} */ ({
             ...super.toJSON(),
             x: _r4(this.x),
             y: _r4(this.y),
             t: this.text,
-        };
+        });
         if (this.fontSize !== 2.0) json.fs = this.fontSize;
         if (this.fontFamily !== 'Arial') json.ff = this.fontFamily;
         if (this.textAnchor !== 'start') json.ta = this.textAnchor;

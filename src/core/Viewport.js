@@ -4,7 +4,14 @@
  * Uses SVG viewBox for pan/zoom - mathematically perfect scaling.
  */
 
-import { snapToGridLines } from './grid-snap.js';
+import { snapToViewportGrid } from './grid-snap.js';
+
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {{x: number, y: number, width: number, height: number}} ViewBox */
+/** @typedef {{width: number, height: number}} PaperSize */
+/** @typedef {'mm'|'inch'} ViewportUnit */
+/** @typedef {'title'|'rev'|'company'|'date'|'drawnBy'|'sheet'} TitleBlockField */
 
 export class Viewport {
     /**
@@ -29,6 +36,7 @@ export class Viewport {
         
         // Create layer groups
         this.gridLayer = this._createGroup('gridLayer');
+        /** @type {SVGGElement|null} */
         this.paperOutlineLayer = this._createGroup('paperOutlineLayer');
         this.contentLayer = this._createGroup('contentLayer');
         
@@ -104,7 +112,8 @@ export class Viewport {
         this.shiftHeld = false;  // tracked from mouse events for shift-reversal
         
         // Paper size
-        this.paperSize = null;  // null = no paper outline
+        /** @type {PaperSize|null} null = no paper outline */
+        this.paperSize = null;
         this.paperSizeKey = null;  // Name of the paper size (e.g., 'A4')
         this.showTitleBlock = false; // Double border with zone markers
         this.showTitleBlockInfo = false; // Title block info box
@@ -120,37 +129,49 @@ export class Viewport {
         };
         
         // Units
+        /** @type {ViewportUnit} */
         this.units = 'mm';
+        /** @type {Record<ViewportUnit, number>} */
         this.unitConversions = {
             'mm': 1,
-            'inch': 0.0393701
+            'inch': 1 / 25.4
         };
         
         // Pan state
         this.isPanning = false;
         this.panStart = { x: 0, y: 0 };
+        /** @type {ViewBox|null} */
         this.panStartViewBox = null;
         this.currentMouseWorld = { x: 0, y: 0 };
         this.shiftHeld = false;
         
         // Cache for getBoundingClientRect (expensive operation)
+        /** @type {DOMRect|null} */
         this.cachedRect = null;
         // Cache for viewport change optimization
         this.cachedVisibleBounds = null;
         this.viewChangeTimer = null;
         this.gridDirty = true;  // Track if grid needs redraw
         this.paperDirty = true; // Track if paper outline needs redraw
-        this._lastNotifiedScale = null; // Track scale for change detection
+        /** @type {number|null} Track scale for change detection */
+        this._lastNotifiedScale = null;
         
         // Callbacks
+        /** @type {((view: {offset: Point, zoom: number, bounds: Bounds, scaleChanged: boolean, boundsChanged: boolean}) => void)|null} */
         this.onViewChanged = null;
+        /** @type {((point: Point, snapped: Point) => void)|null} */
         this.onMouseMove = null;
+        /** @type {(() => void)|null} */
         this.onViewportCull = null;
+        /** @type {(() => void)|null} */
         this.onPanStart = null;
+        /** @type {(() => void)|null} */
         this.onPanEnd = null;
+        /** @type {((interaction: string) => void)|null} */
         this.onInteractionStart = null;
         
         // Event handlers (stored for cleanup)
+        /** @type {{wheel: ((event: WheelEvent) => void)|null, mousedown: EventListener|null, mousemove: EventListener|null, mouseup: EventListener|null, contextmenu: EventListener|null, resize: (() => void)|null, keydown: EventListener|null, browserZoom?: (event: KeyboardEvent) => void, browserWheelZoom?: (event: WheelEvent) => void}} DOM listener registry with mixed event signatures. */
         this.boundHandlers = {
             wheel: null,
             mousedown: null,
@@ -244,7 +265,8 @@ export class Viewport {
             axis: style.getPropertyValue('--sch-axis').trim() || 'rgba(255, 255, 255, 0.25)',
             paperOutline: style.getPropertyValue('--sch-paper-outline').trim() || 'rgba(255, 255, 255, 0.12)',
             paperLabel: style.getPropertyValue('--sch-paper-label').trim() || 'rgba(255, 255, 255, 0.15)',
-            rulerBg: style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
+            rulerBg: style.getPropertyValue('--bg-ruler').trim()
+                || style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
             rulerText: style.getPropertyValue('--text-secondary').trim() || '#888',
             rulerLine: style.getPropertyValue('--text-muted').trim() || '#666',
             rulerBorder: style.getPropertyValue('--border-color').trim() || '#444'
@@ -352,12 +374,12 @@ export class Viewport {
      * Calculate the adaptive grid spacing for display using a 1-2-5 sequence.
      * Returns the smallest multiple of the base grid that keeps lines at least
      * `minPixelSpacing` screen pixels apart.
+     * @param {number} [minPixelSpacing=4] Minimum on-screen spacing.
      * @returns {number} Grid spacing in mm.
      */
-    getEffectiveGridSize() {
+    getEffectiveGridSize(minPixelSpacing = 4) {
         // Calculate adaptive grid spacing for display using 1-2-5 sequence
         // This gives smoother transitions than 10x jumps
-        const minPixelSpacing = 4; // Allow denser grid (was 8)
         const minWorldSpacing = minPixelSpacing / this.scale;
         
         // 1-2-5 sequence multipliers
@@ -385,12 +407,7 @@ export class Viewport {
      * @returns {{x: number, y: number}} Snapped (or original) position.
      */
     getSnappedPosition(worldPos) {
-        // Shift temporarily reverses the snap setting, but only if grid is visible
-        let shouldSnap = this.snapToGrid;
-        if (this.shiftHeld && this.gridVisible) shouldSnap = !shouldSnap;
-        if (!shouldSnap || !this.gridVisible) return worldPos;
-        const { x, y } = snapToGridLines(worldPos, this.getEffectiveGridSize(), this.scale);
-        return { x, y };
+        return snapToViewportGrid(worldPos, this);
     }
     
     /**
@@ -473,8 +490,10 @@ export class Viewport {
         this.zoomToLevel(this.zoomIndex - 1, worldPoint);
     }
     
-    /** Reset zoom to 100% and position the origin 3 mm from the ruler edges. */
-    resetView() {
+    /** Reset zoom to 100%, with optional world-unit margins from the drawable edges.
+     * @param {{leftMargin?: number, bottomMargin?: number}} [margins]
+     */
+    resetView({ leftMargin, bottomMargin } = {}) {
         // Bail out if the viewport has no size yet; the ruler/aspect math below
         // divides by width and would set viewBox.x/y to Infinity/NaN.
         if (!this._hasValidSize()) return;
@@ -494,12 +513,12 @@ export class Viewport {
         
         // Left edge of viewbox (x) needs to be shifted left by (margin + rulerOffset)
         // so that x=0 appears at (margin + rulerOffset) from the left edge of the viewport
-        this.viewBox.x = -(margin + rulerOffset);
+        this.viewBox.x = -((leftMargin ?? margin) + rulerOffset);
         
         // Bottom edge of viewbox needs to be shifted down by margin from the content bottom
         // But rulers are typically top/left.
         // If there is no bottom ruler, we just want 3mm from the bottom edge.
-        this.viewBox.y = margin - this.viewBox.height;
+        this.viewBox.y = (bottomMargin ?? margin) - this.viewBox.height;
         
         this._updateViewBox();
         this._notifyViewChanged();
@@ -508,6 +527,7 @@ export class Viewport {
     /**
      * Zoom and centre the view to fit the given bounding box.
      * Selects the tightest discrete zoom level that contains the bounds.
+     * Bottom-left alignment measures from the drawable area inside the rulers.
      * @param {number} minX - Left edge in mm.
      * @param {number} minY - Top edge in mm.
      * @param {number} maxX - Right edge in mm.
@@ -535,9 +555,10 @@ export class Viewport {
         // Zoom is a fixed scale (px/mm). A level fits when its visible area
         // (pixelSize / scale) covers the required mm in BOTH dimensions, i.e.
         // scale <= width/requiredWidth and scale <= height/requiredHeight.
+        const rulerInset = alignment === 'bottom-left' && this.showRulers ? this.rulerSize : 0;
         const maxScale = Math.min(
-            this.width / requiredWidth,
-            this.height / requiredHeight
+            (this.width - rulerInset) / requiredWidth,
+            (this.height - rulerInset) / requiredHeight
         );
         // Pick the most zoomed-in discrete level whose scale still fits.
         let bestIndex = this.minZoomIndex;
@@ -562,7 +583,7 @@ export class Viewport {
         this.viewBox.x = cx - viewWidth / 2;
         this.viewBox.y = cy - viewHeight / 2;
         if (alignment === 'bottom-left') {
-            this.viewBox.x = minX - contentWidth * paddingPercent / 100;
+            this.viewBox.x = minX - contentWidth * paddingPercent / 100 - rulerInset / scale;
             this.viewBox.y = maxY + contentHeight * paddingPercent / 100 - viewHeight;
         }
         
@@ -611,10 +632,11 @@ export class Viewport {
      */
     updatePan(clientX, clientY) {
         if (!this.isPanning) return;
+        const panStartViewBox = /** @type {ViewBox} */ (this.panStartViewBox);
         const dx = (clientX - this.panStart.x) / this.scale;
         const dy = (clientY - this.panStart.y) / this.scale;
-        this.viewBox.x = this.panStartViewBox.x - dx;
-        this.viewBox.y = this.panStartViewBox.y - dy;
+        this.viewBox.x = panStartViewBox.x - dx;
+        this.viewBox.y = panStartViewBox.y - dy;
         this._updateViewBox();
         if (!this._panUpdatePending) {
             this._panUpdatePending = true;
@@ -711,13 +733,14 @@ export class Viewport {
     // ==================== Grid ====================
     
     /**
-     * Set the base grid spacing and redraw.
+     * Set the base grid spacing and redraw the grid and rulers.
      * @param {number} size - Grid cell size in mm (clamped to >= 0.01).
      */
     setGridSize(size) {
         this.gridSize = Math.max(0.01, size);
         this.gridDirty = true;
         this._createGrid();
+        this._createRulers();
     }
     
     /**
@@ -733,13 +756,14 @@ export class Viewport {
     }
     
     /**
-     * Show or hide the grid.
+     * Show or hide the grid and refresh the ruler spacing.
      * @param {boolean} visible - Whether the grid is visible.
      */
     setGridVisible(visible) {
         this.gridVisible = visible;
         this.gridDirty = true;
         this._createGrid();
+        this._createRulers();
     }
     
     /**
@@ -837,7 +861,7 @@ export class Viewport {
     
     /**
      * Set the paper size and redraw outline
-     * @param {Object|null} paperSize - {width: mm, height: mm} or null to disable
+     * @param {PaperSize|null} paperSize - {width: mm, height: mm} or null to disable
      * @param {string|null} paperSizeKey - Name of the paper size (e.g., 'A4')
      */
     setPaperSize(paperSize, paperSizeKey = null) {
@@ -1002,6 +1026,13 @@ export class Viewport {
     /**
      * Render the title block info box (EasyEDA-style) in the bottom-right corner.
      * Sits inside the inner border of the title block.
+     * @param {number} px
+     * @param {number} py
+     * @param {number} pw
+     * @param {number} ph
+     * @param {number} margin
+     * @param {number} sw
+     * @param {string} color
      */
     _renderTitleBlockInfo(px, py, pw, ph, margin, sw, color) {
         const d = /** @type {{title?: string, rev?: string, company?: string, date?: string, drawnBy?: string, sheet?: string}} */ (this.titleBlockData || {});
@@ -1097,7 +1128,9 @@ export class Viewport {
         return s;
     }
 
-    /** Escape text for safe SVG embedding */
+    /** Escape text for safe SVG embedding
+     * @param {string} str
+     */
     _escSvg(str) {
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -1105,9 +1138,10 @@ export class Viewport {
     /**
      * Handle double-click on title block cells for in-place editing.
      * Called from mouse.js when no shape was hit at the dblclick location.
+     * @param {Point} worldPos
      */
     _onTitleBlockDblClick(worldPos) {
-        if (!this.showTitleBlockInfo || !this.paperSize) return false;
+        if (!this.showTitleBlockInfo || !this.paperSize || !this.paperOutlineLayer) return false;
 
         // If already editing, cancel the current edit first
         if (this._titleBlockEditActive) {
@@ -1118,10 +1152,10 @@ export class Viewport {
         const rects = this.paperOutlineLayer.querySelectorAll('rect[data-tb-field]');
         let hitRect = null;
         for (const r of rects) {
-            const rx = parseFloat(r.getAttribute('x'));
-            const ry = parseFloat(r.getAttribute('y'));
-            const rw = parseFloat(r.getAttribute('width'));
-            const rh = parseFloat(r.getAttribute('height'));
+            const rx = parseFloat(/** @type {string} */ (r.getAttribute('x')));
+            const ry = parseFloat(/** @type {string} */ (r.getAttribute('y')));
+            const rw = parseFloat(/** @type {string} */ (r.getAttribute('width')));
+            const rh = parseFloat(/** @type {string} */ (r.getAttribute('height')));
             if (worldPos.x >= rx && worldPos.x <= rx + rw &&
                 worldPos.y >= ry && worldPos.y <= ry + rh) {
                 hitRect = r;
@@ -1130,15 +1164,15 @@ export class Viewport {
         }
         if (!hitRect) return false;
 
-        const field = hitRect.getAttribute('data-tb-field');
+        const field = /** @type {TitleBlockField} */ (hitRect.getAttribute('data-tb-field'));
         this._titleBlockEditActive = true;
         this._titleBlockEditCancelled = false;
 
         // Get the cell rect bounds in SVG world coords
-        const rx = parseFloat(hitRect.getAttribute('x'));
-        const ry = parseFloat(hitRect.getAttribute('y'));
-        const rw = parseFloat(hitRect.getAttribute('width'));
-        const rh = parseFloat(hitRect.getAttribute('height'));
+        const rx = parseFloat(/** @type {string} */ (hitRect.getAttribute('x')));
+        const ry = parseFloat(/** @type {string} */ (hitRect.getAttribute('y')));
+        const rw = parseFloat(/** @type {string} */ (hitRect.getAttribute('width')));
+        const rh = parseFloat(/** @type {string} */ (hitRect.getAttribute('height')));
 
         // Dynamic text-width limit: measure actual text width against
         // the available space in the SVG cell instead of a fixed char count.
@@ -1151,11 +1185,12 @@ export class Viewport {
 
         // Lazy-create a canvas context for text measurement
         if (!this._tbMeasureCtx) {
-            this._tbMeasureCtx = document.createElement('canvas').getContext('2d');
+            this._tbMeasureCtx = /** @type {CanvasRenderingContext2D} */ (document.createElement('canvas').getContext('2d'));
         }
         const mCtx = this._tbMeasureCtx;
         const refPx = 200; // large reference size for accuracy
         mCtx.font = `${refPx}px sans-serif`;
+        /** @param {string} text */
         const textFits = (text) => {
             const measured = mCtx.measureText(text).width;
             return measured * (svgFontSize / refPx) <= availW;
@@ -1204,7 +1239,7 @@ export class Viewport {
                 lastGoodValue = input.value;
             } else {
                 // Revert to last value that fit and restore cursor position
-                const pos = Math.max(0, input.selectionStart - 1);
+                const pos = Math.max(0, (input.selectionStart ?? 0) - 1);
                 input.value = lastGoodValue;
                 input.setSelectionRange(pos, pos);
             }
@@ -1228,6 +1263,7 @@ export class Viewport {
         };
 
         // Click outside the input → commit
+        /** @param {MouseEvent} ev */
         const onMouseDown = (ev) => {
             if (ev.target !== input) {
                 ev.preventDefault();
@@ -1268,7 +1304,7 @@ export class Viewport {
     
     /**
      * Rebuild the ruler SVGs (top + left) for the current view and units.
-     * Computes adaptive tick spacing using unit-appropriate nice-number sequences.
+     * Labels visible grid lines, or uses unit-appropriate spacing with the grid hidden.
      */
     _createRulers() {
         if (!this.showRulers) {
@@ -1289,7 +1325,7 @@ export class Viewport {
     /**
      * Reposition the pre-built ruler tick groups by translating them to
      * match the current pan, avoiding a full SVG rebuild. Returns false if
-     * a rebuild is required (scale/units/size changed, or the pan moved
+     * a rebuild is required (scale/units/grid/size changed, or the pan moved
      * beyond the pre-rendered margin).
      * @returns {boolean}
      */
@@ -1297,6 +1333,7 @@ export class Viewport {
         const st = this._rulerBuildState;
         if (!st) return false;
         if (st.scale !== this.scale || st.units !== this.units
+            || st.gridSize !== this.gridSize || st.gridVisible !== this.gridVisible
             || st.w !== this.width || st.h !== this.height) {
             return false;
         }
@@ -1333,10 +1370,12 @@ export class Viewport {
         const targetMm = targetPixels / this.scale;
         const targetDisplay = targetMm * this.unitConversions[this.units];
         
-        // Choose nice tick spacing based on current units
+        // Prefer grid multiples with enough screen space for labels.
         let tickSpacingMm;
         
-        if (this.units === 'inch') {
+        if (this.gridVisible) {
+            tickSpacingMm = this.getEffectiveGridSize(targetPixels);
+        } else if (this.units === 'inch') {
             // Inch-based nice numbers: 0.0625" (1/16), 0.125" (1/8), 0.25" (1/4), 0.5", 1", 2", 5", 10"
             const niceInches = [0.0625, 0.125, 0.25, 0.5, 1, 2, 5, 10];
             let tickSpacingInch = niceInches.find(n => n >= targetDisplay);
@@ -1361,15 +1400,11 @@ export class Viewport {
         const unitConversion = this.unitConversions[this.units];
         const unitSuffix = this.units === 'inch' ? '"' : '';
         
-        // Determine decimal places based on tick spacing in display units
+        // Four decimal places cover all preset spacings, including 1/16 inch.
         const tickSpacingDisplay = tickSpacingMm * unitConversion;
-        let decimals = 0;
-        if (tickSpacingDisplay < 0.01) decimals = 4;
-        else if (tickSpacingDisplay < 0.1) decimals = 3;
-        else if (tickSpacingDisplay < 1) decimals = 2;
-        else if (tickSpacingDisplay < 10) decimals = 1;
-        else decimals = 0;
+        const decimals = (tickSpacingDisplay.toFixed(4).replace(/0+$/, '').split('.')[1] || '').length;
         
+        /** @param {number} mmVal */
         const formatLabel = (mmVal) => {
             const displayVal = mmVal * unitConversion;
             // Clean up floating point artifacts
@@ -1405,8 +1440,12 @@ export class Viewport {
         let tickSpacingX = tickSpacingMm;
         const startX = Math.floor((bounds.minX - vw) / tickSpacingX) * tickSpacingX;
         const endX = Math.ceil((bounds.maxX + vw) / tickSpacingX) * tickSpacingX;
-        if ((endX - startX) / tickSpacingX > MAX_TICKS) tickSpacingX = (endX - startX) / MAX_TICKS;
-        for (let worldX = startX; worldX <= endX; worldX += tickSpacingX) {
+        if ((endX - startX) / tickSpacingX > MAX_TICKS) {
+            tickSpacingX *= Math.ceil((endX - startX) / tickSpacingX / MAX_TICKS);
+        }
+        for (let tick = 0; tick <= MAX_TICKS; tick++) {
+            const worldX = startX + tick * tickSpacingX;
+            if (worldX > endX) break;
             const screenX = this.worldToScreen({ x: worldX, y: 0 }).x;
             topTicks += `<line x1="${screenX}" y1="${rs}" x2="${screenX}" y2="${rs - 8}" stroke="${colors.rulerLine}"/>`;
             topTicks += `<text x="${screenX + 2}" y="12" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(worldX)}</text>`;
@@ -1422,8 +1461,12 @@ export class Viewport {
         let tickSpacingY = tickSpacingMm;
         const startY = Math.floor((bounds.minY - vh) / tickSpacingY) * tickSpacingY;
         const endY = Math.ceil((bounds.maxY + vh) / tickSpacingY) * tickSpacingY;
-        if ((endY - startY) / tickSpacingY > MAX_TICKS) tickSpacingY = (endY - startY) / MAX_TICKS;
-        for (let worldY = startY; worldY <= endY; worldY += tickSpacingY) {
+        if ((endY - startY) / tickSpacingY > MAX_TICKS) {
+            tickSpacingY *= Math.ceil((endY - startY) / tickSpacingY / MAX_TICKS);
+        }
+        for (let tick = 0; tick <= MAX_TICKS; tick++) {
+            const worldY = startY + tick * tickSpacingY;
+            if (worldY > endY) break;
             const screenY = this.worldToScreen({ x: 0, y: worldY }).y;
             leftTicks += `<line x1="${rs}" y1="${screenY}" x2="${rs - 8}" y2="${screenY}" stroke="${colors.rulerLine}"/>`;
             leftTicks += `<text x="3" y="${screenY + 3}" fill="${colors.rulerText}" font-size="10" font-family="monospace">${formatLabel(-worldY)}</text>`;
@@ -1472,6 +1515,8 @@ export class Viewport {
         this._rulerBuildState = {
             scale: this.scale,
             units: this.units,
+            gridSize: this.gridSize,
+            gridVisible: this.gridVisible,
             w: this.width,
             h: this.height,
             vbX: this.viewBox.x,
@@ -1560,7 +1605,7 @@ export class Viewport {
     
     /**
      * Switch display units and refresh rulers.
-     * @param {'mm'|'mil'|'inch'} units - Target unit system.
+     * @param {ViewportUnit} units - Target unit system.
      */
     setUnits(units) {
         if (this.unitConversions[units] && units !== this.units) {
@@ -1572,6 +1617,7 @@ export class Viewport {
     
     /**
      * Convert mm to current display units
+     * @param {number} mmValue
      */
     toDisplayUnits(mmValue) {
         return mmValue * this.unitConversions[this.units];
@@ -1579,6 +1625,7 @@ export class Viewport {
     
     /**
      * Convert current display units to mm
+     * @param {number} displayValue
      */
     fromDisplayUnits(displayValue) {
         return displayValue / this.unitConversions[this.units];
@@ -1586,6 +1633,8 @@ export class Viewport {
     
     /**
      * Format a world value (mm) for display in current units
+     * @param {number} worldValue
+     * @param {number} [precision]
      */
     formatValue(worldValue, precision = 2) {
         const converted = worldValue * this.unitConversions[this.units];
@@ -1594,31 +1643,28 @@ export class Viewport {
     
     /**
      * Get sensible grid size options for current units
-     * Returns array of { value: mm, label: string }
+     * Returns array of { value: mm, label: string, separatorBefore?: boolean }.
      */
     getGridOptions() {
-        switch (this.units) {
-            case 'inch':
-                return [
-                    { value: 0.0254, label: '0.001"' },
-                    { value: 0.127, label: '0.005"' },
-                    { value: 0.254, label: '0.01"' },
-                    { value: 0.635, label: '0.025"' },
-                    { value: 1.27, label: '0.05"' },
-                    { value: 2.54, label: '0.1"' }
-                ];
-            case 'mm':
-            default:
-                return [
-                    { value: 0.1, label: '0.1 mm' },
-                    { value: 0.127, label: '0.127 mm (5 mil)' },
-                    { value: 0.25, label: '0.25 mm' },
-                    { value: 0.5, label: '0.5 mm' },
-                    { value: 1, label: '1 mm' },
-                    { value: 1.27, label: '1.27 mm (50 mil)' },
-                    { value: 2.54, label: '2.54 mm (100 mil)' }
-                ];
-        }
+        const inchOptions = [
+            { value: 0.0254, label: '0.001"' },
+            { value: 0.127, label: '0.005"' },
+            { value: 0.254, label: '0.01"' },
+            { value: 0.635, label: '0.025"' },
+            { value: 1.27, label: '0.05"' },
+            { value: 2.54, label: '0.1"' },
+        ];
+        if (this.units === 'inch') return inchOptions;
+        return [
+            { value: 0.1, label: '0.1 mm' },
+            { value: 0.25, label: '0.25 mm' },
+            { value: 0.5, label: '0.5 mm' },
+            { value: 1, label: '1 mm' },
+            ...inchOptions.map((option, index) => ({
+                value: option.value, label: `${option.value} mm (${option.label} / ${Math.round(option.value / 0.0254)} mil)`,
+                separatorBefore: index === 0,
+            })),
+        ];
     }
     
     // ==================== Browser Zoom Prevention ====================
@@ -1626,8 +1672,10 @@ export class Viewport {
     /** Prevent Ctrl+Plus/Minus/0 from triggering the browser's native zoom. */
     _disableBrowserZoom() {
         // Prevent Ctrl+Plus/Minus/0 browser zoom
+        /** @param {KeyboardEvent} e */
         this.boundHandlers.browserZoom = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+            const target = /** @type {Element|null} */ (e.target);
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) return;
             if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
                 e.preventDefault();
             }
@@ -1635,6 +1683,7 @@ export class Viewport {
         window.addEventListener('keydown', this.boundHandlers.browserZoom);
 
         // Prevent Ctrl+wheel browser zoom anywhere in the app (not just SVG)
+        /** @param {WheelEvent} e */
         this.boundHandlers.browserWheelZoom = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.deltaY !== 0) {
                 e.preventDefault();
@@ -1648,6 +1697,7 @@ export class Viewport {
     /** Bind wheel, mouse, keyboard, and resize event handlers to the SVG and window. */
     _bindEvents() {
         // Store handlers for cleanup
+        /** @param {WheelEvent} e */
         this.boundHandlers.wheel = (e) => {
             e.preventDefault(); // Always prevent default to block browser zoom
             if (this.onInteractionStart) this.onInteractionStart('wheel');
@@ -1711,19 +1761,8 @@ export class Viewport {
         window.addEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver = new ResizeObserver(() => this._onResize());
         this.resizeObserver.observe(this.container);
-        
-        // Keyboard
-        this.boundHandlers.keydown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-            
-            switch (e.key) {
-                case 'Home':
-                    this.resetView();
-                    break;
-                // 'F' for fit-to-content handled in keyboard.js (needs app context)
-            }
-        };
-        window.addEventListener('keydown', this.boundHandlers.keydown);
+        // View keys belong to each editor's keyboard handler, which
+        // acts only while that editor is active: a window listener here reset both editors' views.
     }
     
     /**
@@ -1737,7 +1776,6 @@ export class Viewport {
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver?.disconnect();
-        if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
         if (this.boundHandlers.browserWheelZoom) window.removeEventListener('wheel', this.boundHandlers.browserWheelZoom);
         

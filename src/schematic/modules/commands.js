@@ -1,4 +1,8 @@
 import { Command } from '../../core/CommandHistory.js';
+import { editTargets } from '../../core/edit-guard.js';
+import { setComponentReference } from '../../core/SchematicDocument.js';
+import { Component } from '../../components/Component.js';
+import { applySchematicItemState } from '../../core/schematic-state.js';
 /**
  * CommandHistory - Manages undo/redo stack
  * 
@@ -6,15 +10,64 @@ import { Command } from '../../core/CommandHistory.js';
  */
 
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
-import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
-import { connectComponentPinsToWires, PIN_ATTACH_TOL } from '../../ui/modules/pin-wire-connect.js';
+import { applyStickyConnections, captureStickyNetLabels, followStickyNetLabels } from './sticky-wires.js';
+import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
+import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
+import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
+/**
+ * @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem
+ * @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable
+ * @typedef {import('../../shapes/wire.js').Wire} Wire
+ * @typedef {import('../../shapes/net.js').Net} Net
+ * @typedef {import('../../shapes/text.js').Text} TextShape
+ * @typedef {import('../../shapes/polyline.js').Polyline} Polyline
+ * @typedef {import('../../shapes/circle.js').Circle} Circle
+ * @typedef {import('../../shapes/arc.js').Arc} Arc
+ * @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect
+ * @typedef {import('../../shapes/shape.js').Shape} BaseShape
+ * @typedef {Wire | Net | TextShape | Polyline | Circle | Arc | NoConnect} Shape
+ * @typedef {SchematicItem | BaseShape} EditableItem
+ * @typedef {import('./selection.js').ShapeState} ShapeState
+ * @typedef {import('../../ui/SchematicApp.js').ShapeRestoreData} ShapeRestoreData
+ * @typedef {{component: Component, index: number}} ComponentRestoreData
+ * @typedef {{componentId: string, pinNumber: string|number, [key: string]: unknown}} PinConnection
+ * @typedef {{wire: Wire, nodeId: string, conn: PinConnection}} RemovedPinConnection
+ */
+
+/** @param {unknown} item @returns {item is {attachedLabels: Set<TextShape>}} */
+function hasAttachedLabels(item) {
+    return typeof item === 'object' && item !== null && 'attachedLabels' in item && item.attachedLabels instanceof Set;
+}
+
+/**
+ * Property descriptors drive schematic property edits by string key.
+ * @param {object} item
+ * @param {string} prop
+ */
+function readSchematicProperty(item, prop) {
+    return Reflect.get(item, prop);
+}
+
+/**
+ * Property descriptors drive schematic property edits by string key.
+ * @param {object} item
+ * @param {string} prop
+ * @param {*} value
+ */
+function writeSchematicProperty(item, prop, value) {
+    Reflect.set(item, prop, value);
+}
 
 /**
  * Update wires connected to a Net label to use its current net name.
+ * @param {SchematicEditor} app
+ * @param {Net} netShape
  */
 function _propagateNetNameToWires(app, netShape) {
     for (const wire of app.shapes) {
-        if (wire.type !== 'wire') continue;
+        if (!isWire(wire)) continue;
         for (const [, conn] of wire.pinConnections) {
             if (conn.componentId === netShape.id) {
                 if (wire.net !== netShape.net) {
@@ -27,38 +80,35 @@ function _propagateNetNameToWires(app, netShape) {
             }
         }
     }
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel(app.selection?.getSelection?.() || []);
 }
-
-/** @typedef {any} SchematicApp */
-/** @typedef {any} Shape */
-/** @typedef {any} Component */
 
 /**
  * Command to add a shape
  */
 export class AddShapeCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Shape} shape - The shape to add
+     * @param {SchematicEditor} app
+     * @param {SchematicDrawable} shape - The shape to add
      */
     constructor(app, shape) {
         super(`Add ${shape.type}`);
         this.app = app;
         this.shape = shape;
-        this.linkedLabelText = (shape.type === 'wire' || shape.type === 'net')
+        this.linkedLabelText = (isWire(shape) || isNet(shape))
             ? (shape.labelText || null)
             : null;
     }
     
     /** Add the shape to the canvas. */
+    lockTargets() { return []; }
     execute() {
-        this.linkedLabelText = this.app._commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
+        this.linkedLabelText = this.app.commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
     }
     
     /** Remove the shape from the canvas. */
     undo() {
-        this.linkedLabelText = this.app._commandRemoveShape(this.shape, { preserveLinkedLabelRef: true }) || this.linkedLabelText;
+        this.linkedLabelText = this.app.commandRemoveShape(this.shape, { preserveLinkedLabelRef: true }) || this.linkedLabelText;
     }
 }
 
@@ -67,8 +117,8 @@ export class AddShapeCommand extends Command {
  */
 export class DeleteShapesCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Shape[]} shapes - The shapes to delete
+     * @param {SchematicEditor} app
+     * @param {BaseShape[]} shapes - The shapes to delete
      */
     constructor(app, shapes) {
         super(shapes.length === 1 ? `Delete ${shapes[0].type}` : `Delete ${shapes.length} shapes`);
@@ -78,15 +128,18 @@ export class DeleteShapesCommand extends Command {
         for (let i = 0; i < app.shapes.length; i++) {
             indexMap.set(app.shapes[i], i);
         }
+        /** @type {ShapeRestoreData[]} */
         this.shapesData = shapes.map(s => ({
-            shape: s,
+            shape: /** @type {SchematicDrawable} */ (s),
             index: indexMap.get(s) ?? -1
         }));
 
         const explicitShapes = new Set(shapes);
         const linkedShapeSet = new Set();
+        /** @type {ShapeRestoreData[]} */
         this.linkedLabelData = [];
 
+        /** @param {TextShape|null|undefined} labelShape @param {Shape|null} parentShape */
         const pushLinked = (labelShape, parentShape) => {
             if (!labelShape || explicitShapes.has(labelShape) || linkedShapeSet.has(labelShape)) return;
             linkedShapeSet.add(labelShape);
@@ -99,19 +152,19 @@ export class DeleteShapesCommand extends Command {
 
         for (const data of this.shapesData) {
             const shape = data.shape;
-            if ((shape.type === 'wire' || shape.type === 'net') && shape.labelText) {
+            if ((isWire(shape) || isNet(shape)) && shape.labelText) {
                 pushLinked(shape.labelText, shape);
             }
-            if (shape.type === 'wire' && shape.attachedLabels instanceof Set) {
+            if (isWire(shape) && shape.attachedLabels instanceof Set) {
                 for (const label of shape.attachedLabels) {
-                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (!isTextShape(label) || label.fieldKey !== 'label') continue;
                     if (label.parentComponent !== shape) continue;
                     pushLinked(label, shape);
                 }
             }
-            if (shape.type !== 'wire' && shape.attachedLabels instanceof Set) {
+            if (!isWire(shape) && hasAttachedLabels(shape)) {
                 for (const label of shape.attachedLabels) {
-                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (!isTextShape(label) || label.fieldKey !== 'label') continue;
                     if (label.parentComponent !== shape) continue;
                     pushLinked(label, null);
                 }
@@ -120,13 +173,14 @@ export class DeleteShapesCommand extends Command {
     }
     
     /** Remove the shapes from the canvas and deselect them. */
+    lockTargets() { return this.shapesData.map(({ shape }) => ({ object: shape })); }
     execute() {
-        this.app._commandDeleteShapes(this.shapesData, this.linkedLabelData);
+        this.app.commandDeleteShapes(this.shapesData, this.linkedLabelData);
     }
     
     /** Re-insert the shapes at their original z-order positions. */
     undo() {
-        this.app._commandRestoreShapes(this.shapesData, this.linkedLabelData);
+        this.app.commandRestoreShapes(this.shapesData, this.linkedLabelData);
     }
 }
 
@@ -135,25 +189,26 @@ export class DeleteShapesCommand extends Command {
  */
 export class MoveShapesCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Array<Shape|Component>} items - Items to move
+     * @param {SchematicEditor} app
+     * @param {EditableItem[]} items - Items to move
      * @param {number} dx - Horizontal displacement
      * @param {number} dy - Vertical displacement
      */
     constructor(app, items, dx, dy) {
-        const label = items.length === 1 
-            ? `Move ${items[0].type || items[0].reference || 'item'}` 
+        const label = items.length === 1
+            ? `Move ${items[0].type || 'item'}`
             : `Move ${items.length} items`;
         super(label);
         this.app = app;
         this.itemIds = items.map(s => s.id);
+        this.netLabels = captureStickyNetLabels(app, new Set(this.itemIds));
         this.dx = dx;
         this.dy = dy;
     }
     
     /**
      * Build a Map of id → shape/component for O(1) lookups.
-     * @returns {Map<string, Shape|Component>}
+     * @returns {Map<string, SchematicItem>}
      */
     _buildLookup() {
         const map = new Map();
@@ -163,11 +218,18 @@ export class MoveShapesCommand extends Command {
     }
     
     /** Move all items by (dx, dy) and update sticky wires. */
+    lockTargets() {
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.itemIds.map(id => ({ object: items.get(id) }));
+    }
     execute() {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
             const item = lookup.get(id);
-            if (item) item.move(this.dx, this.dy);
+            if (item) {
+                item.move(this.dx, this.dy);
+                if (item instanceof Component) refreshComponentPose(item);
+            }
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
@@ -178,7 +240,10 @@ export class MoveShapesCommand extends Command {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
             const item = lookup.get(id);
-            if (item) item.move(-this.dx, -this.dy);
+            if (item) {
+                item.move(-this.dx, -this.dy);
+                if (item instanceof Component) refreshComponentPose(item);
+            }
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
@@ -186,13 +251,13 @@ export class MoveShapesCommand extends Command {
 
     /**
      * Update wire nodes connected to component pins after move/undo.
-     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js.
+     * NOTE: Duplicates updateStickyWires() in schematic/modules/wire.js.
      * Kept inline to avoid circular import (wire.js imports from this module).
      */
     _updateStickyWires() {
         // Skip explicitly moved NoConnect shapes so user-intentful drags
         // don't snap back to connected pins.
-        applyStickyConnections(this.app, { movedIds: new Set(this.itemIds) });
+        applyStickyConnections(this.app, { movedIds: new Set(this.itemIds), netLabels: this.netLabels });
     }
 }
 
@@ -201,10 +266,10 @@ export class MoveShapesCommand extends Command {
  */
 export class ModifyShapeCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Shape|Component} shape - The item being modified
-     * @param {Object} beforeState - Snapshot of shape state before the edit
-     * @param {Object} afterState - Snapshot of shape state after the edit
+     * @param {SchematicEditor} app
+     * @param {EditableItem} shape - The item being modified
+     * @param {ShapeState} beforeState - Snapshot of shape state before the edit
+     * @param {ShapeState} afterState - Snapshot of shape state after the edit
      */
     constructor(app, shape, beforeState, afterState) {
         super(`Modify ${shape.type}`);
@@ -215,6 +280,7 @@ export class ModifyShapeCommand extends Command {
     }
     
     /** Apply the after-state to restore the modification. */
+    lockTargets() { return editTargets(undefined, this._findItem(this.shapeId), this.beforeState, this.afterState); }
     execute() {
         const shape = this._findItem(this.shapeId);
         if (shape) {
@@ -233,9 +299,10 @@ export class ModifyShapeCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|Component|undefined}
+     * @returns {SchematicItem|undefined}
      */
     _findItem(id) {
+        /** @type {SchematicItem|undefined} */
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
@@ -243,29 +310,40 @@ export class ModifyShapeCommand extends Command {
 
     /**
      * Apply a captured state snapshot to a shape and re-render.
-     * @param {Shape|Component} shape
-     * @param {Object} state - State object from captureState()
+     * @param {SchematicItem} shape
+     * @param {ShapeState} state - State object from captureState()
      */
     _applyState(shape, state) {
-        shape.applyState(state);
+        const netLabels = shape instanceof Component ? captureStickyNetLabels(this.app, new Set([shape.id])) : [];
+        const oldRotation = shape instanceof Component ? shape.rotation : undefined;
+        const oldMirror = shape instanceof Component ? shape.mirror : undefined;
+        applySchematicItemState(shape, state);
+        if (shape instanceof Component) {
+            const rebuild = ('rotation' in state && state.rotation !== undefined && state.rotation !== oldRotation)
+                || ('mirror' in state && state.mirror !== undefined && state.mirror !== oldMirror);
+            refreshComponentPose(shape, { rebuild });
+            applyStickyConnections(this.app, { movedIds: new Set([shape.id]), netLabels });
+        }
         // Sync field text changes back to parent component or wire
-        if ('text' in state && shape.parentComponent && shape.fieldKey) {
-            if (shape.fieldKey === 'wireLabel' && shape.parentComponent.type === 'wire') {
-                freeWireLabel(shape.parentComponent.wireLabel);
-                shape.parentComponent.wireLabel = shape.text;
+        if ('text' in state && isTextShape(shape) && shape.parentComponent && shape.fieldKey) {
+            const parent = shape.parentComponent;
+            if ((shape.fieldKey === 'wireLabel' || shape.fieldKey === 'label') && isWire(parent)) {
+                freeWireLabel(parent.wireLabel);
+                parent.wireLabel = shape.text;
                 bumpWireLabelCounter(shape.text);
-                shape.parentComponent.invalidate();
-            } else if (shape.fieldKey === 'net' && shape.parentComponent.type === 'net') {
-                const oldName = shape.parentComponent.net;
-                shape.parentComponent.net = shape.text;
-                shape.parentComponent.syncTextOffsetFromLabelText?.();
-                shape.parentComponent.invalidate();
+                parent.invalidate();
+            } else if (shape.fieldKey === 'net' && isNet(parent)) {
+                const oldName = parent.net;
+                parent.net = shape.text;
+                parent.syncTextOffsetFromLabelText?.();
+                parent.invalidate();
                 // Propagate renamed net to all attached wires
-                if (oldName !== shape.parentComponent.net) {
-                    _propagateNetNameToWires(this.app, shape.parentComponent);
+                if (oldName !== parent.net) {
+                    _propagateNetNameToWires(this.app, parent);
                 }
-            } else {
-                shape.parentComponent[shape.fieldKey] = shape.text;
+            } else if (shape.fieldKey !== 'label') {
+                // Generic attached labels on non-wire shapes are free text with no parent field.
+                writeSchematicProperty(parent, shape.fieldKey, shape.text);
             }
         }
         this.app.renderShapes(true);
@@ -277,8 +355,8 @@ export class ModifyShapeCommand extends Command {
  */
 export class ModifyPropertyCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Array<Shape|Component>} items - Items whose property is changing
+     * @param {SchematicEditor} app
+     * @param {EditableItem[]} items - Items whose property is changing
      * @param {string} prop - Property name to modify
      * @param {*} newValue - New value for the property
      */
@@ -290,7 +368,7 @@ export class ModifyPropertyCommand extends Command {
         this.app = app;
         this.entries = items.map(item => ({
             id: item.id,
-            oldValue: item[prop],
+            oldValue: readSchematicProperty(item, prop),
             newValue
         }));
         this.prop = prop;
@@ -299,9 +377,10 @@ export class ModifyPropertyCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|Component|undefined}
+     * @returns {SchematicItem|undefined}
      */
     _findItem(id) {
+        /** @type {SchematicItem|undefined} */
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
@@ -314,6 +393,8 @@ export class ModifyPropertyCommand extends Command {
      * @param {boolean} useNew - If true apply newValue; otherwise restore oldValue
      */
     _applyValues(useNew) {
+        const netLabels = ['x', 'y', 'rotation', 'mirror'].includes(this.prop)
+            ? captureStickyNetLabels(this.app, new Set(this.entries.map(entry => entry.id))) : [];
         const lookup = new Map();
         for (const s of this.app.shapes) lookup.set(s.id, s);
         for (const c of this.app.components) lookup.set(c.id, c);
@@ -322,32 +403,38 @@ export class ModifyPropertyCommand extends Command {
             if (!item) continue;
             const val = useNew ? entry.newValue : entry.oldValue;
             // Mirror/flip needs special handling — must use flipHorizontal() for SVG recreation
-            if (this.prop === 'mirror' && typeof item.flipHorizontal === 'function') {
+            if (this.prop === 'mirror' && item instanceof Component) {
                 if (item.mirror !== val) {
                     item.flipHorizontal();
+                    refreshComponentPose(item, { rebuild: true });
                 }
+            } else if (this.prop === 'reference') {
+                setComponentReference(/** @type {Component} */ (item), val);
             } else {
-                item[this.prop] = val;
+                writeSchematicProperty(item, this.prop, val);
             }
             if (typeof item.invalidate === 'function') item.invalidate();
             // Sync field text changes back to parent component
-            if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
-                if (item.fieldKey === 'net' && item.parentComponent.type === 'net') {
-                    item.parentComponent.net = val;
-                    item.parentComponent.syncTextOffsetFromLabelText?.();
-                    item.parentComponent.invalidate();
-                } else if ((item.fieldKey === 'wireLabel' || item.fieldKey === 'label') && item.parentComponent.type === 'wire') {
+            if (this.prop === 'text' && isTextShape(item) && item.parentComponent && item.fieldKey) {
+                const parent = item.parentComponent;
+                if (item.fieldKey === 'net' && isNet(parent)) {
+                    parent.net = val;
+                    parent.syncTextOffsetFromLabelText?.();
+                    parent.invalidate();
+                } else if ((item.fieldKey === 'wireLabel' || item.fieldKey === 'label') && isWire(parent)) {
                     const prev = useNew ? entry.oldValue : entry.newValue;
                     freeWireLabel(prev);
-                    item.parentComponent.wireLabel = val;
+                    parent.wireLabel = val;
                     bumpWireLabelCounter(val);
-                    item.parentComponent.invalidate();
-                } else {
-                    item.parentComponent[item.fieldKey] = val;
+                    parent.invalidate();
+                } else if (item.fieldKey === 'reference') {
+                    setComponentReference(/** @type {Component} */ (parent), val);
+                } else if (item.fieldKey !== 'label') {
+                    writeSchematicProperty(parent, item.fieldKey, val);
                 }
             }
             // Sync wireLabel property edits through the label tracking system
-            if (this.prop === 'wireLabel' && item.type === 'wire') {
+            if (this.prop === 'wireLabel' && isWire(item)) {
                 const otherLabel = useNew ? entry.oldValue : entry.newValue;
                 freeWireLabel(otherLabel);
                 bumpWireLabelCounter(val);
@@ -358,13 +445,13 @@ export class ModifyPropertyCommand extends Command {
                 }
             }
             // Sync net property edits through the net allocation system
-            if (this.prop === 'net' && item.type === 'wire') {
+            if (this.prop === 'net' && isWire(item)) {
                 const oldNet = useNew ? entry.oldValue : entry.newValue;
                 const newNet = useNew ? entry.newValue : entry.oldValue;
                 if (oldNet) freeNetName(oldNet);
                 if (newNet) bumpNetNameCounter(newNet);
             }
-            if (item.type === 'net' && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
+            if (isNet(item) && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
                 if (typeof item.syncTextOffsetFromLabelText === 'function') {
                     item.syncTextOffsetFromLabelText();
                 }
@@ -373,28 +460,36 @@ export class ModifyPropertyCommand extends Command {
                 }
             }
             // Sync component reference/value to field text content
-            if (this.prop === 'reference' && item.refText) {
-                item.refText.text = val;
+            if (this.prop === 'reference' && item instanceof Component && item.refText) {
                 item.refText.invalidate();
             }
-            if (this.prop === 'value' && item.valueText) {
+            if (this.prop === 'value' && item instanceof Component && item.valueText) {
                 item.valueText.text = val;
                 item.valueText.invalidate();
             }
             // Sync show flags to field text visibility
-            if (this.prop === 'showReference' && item.refText) {
+            if (this.prop === 'showReference' && item instanceof Component && item.refText) {
                 item.refText.visible = val;
                 item.refText.invalidate();
             }
-            if (this.prop === 'showValue' && item.valueText) {
+            if (this.prop === 'showValue' && item instanceof Component && item.valueText) {
                 item.valueText.visible = val;
                 item.valueText.invalidate();
             }
         }
+        if (netLabels.length) applyStickyConnections(this.app, {
+            movedIds: new Set(this.entries.map(entry => entry.id)), netLabels,
+        });
         this.app.renderShapes(true);
     }
 
     /** Apply the new property values. */
+    /** Lock changes are how locks are lifted; net renames follow connectivity. */
+    lockTargets() {
+        if (this.prop === 'locked' || this.prop === 'net') return [];
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.entries.map(({ id }) => ({ object: items.get(id) }));
+    }
     execute() { this._applyValues(true); }
     /** Restore the old property values. */
     undo() { this._applyValues(false); }
@@ -405,7 +500,7 @@ export class ModifyPropertyCommand extends Command {
  */
 export class DeleteComponentsCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component[]} components - Components to delete
      */
     constructor(app, components) {
@@ -445,43 +540,32 @@ export class DeleteComponentsCommand extends Command {
     }
 
     /** Remove the components and their field texts from the canvas. */
+    lockTargets() { return this.componentsData.map(({ component }) => ({ object: component })); }
     execute() {
         const app = this.app;
         // Collect all items to remove
         const compsToRemove = new Set(this.componentsData.map(d => d.component));
+        /** @type {Set<object>} */
         const ftsToRemove = new Set();
+        /** @type {Set<object>} */
         const attachedToRemove = new Set(this.attachedLabelData.map(d => d.shape));
-        // Detach content layer to batch DOM removals
-        const layer = app.viewport.contentLayer;
-        const parent = layer.parentNode;
-        const nextSib = layer.nextSibling;
-        if (parent) parent.removeChild(layer);
-        for (const data of this.componentsData) {
-            const comp = data.component;
-            if (comp.hovered) {
-                comp.hovered = false;
-                if (app.selection.hovered === comp.id) app.selection.hovered = null;
-            }
-            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
-            for (const ft of comp.getFieldTexts()) {
-                ftsToRemove.add(ft);
-                if (ft.hovered) {
-                    ft.hovered = false;
-                    if (app.selection.hovered === ft.id) app.selection.hovered = null;
+        withContentDetached(app, () => {
+            for (const data of this.componentsData) {
+                const comp = data.component;
+                app.selection.dropHover(comp);
+                unmountComponent(comp);
+                for (const ft of comp.getFieldTexts()) {
+                    ftsToRemove.add(ft);
+                    app.selection.dropHover(ft);
+                    unmountShape(ft);
                 }
-                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
-        }
-        for (const label of attachedToRemove) {
-            if (label.hovered) {
-                label.hovered = false;
-                if (app.selection.hovered === label.id) app.selection.hovered = null;
+            for (const label of attachedToRemove) {
+                const labelShape = /** @type {TextShape} */ (label);
+                app.selection.dropHover(labelShape);
+                unmountShape(labelShape);
             }
-            if (label.element?.parentNode) label.element.parentNode.removeChild(label.element);
-            if (label.anchorsGroup?.parentNode) label.anchorsGroup.parentNode.removeChild(label.anchorsGroup);
-        }
-        // Reattach content layer
-        if (parent) parent.insertBefore(layer, nextSib);
+        });
         // In-place filter components: O(N) instead of O(N²)
         let writeIdx = 0;
         for (let i = 0; i < app.components.length; i++) {
@@ -504,10 +588,11 @@ export class DeleteComponentsCommand extends Command {
         // on-canvas connection dots disappear (and can be restored on undo).
         const removedIds = new Set();
         for (const c of compsToRemove) removedIds.add(c.id);
+        /** @type {RemovedPinConnection[]|null} */
         this._removedPinConnections = [];
         const dirtyWires = new Set();
         for (const shape of app.shapes) {
-            if (shape.type !== 'wire' || shape.pinConnections.size === 0) continue;
+            if (!isWire(shape) || shape.pinConnections.size === 0) continue;
             for (const [nodeId, conn] of shape.pinConnections) {
                 if (removedIds.has(conn.componentId)) {
                     this._removedPinConnections.push({ wire: shape, nodeId, conn });
@@ -516,8 +601,8 @@ export class DeleteComponentsCommand extends Command {
                 }
             }
         }
-        for (const wire of dirtyWires) wire.render(app.viewport.scale);
-        app._updateSelectableItems();
+        for (const wire of dirtyWires) redrawShape(app, wire);
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 
@@ -528,17 +613,15 @@ export class DeleteComponentsCommand extends Command {
         const shapeSet = new Set(app.shapes);
         for (const data of sorted) {
             const comp = data.component;
-            comp.hovered = false;
-            if (!comp.element) comp.createSymbolElement();
+            app.selection.dropHover(comp);
             const idx = Math.min(data.index, app.components.length);
             app.components.splice(idx, 0, comp);
-            app.viewport.addComponentContent(comp.element);
+            mountComponent(app, comp);
             for (const ft of comp.getFieldTexts()) {
                 if (!shapeSet.has(ft)) {
                     app.shapes.push(ft);
                     shapeSet.add(ft);
-                    ft.render(app.viewport.scale);
-                    app.viewport.addContent(ft.element);
+                    mountShape(app, ft);
                 }
             }
         }
@@ -549,8 +632,7 @@ export class DeleteComponentsCommand extends Command {
             const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
             app.shapes.splice(idx, 0, label);
             shapeSet.add(label);
-            label.render(app.viewport.scale);
-            app.viewport.addContent(label.element);
+            mountShape(app, label);
         }
         // Restore wire→pin connection records (and their dots) removed on execute.
         if (this._removedPinConnections?.length) {
@@ -559,10 +641,10 @@ export class DeleteComponentsCommand extends Command {
                 wire.pinConnections.set(nodeId, conn);
                 dirtyWires.add(wire);
             }
-            for (const wire of dirtyWires) wire.render(app.viewport.scale);
+            for (const wire of dirtyWires) redrawShape(app, wire);
         }
         this._removedPinConnections = null;
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }
@@ -572,7 +654,7 @@ export class DeleteComponentsCommand extends Command {
  */
 export class AddComponentCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component} component - The component to add
      */
     constructor(app, component) {
@@ -582,6 +664,7 @@ export class AddComponentCommand extends Command {
     }
 
     /** Add the component and its field texts to the canvas. */
+    lockTargets() { return []; }
     execute() {
         // On first execute, snapshot wire states before placement so undo can restore them
         if (!this._wireStatesBeforePlace) {
@@ -589,7 +672,7 @@ export class AddComponentCommand extends Command {
             const comp = this.component;
             if (comp.symbol?.pins) {
                 for (const wire of this.app.shapes) {
-                    if (wire.type !== 'wire') continue;
+                    if (!isWire(wire)) continue;
                     for (const pin of comp.symbol.pins) {
                         const pinPos = comp.getPinPosition?.(pin.number);
                         if (!pinPos) continue;
@@ -613,20 +696,16 @@ export class AddComponentCommand extends Command {
         }
 
         this.app.components.push(this.component);
-        if (!this.component.element) {
-            this.component.createSymbolElement();
-        }
-        this.app.viewport.addComponentContent(this.component.element);
+        mountComponent(this.app, this.component);
         // Create field texts if they don't exist yet
         if (!this.component.refText && !this.component.valueText) {
-            this.component.createFieldTexts(this.app);
+            for (const ft of this.component.createFieldTexts(this.app)) mountShape(this.app, ft);
         } else {
             // Re-add existing field texts
             for (const ft of this.component.getFieldTexts()) {
                 if (!this.app.shapes.includes(ft)) {
                     this.app.shapes.push(ft);
-                    ft.render(this.app.viewport.scale);
-                    this.app.viewport.addContent(ft.element);
+                    mountShape(this.app, ft);
                 }
             }
         }
@@ -638,7 +717,7 @@ export class AddComponentCommand extends Command {
             tolerance: PIN_ATTACH_TOL
         });
 
-        this.app._updateSelectableItems();
+        this.app.updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }
 
@@ -649,7 +728,7 @@ export class AddComponentCommand extends Command {
         const compId = this.component.id;
         const affectedWireStates = new Map();
         for (const shape of this.app.shapes) {
-            if (shape.type !== 'wire') continue;
+            if (!isWire(shape)) continue;
             for (const [, conn] of shape.pinConnections) {
                 if (conn.componentId === compId) {
                     // This wire is connected - save its state if we haven't already
@@ -665,14 +744,12 @@ export class AddComponentCommand extends Command {
         if (idx !== -1) {
             this.app.components.splice(idx, 1);
         }
-        if (this.component.element && this.component.element.parentNode) {
-            this.component.element.parentNode.removeChild(this.component.element);
-        }
+        unmountComponent(this.component);
         // Remove field texts
         const ftsToRemove = new Set();
         for (const ft of this.component.getFieldTexts()) {
             ftsToRemove.add(ft);
-            if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
+            unmountShape(ft);
         }
         if (ftsToRemove.size > 0) {
             let writeIdx = 0;
@@ -686,7 +763,7 @@ export class AddComponentCommand extends Command {
         // Clean up wire pinConnections referencing this removed component
         // and restore wire geometry to pre-placement state if saved
         for (const shape of this.app.shapes) {
-            if (shape.type !== 'wire') continue;
+            if (!isWire(shape)) continue;
             for (const [nodeId, conn] of shape.pinConnections) {
                 if (conn.componentId === compId) {
                     shape.pinConnections.delete(nodeId);
@@ -697,12 +774,12 @@ export class AddComponentCommand extends Command {
         if (this._wireStatesBeforePlace) {
             for (const [wireId, state] of this._wireStatesBeforePlace) {
                 const wire = this.app.shapes.find(s => s.id === wireId);
-                if (wire?.type === 'wire') {
+                if (isWire(wire)) {
                     wire.applyState(state);
                 }
             }
         }
-        this.app._updateSelectableItems();
+        this.app.updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }
 }
@@ -712,7 +789,7 @@ export class AddComponentCommand extends Command {
  */
 export class TransformComponentCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component[]} components - Components to transform
      * @param {string} type - Transform type: 'RotateRight', 'RotateLeft', 'FlipH', 'FlipV', 'Rotate', or 'Mirror'
      */
@@ -723,6 +800,7 @@ export class TransformComponentCommand extends Command {
         super(label);
         this.app = app;
         this.type = type;
+        this.netLabels = captureStickyNetLabels(app, new Set(components.map(component => component.id)));
         this.entries = components.map(c => ({
             id: c.id,
             oldX: c.x,
@@ -754,8 +832,6 @@ export class TransformComponentCommand extends Command {
                     const ft = comp.getFieldTexts().find(f => f.id === fp.id);
                     if (ft) { ft.x = fp.x; ft.y = fp.y; ft.invalidate(); }
                 }
-                // Rotation and mirror are baked into element creation — always recreate
-                comp._recreateElement();
             } else {
                 switch (this.type) {
                     case 'RotateRight': comp.rotate(90); break;
@@ -767,35 +843,35 @@ export class TransformComponentCommand extends Command {
                     case 'Mirror':      comp.flipHorizontal(); break;
                 }
             }
-            if (comp.element) {
-                const transform = comp._buildTransform();
-                if (transform) {
-                    comp.element.setAttribute('transform', transform);
-                } else {
-                    comp.element.removeAttribute('transform');
-                }
-            }
+            // Rotation and mirror are baked into the symbol, so every transform pass rebuilds it.
+            refreshComponentPose(comp, { rebuild: true });
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
     }
 
     /** Perform the transform. */
+    lockTargets() {
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.entries.map(({ id }) => ({ object: items.get(id) }));
+    }
     execute() { this._apply(false); }
     /** Reverse the transform by restoring captured state. */
     undo() { this._apply(true); }
 
     /**
      * Update wire nodes connected to component pins after transform.
-     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js and
+     * NOTE: Duplicates updateStickyWires() in schematic/modules/wire.js and
      * MoveShapesCommand._updateStickyWires() — kept inline to avoid
      * circular imports.
      */
     _updateStickyWires() {
+        followStickyNetLabels(this.app, this.netLabels);
         for (const shape of this.app.shapes) {
-            if (shape.type === 'wire') {
+            if (isWire(shape)) {
                 for (const [nodeId, conn] of shape.pinConnections) {
-                    const comp = this.app.components.find(c => c.id === conn.componentId);
+                    const comp = this.app.components.find(c => c.id === conn.componentId)
+                        || this.app.shapes.filter(isNet).find(s => s.id === conn.componentId);
                     if (comp) {
                         const pos = comp.getPinPosition(conn.pinNumber);
                         if (pos) {
@@ -808,10 +884,11 @@ export class TransformComponentCommand extends Command {
                         }
                     }
                 }
-            } else if (shape.type === 'noconnect' && shape.pinConnection) {
-                const comp = this.app.components.find(c => c.id === shape.pinConnection.componentId);
+            } else if (isNoConnect(shape) && shape.pinConnection) {
+                const pinConnection = shape.pinConnection;
+                const comp = this.app.components.find(c => c.id === pinConnection.componentId);
                 if (comp) {
-                    const pos = comp.getPinPosition(shape.pinConnection.pinNumber);
+                    const pos = comp.getPinPosition(pinConnection.pinNumber);
                     if (pos) {
                         shape.x = pos.x;
                         shape.y = pos.y;
@@ -829,8 +906,8 @@ export class TransformComponentCommand extends Command {
  */
 export class PasteCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
-     * @param {Shape[]} shapes - Pasted shapes
+     * @param {SchematicEditor} app
+     * @param {BaseShape[]} shapes - Pasted shapes
      * @param {Component[]} components - Pasted components
      */
     constructor(app, shapes, components) {
@@ -842,37 +919,36 @@ export class PasteCommand extends Command {
     }
 
     /** Add all pasted shapes and components to the canvas. */
+    lockTargets() { return []; }
     execute() {
         const app = this.app;
         // Build a Set for O(1) membership checks on field texts
         const shapeSet = new Set(app.shapes);
         // Bulk-add shapes without per-item updateSelectableItems
         for (const shape of this.shapes) {
-            app.shapes.push(shape);
-            shape.render(app.viewport.scale);
-            app.viewport.addContent(shape.element);
-            shapeSet.add(shape);
+            const schematicShape = /** @type {SchematicDrawable} */ (shape);
+            app.shapes.push(schematicShape);
+            mountShape(app, schematicShape);
+            shapeSet.add(schematicShape);
         }
         // Bulk-add components
         for (const comp of this.components) {
             app.components.push(comp);
-            if (!comp.element) comp.createSymbolElement();
-            app.viewport.addComponentContent(comp.element);
+            mountComponent(app, comp);
             if (!comp.refText && !comp.valueText) {
-                comp.createFieldTexts(app);
+                for (const ft of comp.createFieldTexts(app)) mountShape(app, ft);
             } else {
                 for (const ft of comp.getFieldTexts()) {
                     if (!shapeSet.has(ft)) {
                         app.shapes.push(ft);
                         shapeSet.add(ft);
-                        ft.render(app.viewport.scale);
-                        app.viewport.addContent(ft.element);
+                        mountShape(app, ft);
                     }
                 }
             }
         }
-        app._updateSelectableItems();
-        app.selection._invalidateHitTestCache();
+        app.updateSelectableItems();
+        app.selection.invalidateHitCache();
         app.fileManager.setDirty(true);
     }
 
@@ -880,34 +956,27 @@ export class PasteCommand extends Command {
     undo() {
         const app = this.app;
         // Collect all items to remove in Sets for O(N) filtering
+        /** @type {Set<object>} */
         const shapesToRemove = new Set(this.shapes);
         const compsToRemove = new Set(this.components);
+        /** @type {Set<object>} */
         const ftsToRemove = new Set();
 
         // Remove component DOM and collect field texts
         for (const comp of this.components) {
-            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
+            unmountComponent(comp);
             for (const ft of comp.getFieldTexts()) {
                 ftsToRemove.add(ft);
-                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
-                if (ft.selected) {
-                    ft.selected = false;
-                    app.selection.selected.delete(ft.id);
-                }
+                unmountShape(ft);
+                app.selection.dropSelected(ft);
             }
-            if (comp.selected) {
-                comp.selected = false;
-                app.selection.selected.delete(comp.id);
-            }
+            app.selection.dropSelected(comp);
         }
         // Remove shape DOM
         for (const shape of this.shapes) {
-            if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
-            if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            if (shape.selected) {
-                shape.selected = false;
-                app.selection.selected.delete(shape.id);
-            }
+            const schematicShape = /** @type {SchematicDrawable} */ (shape);
+            unmountShape(schematicShape);
+            app.selection.dropSelected(schematicShape);
         }
         // In-place filter shapes array: O(N) instead of O(N²)
         let writeIdx = 0;
@@ -926,10 +995,9 @@ export class PasteCommand extends Command {
         }
         app.components.length = writeIdx;
         // One-time bookkeeping
-        app.selection._selectionCache = null;
-        app.selection._invalidateHitTestCache();
-        app.selection._notifySelectionChanged();
-        app._updateSelectableItems();
+        app.selection.invalidateHitCache();
+        app.selection.notifyChanged();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }
@@ -943,18 +1011,21 @@ export class BatchCommand extends Command {
      */
     constructor(label) {
         super(label);
+        /** @type {HistoryCommand[]} */
         this.commands = [];
     }
 
     /**
      * Append a sub-command to the batch.
-     * @param {Command} command
+     * @param {HistoryCommand} command
      */
     add(command) {
         this.commands.push(command);
     }
 
     /** Execute all sub-commands in order. */
+    /** A batch is checked through its child commands. */
+    lockTargets() { return []; }
     execute() {
         for (const cmd of this.commands) cmd.execute();
     }

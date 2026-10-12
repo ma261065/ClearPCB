@@ -1,0 +1,146 @@
+import { refreshBoardView } from './refresh-state.js';
+import { PCB_DESIGN_MAX_MM, clampDesignDimensions, viaDimensionError } from '../../core/PcbDesignSettings.js';
+import { areClearancesVisible } from './clearance-overlay.js';
+import { scheduleDrc } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/PcbDesignSettings.js').PcbRoutingField} PcbRoutingField */
+/** @typedef {string} DesignUnits */
+
+const STORAGE_KEY = 'clearpcb_pcb_design_params';
+const INPUTS = {
+    trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance',
+    viaDiameter: 'pcbViaDiameter', viaDrill: 'pcbViaDrill',
+};
+const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
+
+/** @param {PcbEditor} app */
+function saveDefaults(app) {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(app.designSettings.values));
+    } catch (error) {
+        console.warn('Could not save PCB design defaults:', error);
+    }
+}
+
+/** @param {PcbEditor} app */
+export function renderDesignSettings(app) {
+    app.refreshPcbRibbon?.();
+}
+
+/**
+ * Refresh controls and local defaults after model adoption, without editing data.
+ * @param {PcbEditor} app
+ */
+export function refreshDesignSettings(app) {
+    renderDesignSettings(app);
+    saveDefaults(app);
+}
+
+/**
+ * Bind presentation to the model; never read rounded controls back on unit changes.
+ * @param {PcbEditor} app
+ */
+export function bindDesignSettings(app) {
+    if (!app.designSettings) return;
+    try {
+        const stored = /** @type {Record<string, any>|null} */ (app.designSettings.hasAppliedSettings
+            ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'));
+        if (stored) {
+            /** @type {Record<string, any>} */
+            const restored = { units: stored.units || 'mm', router: stored.router || 'maze',
+                excludeSameFootprintPadClearance: stored.excludeSameFootprintPadClearance ?? false };
+            const factor = restored.units === 'inch' ? 25.4 : 1;
+            for (const [key, id] of Object.entries(INPUTS)) {
+                if (stored[key] !== undefined) restored[key] = stored[key];
+                else if (stored[id] != null && stored[id] !== '') restored[key] = Number(stored[id]) * factor;
+            }
+            app.designSettings.update(clampDesignDimensions(restored));
+        }
+    } catch (error) {
+        console.warn('Could not restore PCB design defaults:', error);
+    }
+    renderDesignSettings(app);
+}
+
+/** @param {PcbEditor} app @param {PcbRoutingField|string} key @param {string|number} rawValue @param {DesignUnits} units */
+function readDesignValue(app, key, rawValue, units) {
+    const value = Number(rawValue) * (units === 'inch' ? 25.4 : 1);
+    const maximum = PCB_DESIGN_MAX_MM[/** @type {PcbRoutingField} */ (key)];
+    let message = '';
+    if (!Number.isFinite(value) || value <= 0) message = 'Enter a positive finite number.';
+    // A small tolerance accepts the rounded inch display of the maximum itself.
+    else if (value > maximum + 0.01) {
+        message = units === 'inch'
+            ? `Enter a value no larger than ${Number((maximum / 25.4).toFixed(4))} in.`
+            : `Enter a value no larger than ${maximum} mm.`;
+    }
+    const clamped = Math.min(value, maximum);
+    if (!message && (key === 'viaDiameter' || key === 'viaDrill')) {
+        const current = app.designSettings.values;
+        message = viaDimensionError(key === 'viaDiameter' ? clamped : current.viaDiameter,
+            key === 'viaDrill' ? clamped : current.viaDrill);
+    }
+    return { value: message ? null : clamped, message };
+}
+
+/** @param {PcbEditor} app @param {HTMLInputElement} element @param {DesignUnits} units @param {PcbRoutingField|string} key */
+function readDesignInput(app, element, units, key) {
+    const result = readDesignValue(app, key, element.value, units);
+    element.setCustomValidity(result.message);
+    return result.value;
+}
+
+/** @param {PcbEditor} app @param {PcbRoutingField|string} key @param {number} value */
+function commitDesignUpdate(app, key, value) {
+    if (app.designSettings.update({ [key]: value })) {
+        saveDefaults(app);
+        app.markDirty();
+        if (areClearancesVisible(app)) app.showClearances(true);
+        app.refreshFills();
+        refreshBoardView(app);
+    }
+}
+
+/**
+ * Both ribbon and drawing-tool editors commit through the same mm conversion.
+ * @param {PcbEditor} app
+ * @param {PcbRoutingField|string} key
+ * @param {HTMLInputElement} element
+ * @param {DesignUnits} units
+ */
+export function commitDesignInput(app, key, element, units) {
+    const value = readDesignInput(app, element, units, key);
+    if (value === null) {
+        app.setStatus(element.validationMessage);
+        return false;
+    }
+    commitDesignUpdate(app, key, value);
+    return true;
+}
+
+/**
+ * Commit a design value without a DOM input; returns the validation message for panels.
+ * @param {PcbEditor} app
+ * @param {PcbRoutingField|string} key
+ * @param {string|number} rawValue
+ * @param {DesignUnits} [units]
+ * @param {((message: string) => void)|null} [onError]
+ */
+export function commitDesignValue(app, key, rawValue, units = 'mm', onError = null) {
+    const { value, message } = readDesignValue(app, key, rawValue, units);
+    if (value === null) {
+        onError?.(message);
+        app.setStatus(message);
+        return { ok: false, message };
+    }
+    commitDesignUpdate(app, key, value);
+    return { ok: true, message: '' };
+}
+
+/** @param {PcbEditor} app @param {boolean} excluded */
+export function commitSameFootprintPadClearanceExclusion(app, excluded) {
+    if (!app.designSettings.update({ excludeSameFootprintPadClearance: excluded })) return;
+    saveDefaults(app);
+    app.markDirty();
+    scheduleDrc(app);
+}

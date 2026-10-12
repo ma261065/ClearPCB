@@ -1,0 +1,110 @@
+/**
+ * Enables/disables and adjusts opacity of the undo and redo toolbar buttons
+ * based on `app.history` state.
+ */
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @param {SchematicEditor} app */
+export function updateUndoRedoButtons(app) {
+    app.refreshRibbon?.();
+}
+
+/**
+ * Set a checkbox to checked, unchecked, or indeterminate based on an array of boolean values.
+ * @param {HTMLInputElement} el
+ * @param {boolean[]} values
+ */
+export function setCheckboxState(el, values) {
+    el.indeterminate = false;
+    if (values.length === 0) {
+        el.checked = false;
+        el.disabled = true;
+        return;
+    }
+    const allTrue = values.every(v => v === true);
+    const allFalse = values.every(v => v === false);
+    el.disabled = false;
+    if (allTrue) {
+        el.checked = true;
+    } else if (allFalse) {
+        el.checked = false;
+    } else {
+        el.checked = false;
+        el.indeterminate = true;
+    }
+}
+
+/**
+ * Makes the `.help-panel` element draggable by its `<h3>` header,
+ * clamped to the window bounds.
+ */
+export function makeHelpPanelDraggable() {
+    const panel = /** @type {HTMLElement|null} */ (document.querySelector('.help-panel'));
+    if (!panel) return;
+    const header = /** @type {HTMLElement} */ (panel.querySelector('h3') || panel);
+
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    /** @param {MouseEvent} e */
+    const onMouseMove = (e) => {
+        if (!isDragging) return;
+        const x = e.clientX - offsetX;
+        const y = e.clientY - offsetY;
+
+        const maxX = window.innerWidth - panel.offsetWidth;
+        const maxY = window.innerHeight - panel.offsetHeight;
+
+        panel.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+        panel.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    };
+
+    const onMouseUp = () => {
+        if (isDragging) {
+            isDragging = false;
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        }
+    };
+
+    /** @param {MouseEvent} e */
+    const onMouseDown = (e) => {
+        isDragging = true;
+        const rect = panel.getBoundingClientRect();
+        offsetX = e.clientX - rect.left;
+        offsetY = e.clientY - rect.top;
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
+    };
+
+    header.addEventListener('mousedown', onMouseDown);
+}
+
+/** @type {ReturnType<typeof setTimeout>|null} */
+let autoSaveIndicatorTimer = null;
+
+/** Flash the shared autosave dot, extending its visibility on repeated saves. */
+export function flashAutoSaveIndicator() {
+    let dot = document.getElementById('clearpcb-autosave-dot');
+    if (!dot) {
+        dot = document.createElement('div');
+        dot.id = 'clearpcb-autosave-dot';
+        dot.style.cssText = [
+            'position:fixed', 'right:4px', 'bottom:4px',
+            'width:4px', 'height:4px', 'border-radius:50%',
+            'background:#3b9dff', 'box-shadow:0 0 4px #3b9dff',
+            'opacity:0', 'pointer-events:none', 'z-index:99999',
+            'transition:opacity 120ms ease-out',
+        ].join(';');
+        document.body.appendChild(dot);
+    }
+    dot.style.opacity = '1';
+    if (autoSaveIndicatorTimer !== null) clearTimeout(autoSaveIndicatorTimer);
+    autoSaveIndicatorTimer = setTimeout(() => {
+        dot.style.opacity = '0';
+        autoSaveIndicatorTimer = null;
+    }, 250);
+}

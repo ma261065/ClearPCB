@@ -7,23 +7,26 @@
  *   eventBus.off('component:added', handler);
  */
 
+/** @typedef {Function} EventCallback */
+
 export class EventBus {
     /** Initialises the listener map. */
     constructor() {
+        /** @type {Map<string, Set<EventCallback>>} */
         this.listeners = new Map();
     }
 
     /**
      * Subscribe to an event
      * @param {string} event - Event name
-     * @param {Function} callback - Handler function
-     * @returns {Function} Unsubscribe function
+     * @param {(...args: *[]) => void} callback - Handler function
+     * @returns {() => void} Unsubscribe function
      */
     on(event, callback) {
         if (!this.listeners.has(event)) {
             this.listeners.set(event, new Set());
         }
-        this.listeners.get(event).add(callback);
+        /** @type {Set<EventCallback>} */ (this.listeners.get(event)).add(callback);
         
         // Return unsubscribe function
         return () => this.off(event, callback);
@@ -32,12 +35,13 @@ export class EventBus {
     /**
      * Subscribe to an event, but only fire once
      * @param {string} event - Event name
-     * @param {Function} callback - Handler function
+     * @param {(...args: *[]) => void} callback - Handler function
      */
     once(event, callback) {
+        /** @param {...unknown} args */
         const wrapper = (...args) => {
             this.off(event, wrapper);
-            callback(...args);
+            callback.apply(null, args);
         };
         this.on(event, wrapper);
     }
@@ -45,7 +49,7 @@ export class EventBus {
     /**
      * Unsubscribe from an event
      * @param {string} event - Event name
-     * @param {Function} callback - Handler to remove
+     * @param {EventCallback} callback - Handler to remove
      */
     off(event, callback) {
         const handlers = this.listeners.get(event);
@@ -57,7 +61,7 @@ export class EventBus {
     /**
      * Emit an event to all subscribers
      * @param {string} event - Event name
-     * @param {...any} args - Arguments to pass to handlers
+     * @param {...unknown} args - Arguments to pass to handlers
      */
     emit(event, ...args) {
         const handlers = this.listeners.get(event);

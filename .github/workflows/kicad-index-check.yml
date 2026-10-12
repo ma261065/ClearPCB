@@ -1,0 +1,22 @@
+name: KiCad Index Check
+
+# Fails (and so notifies) when clearpcb.org's KiCad library index is missing or a
+# newer KiCad library release exists. Publishing a ClearPCB release rebuilds it.
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compare deployed index with latest KiCad release
+        run: node tools/build-kicad-index.mjs --check https://clearpcb.org/assets/kicad-index.json

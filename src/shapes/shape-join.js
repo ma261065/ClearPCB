@@ -23,18 +23,24 @@ export const JOIN_COINCIDENT_EPS = 1e-3;
 /** Shape types that can take part in a join. */
 const JOINABLE_TYPES = new Set(['polyline', 'arc']);
 
+/** @typedef {{id: string, x: number, y: number, midpoint?: boolean}} JoinAnchor */
+/** @typedef {Polyline|import('./arc.js').Arc} JoinableShape */
+/** @typedef {{shape: JoinableShape, anchorId:string, x:number, y:number, dist:number}} JoinTarget */
+
 /**
- * @param {any} shape
- * @returns {boolean} Whether the shape can participate in a join.
+ * @param {unknown} shape
+ * @returns {shape is JoinableShape} Whether the shape can participate in a join.
  */
 export function isJoinable(shape) {
-    return !!shape && JOINABLE_TYPES.has(shape.type) && !shape.locked;
+    if (!shape || typeof shape !== 'object') return false;
+    const candidate = /** @type {{type?: unknown, locked?: unknown}} */ (shape);
+    return typeof candidate.type === 'string' && JOINABLE_TYPES.has(candidate.type) && !candidate.locked;
 }
 
 /**
  * The endpoint anchors of a shape that may be joined (chain ends only — not
  * midpoint "add point" handles, and not an arc's curvature control point).
- * @param {any} shape
+ * @param {unknown} shape
  * @returns {Array<{id:string,x:number,y:number}>}
  */
 export function joinableAnchors(shape) {
@@ -47,7 +53,7 @@ export function joinableAnchors(shape) {
         ];
     }
     // Polyline: real graph nodes only (skip the 'copy'/midpoint handles).
-    return shape.getAnchors()
+    return /** @type {JoinAnchor[]} */ (shape.getAnchors())
         .filter(a => !a.midpoint && shape.degree(a.id) === 1)
         .map(a => ({ id: a.id, x: a.x, y: a.y }));
 }
@@ -56,12 +62,12 @@ export function joinableAnchors(shape) {
  * Find the nearest joinable endpoint to `worldPos`, including the opposite
  * endpoint of the dragged open polyline. Used to drive snap and merge on drop.
  * Pure (takes the shapes array directly) so it is reusable by any editor.
- * @param {Array<any>} shapes All shapes to consider.
+ * @param {Array<unknown>} shapes All shapes to consider.
  * @param {{x:number,y:number}} worldPos Probe position (the dragged anchor).
  * @param {number} tolerance Max snap distance in world units.
- * @param {any} dragShape The shape being dragged.
+ * @param {unknown} dragShape The shape being dragged.
  * @param {string|null} dragAnchorId The dragged endpoint, for self-join exclusion.
- * @returns {{shape:any, anchorId:string, x:number, y:number, dist:number}|null}
+ * @returns {JoinTarget|null}
  */
 export function findJoinTarget(shapes, worldPos, tolerance, dragShape, dragAnchorId = null) {
     let best = null;
@@ -83,7 +89,7 @@ export function findJoinTarget(shapes, worldPos, tolerance, dragShape, dragAncho
 
 /**
  * Convert a joinable shape into Polyline graph form for merging.
- * @param {any} shape
+ * @param {unknown} shape
  * @returns {{poly: Polyline, anchorNode: Object<string,string>}|null}
  *   `poly` is a fresh Polyline; `anchorNode` maps the shape's join anchor IDs
  *   to node IDs within `poly`.
@@ -93,6 +99,7 @@ function toJoinablePolyline(shape) {
 
     if (shape.type === 'polyline') {
         const poly = shape.clone();
+        /** @type {Record<string, string>} */
         const anchorNode = {};
         for (const nid of poly.nodes.keys()) anchorNode[nid] = nid;
         return { poly, anchorNode };
@@ -171,9 +178,9 @@ function fuseCoincidentEndpoints(poly) {
  * for removing the two originals and inserting the result (e.g. via an
  * undoable command) and for transferring selection.
  *
- * @param {any} shapeA
+ * @param {unknown} shapeA
  * @param {string} anchorIdA
- * @param {any} shapeB
+ * @param {unknown} shapeB
  * @param {string} anchorIdB
  * @returns {Polyline|null}
  */
@@ -199,7 +206,7 @@ export function joinShapes(shapeA, anchorIdA, shapeB, anchorIdB) {
         const joined = joinPaths(firstPath, firstEndpoint, secondPath, secondEndpoint);
         joined.nodeIds = {};
         joined.edgeIds = {};
-        A.poly.applyEditablePath(joined);
+        A.poly.applyEditablePath(/** @type {import('./polyline.js').EditablePath} */ (joined));
         fuseCoincidentEndpoints(A.poly);
         detectAndMarkClosed(A.poly);
         A.poly.invalidate();
@@ -226,7 +233,7 @@ export function joinShapes(shapeA, anchorIdA, shapeB, anchorIdB) {
  * polyline onto another of its own nodes to close a loop). Returns a new
  * merged {@link Polyline}; the original is not modified. Only Polylines can
  * be self-joined.
- * @param {any} shape
+ * @param {unknown} shape
  * @param {string} keepAnchorId Anchor whose position the fused node keeps.
  * @param {string} dropAnchorId Anchor merged into `keepAnchorId`.
  * @returns {Polyline|null}

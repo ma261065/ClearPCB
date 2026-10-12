@@ -2,16 +2,30 @@
 
 import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
+import { isEditorActive, isEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
+import { errorMessage } from '../core/errors.js';
+import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
+import { installLockedEditErrorFilter } from '../core/edit-guard.js';
 import { ModalManager } from '../core/ModalManager.js';
-import { renderRecentFiles } from './modules/recents.js';
+import { renderRecentFiles } from '../shared/ui/recents.js';
+import { flushSettledChanges } from '../shared/ui/settled-input.js';
 import { McpBridge } from '../core/McpBridge.js';
-import { createMcpSessionUi } from './modules/mcp-session.js';
+import { createMcpSessionUi } from './mcp-session.js';
 
-class AppBootstrap {
-    constructor() {
+/** @typedef {import('../core/ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {'schematic'|'pcb'} EditorMode */
+/** @typedef {{type: 'idle'|'frame'|'timeout', id: number}} PcbPreloadHandle */
+/** @typedef {{files?: Array<{name: string, getFile: () => Promise<File>}>}} LaunchParams */
+
+const DEFAULT_SERVICES = { ProjectDocument, PCBApp, SchematicApp, McpBridge, createMcpSessionUi };
+
+export class AppBootstrap {
+    /** @param {Partial<typeof DEFAULT_SERVICES>} [services] Collaborators; tests substitute headless ones. */
+    constructor(services = {}) {
+        this._services = { ...DEFAULT_SERVICES, ...services };
         this.modeTabs = /** @type {HTMLElement[]} */ (Array.from(document.querySelectorAll('.mode-tab')));
         this.slider = document.querySelector('.app-slider');
         this.ribbonSchematic = document.getElementById('ribbonSchematic');
@@ -20,32 +34,41 @@ class AppBootstrap {
         this.startupRecents = document.getElementById('startupRecents');
         this.startupOpen = document.getElementById('startupOpen');
         this.startupContinue = document.getElementById('startupContinue');
+        /** @type {PcbPreloadHandle|null} */
         this._pcbPreloadHandle = null;
+        /**
+         * Startup in progress: set when initialize() starts, and settles once startup has
+         * finished, including the decision to show the startup splash.
+         * @type {Promise<void>|null}
+         */
+        this.ready = null;
 
         /** The neutral owner of the single project document. */
-        this.project = new ProjectDocument();
+        this.project = new this._services.ProjectDocument();
         this.project.onLoadingChange = (loading) => {
             if (loading) this._cancelPcbPreload();
             this._setTabsLoading(loading);
             if (loading) return new Promise(resolve => setTimeout(resolve, 0));
             this._schedulePcbPreload();
         };
+        /** @type {SchematicApp|null} */
         this.schematicApp = null;
+        /** @type {PCBApp|null} */
         this.pcbApp = null;
         this._switchingMode = false;
     }
 
     async initialize() {
         installNumberInputFormatting();
+        installLockedEditErrorFilter(window);
         this._registerServiceWorker();
 
-        this.pcbApp = new PCBApp();
+        this.pcbApp = new this._services.PCBApp(this.project);
         this.pcbApp.initialize();
         // Register the PCB editor as a project view (contributes doc.pcb).
-        this.pcbApp.project = this.project;
         this.project.registerView('pcb', this.pcbApp);
-        this.mcpBridge = new McpBridge(this.project);
-        this.mcpSessionUi = createMcpSessionUi(this.mcpBridge);
+        this.mcpBridge = new this._services.McpBridge(this.project);
+        this.mcpSessionUi = this._services.createMcpSessionUi(this.mcpBridge);
 
         // Install the dispatcher BEFORE SchematicApp constructs so that
         // it occupies an earlier slot in window-capture order than the
@@ -55,8 +78,7 @@ class AppBootstrap {
 
         // The schematic editor registers itself as the project's UI-host
         // view (and injects the file lifecycle) from its constructor.
-        /** @type {any} */ (window).app = new SchematicApp(this.project);
-        this.schematicApp = /** @type {any} */ (window).app;
+        this.schematicApp = new this._services.SchematicApp(this.project);
 
         this._bindModeTabs();
         await this.schematicApp._recoverAutoSave?.();
@@ -79,7 +101,7 @@ class AppBootstrap {
             && !pcb?.boardShapes?.length
             && !pcb?.texts?.size
             && !pcb?._placementOverrides?.size
-            && !pcb?._boardOutlineDrawn;
+            && !pcb?.isBoardOutlineDrawn();
         return schematicBlank && pcbBlank;
     }
 
@@ -114,11 +136,12 @@ class AppBootstrap {
         ModalManager.pop('startup-splash');
     }
 
+    /** @param {KeyboardEvent} event */
     _trapStartupSplashFocus(event) {
         if (event.key !== 'Tab' || !this.startupSplash || this.startupSplash.hidden) return;
-        const focusable = Array.from(this.startupSplash.querySelectorAll(
+        const focusable = /** @type {HTMLElement[]} */ (Array.from(this.startupSplash.querySelectorAll(
             'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-        ));
+        )));
         if (!focusable.length) {
             event.preventDefault();
             return;
@@ -147,11 +170,11 @@ class AppBootstrap {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 const active = this.modeTabs.find(tab => tab.classList.contains('active'));
-                const isPcb = active ? active.dataset.mode === 'pcb' : this.pcbApp?._active;
+                const isPcb = active ? active.dataset.mode === 'pcb' : !!(this.pcbApp && isEditorActive(this.pcbApp));
                 this.switchMode(isPcb ? 'schematic' : 'pcb');
                 return;
             }
-            if (this.pcbApp?._active && typeof this.pcbApp.handleKeyDown === 'function') {
+            if (this.pcbApp && isEditorActive(this.pcbApp) && typeof this.pcbApp.handleKeyDown === 'function') {
                 if (this.pcbApp.handleKeyDown(e)) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
@@ -162,7 +185,7 @@ class AppBootstrap {
 
     _bindModeTabs() {
         this.slider?.addEventListener('transitionend', (event) => {
-            if (event.propertyName !== 'transform') return;
+            if (/** @type {TransitionEvent} */ (event).propertyName !== 'transform') return;
             this.schematicApp?.viewport?.invalidateLayoutCache?.();
             this.pcbApp?.viewport?.invalidateLayoutCache?.();
         });
@@ -180,6 +203,10 @@ class AppBootstrap {
         });
     }
 
+    /**
+     * @param {boolean} loading
+     * @param {EditorMode|null} [mode]
+     */
     _setTabsLoading(loading, mode = null) {
         this.modeTabs.forEach(tab => {
             const tabLoading = loading && (!mode || tab.dataset.mode === mode);
@@ -190,23 +217,27 @@ class AppBootstrap {
     }
 
     _cancelPcbPreload() {
-        if (!this._pcbPreloadHandle) return;
-        const { type, id } = this._pcbPreloadHandle;
-        if (type === 'idle') window.cancelIdleCallback?.(id);
-        else if (type === 'frame') window.cancelAnimationFrame(id);
-        else clearTimeout(id);
-        this._pcbPreloadHandle = null;
+        if (this._pcbPreloadHandle) {
+            const { type, id } = this._pcbPreloadHandle;
+            if (type === 'idle') window.cancelIdleCallback?.(id);
+            else if (type === 'frame') window.cancelAnimationFrame(id);
+            else clearTimeout(id);
+            this._pcbPreloadHandle = null;
+        }
         this._setTabsLoading(false, 'pcb');
     }
 
     _schedulePcbPreload() {
-        if (!this.pcbApp?._stale || this.pcbApp._active) return;
+        const pcbApp = this.pcbApp;
+        if (!pcbApp || !isEditorStale(pcbApp) || isEditorActive(pcbApp)) return;
         this._cancelPcbPreload();
         const render = () => {
             this._pcbPreloadHandle = null;
-            if (this.project.fileManager.loading || this.pcbApp?._active || !this.pcbApp?._stale) return;
+            // The spinner was shown in prepare(); clear it on every exit, including
+            // when the PCB was rendered or a load started in the meantime.
             try {
-                this.pcbApp.preload?.();
+                if (this.project.fileManager.loading || isEditorActive(pcbApp) || !isEditorStale(pcbApp)) return;
+                pcbApp.preload?.();
             } finally {
                 this._setTabsLoading(false, 'pcb');
             }
@@ -230,8 +261,11 @@ class AppBootstrap {
         }
     }
 
+    /** @param {EditorMode} mode */
     async switchMode(mode) {
         if (this.project.fileManager.loading || this._switchingMode) return;
+        // The editor being left keeps a number field's settling value.
+        flushSettledChanges();
         this._cancelPcbPreload();
         const isPcb = mode === 'pcb';
 
@@ -245,7 +279,7 @@ class AppBootstrap {
         this.schematicApp?.viewport?.invalidateLayoutCache?.();
         this.pcbApp?.viewport?.invalidateLayoutCache?.();
 
-        const needsPcbRender = isPcb && this.pcbApp?._stale;
+        const needsPcbRender = isPcb && !!this.pcbApp && isEditorStale(this.pcbApp);
         if (needsPcbRender) {
             this._switchingMode = true;
             this._setTabsLoading(true, 'pcb');
@@ -257,6 +291,7 @@ class AppBootstrap {
                 this.pcbApp?.activate();
             } else {
                 this.pcbApp?.deactivate();
+                this.schematicApp?.retainRibbonHeight?.();
             }
         } finally {
             if (needsPcbRender) {
@@ -276,12 +311,13 @@ class AppBootstrap {
     _setupLaunchQueue() {
         if (!('launchQueue' in window)) return;
 
-        const launchQueue = /** @type {any} */ (window.launchQueue);
-        launchQueue.setConsumer(async (launchParams) => {
+        const launchQueue = /** @type {{setConsumer: (consumer: (params: LaunchParams) => void|Promise<void>) => void}} */ (window.launchQueue);
+        /** @param {LaunchParams} launchParams */
+        const consumeLaunch = async (launchParams) => {
             if (!launchParams.files?.length) return;
 
             // Signal to SchematicApp to skip auto-save recovery path for launch-open flow.
-            /** @type {any} */ (window)._launchFile = true;
+            /** @type {Window & {_launchFile?: boolean}} */ (window)._launchFile = true;
 
             const fileHandle = launchParams.files[0];
             const file = await fileHandle.getFile();
@@ -292,9 +328,14 @@ class AppBootstrap {
             } catch (error) {
                 console.error('Failed to open file:', error);
             }
-        });
+        };
+        launchQueue.setConsumer(consumeLaunch);
     }
 
+    /**
+     * @param {{name: string}} fileHandle
+     * @param {ProjectData} data
+     */
     _loadLaunchDocument(fileHandle, data) {
         const tryLoad = async () => {
             if (!this.schematicApp?.fileManager) {
@@ -304,20 +345,27 @@ class AppBootstrap {
 
             const app = this.schematicApp;
             if (app.fileManager.saving || app.fileManager.loading) {
-                app._alert('Wait for the current file operation to finish.', { title: 'Open Failed' });
+                app.alert('Wait for the current file operation to finish.', { title: 'Open Failed' });
                 return;
             }
             if ((this.project?.isDirty ?? app.fileManager.isDirty)
-                && !await app._confirm('You have unsaved changes. Open another file anyway?',
+                && !await app.confirm('You have unsaved changes. Open another file anyway?',
                     { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) return;
             try {
-                await app._loadDocument(data);
+                const repaired = repairDuplicateIds(data);
+                await this.project.load(repaired.data);
                 await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
                 this._hideStartupSplash();
                 this.switchMode('schematic');
-                app._fitToContent?.();
+                app.fitToContent?.();
+                this.project.notifyDocumentReplaced('open');
+                const message = duplicateIdRepairMessage(repaired);
+                if (message) {
+                    app.fileManager.setDirty(true);
+                    await app.alert(`Opened ${fileHandle.name}. ${message}`, { title: 'File Repaired' });
+                }
             } catch (error) {
-                app._alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
+                app.alert('Failed to open file: ' + errorMessage(error), { title: 'Open Failed' });
             }
         };
 
@@ -327,9 +375,8 @@ class AppBootstrap {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
-    // Expose BEFORE initialize() so autosave-recovery (which runs
-    // inside initialize()) can reach bootstrap.project to restore the
-    // PCB section of the document.
-    /** @type {any} */ (window).bootstrap = bootstrap;
-    await bootstrap.initialize();
+    // Console inspection only; application code receives its dependencies explicitly.
+    /** @type {Window & {bootstrap?: AppBootstrap}} */ (window).bootstrap = bootstrap;
+    bootstrap.ready = bootstrap.initialize();
+    await bootstrap.ready;
 });

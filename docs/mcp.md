@@ -9,7 +9,7 @@ The prototype exposes three tools:
 
 - `get_project` returns the complete canonical ClearPCB project.
 - `replace_project` validates and loads a complete replacement project.
-- `apply_project_patch` atomically applies up to 100 RFC 6902 JSON Patch
+- `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
   operations, validates the resulting project, and loads it.
 
 Writes use the normal project loader, so invalid project data is rejected
@@ -19,7 +19,7 @@ MCP change** until the session is disabled or another MCP write replaces it.
 
 ## Pairing
 
-1. Open ClearPCB and choose **File > MCP**.
+1. Open ClearPCB and choose **AI Mode** in the ribbon.
 2. Select **Enable MCP**.
 3. Copy the generated URL into the MCP client.
 4. Disable the session when finished.
@@ -33,8 +33,8 @@ an untrusted client.
 The browser connects to `/mcp/relay/<session-id>` by WebSocket. MCP clients use
 `/mcp/<session-id>` over Streamable HTTP. A Durable Object keyed by the random
 session ID relays typed requests and responses; it does not store project data.
-Messages larger than one WebSocket frame are chunked, with a 16 MiB limit per
-request or response.
+Payloads larger than 192 KiB are chunked, with a 16 MiB limit per request or
+response.
 
 ## Local Development
 
@@ -64,8 +64,8 @@ location.reload();
 Run the browser-side protocol checks with:
 
 ```powershell
-node tests\test-json-patch.mjs
-node tests\test-mcp-bridge.mjs
+node tests\unit\test-json-patch.mjs
+node tests\unit\test-mcp-bridge.mjs
 ```
 
 Run `npm run check` in `mcp-worker` to type-check the Worker.

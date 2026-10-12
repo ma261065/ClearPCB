@@ -1,0 +1,105 @@
+import assert from 'node:assert/strict';
+import { ProjectDocument } from '../../src/core/ProjectDocument.js';
+import { CommandHistory } from '../../src/core/CommandHistory.js';
+import { SelectionManager } from '../../src/core/SelectionManager.js';
+import { Circle } from '../../src/shapes/circle.js';
+import { Track } from '../../src/shapes/track.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+
+const document = installFakeDom();
+const element = (tag = 'g') => fakeElement(tag);
+document.createElementNS = (_namespace, tag) => element(tag);
+const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
+const { copySelection, beginPastePreview } = await import('../../src/schematic/modules/clipboard.js');
+const { newFile } = await import('../../src/schematic/modules/files.js');
+const { setSchematicDrawingActive } = await import('../../src/schematic/modules/drawing.js');
+const { setPendingAnchorDrag, setSchematicDrag } = await import('../../src/schematic/modules/drag.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
+
+function fixture() {
+    const project = new ProjectDocument();
+    const alerts = [];
+    const app = Object.assign(Object.create(SchematicApp.prototype), {
+        project, document: project.schematicDocument, fileManager: project.fileManager,
+        selection: new SelectionManager(), history: new CommandHistory(),
+        currentTool: 'select', interactionState: 'idle',
+        viewport: {
+            contentLayer: element(), svg: element(), removeContent() {}, resetView() {},
+            setTitleBlockData() {}, getSnappedPosition: point => point,
+        },
+        showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {},
+        updateSelectableItems() {}, _updateUndoRedoButtons() {}, ui: {},
+        renderShapes() {}, removeBoxSelectElement() {}, setToolCursor() {}, updateShapePanelOptions() {},
+        invalidate() {}, setActiveRibbonTab() {}, confirm: async () => true,
+        alert: message => alerts.push(message),
+    });
+    project.registerView('schematic', app);
+    const shape = new Circle({ radius: 5 });
+    app.shapes.push(shape);
+    app.selection.setShapes(app.shapes);
+    app.selection.select(shape);
+    project.pcbDocument.tracks.push(new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }] }));
+    app.history.record({ execute() {}, undo() {}, description: 'Earlier edit' });
+    project.fileManager.setFileName('existing.cpcb');
+    project.fileManager.fileHandle = { name: 'existing.cpcb' };
+    project.fileManager.setDirty(true);
+    return { app, project, shape, alerts };
+}
+
+for (const mode of ['paste', 'drawing', 'wire', 'component', 'anchor', 'pending']) {
+    const { app, project, shape, alerts } = fixture();
+    if (mode === 'paste') {
+        copySelection(app);
+        beginPastePreview(app);
+    } else if (mode === 'drawing' || mode === 'wire') {
+        app.currentTool = mode === 'wire' ? 'wire' : 'circle';
+        setSchematicDrawingActive(app, true);
+        app.interactionState = 'drawing';
+        app.previewElement = element();
+        app.viewport.contentLayer.appendChild(app.previewElement);
+    } else if (mode === 'component') {
+        app.currentTool = 'component';
+        setSchematicInteraction(app, 'placingComponent', {});
+        app.componentPreview = element();
+        app.viewport.contentLayer.appendChild(app.componentPreview);
+    } else {
+        const beforeState = shape.captureState();
+        if (mode === 'anchor') {
+            setSchematicDrag(app, { shape, beforeState });
+            app.interactionState = 'anchorDrag';
+        } else setPendingAnchorDrag(app, { shape, preInsertState: beforeState });
+        shape.move(4, 5);
+    }
+    assert.equal(project.canSerialize(), false, `${mode}: pending edit blocks save before New`);
+    await newFile(app);
+    assert.deepEqual(alerts, [], `${mode}: New must not fail after clearing either document`);
+    assert.equal(app.shapes.length, 0);
+    assert.equal(project.pcbDocument.tracks.length, 0);
+    assert.equal(app.history.undoStack.length, 0);
+    assert.equal(project.fileManager.fileHandle, null);
+    assert.notEqual(project.fileManager.fileName, 'existing.cpcb');
+    assert.equal(project.canSerialize(), true);
+    assert.equal(app.viewport.contentLayer.children.length, 0, `${mode}: old preview SVG is removed`);
+}
+
+for (const cleanup of ['throw', 'unfinished', 'declined']) {
+    const { app, project, alerts } = fixture();
+    copySelection(app);
+    beginPastePreview(app);
+    const before = project.schematicDocument.serialize().schematic;
+    const undo = [...app.history.undoStack];
+    if (cleanup === 'throw') app.cancelPaste = () => { throw new Error('Preview cleanup failed'); };
+    else if (cleanup === 'unfinished') app.cancelPaste = () => {};
+    else app.confirm = async () => false;
+    await newFile(app);
+    assert.deepEqual(alerts, cleanup === 'declined' ? [] : [
+        'Failed to create new document: ' + (cleanup === 'throw'
+            ? 'Preview cleanup failed' : 'Finish the current edit before creating a new document.'),
+    ]);
+    assert.deepEqual(project.schematicDocument.serialize().schematic, before);
+    assert.equal(project.pcbDocument.tracks.length, 1);
+    assert.deepEqual(app.history.undoStack, undo);
+    assert.equal(project.fileManager.fileName, 'existing.cpcb');
+    assert.equal(project.fileManager.loading, false);
+}
+console.log('PASS New cancels schematic pending edits before clearing and preserves both documents on cleanup failure');

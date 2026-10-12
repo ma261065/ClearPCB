@@ -12,7 +12,19 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {'t'|'gnd'|'arrow'|'chevron'} NetStyle
+ * @typedef {'N'|'E'|'S'|'W'} NetOrientation
+ * @typedef {{x: number, y: number, net: string, fontSize: number, style: NetStyle, orientation: NetOrientation, textOffset: Point, border: boolean}} NetState
+ * @typedef {ReturnType<Shape['toJSON']> & {
+ *   x: number, y: number, n: string, fs?: number, nst?: NetStyle,
+ *   no?: NetOrientation, bd?: boolean, nto?: number[]
+ * }} NetJSON
+ */
+
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** Net symbol geometry constants (mm, local space; connection anchor at 0,0). */
@@ -33,11 +45,11 @@ export const NET_ORIENTATIONS = ['N', 'E', 'S', 'W'];
 /**
  * Normalize Net style to supported values.
  * @param {string} style
- * @returns {'t'|'gnd'|'arrow'|'chevron'}
+ * @returns {NetStyle}
  */
 export function normalizeNetStyle(style) {
-    if (NET_STYLES.includes(/** @type {any} */ (style))) {
-        return /** @type {any} */ (style);
+    if (NET_STYLES.includes(/** @type {NetStyle} */ (style))) {
+        return /** @type {NetStyle} */ (style);
     }
     return 't';
 }
@@ -45,15 +57,16 @@ export function normalizeNetStyle(style) {
 /**
  * Normalize Net orientation to supported values.
  * @param {string} orientation
- * @returns {'N'|'E'|'S'|'W'}
+ * @returns {NetOrientation}
  */
 export function normalizeNetOrientation(orientation) {
-    if (NET_ORIENTATIONS.includes(/** @type {any} */ (orientation))) {
-        return /** @type {any} */ (orientation);
+    if (NET_ORIENTATIONS.includes(/** @type {NetOrientation} */ (orientation))) {
+        return /** @type {NetOrientation} */ (orientation);
     }
     return 'E';
 }
 
+/** @param {NetOrientation} orientation */
 function _orientationDir(orientation) {
     switch (orientation) {
         case 'N': return { x: 0, y: -1 };
@@ -63,11 +76,19 @@ function _orientationDir(orientation) {
     }
 }
 
+/** @param {NetOrientation} orientation */
 function _orientationPerp(orientation) {
     const d = _orientationDir(orientation);
     return { x: -d.y, y: d.x };
 }
 
+/**
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ * @param {number} s
+ * @param {number} t
+ * @returns {Point}
+ */
 function _worldFromST(origin, orientation, s, t) {
     const d = _orientationDir(orientation);
     const p = _orientationPerp(orientation);
@@ -159,7 +180,19 @@ export function getNetTextBaseLocal(style) {
     }
 }
 
+/**
+ * @param {NetStyle} style
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ * @returns {string}
+ */
 function _buildOrientedSymbolPath(style, origin, orientation) {
+    /**
+     * @param {number} s1
+     * @param {number} t1
+     * @param {number} s2
+     * @param {number} t2
+     */
     const line = (s1, t1, s2, t2) => {
         const p1 = _worldFromST(origin, orientation, s1, t1);
         const p2 = _worldFromST(origin, orientation, s2, t2);
@@ -201,7 +234,17 @@ function _buildOrientedSymbolPath(style, origin, orientation) {
     ].join(' ');
 }
 
+/**
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ */
 function _buildGroundBarsPath(origin, orientation) {
+    /**
+     * @param {number} s1
+     * @param {number} t1
+     * @param {number} s2
+     * @param {number} t2
+     */
     const line = (s1, t1, s2, t2) => {
         const p1 = _worldFromST(origin, orientation, s1, t1);
         const p2 = _worldFromST(origin, orientation, s2, t2);
@@ -218,7 +261,7 @@ function _buildGroundBarsPath(origin, orientation) {
 
 /**
  * Build the secondary ground bars path for gnd style.
- * @param {'N'|'E'|'S'|'W'} [orientation='E']
+ * @param {NetOrientation} [orientation='E']
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
@@ -228,8 +271,8 @@ export function buildNetGroundBarsPath(orientation = 'E', origin = { x: 0, y: 0 
 
 /**
  * Build symbol path for a style at an orientation and origin.
- * @param {'t'|'gnd'|'arrow'|'chevron'} style
- * @param {'N'|'E'|'S'|'W'} [orientation='E']
+ * @param {NetStyle} style
+ * @param {NetOrientation} [orientation='E']
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
@@ -239,7 +282,7 @@ export function buildNetSymbolPath(style, orientation = 'E', origin = { x: 0, y:
 
 /**
  * Local-space bounds of the visible Net symbol geometry.
- * @param {'t'|'gnd'|'arrow'|'chevron'} style
+ * @param {NetStyle} style
  * @returns {{minS:number,maxS:number,minT:number,maxT:number}}
  */
 function _getSymbolLocalBounds(style) {
@@ -276,6 +319,9 @@ function _getSymbolLocalBounds(style) {
 }
 
 export class Net extends Shape {
+    /** @type {'net'} */
+    type;
+
     /**
      * @param {Object} [options]
         * @param {string} [options.id]
@@ -299,26 +345,35 @@ export class Net extends Shape {
         // Default color matches standard text labels for visual consistency.
         if (!options.color) options.color = 'var(--sch-text-label, #00b894)';
         super(options);
+        /** @type {'net'} */
         this.type = 'net';
 
+        /** @type {number} */
         this.x = ShapeValidator.validateCoordinate(options.x || 0, { name: 'x' });
+        /** @type {number} */
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
+        /** @type {string} */
         this.net = typeof options.net === 'string' ? options.net : 'NET';
+        /** @type {number} */
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || DEFAULT_FONT_SIZE, {
             min: 0.5, max: 20, default: DEFAULT_FONT_SIZE, name: 'fontSize'
         });
+        /** @type {NetStyle} */
         this.style = normalizeNetStyle(options.style || 't');
+        /** @type {boolean} */
         this.border = !!options.border;
         const orientation = options.orientation
             ? normalizeNetOrientation(options.orientation)
             : (Number.isFinite(options.rotation)
                 ? netRotationToOrientation(options.rotation || 0)
                 : 'N');
+        /** @type {NetOrientation} */
         this.orientation = orientation;
 
         const offset = Array.isArray(options.textOffset)
             ? { x: Number(options.textOffset[0]) || 0, y: Number(options.textOffset[1]) || 0 }
             : (options.textOffset || DEFAULT_TEXT_OFFSET);
+        /** @type {Point} */
         this.textOffset = {
             x: ShapeValidator.validateCoordinate(offset.x || 0, { name: 'textOffset.x' }),
             y: ShapeValidator.validateCoordinate(offset.y || 0, { name: 'textOffset.y' })
@@ -326,6 +381,8 @@ export class Net extends Shape {
 
         /** @type {import('./text.js').Text|null} */
         this.labelText = null;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this net. */
+        this.attachedLabels = null;
     }
 
     get rotation() {
@@ -377,6 +434,9 @@ export class Net extends Shape {
 
     /**
      * Apply rotation transform to a point around origin.
+     * @param {number} px
+     * @param {number} py
+     * @returns {Point}
      */
     _rotatePoint(px, py) {
         const rad = (netOrientationToRotation(this.orientation) * Math.PI) / 180;
@@ -388,6 +448,10 @@ export class Net extends Shape {
         };
     }
 
+    /**
+     * @param {Point} point
+     * @returns {Point}
+     */
     _worldToLocal(point) {
         const dx = point.x - this.x;
         const dy = point.y - this.y;
@@ -399,6 +463,10 @@ export class Net extends Shape {
         };
     }
 
+    /**
+     * @param {Point} point
+     * @returns {Point}
+     */
     _localToWorld(point) {
         return _worldFromST({ x: this.x, y: this.y }, this.orientation, point.x, point.y);
     }
@@ -418,7 +486,10 @@ export class Net extends Shape {
         return { minX, minY, maxX, maxY };
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {Point} point
+     */
     hitTest(point, tolerance = 0.5) {
         const bounds = this.getBounds();
         return (
@@ -429,7 +500,11 @@ export class Net extends Shape {
         );
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {Point} point
+     * @param {number} scale
+     */
     hitTestAnchor(point, scale) {
         const tol = 8 / scale;
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
@@ -481,7 +556,12 @@ export class Net extends Shape {
         this.labelText.invalidate();
     }
 
-    /** @override */
+    /**
+     * @override
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             const dx = x - this.x;
@@ -498,62 +578,11 @@ export class Net extends Shape {
         return undefined;
     }
 
-    /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        const geo = this._getGeometry();
-
-        // Ensure children exist
-        if (!el.children.length || el.children.length < 2) {
-            while (el.firstChild) el.removeChild(el.firstChild);
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const detailPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            el.appendChild(path);
-            el.appendChild(detailPath);
-        }
-
-        const path = el.children[0];
-        const detailPath = el.children[1];
-        const baseStrokeWidth = Math.max(this.lineWidth, 1 / scale);
-        const selectionColor = 'var(--sch-selection, #3399ff)';
-        let symbolStroke = strokeColor;
-
-        const attachedLabels = /** @type {any} */ (this).attachedLabels;
-        const attachedActive = attachedLabels instanceof Set
-            && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
-        if (!this.selected && !this.hovered && (this.labelText?.selected || this.labelText?.hovered || attachedActive)) {
-            symbolStroke = selectionColor;
-        }
-
-        path.setAttribute('d', geo.symbolPath);
-        path.setAttribute('stroke', symbolStroke);
-        path.setAttribute('stroke-width', baseStrokeWidth);
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke-linejoin', 'round');
-        path.setAttribute('stroke-linecap', 'round');
-
-        if (this.style === 'gnd') {
-            detailPath.setAttribute('d', _buildGroundBarsPath({ x: this.x, y: this.y }, this.orientation));
-            detailPath.setAttribute('stroke', symbolStroke);
-            detailPath.setAttribute('stroke-width', Math.max(baseStrokeWidth * 0.32, 0.18 / scale));
-            detailPath.setAttribute('fill', 'none');
-            detailPath.setAttribute('stroke-linejoin', 'round');
-            detailPath.setAttribute('stroke-linecap', 'round');
-            detailPath.removeAttribute('display');
-        } else {
-            detailPath.setAttribute('d', '');
-            detailPath.setAttribute('display', 'none');
-        }
-
-        // Keep text horizontal by avoiding group rotation.
-        el.removeAttribute('transform');
-    }
-
-    /** @override */
+    /**
+     * @override
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -566,10 +595,6 @@ export class Net extends Shape {
         this.invalidate();
     }
 
-    /** @override — no visible stroke for hit-test expansion. */
-    _getEffectiveStrokeWidth(scale) {
-        return 0;
-    }
 
     /** @override */
     clone() {
@@ -606,8 +631,8 @@ export class Net extends Shape {
     getPropertyDescriptors() {
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
-            { key: 'net',      label: 'Net name',   type: 'text' },
-            { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 20, step: 0.5 },
+            { key: 'net',      label: 'Net',   type: 'text' },
+            { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 20, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
             { key: 'style',    label: 'Style',      type: 'select', options: [
                 { value: 't', label: 'T' },
@@ -623,6 +648,7 @@ export class Net extends Shape {
         return false;
     }
 
+    /** @param {NetState} state */
     applyState(state) {
         super.applyState(state);
         this.syncLabelText();
@@ -631,6 +657,7 @@ export class Net extends Shape {
     /** @override */
     toJSON() {
         this.syncTextOffsetFromLabelText();
+        /** @type {NetJSON} */
         const json = {
             ...super.toJSON(),
             x: _r4(this.x),

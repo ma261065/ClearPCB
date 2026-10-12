@@ -1,5 +1,10 @@
 const batches = new WeakMap();
 
+/**
+ * @param {object} owner
+ * @param {string} key
+ * @param {() => void} update
+ */
 export function deferDerivedUpdate(owner, key, update) {
     const batch = batches.get(owner);
     if (!batch) return false;
@@ -7,6 +12,12 @@ export function deferDerivedUpdate(owner, key, update) {
     return true;
 }
 
+/**
+ * @template T
+ * @param {object|null|undefined} owner
+ * @param {() => T} operation
+ * @returns {T}
+ */
 export function batchDerivedUpdates(owner, operation) {
     if (!owner || batches.has(owner)) return operation();
     const batch = { pending: new Map() };

@@ -1,156 +1,91 @@
-import { updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
-import { Component, updateComponentIdCounter } from '../../components/index.js';
+import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { createNetText } from './shape-management.js';
-import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
+import { discardComponentView, discardShapeView, mountDocument, prepareDocumentView } from './schematic-view.js';
+import { attachLabelToTarget } from './label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
-import { createShape, bumpWireLabelCounter } from '../../shapes/index.js';
-import { bumpNetNameCounter } from '../../shapes/wire.js';
-import { validateEditableProject } from '../../core/project-format.js';
-import { compactProjectAliases } from '../../core/project-field-aliases.js';
-import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
+import { deserializeComponent } from '../../core/SchematicDocument.js';
+import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
+import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
+import { cancelSchematicPropertyPreview } from './properties.js';
+import { errorMessage } from '../../core/errors.js';
+import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
+import { showSaveToast } from './ribbon.js';
+import { updateUndoRedoButtons } from './ui-utils.js';
+import { getSchematicTextEdit } from './text-edit.js';
+import { isTextItem as isTextShape } from '../../core/schematic-items.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {{data: ProjectData, fileName: string, handle?: FileSystemFileHandle, filePath?: string|null}} OpenSuccess */
+/** @typedef {import('../../core/FileManager.js').OpenResult} OpenResult */
+/** @typedef {import('../../core/FileManager.js').SaveResult} SaveResult */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/text.js').Text} Text */
 
+/** @param {SchematicEditor} app */
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
-    app._alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
+    app.alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
     return false;
 }
 
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
  * title block) into a JSON-ready object with deduplicated component definitions.
- * @param {object} app - Application state.
- * @returns {object} Serialized document object.
+ * @param {SchematicEditor} app
+ * @returns {ProjectData} Serialized document object.
  */
 export function serializeDocument(app) {
-    const components = app.components.map(c => c.toJSON());
+    return /** @type {ProjectData} */ (app.document.serialize(serializeViewSettings(app.viewport)));
+}
 
-    // Keep Net text as derived data (recreated/relinked on load)
-    // so net name/font/offset are persisted only on the Net shape.
-    const serializedShapes = app.shapes
-        .filter(s => !(s.type === 'text' && s.fieldKey === 'net' && s.parentComponent?.type === 'net'))
-        .map(s => s.toJSON());
-
-    // Deduplicate definitions: extract into a top-level map so each
-    // unique definition is stored only once instead of per-instance.
-    const defs = {};
-    for (const comp of components) {
-        if (comp.def && comp.dn) {
-            if (!defs[comp.dn]) {
-                defs[comp.dn] = comp.def;
-            }
-            delete comp.def;
-        }
-    }
-
-    const doc = {
-        version: '1.0',
-        type: 'clearpcb-project',
-        created: new Date().toISOString(),
-        schematic: {
-            settings: {
-                ...serializeGridSettings(app.viewport),
-                paperSize: app.viewport.paperSizeKey || null,
-                paperOrientation: app.viewport.paperSize
-                    ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
-                    : null,
-                titleBlock: app.viewport.showTitleBlock || false,
-                titleBlockInfo: app.viewport.showTitleBlockInfo || false,
-                titleBlockData: app.viewport.titleBlockData || {}
-            },
-            shapes: serializedShapes,
-            components
-        }
-    };
-
-    if (Object.keys(defs).length > 0) {
-        doc.schematic.defs = defs;
-    }
-
-    // NB: the PCB section (`doc.pcb`) is added by ProjectDocument, which
-    // coordinates both editor views. This function only produces the
-    // schematic envelope so the schematic view never reaches into the PCB.
-    return compactProjectAliases(doc);
+/** @param {SchematicEditor} app @returns {ProjectData} */
+export function serializeProjectDocument(app) {
+    return /** @type {ProjectData} */ (app.project ? app.project.serialize() : app.serializeSection());
 }
 
 /**
- * Clears the canvas and reconstitutes all shapes, components, and settings
- * from a saved document object.
- * @param {object} app - Application state.
- * @param {object} data - Previously serialized document.
+ * Capture view preferences without accessing authored content or creating a viewport.
+ * @param {import('../../core/Viewport.js').Viewport|null|undefined} viewport
  */
-export function prepareDocument(app, data) {
-    data = validateEditableProject(data);
-    const schematic = data.schematic;
-    const shapes = schematic.shapes.filter((item) => item.fk !== 'net')
-        .map((item) => ({ data: item, shape: createShape(item) }));
-    const components = schematic.components.map((item) => {
-        const name = item.dn;
-        const component = createComponentFromData(app, { ...item, def: schematic.defs?.[name] });
-        if (!component) throw new Error(`Missing component definition: ${name}`);
-        return component;
-    });
-    for (const { shape } of shapes) shape.render(app.viewport.scale);
-    for (const component of components) component.createSymbolElement();
-    return { data, shapes, components };
+export function serializeViewSettings(viewport) {
+    if (!viewport) return undefined;
+    return {
+        ...serializeGridSettings(viewport),
+        paperSize: viewport.paperSizeKey || null,
+        paperOrientation: viewport.paperSize
+            ? (viewport.paperSize.width >= viewport.paperSize.height ? 'landscape' : 'portrait')
+            : null,
+        titleBlock: viewport.showTitleBlock || false,
+        titleBlockInfo: viewport.showTitleBlockInfo || false,
+        titleBlockData: structuredClone(viewport.titleBlockData || {}),
+    };
 }
 
+/**
+ * Prepare model data and its SVG before replacing the live editor content.
+ * @param {SchematicEditor} app
+ * @param {ProjectData} data - Previously serialized document.
+ */
+export function prepareDocument(app, data) {
+    const prepared = app.document.prepare(data, name => app.componentLibrary.getDefinition(name));
+    prepareDocumentView(app, prepared);
+    return prepared;
+}
+
+/** @param {SchematicEditor} app @param {ProjectData} data @param {ReturnType<typeof prepareDocument>} [prepared] */
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
     data = prepared.data || data;
     app.selection.clearSelection();
-    if (app.textEdit?.shape) app._endTextEdit(false);
-    app._clearAllShapes();
-    app._clearAllComponents();
-    resetWireLabelCounter();
-    resetNetNameCounter();
+    if (getSchematicTextEdit(app)?.shape) app.endTextEdit(false);
+    clearAllShapes(app);
+    clearAllComponents(app);
+    app.document.load(data, prepared);
 
     // Unified project format (v2.0)
     const sch = data.schematic || {};
-    const shapes = sch.shapes;
-    const components = sch.components;
     const settings = sch.settings;
 
-    if (shapes && Array.isArray(shapes)) {
-        for (const { data: shapeData, shape } of prepared.shapes) {
-            const compId = shapeData.cid;
-            const fieldKey = shapeData.fk;
-
-            // Net field text is derived and not part of persisted schema.
-            if (fieldKey === 'net') {
-                continue;
-            }
-
-            if (shapeData.id) {
-                updateIdCounter(shapeData.id);
-            }
-
-            if (shape) {
-                if (shape.type === 'wire') bumpWireLabelCounter(shape.wireLabel);
-                if (shape.net) bumpNetNameCounter(shape.net);
-                // Preserve component field linkage for re-linking after components load
-                if (compId && fieldKey) {
-                    shape._pendingComponentId = compId;
-                    shape.fieldKey = fieldKey;
-                }
-                app.shapes.push(shape);
-                shape.render(app.viewport.scale);
-                app.viewport.addContent(shape.element);
-            }
-        }
-    }
-
-    if (components && Array.isArray(components)) {
-        for (const component of prepared.components) {
-            updateComponentIdCounter(component.id);
-            if (component) {
-                app.components.push(component);
-                const element = component.element;
-                app.viewport.addComponentContent(element);
-                
-                // Re-link field texts from loaded shapes
-                component.linkFieldTexts(app.shapes);
-            }
-        }
-    }
+    mountDocument(app);
 
     // Re-link only derived Net text (wire names are handled as generic labels)
     for (const shape of app.shapes) {
@@ -163,7 +98,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     for (const shape of app.shapes) linkTargets.set(shape.id, shape);
     for (const component of app.components) linkTargets.set(component.id, component);
     for (const shape of app.shapes) {
-        if (shape.type !== 'text' || !shape._pendingComponentId) continue;
+        if (!isTextShape(shape) || !shape._pendingComponentId) continue;
         if (shape.fieldKey !== 'label') continue;
         const target = linkTargets.get(shape._pendingComponentId);
         if (!target) continue;
@@ -176,16 +111,12 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
         restoreGridSettings(app, settings);
         // Restore paper size, orientation, and title block from file
         if (settings.paperSize && typeof settings.paperSize === 'string') {
-            const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
-            const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
-            const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));
             const orientation = settings.paperOrientation || 'landscape';
-            if (paperSelect) paperSelect.value = settings.paperSize;
-            if (orientationSelect) orientationSelect.value = orientation;
             // Trigger paper display update via the same path as UI
-            const { PAPER_SIZES } = await import('../../ui/modules/paper.js');
-            if (PAPER_SIZES[settings.paperSize]) {
-                let size = { ...PAPER_SIZES[settings.paperSize] };
+            const { getPaperSize } = await import('./paper.js');
+            const paperSize = getPaperSize(settings.paperSize);
+            if (paperSize) {
+                let size = { ...paperSize };
                 if (orientation === 'portrait') {
                     if (size.width > size.height) [size.width, size.height] = [size.height, size.width];
                 } else {
@@ -197,73 +128,80 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
             }
             const showTitleBlock = settings.titleBlock || false;
             app.viewport.setTitleBlock(showTitleBlock);
-            if (titleBlockCheckbox) titleBlockCheckbox.checked = showTitleBlock;
             localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
             // Restore title block info box state
             const showTitleBlockInfo = settings.titleBlockInfo || false;
-            const titleBlockInfoCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
             app.viewport.setTitleBlockInfo(showTitleBlockInfo);
-            if (titleBlockInfoCheckbox) titleBlockInfoCheckbox.checked = showTitleBlockInfo;
             localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));
-            // Restore title block info data
-            if (settings.titleBlockData) {
-                app.viewport.setTitleBlockData(settings.titleBlockData);
-            }
+            app.refreshRibbon?.();
+        }
+        // The title block's text belongs to the document, with or without a paper size.
+        if (settings.titleBlockData) {
+            app.viewport.setTitleBlockData(settings.titleBlockData);
         }
     }
 
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.renderShapes(true);
 
     // NB: the PCB section is restored by ProjectDocument after this
     // schematic section loads, so neither view reaches into the other.
 }
 
+/** @param {SchematicEditor} app @param {object} data */
+export async function loadProjectDocument(app, data) {
+    if (app.project) {
+        await app.project.load(data);
+    } else {
+        await app.loadSection(/** @type {ProjectData} */ (data));
+    }
+}
+
+/** @param {SchematicEditor} app @param {'new'|'open'|'import'} reason */
+export function notifyDocumentReplaced(app, reason) {
+    if (app.project) app.project.notifyDocumentReplaced(reason);
+    else app.onDocumentReplaced();
+}
+
+/** @param {SchematicEditor} app */
+export function clearAllShapes(app) {
+    for (const shape of app.shapes) discardShapeView(app, shape);
+    app.shapes = [];
+    app.updateSelectableItems();
+    app.history.clear();
+    updateUndoRedoButtons(app);
+}
+
+/** @param {SchematicEditor} app */
+export function clearAllComponents(app) {
+    for (const comp of app.components) {
+        // Remove field texts from shapes array and DOM
+        for (const ft of comp.getFieldTexts()) {
+            const idx = app.shapes.indexOf(ft);
+            if (idx !== -1) app.shapes.splice(idx, 1);
+            discardShapeView(app, ft);
+        }
+        discardComponentView(app, comp);
+    }
+    app.components = [];
+    app.updateSelectableItems();
+}
+
 /**
  * Creates a `Component` instance from serialized data, resolving definitions
  * from the library or embedding them if missing.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {object} data - Serialized component data.
  * @returns {import('../../components/Component.js').Component|null} The created component, or `null` if definition not found.
  */
 export function createComponentFromData(app, data) {
-    const dn = data.dn;
-    const def_data = data.def;
-    let def = def_data ? structuredClone(def_data) : app.componentLibrary.getDefinition(dn);
-    if (def_data && (!def._source || def._source === 'Built-in')) def._source = 'Project';
-
-    if (def_data && !def.symbol && (def.graphics || def.pins)) {
-        def.symbol = {
-            width: def.width || 10, height: def.height || 10,
-            origin: def.origin || { x: 5, y: 5 }, graphics: def.graphics || [], pins: def.pins || [],
-        };
-    }
-
-    if (!def) {
-        console.warn('Component definition not found:', dn);
-        return null;
-    }
-
-    return new Component(def, {
-        id: data.id,
-        x: data.x,
-        y: data.y,
-        rotation: data.rot ?? 0,
-        mirror: data.mir ?? false,
-        reference: data.ref,
-        value: data.val,
-        showReference: data.sr,
-        showValue: data.sv,
-        properties: data.props,
-        visible: data.v,
-        locked: data.lk,
-    });
+    return deserializeComponent(data, name => app.componentLibrary.getDefinition(name));
 }
 
 /**
  * Updates `document.title` and the UI title element with the file name
  * and dirty indicator (`•`).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function updateTitle(app) {
     // Reflect the aggregate project dirty state (schematic file-manager dirty
@@ -277,7 +215,7 @@ export function updateTitle(app) {
     document.title = title;
     const path = app.fileManager.filePath || app.fileManager.fileName;
     const autoSaveSize = app.fileManager.autoSaveSize;
-    const formattedSize = Number.isFinite(autoSaveSize)
+    const formattedSize = typeof autoSaveSize === 'number' && Number.isFinite(autoSaveSize)
         ? autoSaveSize < 1024
             ? `${autoSaveSize} B`
             : autoSaveSize < 1024 * 1024
@@ -301,37 +239,8 @@ export function updateTitle(app) {
 }
 
 /**
- * Checks for auto-saved content on startup and prompts the user to recover
- * or discard it.
- * @param {object} app - Application state.
- */
-export async function checkAutoSave(app) {
-    if (app.fileManager.hasAutoSave()) {
-        const saved = app.fileManager.loadAutoSave();
-        if (saved && saved.data) {
-            const hasContent = (saved.data.shapes && saved.data.shapes.length > 0) ||
-                               (saved.data.components && saved.data.components.length > 0);
-            if (hasContent) {
-                const time = new Date(saved.timestamp).toLocaleString();
-                const recoveryChoice = await app._confirm(
-                    `Found auto-saved content from ${time}.\n\nRecover it? Choosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
-                    { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
-                );
-                if (recoveryChoice === true) {
-                    await app._loadDocument(saved.data);
-                    app.fileManager.setDirty(true);
-                    console.log('Recovered auto-saved content');
-                } else if (recoveryChoice === false) {
-                    app.fileManager.clearAutoSave();
-                }
-            }
-        }
-    }
-}
-
-/**
  * Fetches `version.json` and displays the version number in the UI.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function loadVersion(app) {
     try {
@@ -366,32 +275,19 @@ export async function loadVersion(app) {
 }
 
 /**
- * Creates a new blank document, clearing all shapes/components and resetting
- * title block defaults. Prompts if there are unsaved changes.
- * @param {object} app - Application state.
+ * Clear only the schematic section, retaining paper/grid preferences.
+ * @param {SchematicEditor} app
  */
-export async function newFile(app) {
-    if (!canReplaceDocument(app)) return;
-    if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
-            return;
-        }
-    }
-
-    if (!canReplaceDocument(app)) return;
+export function clearDocument(app) {
+    cancelSchematicPropertyPreview(app);
+    cancelSchematicInteractions(app);
+    if (app.isSectionEditing()) throw new Error('Finish the current edit before creating a new document.');
     app.selection.clearSelection();
-    if (app.textEdit?.shape) app._endTextEdit(false);
-    app._clearAllShapes();
-    app._clearAllComponents();
+    clearAllShapes(app);
+    clearAllComponents(app);
     resetWireLabelCounter();
     resetNetNameCounter();
-    app.fileManager.newDocument();
     app.viewport.resetView();
-
-    // Clear the PCB section too — one document means New wipes both
-    // editors. Routed via the project so the schematic doesn't reach
-    // directly into the PCB view.
-    /** @type {any} */ (globalThis).bootstrap?.project?.pcb?.clearSection?.();
 
     // Reset title block to defaults (preserve persisted user-identity fields)
     app.viewport.setTitleBlockData({
@@ -402,36 +298,58 @@ export async function newFile(app) {
         company: localStorage.getItem('clearpcb_tb_company') || '',
         drawnBy: localStorage.getItem('clearpcb_tb_drawnBy') || ''
     });
+}
 
-    app._updateTitle();
-    app.invalidate?.();
-    console.log('New document created');
+/**
+ * Confirm New in the UI, then let the project coordinate both editors.
+ * @param {SchematicEditor} app
+ */
+export async function newFile(app) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
+        if (!await app.confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+            return;
+        }
+    }
+    if (!canReplaceDocument(app)) return;
+    try {
+        if (app.project) await app.project.reset();
+        else {
+            clearDocument(app);
+            app.fileManager.newDocument(/** @type {Parameters<typeof app.fileManager.newDocument>[0]} */ (serializeDocument(app)));
+        }
+        updateTitle(app);
+        notifyDocumentReplaced(app, 'new');
+        console.log('New document created');
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        app.alert('Failed to create new document: ' + message, { title: 'New Failed' });
+    }
 }
 
 /**
  * Serializes and saves the document using the file manager. Shows toast on success.
- * @param {object} app - Application state.
- * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ * @param {SchematicEditor} app
+ * @returns {Promise<SaveResult>}
  */
 export async function saveFile(app) {
-    const data = app._serializeDocument();
-    const result = await app.fileManager.save(data);
+    const result = await writeDocument(app, false);
 
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
         // Clear per-view dirty flags (e.g. the PCB's) too, otherwise they
         // keep re-triggering autosave and the unsaved warning after a save.
         if (result.clean) app.project?.markAllSectionsClean?.();
-        app._updateTitle();
-        app._showSaveToast?.('Saved');
+        updateTitle(app);
+        showSaveToast(app, 'Saved');
         console.log('Saved:', result.fileName);
     } else if (result.errorName === 'NotAllowedError' || result.errorName === 'SecurityError') {
-        const retry = await app._confirm(
+        const retry = await app.confirm(
             'The browser could not write to the current file. Your changes are still open and unsaved. Choose Save As to grant access to a file again, or save a new copy in another folder.',
             { title: 'File Access Required', okText: 'Save As', cancelText: 'Cancel' });
         if (retry) return saveFileAs(app);
     } else if (!result.cancelled) {
-        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app.alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
@@ -439,54 +357,86 @@ export async function saveFile(app) {
 
 /**
  * Serializes and saves the document with a new file name/location ("Save As").
- * @param {object} app - Application state.
- * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ * @param {SchematicEditor} app
+ * @returns {Promise<SaveResult>}
  */
 export async function saveFileAs(app) {
-    const data = app._serializeDocument();
-    const result = await app.fileManager.saveAs(data);
+    const result = await writeDocument(app, true);
 
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
         if (result.clean) app.project?.markAllSectionsClean?.();
-        app._updateTitle();
-        app._showSaveToast?.('Saved');
+        updateTitle(app);
+        showSaveToast(app, 'Saved');
         console.log('Saved as:', result.fileName);
     } else if (!result.cancelled) {
-        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app.alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
 }
 
 /**
+ * @param {SchematicEditor} app
+ * @param {boolean} saveAs
+ * @returns {Promise<SaveResult>}
+ */
+async function writeDocument(app, saveAs) {
+    let data;
+    try {
+        data = serializeProjectDocument(app);
+    } catch (error) {
+        console.error('Save snapshot failed:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    return /** @type {Promise<SaveResult>} */ (saveAs ? app.fileManager.saveAs(data) : app.fileManager.save(data));
+}
+
+/**
+ * Load an opened project and adopt its file identity. Duplicate ids left by older
+ * builds are repaired first; the document is then marked unsaved so the fix can be kept.
+ * @param {SchematicEditor} app
+ * @param {OpenSuccess} result - A successful open result.
+ */
+export async function loadOpenedProject(app, result) {
+    const repaired = repairDuplicateIds(result.data);
+    await loadProjectDocument(app, repaired.data);
+    await app.fileManager.adoptOpen(result);
+    app.fitToContent();
+    updateTitle(app);
+    app.fileManager.clearAutoSave(result.fileName);
+    notifyDocumentReplaced(app, 'open');
+    const message = duplicateIdRepairMessage(repaired);
+    if (message) {
+        app.fileManager.setDirty(true);
+        await app.alert(`Opened ${result.fileName}. ${message}`, { title: 'File Repaired' });
+    }
+}
+
+/**
  * Opens a file via the file manager, loads its data, and updates the title.
  * Prompts if there are unsaved changes.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function openFile(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
 
     try {
-        const result = await app.fileManager.open();
+        const result = /** @type {OpenResult} */ (await app.fileManager.open());
 
         if (result.success) {
-            await app._loadDocument(result.data);
-            await app.fileManager.adoptOpen(result);
-            app._fitToContent?.();
-            app._updateTitle();
-            app.fileManager.clearAutoSave();
+            await loadOpenedProject(app, /** @type {OpenSuccess} */ (result));
             console.log('Opened:', result.fileName);
         } else if (result.error) {
-            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
+            app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + errorMessage(err), { title: 'Open Failed' });
     }
 }
 
@@ -494,44 +444,40 @@ export async function openFile(app) {
  * Re-open a file from the recents list (Open ▾ dropdown) without showing the
  * file picker. Mirrors {@link openFile} but routes through
  * `fileManager.openRecent(name)`, which reuses the stored handle.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {string} name - The recents entry / file name to reopen.
  */
 export async function openRecentFile(app, name) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
 
     try {
-        const result = await app.fileManager.openRecent(name);
+        const result = /** @type {OpenResult} */ (await app.fileManager.openRecent(name));
 
         if (result.success) {
-            await app._loadDocument(result.data);
-            await app.fileManager.adoptOpen(result);
-            app._fitToContent?.();
-            app._updateTitle();
-            app.fileManager.clearAutoSave();
+            await loadOpenedProject(app, /** @type {OpenSuccess} */ (result));
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
-            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
+            app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + errorMessage(err), { title: 'Open Failed' });
     }
 }
 
 /**
  * Import an EasyEDA schematic (.json) file.
  * Opens a file picker for .json, detects EasyEDA format, converts, and loads.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function importEasyEDA(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -541,35 +487,37 @@ export async function importEasyEDA(app) {
         if (!data) return; // cancelled
 
         if (!_isEasyEDASchematic(data)) {
-            app._alert('This does not appear to be an EasyEDA schematic file.\n\nExpected a JSON file with a "schematics" array.', { title: 'Import Failed' });
+            app.alert('This does not appear to be an EasyEDA schematic file.\n\nExpected a JSON file with a "schematics" array.', { title: 'Import Failed' });
             return;
         }
 
         console.log('Importing EasyEDA schematic…');
         const doc = importEasyEDASchematic(data, app.componentLibrary);
 
-        await app._loadDocument(doc);
-        app._fitToContent?.();
+        await loadProjectDocument(app, doc);
+        app.fitToContent();
         app.fileManager.fileHandle = null;
         app.fileManager.setFilePath(null);
         app.fileManager.setFileName('imported.cpcb');
         app.fileManager.setDirty(true);
-        app._updateTitle();
-        app.fileManager.clearAutoSave();
+        updateTitle(app);
+        notifyDocumentReplaced(app, 'import');
         console.log('EasyEDA import complete');
     } catch (err) {
-        app._alert('Import failed: ' + err.message, { title: 'Import Failed' });
+        app.alert('Import failed: ' + errorMessage(err), { title: 'Import Failed' });
     }
 }
 
 /**
  * Detect whether parsed JSON is an EasyEDA schematic file.
+ * @param {unknown} data
  */
 function _isEasyEDASchematic(data) {
-    return data
-        && Array.isArray(data.schematics)
-        && data.schematics.length > 0
-        && (data.docType === 5 || data.docType === '5' || data.editorVersion);
+    if (!data || typeof data !== 'object') return false;
+    const record = /** @type {{schematics?: unknown, docType?: unknown, editorVersion?: unknown}} */ (data);
+    return Array.isArray(record.schematics)
+        && record.schematics.length > 0
+        && (record.docType === 5 || record.docType === '5' || record.editorVersion);
 }
 
 /**

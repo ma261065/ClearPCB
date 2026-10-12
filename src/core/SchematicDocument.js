@@ -1,0 +1,216 @@
+import { Component, updateComponentIdCounter } from '../components/Component.js';
+import { BuiltInComponents } from '../components/BuiltInComponents.js';
+import { createShape, updateIdCounter, resetWireLabelCounter, resetNetNameCounter } from '../shapes/index.js';
+import { bumpWireLabelCounter, bumpNetNameCounter } from '../shapes/wire.js';
+import { validateEditableProject } from './project-format.js';
+import { compactProjectAliases } from './project-field-aliases.js';
+import { extractNetlist } from './netlist.js';
+
+/** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {import('./ProjectDocument.js').ProjectSchematicData} ProjectSchematicData */
+/** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
+/** @typedef {object & {id?: string, dn?: string, x?: number, y?: number, rot?: number, mir?: boolean, ref?: string, val?: string, pkg?: string, sr?: boolean, sv?: boolean, props?: import('../components/Component.js').ComponentProperties, v?: boolean, lk?: boolean, def?: ComponentDefinition}} SerializedComponentData */
+/** @typedef {import('../shapes/wire.js').Wire | import('../shapes/net.js').Net | import('../shapes/text.js').Text | import('../shapes/polyline.js').Polyline | import('../shapes/circle.js').Circle | import('../shapes/arc.js').Arc | import('../shapes/noconnect.js').NoConnect} SchematicDrawable */
+/** @typedef {SchematicDrawable | import('../components/Component.js').Component} SchematicItem */
+
+/** @param {string} name */
+const builtInDefinition = name => BuiltInComponents.find(definition => definition.name === name);
+
+/** @param {SchematicItem} item @returns {item is import('../shapes/text.js').Text} */
+const isTextShape = item => item.type === 'text';
+/** @param {SchematicItem} item @returns {item is import('../shapes/wire.js').Wire} */
+const isWireShape = item => item.type === 'wire';
+/** @param {SchematicItem} item @returns {item is import('../shapes/wire.js').Wire|import('../shapes/net.js').Net} */
+const hasNetName = item => item.type === 'wire' || item.type === 'net';
+
+/** Construct component data without creating its SVG. */
+/**
+ * @param {SerializedComponentData} data
+ * @param {(name: string) => ComponentDefinition|null|undefined} [getDefinition]
+ */
+export function deserializeComponent(data, getDefinition = builtInDefinition) {
+    const embedded = data.def;
+    const definitionName = String(data.dn || '');
+    const definition = embedded ? structuredClone(embedded) : getDefinition(definitionName);
+    if (!definition) {
+        console.warn('Component definition not found:', definitionName);
+        return null;
+    }
+    if (embedded && (!definition._source || definition._source === 'Built-in')) definition._source = 'Project';
+    if (embedded && !definition.symbol && (definition.graphics || definition.pins)) {
+        definition.symbol = {
+            width: definition.width || 10, height: definition.height || 10,
+            origin: definition.origin || { x: 5, y: 5 },
+            graphics: definition.graphics || [], pins: definition.pins || [],
+        };
+    }
+    return new Component(definition, {
+        id: data.id, x: data.x, y: data.y, rotation: data.rot ?? 0,
+        mirror: data.mir ?? false, reference: data.ref, value: data.val,
+        packageId: data.pkg, showReference: data.sr, showValue: data.sv,
+        properties: data.props, visible: data.v, locked: data.lk,
+    });
+}
+
+/** Shared data mutation for project commands and schematic property edits. */
+/**
+ * @param {Component} component
+ * @param {string} reference
+ */
+export function setComponentReference(component, reference) {
+    component.reference = reference;
+    if (component.refText) component.refText.text = reference;
+}
+
+/** Serialize authored entities with detached preferences and deduplicated definitions. */
+/** @param {{shapes: SchematicDrawable[], components: Component[], settings?: object}} value @returns {ProjectData} */
+export function serializeSchematicDocument({ shapes, components, settings = {} }) {
+    const serializedComponents = components.map(component => component.toJSON());
+    const serializedShapes = shapes
+        .filter(shape => !(isTextShape(shape) && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
+        .map(shape => shape.toJSON());
+    /** @type {Record<string, ComponentDefinition>} */
+    const defs = {};
+    for (const component of serializedComponents) {
+        if (component.def && component.dn) {
+            if (!defs[component.dn]) defs[component.dn] = component.def;
+            delete component.def;
+        }
+    }
+    /** @type {{settings: object, shapes: ReturnType<SchematicDrawable['toJSON']>[], components: ReturnType<Component['toJSON']>[], defs?: Record<string, ComponentDefinition>}} */
+    const schematic = { settings, shapes: serializedShapes, components: serializedComponents };
+    if (Object.keys(defs).length) schematic.defs = defs;
+    return /** @type {ProjectData} */ (compactProjectAliases({
+        version: '1.0', type: 'clearpcb-project', created: new Date().toISOString(), schematic,
+    }));
+}
+
+/**
+ * Project-owned schematic state. Existing entities retain their presentation
+ * methods during migration; none of this model's operations invoke them.
+ */
+export class SchematicDocument {
+    constructor() {
+        /** @type {SchematicDrawable[]} */
+        this.shapes = [];
+        /** @type {Component[]} */
+        this.components = [];
+        this.settings = {};
+    }
+
+    /** Validate and construct a replacement without changing the live collections. */
+    /**
+     * @param {ProjectData} data
+     * @param {(name: string) => ComponentDefinition|null|undefined} [getDefinition]
+     */
+    prepare(data, getDefinition = builtInDefinition) {
+        data = /** @type {ProjectData} */ (validateEditableProject(data));
+        const schematic = /** @type {ProjectSchematicData} */ (data.schematic);
+        const shapes = schematic.shapes.filter(item => item.fk !== 'net')
+            .map(item => ({ data: item, shape: createShape(item) }));
+        const components = schematic.components.map(item => {
+            const component = deserializeComponent(/** @type {SerializedComponentData} */ ({ ...item, def: schematic.defs?.[String(item.dn)] }), getDefinition);
+            if (!component) throw new Error(`Missing component definition: ${item.dn}`);
+            return component;
+        });
+        return { data, shapes, components };
+    }
+
+    /** Adopt prepared entities without cloning them or creating presentation state. */
+    /**
+     * @param {ProjectData} data
+     * @param {{data: ProjectData, shapes: Array<{data: JsonRecord, shape: SchematicDrawable}>, components: Component[]}} [prepared]
+     */
+    load(data, prepared = this.prepare(data)) {
+        resetWireLabelCounter();
+        resetNetNameCounter();
+        this.shapes = prepared.shapes.map(({ data: item, shape }) => {
+            if (typeof item.id === 'string') updateIdCounter(item.id);
+            if (isWireShape(shape)) bumpWireLabelCounter(shape.wireLabel);
+            if (hasNetName(shape)) bumpNetNameCounter(shape.net);
+            if (typeof item.cid === 'string' && typeof item.fk === 'string' && isTextShape(shape)) {
+                shape._pendingComponentId = item.cid;
+                shape.fieldKey = item.fk;
+            }
+            return shape;
+        });
+        this.components = prepared.components;
+        this.settings = structuredClone((/** @type {ProjectSchematicData} */ (prepared.data.schematic)).settings || {});
+        for (const component of this.components) {
+            updateComponentIdCounter(component.id);
+            component.linkFieldTexts(this.shapes);
+        }
+        const targets = new Map([...this.shapes, ...this.components].map(item => [item.id, item]));
+        for (const shape of this.shapes) {
+            if (!isTextShape(shape) || shape.fieldKey !== 'label' || !shape._pendingComponentId) continue;
+            const target = targets.get(shape._pendingComponentId);
+            if (!target) continue;
+            shape.parentComponent = target;
+            if (!(target.attachedLabels instanceof Set)) target.attachedLabels = new Set();
+            target.attachedLabels.add(shape);
+        }
+    }
+
+    clear() {
+        this.shapes = [];
+        this.components = [];
+        this.settings = {};
+    }
+
+    /** Current view preferences override the loaded fallback for this snapshot only. */
+    /** @param {object} [settings] */
+    serialize(settings = this.settings) {
+        return serializeSchematicDocument({ shapes: this.shapes, components: this.components, settings });
+    }
+
+    /**
+     * @returns {import('./ProjectDocument.js').ComponentInfo|null}
+     * @param {string} id
+     */
+    getComponentInfo(id) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return null;
+        const shapes = component.definition?.footprintShapes;
+        return { id: component.id, reference: component.reference, locked: !!component.locked,
+            footprintShapes: Array.isArray(shapes) ? shapes.filter(shape => typeof shape === 'string') : [] };
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
+    validateComponentReference(id, reference) {
+        const component = this.components.find(item => item.id === id);
+        if (!component) return { message: 'Component is no longer available.', title: 'Invalid Reference' };
+        if (component.locked) return { message: 'Component is locked.', title: 'Locked Component' };
+        reference = reference.trim();
+        if (!reference) return { message: 'Reference cannot be blank.', title: 'Invalid Reference' };
+        if (this.components.some(item => item.id !== id && item.reference.toUpperCase() === reference.toUpperCase())) {
+            return { message: `Reference "${reference}" is already used by another component.`, title: 'Duplicate Reference' };
+        }
+        return null;
+    }
+
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
+    createReferenceRenameCommand(id, reference) {
+        const issue = this.validateComponentReference(id, reference);
+        if (issue) throw new Error(issue.message);
+        const original = (/** @type {import('./ProjectDocument.js').ComponentInfo} */ (this.getComponentInfo(id))).reference;
+        /** @param {string} value */
+        const apply = value => {
+            const component = this.components.find(item => item.id === id);
+            if (!component) throw new Error('Component is no longer available.');
+            setComponentReference(component, value);
+        };
+        reference = reference.trim();
+        return { execute: () => apply(reference), undo: () => apply(original) };
+    }
+
+    getNetlist() {
+        return extractNetlist(this);
+    }
+}

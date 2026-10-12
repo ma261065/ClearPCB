@@ -1,7 +1,15 @@
 /**
  * Simple VRML parser and isometric renderer for 3D model previews
  */
+import { errorMessage } from '../core/errors.js';
 import { escapeHtml } from '../core/ui-helpers.js';
+
+/**
+ * @typedef {{x:number,y:number,z:number}} ModelPoint
+ * @typedef {{vertices:ModelPoint[], faces:number[][], faceColors?:number[][]}} ModelGeometry
+ * @typedef {{minX:number,minY:number,maxX:number,maxY:number}} ProjectedBounds
+ * @typedef {{width?:number,height?:number,lineColor?:string,lineWidth?:number,fillColor?:string,strokeOpacity?:number,fillOpacity?:number,proxyUrl?:string}} RenderOptions
+ */
 
 export class VRMLPreview {
     /**
@@ -11,6 +19,7 @@ export class VRMLPreview {
      * @returns {string[]}
      */
     static _extractBlocks(text, keyword) {
+        /** @type {string[]} */
         const blocks = [];
         const needle = `${keyword}`;
         let i = 0;
@@ -43,7 +52,19 @@ export class VRMLPreview {
     }
 
     /**
+     * The first `diffuseColor r g b` in `text`, as 0-255 RGB, or null.
+     * @param {string} text
+     * @returns {number[]|null}
+     */
+    static _diffuseColor(text) {
+        const match = text.match(/diffuseColor\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/);
+        return match ? [1, 2, 3].map(i => Math.max(0, Math.min(255, Math.round(parseFloat(match[i]) * 255)))) : null;
+    }
+
+    /**
      * Parse VRML (.wrl) file content
+     * @param {string} vrmlText
+     * @returns {{vertices:ModelPoint[],faces:number[][]}|null}
      */
     static parseVRML(vrmlText) {
         const colored = this.parseVRMLWithColors(vrmlText);
@@ -60,6 +81,7 @@ export class VRMLPreview {
      * @returns {{vertices:Array<{x:number,y:number,z:number}>,faces:number[][],faceColors:number[][]}|null}
      */
     static parseVRMLWithColors(vrmlText) {
+        /** @type {ModelGeometry & {faceColors:number[][]}} */
         const geometry = {
             vertices: [],
             faces: [],
@@ -67,18 +89,21 @@ export class VRMLPreview {
         };
 
         try {
+            // KiCad models name each material once (`DEF PIN-01 Material { ... }`) and
+            // reuse it in later shapes (`material USE PIN-01`), so collect the named
+            // materials first.
+            /** @type {Map<string, number[]>} */
+            const namedColors = new Map();
+            for (const [, name, body] of vrmlText.matchAll(/DEF\s+([^\s{}]+)\s+Material\s*\{([^}]*)\}/g)) {
+                const color = this._diffuseColor(body);
+                if (color) namedColors.set(name, color);
+            }
             // Parse by Shape blocks so each face can inherit that shape's material.
             const shapeBlocks = this._extractBlocks(vrmlText, 'Shape');
             if (shapeBlocks.length > 0) {
                 for (const block of shapeBlocks) {
-                    const colorMatch = block.match(/diffuseColor\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/);
-                    const color = colorMatch
-                        ? [
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[1]) * 255))),
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[2]) * 255))),
-                            Math.max(0, Math.min(255, Math.round(parseFloat(colorMatch[3]) * 255))),
-                        ]
-                        : [102, 102, 102];
+                    const used = block.match(/material\s+USE\s+([^\s{}]+)/);
+                    const color = (used && namedColors.get(used[1])) || this._diffuseColor(block) || [102, 102, 102];
 
                     const coordMatch = block.match(/point\s*\[([\s\S]*?)\]/);
                     const coordIndexMatch = block.match(/coordIndex\s*\[([\s\S]*?)\]/);
@@ -95,6 +120,7 @@ export class VRMLPreview {
                     }
 
                     const indices = coordIndexMatch[1].trim().split(/[\s,]+/).filter(v => v);
+                    /** @type {number[]} */
                     let face = [];
                     for (const idx of indices) {
                         const index = parseInt(idx, 10);
@@ -165,6 +191,9 @@ export class VRMLPreview {
 
     /**
      * Project 3D point to isometric 2D coordinates
+     * @param {ModelPoint} vertex
+     * @param {number} [scale]
+     * @returns {{x:number,y:number}}
      */
     static projectIsometric(vertex, scale = 1) {
         // Isometric projection angles (30 degrees)
@@ -176,6 +205,9 @@ export class VRMLPreview {
 
     /**
      * Calculate bounding box of projected vertices
+     * @param {ModelPoint[]} vertices
+     * @param {number} [scale]
+     * @returns {ProjectedBounds}
      */
     static getBounds(vertices, scale = 1) {
         if (vertices.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
@@ -196,6 +228,9 @@ export class VRMLPreview {
 
     /**
      * Render geometry to SVG
+     * @param {ModelGeometry} geometry
+     * @param {RenderOptions} [options]
+     * @returns {string}
      */
     static renderToSVG(geometry, options = {}) {
         const {
@@ -277,6 +312,9 @@ export class VRMLPreview {
     /**
      * Fetch and render a 3D model from URL (auto-detects VRML/STEP).
      * STEP files are delegated to STEPPreview.
+     * @param {string} url
+     * @param {RenderOptions} [options]
+     * @returns {Promise<string>}
      */
     static async fetchAndRender(url, options = {}) {
         try {
@@ -309,13 +347,16 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error fetching/rendering 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D load error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 
     /**
      * Render EasyEDA 3D model JSON data
      * EasyEDA stores 3D data as a simple array of vertices and faces
+     * @param {unknown} model3dJson raw EasyEDA JSON/string before validation
+     * @param {RenderOptions} [options]
+     * @returns {string}
      */
     static renderEasyEDAModel(model3dJson, options = {}) {
         try {
@@ -333,6 +374,7 @@ export class VRMLPreview {
             }
 
             // Convert to our geometry format
+            /** @type {ModelGeometry} */
             const geometry = {
                 vertices: [],
                 faces: []
@@ -341,21 +383,21 @@ export class VRMLPreview {
             // Handle different EasyEDA formats
             if (modelData.vertices && Array.isArray(modelData.vertices)) {
                 // Format: { vertices: [[x,y,z],...], faces: [[i1,i2,i3],...] }
-                geometry.vertices = modelData.vertices.map(v => ({
-                    x: parseFloat(v[0]) || 0,
-                    y: parseFloat(v[1]) || 0,
-                    z: parseFloat(v[2]) || 0
+                geometry.vertices = modelData.vertices.map(/** @param {unknown[]} v */ (v) => ({
+                    x: parseFloat(String(v[0])) || 0,
+                    y: parseFloat(String(v[1])) || 0,
+                    z: parseFloat(String(v[2])) || 0
                 }));
 
                 if (modelData.faces && Array.isArray(modelData.faces)) {
-                    geometry.faces = modelData.faces.map(f => f.map(i => parseInt(i)));
+                    geometry.faces = modelData.faces.map(/** @param {unknown[]} f */ (f) => f.map((i) => parseInt(String(i))));
                 }
             } else if (Array.isArray(modelData)) {
                 // Format: [[x,y,z],...]
-                geometry.vertices = modelData.map(v => ({
-                    x: parseFloat(v[0]) || 0,
-                    y: parseFloat(v[1]) || 0,
-                    z: parseFloat(v[2]) || 0
+                geometry.vertices = modelData.map(/** @param {unknown[]} v */ (v) => ({
+                    x: parseFloat(String(v[0])) || 0,
+                    y: parseFloat(String(v[1])) || 0,
+                    z: parseFloat(String(v[2])) || 0
                 }));
             }
 
@@ -373,14 +415,15 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, options);
         } catch (error) {
             console.error('Error rendering EasyEDA 3D model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">3D render error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 
     /**
      * Parse and render OBJ format 3D model
      * @param {string} objText - OBJ file content
-     * @param {object} options - Rendering options
+     * @param {RenderOptions} [options] - Rendering options
+     * @returns {string}
      */
     static renderOBJ(objText, options = {}) {
         try {
@@ -390,7 +433,7 @@ export class VRMLPreview {
                 return '<div style="color:var(--text-muted);text-align:center;padding:20px">No nodes found</div>';
             }
 
-            // Force white colors, ignore any colors from the file
+            // Force white colors, ignore file-supplied colors
             const renderOptions = {
                 ...options,
                 lineColor: '#ffffff',
@@ -402,16 +445,17 @@ export class VRMLPreview {
             return this.renderToSVG(geometry, renderOptions);
         } catch (error) {
             console.error('Error rendering OBJ model:', error);
-            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${escapeHtml(error.message)}</div>`;
+            return `<div style="color:var(--accent-color);text-align:center;padding:20px;font-size:12px">OBJ render error: ${escapeHtml(errorMessage(error))}</div>`;
         }
     }
 
     /**
      * Parse OBJ format content
      * @param {string} objText - OBJ file content
-     * @returns {object} Geometry data with vertices and faces
+     * @returns {ModelGeometry} Geometry data with vertices and faces
      */
     static parseOBJ(objText) {
+        /** @type {ModelGeometry} */
         const geometry = {
             vertices: [],
             faces: []

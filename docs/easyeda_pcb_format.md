@@ -14,7 +14,10 @@ All coordinates are in **10-mil units** (1 unit = 10 mils = 0.254 mm).
 
 To convert to mm: `value * 0.254` or equivalently `value / 3.937`.
 
-Coordinates are **absolute board positions** (e.g. ~3900–4100 range is typical), not relative to the footprint origin. The parser must center them by computing the centroid and offsetting to (0,0).
+Coordinates are **absolute board positions** (e.g. ~3900–4100 range is typical),
+not relative to the footprint origin. ClearPCB converts them to footprint-local
+coordinates by centering on the pad bounding box when pads exist, and on the
+overall parsed-geometry bounding box for silk-only footprints.
 
 ## Layer IDs (EasyEDA Standard)
 
@@ -52,13 +55,16 @@ Document graphics are design references, not copper or solder-mask openings.
 ClearPCB retains them in the editor and PDF/print exports, but excludes them
 from fabricated-board previews and Gerbers. Layer 12 is duplicated for every
 supported graphic type; layers 13 and 14 remain side-specific. EasyEDA Pro
-layers 99/100/101 are currently skipped by the footprint parser.
+layers 99/100/101 are skipped by the footprint parser.
 
 ### EasyEDA Pro Layer Differences
 
 EasyEDA Pro uses a **different numbering** for paste/mask:
 - Standard: 5/6 = paste, 7/8 = mask
 - Pro: 5/6 = mask, 7/8 = paste
+
+ClearPCB interprets these layer IDs using the EasyEDA Standard mapping above.
+It does not auto-detect and swap the EasyEDA Pro paste/mask numbering.
 
 ## Shape Formats
 
@@ -67,7 +73,7 @@ All shapes are tilde-delimited (`~`) strings. The first field is the type prefix
 ### PAD
 
 ```
-PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~holeLength~holePts~plated~pasteExp~maskExp
+PAD~shape~cx~cy~width~height~layer~net~number~holeRadius~polyPoints~rotation~id~holeLength~holePts~plated~pasteExp~maskExp
 ```
 
 | Index | Field | Description |
@@ -81,7 +87,7 @@ PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~hol
 | 6 | layer | Layer ID (1=front SMD, 2=back SMD, 11=through-hole) |
 | 7 | net | Net name (empty in footprint defs) |
 | 8 | number | **Pad number** (e.g. "1", "2", "A", "K") |
-| 9 | holeDia | Hole diameter (10-mil units). 0 for SMD pads |
+| 9 | holeRadius | Hole radius (10-mil units). 0 for SMD pads |
 | 10 | polyPoints | Polygon outline points (space-separated, for POLYGON shape) |
 | 11 | rotation | Rotation in degrees (0–360) |
 | 12 | id | Shape ID (e.g. "gge409") |
@@ -89,7 +95,9 @@ PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~hol
 | 14 | holePts | Slot hole from/to points |
 | 15 | plated | `Y` (plated) / `N` (non-plated) |
 
-> **Drill field:** The EasyEDA official docs say field [9] is "hole radius" but the KiCad import docs call it "holeDia" (diameter). In practice, the values match diameter. Our parser uses the value directly after scaling.
+> **Drill field:** ClearPCB treats EasyEDA field [9] as a radius and converts it
+> to an internal drill diameter. KiCad-derived `PAD` records are different: they
+> carry drill diameter in field [10].
 
 ### TRACK
 
@@ -222,7 +230,8 @@ TEXT~type~x~y~strokeWidth~rotation~mirror~layer~net~fontSize~text~svgPath~displa
 | 13 | id | Shape ID |
 | 14 | locked | Lock flag |
 
-> **Not currently rendered** in ClearPCB (would need stroke path rendering).
+> **ClearPCB skips `TEXT` records.** Rendering them would require stroke path
+> rendering.
 
 ### SVGNODE
 
@@ -230,32 +239,54 @@ TEXT~type~x~y~strokeWidth~rotation~mirror~layer~net~fontSize~text~svgPath~displa
 SVGNODE~{jsonData}
 ```
 
-Contains 3D model references on layer 19. The JSON payload has `attrs.uuid` for fetching the 3D model from `https://modules.easyeda.com/3dmodel/{uuid}`.
-
-**Not rendered** on the PCB canvas.
+Contains EasyEDA SVG JSON. ClearPCB's footprint renderer does not draw it as 2D
+PCB artwork. When the payload has `attrs.c_etype === "outline3D"`, the parser
+uses the child outline points to position an already-associated 3D model relative
+to the pads. The LCSC component fetcher may separately read `attrs.uuid` from an
+SVGNODE to fetch the OBJ model, but the footprint renderer itself does not fetch
+models from SVGNODE records.
 
 ## Paste & Solder Mask
 
 EasyEDA **does not store** paste mask and solder mask openings as explicit shapes. They are auto-generated from pad geometry:
 
 - **Paste mask:** Same size as the pad
-- **Solder mask:** Pad size + expansion (typically 0.1mm)
+- **Solder mask:** Pad size + ClearPCB's fixed `MASK_EXPANSION` (`0.05` mm per side)
 
-The PAD format has optional `pasteExpansion` and `maskExpansion` fields at positions [16] and [17], but these are rarely populated. ClearPCB generates these shapes automatically from pad data.
+The PAD format has optional `pasteExpansion` and `maskExpansion` fields at
+positions [16] and [17], but ClearPCB ignores them and generates these shapes
+from pad data.
 
 ## Implementation Notes
 
 ### Data Flow
 
 1. LCSC fetcher stores `detail.packageDetail.dataStr.shape` array as `footprintShapes` on the component definition
-2. KiCad fetcher generates `PAD~` and `SILK~` strings via `_parseFootprintPreview`
+2. KiCad fetcher generates `PAD~`, `HOLE~` and `SILK~` strings via `_parseFootprintPreview`
 3. `footprint.js` `generateFromShapes()` parses both formats
 4. `renderFootprint()` returns a `Map<layerId, SVGGElement>` for per-layer rendering
-5. `PCBApp._placeFootprints()` distributes layer groups to the correct SVG layer
+5. `pcb/modules/schematic-sync.js` `placeFootprints()` distributes layer groups to the correct SVG layer
+
+### KiCad Mechanical Holes
+
+The KiCad-derived format is distinct from EasyEDA's records above.
+Non-plated round and slotted holes use
+`HOLE~cx~cy~diameter~slotLength~slotAngle`, with dimensions in millimetres and
+angles in radians. These are mechanical holes, not electrical copper pads.
+KiCad-derived plated `PAD` records optionally retain slot length and angle at
+fields [11] and [12]. Footprint transforms, copper clearance and fabrication
+snapshots preserve the complete hole geometry.
+
+Footprints whose stored shape strings lack plating or slot metadata cannot
+recover that information automatically; reimport them from the source library.
 
 ### Centering
 
-EasyEDA uses absolute board coordinates (~3900–4100 range). After parsing all shapes, the parser computes the centroid of all coordinates and offsets everything to (0,0) for footprint-local positioning.
+EasyEDA uses absolute board coordinates (~3900–4100 range). After parsing, the
+parser offsets pads, paste apertures and rendered graphics to footprint-local
+coordinates. It centers on the pad bounding box when pads exist so copper stays
+symmetric about the origin; for silk-only footprints it centers on the overall
+parsed-geometry bounding box.
 
 ### Scaling Detection
 

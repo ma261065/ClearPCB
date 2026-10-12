@@ -1,0 +1,475 @@
+/**
+ * Schematic view lifecycle. The only editor code that creates, attaches, redraws,
+ * culls or detaches entity SVG: commands, file loading, clipboard and theme
+ * changes call these helpers instead of touching `element`, `anchorsGroup`,
+ * `render()` or the viewport content layers. Entity SVG is built by
+ * src/schematic/render.
+ */
+import { syncAttachedLabels, updateLabelGuide } from './label-attachment.js';
+import { arcEdgePathD } from '../../shapes/arc-edge.js';
+import { appendSegmentSelection } from '../../core/ui-helpers.js';
+import { refreshAxisGlow } from '../../shapes/axis-glow.js';
+import { NO_SELECTION } from '../../shapes/selection-view.js';
+import { Component } from '../../components/Component.js';
+import { renderShape, updateShapeAnchors, effectiveStrokeWidth } from '../render/shape-renderer.js';
+import {
+    viewOf,
+    deleteView,
+    componentViewOf,
+    isShapeCulled,
+    setShapeCulled,
+    isComponentCulled,
+    setComponentCulled,
+} from '../render/shape-view-state.js';
+import {
+    buildComponentSymbol,
+    componentTransform,
+    discardComponent,
+    rebuildComponentSymbol as rebuildComponentSymbolView,
+    renderComponent,
+} from '../render/component-renderer.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { renderWireCrossings } from './wire-crossings.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {import('../../shapes/polyline-graph.js').PolylineGraph} PolylineGraph */
+/** @typedef {import('../../shapes/selection-view.js').SelectionView} SelectionView */
+/** @typedef {{data: object, shapes: Array<{shape: SchematicDrawable}>, components: Component[]}} PreparedDocumentView */
+
+/** Shape types that render above wires (re-appended at end of each render cycle). */
+const OVERLAY_TYPES = new Set(['noconnect', 'net']);
+
+/**
+ * On-screen size (in CSS pixels) below which a component is drawn as a single
+ * level-of-detail placeholder rect instead of its full symbol graphics.
+ */
+const LOD_PIXEL_THRESHOLD = 16;
+
+/**
+ * Selected/hovered state for rendering: the editor's SelectionManager, or
+ * NO_SELECTION when there is none (headless callers, previews).
+ * @param {SchematicEditor} app
+ * @returns {SelectionView}
+ */
+export function selectionView(app) {
+    const selection = app.selection;
+    return typeof selection?.isSelected === 'function' && typeof selection.isHovered === 'function'
+        ? selection : NO_SELECTION;
+}
+
+/**
+ * SelectionManager `invalidateEntity` hook: mark an entity whose selection,
+ * hover or ownership tint changed for redraw. Component highlights update at
+ * once, because selection changes are not always followed by a render pass.
+ * @param {SchematicEditor} app
+ * @param {SchematicItem} entity
+ */
+export function refreshSelectionVisual(app, entity) {
+    entity.invalidate();
+    if (entity instanceof Component) renderComponent(entity, app.viewport?.scale ?? 1, { selection: selectionView(app) });
+}
+
+/**
+ * Draw a shape and attach it to the content layer.
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+export function mountShape(app, shape) {
+    const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
+    app.viewport.addContent(element);
+}
+
+/**
+ * Mount a shape unless its SVG is already attached.
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+export function ensureShapeMounted(app, shape) {
+    if (!viewOf(shape)?.element?.parentNode) mountShape(app, shape);
+}
+
+/** Detach a shape's SVG and anchor handles, keeping them for a later mount. */
+/** @param {SchematicDrawable} shape */
+export function unmountShape(shape) {
+    const view = viewOf(shape);
+    if (view?.element?.parentNode) view.element.parentNode.removeChild(view.element);
+    if (view?.anchorsGroup?.parentNode) view.anchorsGroup.parentNode.removeChild(view.anchorsGroup);
+}
+
+/**
+ * Redraw a mounted shape now (outside the batched renderShapes pass).
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+export function redrawShape(app, shape) {
+    renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
+}
+
+/**
+ * Build a component symbol if needed and attach it to the component layer.
+ * @param {SchematicEditor} app
+ * @param {Component} component
+ */
+export function mountComponent(app, component) {
+    let element = componentViewOf(component)?.element;
+    if (!element) element = buildComponentSymbol(component);
+    app.viewport.addComponentContent(element);
+}
+
+/** Detach a component symbol, keeping it for a later mount. */
+/** @param {Component} component */
+export function unmountComponent(component) {
+    const element = componentViewOf(component)?.element;
+    if (element?.parentNode) element.parentNode.removeChild(element);
+}
+
+/**
+ * Rebuild a component symbol from scratch (theme colours changed).
+ * @param {SchematicEditor} app
+ * @param {Component} component
+ */
+export function rebuildComponentSymbol(app, component) {
+    componentViewOf(component)?.element?.remove();
+    app.viewport.addComponentContent(buildComponentSymbol(component));
+}
+
+/**
+ * Bring a component symbol up to date after its pose changed. Rotation and
+ * mirroring are baked into the symbol, so `rebuild` recreates it first.
+ * @param {Component} component
+ * @param {{rebuild?: boolean}} [options]
+ */
+export function refreshComponentPose(component, { rebuild = false } = {}) {
+    if (rebuild) rebuildComponentSymbolView(component);
+    const element = componentViewOf(component)?.element;
+    if (!element) return;
+    const transform = componentTransform(component);
+    if (transform) element.setAttribute('transform', transform);
+    else element.removeAttribute('transform');
+}
+
+/**
+ * Detach and release a shape's SVG for good (document cleared).
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+export function discardShapeView(app, shape) {
+    const view = viewOf(shape);
+    if (view?.element) app.viewport.removeContent(view.element);
+    view?.anchorsGroup?.remove?.();
+    deleteView(shape);
+}
+
+/**
+ * Detach and release a component symbol for good (document cleared).
+ * @param {SchematicEditor} app
+ * @param {Component} component
+ */
+export function discardComponentView(app, component) {
+    const element = componentViewOf(component)?.element;
+    if (element) app.viewport.removeContent(element);
+    discardComponent(component);
+}
+
+/**
+ * Build SVG for a prepared document before it replaces the live one.
+ * @param {SchematicEditor} app
+ * @param {PreparedDocumentView} prepared
+ */
+export function prepareDocumentView(app, prepared) {
+    for (const { shape } of prepared.shapes) renderShape(shape, app.viewport.scale);
+    for (const component of prepared.components) buildComponentSymbol(component);
+}
+
+/**
+ * Attach every loaded shape and prebuilt component symbol.
+ * @param {SchematicEditor} app
+ */
+export function mountDocument(app) {
+    for (const shape of app.shapes) mountShape(app, shape);
+    for (const component of app.components) mountComponent(app, component);
+}
+
+/**
+ * Run DOM-heavy work with the content layer detached, so many inserts and
+ * removals cost one layout instead of one each.
+ * @template T
+ * @param {SchematicEditor} app
+ * @param {() => T} work
+ * @returns {T}
+ */
+export function withContentDetached(app, work) {
+    const layer = app.viewport.contentLayer;
+    const parent = layer.parentNode;
+    const next = layer.nextSibling;
+    if (parent) parent.removeChild(layer);
+    try {
+        return work();
+    } finally {
+        if (parent) parent.insertBefore(layer, next);
+    }
+}
+
+/** An entity's live SVG (read-only use, e.g. measuring text for inline edit), or null. */
+/** @param {SchematicItem|null|undefined} entity */
+export function viewElementOf(entity) {
+    if (!entity) return null;
+    if (entity instanceof Component) return componentViewOf(entity)?.element || null;
+    return viewOf(entity)?.element || null;
+}
+
+/** Copy of an entity's current SVG (paste ghost), or null when it has none. */
+/** @param {SchematicItem|null|undefined} entity */
+export function cloneEntityElement(entity) {
+    const element = viewElementOf(entity);
+    return element ? element.cloneNode(true) : null;
+}
+
+/** Free-standing symbol SVG for a placement or paste preview. */
+/** @param {Component} component */
+export function componentPreviewElement(component) {
+    return buildComponentSymbol(component);
+}
+
+/**
+ * Free-standing shape SVG for a paste preview.
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ */
+export function shapePreviewElement(app, shape) {
+    return renderShape(shape, app.viewport.scale);
+}
+
+/** Whether viewport culling has hidden this entity. */
+/** @param {SchematicItem} entity */
+export function isCulled(entity) {
+    return entity instanceof Component ? isComponentCulled(entity) : isShapeCulled(entity);
+}
+
+/**
+ * Viewport scale of each editor's last completed renderShapes pass. Every render
+ * path draws at the current scale, so clean shapes only need the zoom fast path
+ * after the scale changes; skipping it otherwise keeps hover frames lookup-free.
+ * @type {WeakMap<object, number>}
+ */
+const lastPassScale = new WeakMap();
+const shapeSegmentSelectionElements = new WeakMap();
+
+/** @param {SchematicEditor} app */
+export function getShapeSegmentSelectionElement(app) {
+    return shapeSegmentSelectionElements.get(app) || null;
+}
+
+/** @param {SchematicEditor} app */
+export function removeShapeSegmentSelectionElement(app) {
+    const element = shapeSegmentSelectionElements.get(app);
+    if (element) element.remove();
+    shapeSegmentSelectionElements.delete(app);
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {SVGElement|null|undefined} element
+ */
+export function setShapeSegmentSelectionElement(app, element) {
+    if (element) shapeSegmentSelectionElements.set(app, element);
+    else shapeSegmentSelectionElements.delete(app);
+}
+
+/**
+ * Re-renders all visible (non-culled) shapes and components. If `force` is true,
+ * invalidates hit-test cache and recalculates stroke widths on zoom.
+ * @param {SchematicEditor} app
+ * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
+ */
+export function renderShapes(app, force = false) {
+    syncAttachedLabels(app);
+
+    if (force && app.selection) {
+        app.selection.invalidateHitCache();
+    }
+    const scale = app.viewport.scale;
+    const view = selectionView(app);
+    const scaleChanged = lastPassScale.get(app) !== scale;
+    const nodeFocus = getShapeNodeFocus(app);
+    const segmentFocus = getShapeSegmentFocus(app);
+    for (const shape of app.shapes) {
+        if (isShapeCulled(shape)) continue; // skip off-screen
+        const selected = view.isSelected(shape);
+        if (force || shape._dirty || selected || view.isHovered(shape)) {
+            const selectedNodeId = nodeFocus?.shapeId === shape.id ? nodeFocus.nodeId : null;
+            const refined = segmentFocus?.shapeId === shape.id || selectedNodeId != null;
+            renderShape(shape, scale, {
+                suppressSelection: refined,
+                selection: view,
+            });
+            if (refined && selected && shape.type === 'polyline') {
+                updateShapeAnchors(shape, scale, true, selectedNodeId, view);
+            }
+        } else if (scaleChanged) {
+            const shapeView = viewOf(shape);
+            if (shapeView?.lastScale !== scale && shapeView?.element) {
+                // Only stroke-width changed on zoom or force — fast-path update
+                const sw = effectiveStrokeWidth(/** @type {import('../../shapes/shape.js').Shape} */ (shape), scale);
+                if (sw > 0) shapeView.element.setAttribute('stroke-width', String(sw));
+                shapeView.lastScale = scale;
+            }
+        }
+    }
+    
+    // Only render components that actually need visual updates
+    for (const comp of app.components) {
+        if (isComponentCulled(comp)) continue; // skip off-screen
+        if (comp._dirty || view.isSelected(comp) || view.isHovered(comp) || comp.locked) {
+            renderComponent(comp, scale, { selection: view });
+        }
+    }
+
+    // Ensure overlay-type shapes (noconnect, Net) render above wires.
+    // Selected-shape rendering calls appendChild() which can move wire SVG
+    // elements past overlay shapes. Re-append overlay shape elements (and
+    // their anchor groups) as the last children of contentLayer so they
+    // always paint on top.  Skip when shapes are selected so anchor
+    // handles remain accessible during editing.
+    if (!app.selection?.count) {
+        const cl = app.viewport.contentLayer;
+        for (const shape of app.shapes) {
+            const shapeView = viewOf(shape);
+            if (isShapeCulled(shape) || !shapeView?.element) continue;
+            if (OVERLAY_TYPES.has(shape.type)) {
+                cl.appendChild(shapeView.element);
+                if (shapeView.anchorsGroup && shapeView.anchorsGroup.parentNode) {
+                    cl.appendChild(shapeView.anchorsGroup);
+                }
+            }
+        }
+    }
+    lastPassScale.set(app, scale);
+    renderWireCrossings(app);
+    renderShapeSegmentSelection(app);
+    refreshAxisGlow(app);
+    updateLabelGuide(app);
+}
+
+/**
+ * Render the refined edge of a selected schematic polyline above the shape.
+ * @param {SchematicEditor} app
+ */
+export function renderShapeSegmentSelection(app) {
+    removeShapeSegmentSelectionElement(app);
+    const selected = getShapeSegmentFocus(app);
+    const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
+    if (!shape || !selectionView(app).isSelected(shape) || shape.type !== 'polyline') return;
+    const polyline = /** @type {PolylineGraph} */ (shape);
+    const edge = polyline.edges.get(selected.edgeId);
+    const first = edge ? polyline.nodes.get(edge.from) : null;
+    const second = edge ? polyline.nodes.get(edge.to) : null;
+    if (!first || !second) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const bulge = polyline.getEdgeAttr(selected.edgeId, 'bulge') || 0;
+    const straight = bulge ? null : polyline.getStraightEdgePortion(selected.edgeId);
+    if (!bulge && !straight) return;
+    const element = document.createElementNS(NS, bulge ? 'path' : 'line');
+    if (bulge) {
+        element.setAttribute('d', arcEdgePathD(first, second, bulge));
+        element.setAttribute('fill', 'none');
+    } else {
+        if (!straight) return;
+        element.setAttribute('x1', String(straight.first.x));
+        element.setAttribute('y1', String(straight.first.y));
+        element.setAttribute('x2', String(straight.second.x));
+        element.setAttribute('y2', String(straight.second.y));
+    }
+    element.setAttribute('class', 'schematic-shape-segment-selection');
+    const width = Math.max(Number(polyline.getEdgeAttr(selected.edgeId, 'width')) || polyline.lineWidth,
+        1 / app.viewport.scale);
+    const overlay = app.viewport.contentLayer;
+    const anchorsGroup = viewOf(shape)?.anchorsGroup;
+    const handles = anchorsGroup?.parentNode === overlay ? anchorsGroup : null;
+    appendSegmentSelection(overlay, element, '#e94560', width, handles);
+    setShapeSegmentSelectionElement(app, element);
+}
+
+/**
+ * Clear refined schematic segment state and its independent SVG overlay.
+ * @param {SchematicEditor} app
+ */
+export function clearShapeSegmentSelection(app) {
+    setShapeSegmentFocus(app, null);
+    removeShapeSegmentSelectionElement(app);
+}
+
+/**
+ * Viewport culling — hide/show shapes & components based on whether they
+ * intersect the visible viewport.  Uses a generous margin so elements
+ * don't pop in during fast panning.
+ * @param {SchematicEditor} app
+ */
+export function updateViewportCulling(app) {
+    const bounds = app.viewport.getVisibleBounds();
+    const w = bounds.maxX - bounds.minX;
+    const h = bounds.maxY - bounds.minY;
+    const margin = Math.max(w, h) * 0.5; // 50 % overdraw
+
+    const minX = bounds.minX - margin;
+    const maxX = bounds.maxX + margin;
+    const minY = bounds.minY - margin;
+    const maxY = bounds.maxY + margin;
+    const scale = app.viewport.scale;
+    const view = selectionView(app);
+
+    for (const shape of app.shapes) {
+        const b = shape.getBounds();
+        if (!b) continue;
+        const inView = b.maxX >= minX && b.minX <= maxX &&
+                       b.maxY >= minY && b.minY <= maxY;
+
+        const culled = isShapeCulled(shape);
+        if (inView && culled) {
+            // scrolled into view — un-cull and re-render
+            setShapeCulled(shape, false);
+            const shapeView = viewOf(shape);
+            if (shapeView?.element) shapeView.element.classList.remove('culled');
+            if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.remove('culled');
+            renderShape(shape, scale, { selection: view });
+        } else if (!inView && !culled) {
+            // scrolled out of view — cull
+            setShapeCulled(shape, true);
+            const shapeView = viewOf(shape);
+            if (shapeView?.element) shapeView.element.classList.add('culled');
+            if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.add('culled');
+        }
+    }
+
+    for (const comp of app.components) {
+        const b = comp.getBounds();
+        if (!b) continue;
+        const compView = componentViewOf(comp);
+        const inView = b.maxX >= minX && b.minX <= maxX &&
+                       b.maxY >= minY && b.minY <= maxY;
+
+        const culled = isComponentCulled(comp);
+        if (inView && culled) {
+            setComponentCulled(comp, false);
+            if (compView?.element) compView.element.classList.remove('culled');
+            renderComponent(comp, scale, { selection: view });
+        } else if (!inView && !culled) {
+            setComponentCulled(comp, true);
+            if (compView?.element) compView.element.classList.add('culled');
+        }
+
+        // Level-of-detail: when an in-view component is drawn smaller than a
+        // few pixels, collapse it to its placeholder rect so the SVG renderer
+        // paints one node instead of dozens. Skip selected/hovered components
+        // so editing always shows full detail.
+        if (!isComponentCulled(comp) && compView?.element) {
+            const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
+            const far = px < LOD_PIXEL_THRESHOLD && !view.isSelected(comp) && !view.isHovered(comp);
+            if (far !== compView.lodFar) {
+                compView.lodFar = far;
+                compView.element.classList.toggle('lod-far', far);
+            }
+        }
+    }
+}

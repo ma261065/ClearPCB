@@ -1,23 +1,47 @@
 import { copperLayer, resolveCopperPads } from './copper-model.js';
+/** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../core/pcb-placement-geometry.js').BoardPad} BoardPad */
+/** @typedef {{x:number,y:number}} Point */
 
+/** @typedef {Record<string, any>} CopperCluster Dynamic copper connectivity clusters are extended by ratsnest and track-connection passes with shape/contact-specific fields. */
+
+/**
+ * @returns {CopperCluster[]}
+ * @param {PcbBoard} app
+ * @param {Set<string>|null} [nets]
+ */
 export function buildCopperClusters(app, nets = null) {
+    /** @type {CopperCluster[]} */
     const clusters = [];
     for (const track of app.tracks || []) {
         const net = track.net || '';
         if (nets && !nets.has(net)) continue;
+        /** @type {Map<string, Array<{node:string, edgeId:string}>>} */
         const adjacency = new Map([...track.nodes.keys()].map((id) => [id, []]));
         for (const [edgeId, edge] of track.edges) {
             adjacency.get(edge.from)?.push({ node: edge.to, edgeId });
             adjacency.get(edge.to)?.push({ node: edge.from, edgeId });
         }
+        /** @type {Set<string>} */
         const seen = new Set();
         for (const start of track.nodes.keys()) {
             if (seen.has(start)) continue;
-            const points = [], segments = [], layers = new Set(), edges = new Set();
+            /** @type {Point[]} */
+            const points = [];
+            /** @type {Array<{a:Point, b:Point, radius:number}>} */
+            const segments = [];
+            /** @type {Set<string>} */
+            const layers = new Set();
+            /** @type {Set<string>} */
+            const edges = new Set();
+            /** @type {Set<string>} */
             const nodeIds = new Set();
+            /** @type {string[]} */
             const stack = [start];
             while (stack.length) {
-                const nodeId = stack.pop();
+                const nodeId = /** @type {string} */ (stack.pop());
                 if (seen.has(nodeId)) continue;
                 seen.add(nodeId);
                 nodeIds.add(nodeId);
@@ -55,6 +79,7 @@ export function buildCopperClusters(app, nets = null) {
     return clusters;
 }
 
+/** @param {CopperCluster[]} clusters @param {(a: number, b: number) => void} union @param {boolean} [sameNet] */
 export function unionCoincidentClusters(clusters, union, sameNet = false) {
     const buckets = new Map();
     for (let index = 0; index < clusters.length; index++) {

@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { PcbDocument } from '../../src/core/PcbDocument.js';
+import { pictureShape } from '../../src/shared/pcb/picture-raster.js';
+import { getHoveredBoardShape } from '../../src/pcb/modules/board-shape-state.js';
+import { clearanceOverlayState, getBoardShapeClearance } from '../../src/pcb/modules/clearance-overlay.js';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
+import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
+
+installFakeDom();
+const element = (tagName = 'g') => fakeElement(tagName);
+const { renderBoardShape, setBoardShapeHover } = await import('../../src/pcb/modules/board-shape-render.js');
+const { AddBoardShapeCommand, RemoveBoardShapeCommand } = await import('../../src/pcb/modules/shape-commands.js');
+const { setPcbSelection, getPcbSelectionEntries } = await import('../../src/pcb/modules/selection-registry.js');
+const image = { ...pictureShape({ width: 2, height: 2, rectangles: [{ x: 0, y: 0, width: 2, height: 2 }] },
+    { widthMm: 2, layer: 'top-copper' }), id: 'pshape_1' };
+const layer = element();
+const overlay = element();
+const pcbDocument = new PcbDocument();
+pcbDocument.boardShapes.push(image);
+const app = { ...pcbEditorStubs(), pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    _shapeElements: new Map(), viewport: { scale: 10 },
+    getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
+setPcbSelection(app, [{ kind: 'shape', object: image }]);
+setBoardShapeHover(app, image);
+const halo = element();
+overlay.appendChild(halo);
+clearanceOverlayState(app).boardShapeClearanceCache.set(image.id, { elements: [halo] });
+renderBoardShape(app, image, { liveDrag: true });
+assert.equal(getHoveredBoardShape(app), image, 'Normal redraw preserves hover');
+assert.equal(overlay.children.length, 1, 'Normal redraw preserves the cached halo');
+assert.equal(layer.children.length, 1);
+const deletion = new RemoveBoardShapeCommand(app, image);
+deletion.execute();
+assert.equal(app.boardShapes.length, 0);
+assert.equal(app.boardShapes, pcbDocument.boardShapes, 'Deletion retains the canonical model array');
+assert.equal(layer.children.length, 0);
+assert.equal(overlay.children.length, 0);
+assert.equal(getBoardShapeClearance(app, image.id), undefined);
+assert.equal(getHoveredBoardShape(app), null);
+assert.equal(getPcbSelectionEntries(app).length, 0);
+setBoardShapeHover(app, null);
+assert.equal(layer.children.length, 0, 'Pointer movement cannot resurrect a deleted image');
+deletion.undo();
+assert.equal(app.boardShapes.length, 1);
+assert.equal(pcbDocument.boardShapes[0], image, 'Undo retains model entity identity');
+assert.equal(layer.children.length, 1, 'Undo restores exactly one image');
+setBoardShapeHover(app, image);
+deletion.execute();
+setBoardShapeHover(app, null);
+assert.equal(layer.children.length, 0, 'Redo leaves no ghost');
+const addition = new AddBoardShapeCommand(app, image);
+addition.execute();
+setBoardShapeHover(app, image);
+addition.undo();
+setBoardShapeHover(app, null);
+assert.equal(layer.children.length, 0, 'Undo import clears the hover reference too');
+console.log('PASS image deletion, hover cleanup, clearance cleanup and undo/redo without ghosts');

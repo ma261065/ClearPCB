@@ -1,38 +1,89 @@
+import { errorMessage } from '../../core/errors.js';
 import { PANEL_DEFAULTS, panelSettings, buildPanelLayout } from './panelization.js';
 import { PCB_LAYERS } from './layers.js';
-import { createPcbText, renderPcbText } from './pcb-text.js';
-import { AddTextCommand } from './text-commands.js';
-import { getBoardOutline } from './board-outline.js';
+import { createPcbText } from '../../core/pcb-text.js';
+import { renderPcbText, pcbTextBounds } from './pcb-text.js';
+import { AddTextCommand, EditTextCommand, RemoveTextCommand } from './text-commands.js';
+import { getBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
+import { boardShapeRemovalPathD } from '../../shared/pcb/board-shape-geometry.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';
+import { insideStrokeGroup } from '../../core/ui-helpers.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../shapes/track.js').Point} Point */
+/** @typedef {import('../../core/pcb-panelization.js').PanelSettings} PanelSettings */
+/** @typedef {import('./panelization.js').PanelLayout} PanelLayout */
+/** @typedef {import('../../core/pcb-panelization.js').PanelSettingKey} PanelSettingKey */
+/** @typedef {[PanelSettingKey, string, number, number, number]} PanelFieldDef */
+/** @typedef {[PanelSettingKey, string, string]} PanelToggleDef */
+/** @typedef {{group: SVGElement, note?: SVGElement, layout?: PanelLayout, key?: string|null, viewport?: PcbEditor['viewport'], layers?: Array<[string, SVGGElement]>, dispose?: () => void, image?: SVGElement, rasterKey?: string, sourceLayers?: Array<[string, SVGGElement]>, disposeRaster?: () => void}} PanelPreviewState */
 
 const NS = 'http://www.w3.org/2000/svg';
+/** @type {WeakMap<PcbEditor, PanelPreviewState>} */
 const previewState = new WeakMap();
 const dialogs = new WeakMap();
+/** @type {WeakMap<PcbEditor, PanelSettings>} */
+const draftSettings = new WeakMap();
 let previewId = 0;
 
+/**
+ * @param {keyof SVGElementTagNameMap} tag
+ * @param {Record<string, string|number|boolean>} [attributes]
+ * @returns {SVGElement}
+ */
 function svg(tag, attributes = {}) {
     const element = document.createElementNS(NS, tag);
     for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
     return element;
 }
 
+/**
+ * @param {Point[][]} contours
+ * @returns {string}
+ */
 function outlinePath(contours) {
     return contours.map(points => `M${points.map(point => `${point.x},${point.y}`).join('L')}Z`).join('');
 }
 
+/**
+ * Keep the note block above a growing panel, translating all surviving lines together.
+ * @param {import('../../core/pcb-text.js').PcbText[]} texts
+ * @param {PanelLayout} layout
+ */
+function clearPanelNoteOverlap(texts, layout) {
+    const panel = layout.bounds;
+    const boxes = texts.map(pcbTextBounds);
+    const overlaps = boxes.some(box => box.maxX > panel.x && box.minX < panel.x + panel.w
+        && box.maxY > panel.y && box.minY < panel.y + panel.h);
+    if (!overlaps) return;
+    const bottom = Math.max(...boxes.map(box => box.maxY));
+    const dy = panel.y - 3 - bottom;
+    for (const text of texts) text.y += dy;
+}
+
+/**
+ * @param {PanelLayout} layout
+ * @returns {Point[][]}
+ */
 export function panelPreviewSupportContours(layout) {
     const scale = 1e6;
+    /** @param {Point[]} points */
     const toPath = points => points.map(point => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) }));
     const clipper = new ClipperLib.Clipper();
     clipper.AddPaths([...layout.rails, ...layout.tabs].map(toPath), ClipperLib.PolyType.ptSubject, true);
     clipper.AddPaths(layout.instances.map(instance => toPath(instance.points)), ClipperLib.PolyType.ptClip, true);
+    /** @type {Array<Array<{X:number,Y:number}>>} */
     const result = [];
     clipper.Execute(ClipperLib.ClipType.ctDifference, result,
         ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
     return result.map(path => path.map(point => ({ x: point.X / scale, y: point.Y / scale })));
 }
 
+/**
+ * @param {Point[][]} contours
+ * @param {Point[]} source
+ * @returns {string}
+ */
 export function panelPreviewOutlinePath(contours, source) {
     const tolerance = 0.00002;
     const paths = [];
@@ -43,16 +94,20 @@ export function panelPreviewOutlinePath(contours, source) {
             const dx = end.x - start.x, dy = end.y - start.y;
             const length = Math.hypot(dx, dy);
             if (length <= tolerance) continue;
+            /** @type {Array<[number, number]>} */
             let intervals = [[0, 1]];
             for (let edge = 0; edge < source.length && intervals.length; edge++) {
                 const first = source[edge], last = source[(edge + 1) % source.length];
+                /** @param {Point} point */
                 const distance = point => Math.abs((point.x - start.x) * dy - (point.y - start.y) * dx) / length;
                 if (distance(first) > tolerance || distance(last) > tolerance) continue;
+                /** @param {Point} point */
                 const project = point => ((point.x - start.x) * dx + (point.y - start.y) * dy) / (length * length);
                 const firstPosition = project(first), lastPosition = project(last);
                 const low = Math.min(firstPosition, lastPosition), high = Math.max(firstPosition, lastPosition);
                 intervals = intervals.flatMap(([from, to]) => {
                     if (high <= from || low >= to) return [[from, to]];
+                    /** @type {Array<[number, number]>} */
                     const remaining = [];
                     if (low > from) remaining.push([from, low]);
                     if (high < to) remaining.push([high, to]);
@@ -68,27 +123,38 @@ export function panelPreviewOutlinePath(contours, source) {
     return paths.join('');
 }
 
-export function renderPanelPreview(app, settings = app.panelization) {
+/** @param {PcbEditor} app @param {PanelSettings|null} [settings] @param {boolean} [previewNotes] */
+export function renderPanelPreview(app, settings = app.panelization, previewNotes = false) {
+    const draft = draftSettings.get(app);
+    if (draft && arguments.length < 2) {
+        settings = draft;
+        previewNotes = true;
+    }
     const previous = previewState.get(app);
-    const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app)]) : null;
+    const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app), previewNotes]) : null;
     if (previous?.layout && previous.key === key && previous.viewport === app.viewport
+        && previous.layers
         && previous.group.parentNode
-        && previous.layers.length === app._layerGroups.size
-        && previous.layers.every(([id, layer]) => app._layerGroups.get(id) === layer)) {
+        && previous.layers.length === app.existingLayerGroups().size
+        && previous.layers.every(([id, layer]) => app.existingLayerGroups().get(id) === layer)) {
         return previous.layout;
     }
     previous?.dispose?.();
     previous?.group.remove();
     previous?.note?.remove();
     previewState.delete(app);
-    if (!settings || !app.viewport) return null;
+    if (!settings || !app.viewport) {
+        previous?.disposeRaster?.();
+        return null;
+    }
     let layout;
     try { layout = buildPanelLayout(app, settings); }
     catch (error) {
-        const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${error.message}`,
-            x: 0, y: -app._boardHeight - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
+        previous?.disposeRaster?.();
+        const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${errorMessage(error)}`,
+            x: 0, y: -boardDimensions(app).height - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
         note.style.pointerEvents = 'none';
-        app._getLayerGroup('top-document').appendChild(note);
+        app.getLayerGroup('top-document').appendChild(note);
         previewState.set(app, { group: svg('g'), note });
         return null;
     }
@@ -99,25 +165,32 @@ export function renderPanelPreview(app, settings = app.panelization) {
     group.appendChild(style);
     const defs = svg('defs');
     group.appendChild(defs);
-    const sourceLayers = [...app._layerGroups].filter(([id]) =>
+    const sourceLayers = /** @type {Array<[string, SVGGElement]>} */ ([...app.existingLayerGroups()]).filter(([id]) =>
         !id.includes('document') && !id.includes('overlay') && id !== 'ratlines' && id !== 'fp-lod');
-    const artworkId = `pcb-panel-artwork-${++previewId}`;
     const bounds = layout.sourceBounds;
-    const image = svg('image', { id: artworkId, x: bounds.x, y: bounds.y,
-        width: bounds.w, height: bounds.h, preserveAspectRatio: 'none', opacity: 0.18 });
+    const rasterKey = JSON.stringify(bounds);
+    const reuseRaster = previous?.image && previous.viewport === app.viewport
+        && previous.rasterKey === rasterKey && previous.sourceLayers?.length === sourceLayers.length
+        && previous.sourceLayers.every(([id, layer], index) => sourceLayers[index][0] === id && sourceLayers[index][1] === layer);
+    if (!reuseRaster) previous?.disposeRaster?.();
+    const image = reuseRaster ? /** @type {SVGElement} */ (previous.image)
+        : svg('image', { id: `pcb-panel-artwork-${++previewId}`, x: bounds.x, y: bounds.y,
+            width: bounds.w, height: bounds.h, preserveAspectRatio: 'none', opacity: 0.18 });
+    const artworkId = image.id;
     defs.appendChild(image);
-    const holeLayer = app._layerGroups.get('hole');
+    const holeLayer = app.existingLayerGroups().get('hole');
     const previousHoleClip = holeLayer?.getAttribute('clip-path');
     const holeDefs = svg('defs');
+    holeDefs.setAttribute('data-panel-preview-defs', 'true');
     const holeClipId = `${artworkId}-holes`;
     const holeClip = svg('clipPath', { id: holeClipId, clipPathUnits: 'userSpaceOnUse' });
     holeClip.appendChild(svg('path', { d: outlinePath([bounds.points]) }));
     holeDefs.appendChild(holeClip);
     app.viewport.svg.appendChild(holeDefs);
     holeLayer?.setAttribute('clip-path', `url(#${holeClipId})`);
-    const disposeRaster = createPanelArtworkRaster(app, sourceLayers, image, bounds);
+    const disposeRaster = reuseRaster ? previous.disposeRaster
+        : createPanelArtworkRaster(app, sourceLayers, image, bounds);
     const dispose = () => {
-        disposeRaster();
         if (previousHoleClip) holeLayer?.setAttribute('clip-path', previousHoleClip);
         else holeLayer?.removeAttribute('clip-path');
         holeDefs.remove();
@@ -126,43 +199,158 @@ export function renderPanelPreview(app, settings = app.panelization) {
     for (const instance of layout.instances.slice(1)) {
         group.appendChild(svg('use', { href: `#${artworkId}`, transform: `translate(${instance.dx},${instance.dy})` }));
     }
-    group.appendChild(svg('path', { d: outlinePath(panelPreviewSupportContours(layout)),
-        fill: color, 'fill-opacity': 0.12, 'fill-rule': 'evenodd', stroke: 'none' }));
+    const supports = svg('path', { d: outlinePath(panelPreviewSupportContours(layout)),
+        fill: color, 'fill-opacity': 0.12, 'fill-rule': 'evenodd', stroke: 'none' });
+    const positioningPaths = new Map(layout.positioningHoles.map(hole => [hole,
+        boardShapeRemovalPathD(/** @type {import('../../core/pcb-board-shapes.js').BoardShape} */ ({
+            id: `panel-positioning-hole-${hole.x}-${hole.y}`,
+            kind: 'circle',
+            layer: 'hole',
+            x: hole.x,
+            y: hole.y,
+            radius: hole.diameter / 2,
+            lineWidth: 0,
+            filled: false,
+            copperMode: 'add',
+            plated: false,
+            net: '',
+        }))]));
+    if (positioningPaths.size) {
+        // Use the board-hole geometry and even-odd vector cutout, not canvas-colour paint.
+        const clipId = `${artworkId}-positioning-holes`;
+        const clip = svg('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
+        const { x, y, w, h } = layout.bounds;
+        clip.appendChild(svg('path', {
+            d: `M${x},${y}h${w}v${h}h${-w}Z ${[...positioningPaths.values()].join(' ')}`,
+            'clip-rule': 'evenodd',
+        }));
+        holeDefs.appendChild(clip);
+        supports.setAttribute('clip-path', `url(#${clipId})`);
+    }
+    group.appendChild(supports);
     group.appendChild(svg('path', { d: panelPreviewOutlinePath(layout.contours, bounds.points),
         fill: 'none', stroke: color, 'stroke-width': 0.15 }));
     if (layout.cuts.length) group.appendChild(svg('path', {
         d: layout.cuts.map(points => `M${points[0].x},${points[0].y}L${points[1].x},${points[1].y}`).join(''),
         fill: 'none', stroke: color, 'stroke-width': 0.15, 'stroke-dasharray': '1 0.5',
     }));
-    for (const drill of layout.drills) group.appendChild(svg('circle', {
-        cx: drill.x, cy: drill.y, r: drill.diameter / 2, fill: 'none', stroke: color, 'stroke-width': 0.1,
-    }));
+    for (const drill of layout.drills) {
+        const path = positioningPaths.get(drill);
+        group.appendChild(path ? insideStrokeGroup(svg('path', { d: path, fill: 'none', 'fill-rule': 'evenodd',
+            stroke: PCB_LAYERS.find(layer => layer.id === 'hole')?.color || '#1abc9c',
+            'stroke-width': 0.05, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+        })) : svg('circle', {
+            cx: drill.x, cy: drill.y, r: drill.diameter / 2, fill: 'none', stroke: color, 'stroke-width': 0.1,
+        }));
+    }
     for (const mark of layout.fiducials) {
-        group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.maskDiameter / 2,
+        group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: (mark.maskDiameter ?? 0) / 2,
             fill: 'none', stroke: PCB_LAYERS.find(layer => layer.id === 'top-mask')?.color || '#59b879', 'stroke-width': 0.1 }));
         group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.diameter / 2,
             fill: PCB_LAYERS.find(layer => layer.id === 'top-copper')?.color || '#e05050' }));
     }
-    const overlay = app._getLayerGroup('clearance-overlay') || app._getLayerGroup('selection-overlay');
+    const overlay = app.getLayerGroup('clearance-overlay') || app.getLayerGroup('selection-overlay');
     if (overlay?.parentNode) overlay.parentNode.insertBefore(group, overlay);
     else app.viewport.addContent(group);
-    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app._layerGroups], dispose });
+    /** @type {Array<() => void>} */
+    const noteCleanup = [];
+    if (previewNotes) {
+        const owned = app.panelization?.noteTexts;
+        const notes = layout.note.flatMap((content, index) => {
+            const owner = owned?.[index];
+            if (owner?.detached) return [];
+            const original = owner ? app.texts.get(owner.id) : null;
+            if (owned && !original || !owned && app.panelization?.noteCreated) return [];
+            return [original ? { ...original,
+                content: original.content === owner?.generatedContent ? content : original.content,
+            } : createPcbText({
+                content, x: layout.bounds.x,
+                y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
+                size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
+            })];
+        });
+        clearPanelNoteOverlap(notes, layout);
+        layout.note.forEach((content, index) => {
+            const owner = owned?.[index];
+            if (owner?.detached) return;
+            const original = owner ? app.texts.get(owner.id) : null;
+            if (owned && !original) return;
+            if (!owned && app.panelization?.noteCreated) return;
+            const text = original ? notes.find(note => note.id === original.id) : notes[index];
+            if (!text) return;
+            const layer = app.getLayerGroup(text.layer);
+            if (!layer) return;
+            const authored = original ? /** @type {SVGElement|undefined} */ (Array.from(layer.querySelectorAll('[data-text-id]'))
+                .find(element => element.getAttribute('data-text-id') === original.id)) : null;
+            if (authored) {
+                const display = authored.style.display;
+                authored.style.display = 'none';
+                noteCleanup.push(() => { authored.style.display = display; });
+            }
+            const note = renderPcbText(text);
+            note.classList.add('pcb-panel-note-preview');
+            note.setAttribute('aria-label', text.content);
+            note.style.pointerEvents = 'none';
+            layer.appendChild(note);
+            noteCleanup.push(() => note.remove());
+        });
+    }
+    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app.existingLayerGroups()],
+        image, rasterKey, sourceLayers, disposeRaster,
+        dispose: () => { dispose(); for (const cleanup of noteCleanup) cleanup(); } });
     return layout;
 }
 
 export class SetPanelizationCommand {
+    /**
+     * @param {PcbEditor} app
+     * @param {Partial<PanelSettings>|PanelSettings|null} settings
+     */
     constructor(app, settings) {
+        /** @type {PcbEditor} */
         this.app = app;
-        this.before = app.panelization ? { ...app.panelization } : null;
+        /** @type {PanelSettings|null} */
+        this.before = app.panelization ? panelSettings(app.panelization) : null;
+        /** @type {PanelSettings|null} */
         this.after = settings ? panelSettings(settings) : null;
+        /** @type {Array<AddTextCommand|EditTextCommand|RemoveTextCommand>} */
         this.noteCommands = [];
-        if (this.after && !this.before?.noteCreated) {
+        const owned = this.before?.noteTexts;
+        if (!this.after) {
+            for (const note of owned || []) {
+                if (!note.detached && app.texts.has(note.id)) this.noteCommands.push(new RemoveTextCommand(app, note.id));
+            }
+        } else if (owned) {
             const layout = buildPanelLayout(app, this.after);
-            this.noteCommands = layout.note.map((content, index) => new AddTextCommand(app, createPcbText({
-                content, x: layout.bounds.x,
-                y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
-                size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
-            })));
+            const notes = owned.flatMap((note, index) => {
+                if (note.detached) return [];
+                const text = app.texts.get(note.id);
+                return text ? [{ ...text,
+                    content: text.content === note.generatedContent ? layout.note[index] : text.content,
+                }] : [];
+            });
+            clearPanelNoteOverlap(notes, layout);
+            this.after.noteTexts = owned.map((note, index) => {
+                if (note.detached) return { ...note };
+                const content = layout.note[index];
+                const text = app.texts.get(note.id);
+                const next = notes.find(text => text.id === note.id);
+                if (text && next && (text.content !== next.content || text.y !== next.y)) {
+                    this.noteCommands.push(new EditTextCommand(app, note.id, { content: next.content, y: next.y }, true));
+                }
+                return { id: note.id, generatedContent: content };
+            });
+        } else if (this.after && !this.before?.noteCreated) {
+            const layout = buildPanelLayout(app, this.after);
+            this.after.noteTexts = layout.note.map((content, index) => {
+                const text = createPcbText({
+                    content, x: layout.bounds.x,
+                    y: layout.bounds.y - 3 - (layout.note.length - 1 - index) * 2,
+                    size: 1.2, rotation: 0, strokeWidth: 0.12, layer: 'top-document',
+                });
+                this.noteCommands.push(new AddTextCommand(app, text));
+                return { id: text.id, generatedContent: content };
+            });
         }
         if (this.after) this.after.noteCreated = true;
         this.description = settings ? 'Panelize board' : 'Remove panel';
@@ -175,21 +363,27 @@ export class SetPanelizationCommand {
         for (const command of [...this.noteCommands].reverse()) command.undo();
         this.apply(this.before);
     }
+    lockTargets() {
+        return this.noteCommands.flatMap(command => command.lockTargets());
+    }
+    /** @param {PanelSettings|null} settings */
     apply(settings) {
-        this.app.panelization = settings ? { ...settings } : null;
+        this.app.panelization = settings ? panelSettings(settings) : null;
         renderPanelPreview(this.app);
     }
 }
 
+/** @param {HTMLFormElement} form */
 export function updatePanelRailConstraints(form) {
     let error = '';
     for (const [axis, key] of [
         ['horizontal', 'railTop'],
         ['vertical', 'railLeft'],
     ]) {
-        const features = form.querySelector(`input[name="${axis}PositioningHoles"]`).checked
-            || form.querySelector(`input[name="${axis}Fiducials"]`).checked;
-        const input = form.querySelector(`input[name="${key}"]`);
+        const positioning = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${axis}PositioningHoles"]`));
+        const fiducials = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${axis}Fiducials"]`));
+        const features = positioning.checked || fiducials.checked;
+        const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
         const required = features && (input.valueAsNumber > 0 || input.min === '5');
         input.min = required ? '5' : '0';
         const message = required && !(input.valueAsNumber >= 5)
@@ -200,11 +394,13 @@ export function updatePanelRailConstraints(form) {
     return error;
 }
 
+/** @param {PcbEditor} app */
 export function openPanelizeDialog(app) {
     if (dialogs.has(app)) return;
     const settings = app.panelization ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
     settings.railTop = Math.max(settings.railTop, settings.railBottom);
     settings.railLeft = Math.max(settings.railLeft, settings.railRight);
+    /** @type {Array<{title: string, wide?: boolean, fields: PanelFieldDef[], toggles?: PanelToggleDef[]}>} */
     const groups = [
         { title: 'Layout', wide: true, fields: [
             ['rows', 'Rows', 1, 20, 1], ['columns', 'Columns', 1, 20, 1],
@@ -260,8 +456,9 @@ export function openPanelizeDialog(app) {
             <button type="submit" class="app-modal-btn app-modal-ok" data-apply>Apply</button>
         </div>
     </form>`;
-    const form = overlay.querySelector('form');
+    const form = /** @type {HTMLFormElement} */ (overlay.querySelector('form'));
     const title = /** @type {HTMLElement} */ (form.querySelector('.app-modal-title'));
+    /** @type {{pointerId: number, offsetX: number, offsetY: number}|null} */
     let drag = null;
     title.addEventListener('pointerdown', event => {
         if (event.button !== 0 || !event.isPrimary || drag) return;
@@ -280,6 +477,7 @@ export function openPanelizeDialog(app) {
         form.style.left = `${Math.max(0, Math.min(event.clientX - drag.offsetX, maxX))}px`;
         form.style.top = `${Math.max(0, Math.min(event.clientY - drag.offsetY, maxY))}px`;
     });
+    /** @param {PointerEvent} event */
     const stopDrag = (event) => {
         if (!drag || drag.pointerId !== event.pointerId) return;
         drag = null;
@@ -288,30 +486,31 @@ export function openPanelizeDialog(app) {
     title.addEventListener('pointerup', stopDrag);
     title.addEventListener('pointercancel', stopDrag);
     title.addEventListener('lostpointercapture', stopDrag);
-    const select = form.querySelector('select');
+    const select = /** @type {HTMLSelectElement} */ (form.querySelector('select'));
     select.value = settings.separation;
-    const error = overlay.querySelector('[data-error]');
-    const summary = overlay.querySelector('[data-summary]');
+    const error = /** @type {HTMLElement} */ (overlay.querySelector('[data-error]'));
+    const summary = /** @type {HTMLElement} */ (overlay.querySelector('[data-summary]'));
     const apply = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-apply]'));
     const remove = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-remove]'));
     remove.disabled = !app.panelization;
     const priorFocus = /** @type {HTMLElement} */ (document.activeElement);
+    /** @returns {PanelSettings} */
     const read = () => {
         const values = Object.fromEntries([...form.querySelectorAll('input,select')].map(element => {
             const input = /** @type {HTMLInputElement} */ (element);
             return [input.name, input.type === 'checkbox' ? input.checked : input.name === 'separation' ? input.value : input.valueAsNumber];
         }));
-        return { ...values, railBottom: values.railTop, railRight: values.railLeft };
+        return /** @type {PanelSettings} */ ({ ...values, railBottom: values.railTop, railRight: values.railLeft });
     };
     const refresh = () => {
         for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge', 'verticalTabOffset', 'horizontalTabOffset', 'tabWidth', 'holeDiameter', 'holePitch']) {
-            const input = form.querySelector(`input[name="${key}"]`);
+            const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
             input.disabled = select.value === 'vcut';
             if (key.endsWith('TabsPerEdge') || key.endsWith('TabOffset')) {
-                input.closest('label').style.display = select.value === 'vcut' ? 'none' : '';
+                /** @type {HTMLElement} */ (input.closest('label')).style.display = select.value === 'vcut' ? 'none' : '';
             }
         }
-        form.querySelector('input[name="tabWidth"]').closest('fieldset').style.display = select.value === 'vcut' ? 'none' : '';
+        /** @type {HTMLElement} */ (/** @type {HTMLInputElement} */ (form.querySelector('input[name="tabWidth"]')).closest('fieldset')).style.display = select.value === 'vcut' ? 'none' : '';
         try {
             const railError = updatePanelRailConstraints(form);
             if (railError) throw new Error(railError);
@@ -319,9 +518,10 @@ export function openPanelizeDialog(app) {
             error.textContent = '';
             summary.textContent = `${layout.instances.length} boards; ${layout.bounds.w.toFixed(2)} x ${layout.bounds.h.toFixed(2)} mm`;
             apply.disabled = false;
-            renderPanelPreview(app, layout.settings);
+            draftSettings.set(app, layout.settings);
+            renderPanelPreview(app, layout.settings, true);
         } catch (reason) {
-            error.textContent = reason.message;
+            error.textContent = errorMessage(reason);
             summary.textContent = '';
             apply.disabled = true;
         }
@@ -329,11 +529,12 @@ export function openPanelizeDialog(app) {
     const close = () => {
         overlay.remove();
         dialogs.delete(app);
+        draftSettings.delete(app);
         renderPanelPreview(app);
         priorFocus?.focus();
     };
     dialogs.set(app, close);
-    overlay.querySelector('[data-cancel]').addEventListener('click', close);
+    /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-cancel]')).addEventListener('click', close);
     remove.addEventListener('click', () => {
         app.history.execute(new SetPanelizationCommand(app, null));
         close();
@@ -341,10 +542,12 @@ export function openPanelizeDialog(app) {
     form.addEventListener('input', refresh);
     select.addEventListener('change', () => {
         if (select.value === 'vcut') {
-            for (const key of ['rowSpacing', 'columnSpacing']) form.querySelector(`input[name="${key}"]`).value = '2.00';
+            for (const key of ['rowSpacing', 'columnSpacing']) {
+                /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`)).value = '2.00';
+            }
         } else {
             for (const key of ['rowSpacing', 'columnSpacing']) {
-                const input = form.querySelector(`input[name="${key}"]`);
+                const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
                 if (Number(input.value) < 1) input.value = '2';
             }
         }
@@ -357,11 +560,16 @@ export function openPanelizeDialog(app) {
             app.history.execute(new SetPanelizationCommand(app, layout.settings));
             close();
             const bounds = layout.bounds;
-            app.viewport.fitToBounds(bounds.x, bounds.y - 12, bounds.x + bounds.w, bounds.y + bounds.h, 5);
+            const viewport = app.viewport;
+            if (viewport) viewport.fitToBounds(bounds.x, bounds.y - 12, bounds.x + bounds.w, bounds.y + bounds.h, 5);
         } catch (reason) {
-            error.textContent = reason.message;
+            error.textContent = errorMessage(reason);
             apply.disabled = true;
         }
+    });
+    overlay.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        event.stopPropagation();
     });
     overlay.addEventListener('keydown', event => {
         event.stopPropagation();
@@ -379,6 +587,7 @@ export function openPanelizeDialog(app) {
     form.querySelector('input')?.focus();
 }
 
+/** @param {PcbEditor} app */
 export function resetPanelPreview(app) {
     dialogs.get(app)?.();
     renderPanelPreview(app, null);

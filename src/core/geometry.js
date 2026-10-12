@@ -4,10 +4,15 @@
  * All functions work with points in the form { x: number, y: number }
  */
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{a: Point, b: Point}} Segment */
+
 // ==================== Point Operations ====================
 
 /**
  * Get distance between two points
+ * @param {Point} p1
+ * @param {Point} p2
  */
 export function distance(p1, p2) {
     const dx = p2.x - p1.x;
@@ -18,11 +23,16 @@ export function distance(p1, p2) {
 // ==================== Line Operations ====================
 
 /** Connect the facing edges of two rectangles given four ordered corners. */
+/** @param {Point[]} corners */
 const boxCenter = corners => ({
     x: (corners[0].x + corners[2].x) / 2,
     y: (corners[0].y + corners[2].y) / 2,
 });
 
+/**
+ * @param {Point[]} corners
+ * @param {Point} delta
+ */
 function boxExitFraction(corners, delta) {
     const horizontal = { x: (corners[1].x - corners[0].x) / 2, y: (corners[1].y - corners[0].y) / 2 };
     const vertical = { x: (corners[3].x - corners[0].x) / 2, y: (corners[3].y - corners[0].y) / 2 };
@@ -35,6 +45,10 @@ function boxExitFraction(corners, delta) {
     );
 }
 
+/**
+ * @param {Point[]} first
+ * @param {Point[]} second
+ */
 export function connectBoxOutlines(first, second) {
     const center = boxCenter;
     const start = center(first);
@@ -49,6 +63,10 @@ export function connectBoxOutlines(first, second) {
     };
 }
 
+/**
+ * @param {Point|null|undefined} point
+ * @param {Point[]|null|undefined} box
+ */
 export function connectPointToBoxOutline(point, box) {
     if (!point || !box) return null;
     const end = boxCenter(box);
@@ -63,6 +81,9 @@ export function connectPointToBoxOutline(point, box) {
 
 /**
  * Get closest point on a line segment to a given point
+ * @param {Point} point
+ * @param {Point} lineStart
+ * @param {Point} lineEnd
  */
 export function closestPointOnSegment(point, lineStart, lineEnd) {
     const dx = lineEnd.x - lineStart.x;
@@ -84,6 +105,9 @@ export function closestPointOnSegment(point, lineStart, lineEnd) {
 
 /**
  * Get distance from a point to a line segment
+ * @param {Point} point
+ * @param {Point} lineStart
+ * @param {Point} lineEnd
  */
 export function distanceToSegment(point, lineStart, lineEnd) {
     const closest = closestPointOnSegment(point, lineStart, lineEnd);
@@ -94,6 +118,8 @@ export function distanceToSegment(point, lineStart, lineEnd) {
 
 /**
  * Check if a point is inside a polygon (using ray casting)
+ * @param {Point} point
+ * @param {Point[]} polygon
  */
 export function pointInPolygon(point, polygon) {
     let inside = false;
@@ -117,6 +143,9 @@ export function pointInPolygon(point, polygon) {
 /**
  * Calculate circumcircle (center + radius) from three points.
  * Returns { cx, cy, radius } or null if points are collinear.
+ * @param {Point} p1
+ * @param {Point} p2
+ * @param {Point} p3
  */
 export function circumcircle(p1, p2, p3) {
     const d1 = p1.x * p1.x + p1.y * p1.y;
@@ -137,6 +166,9 @@ export function circumcircle(p1, p2, p3) {
 /**
  * Project a point onto the perpendicular bisector of chord p1->p2.
  * Returns the projected point. If the chord is degenerate, returns the original point.
+ * @param {Point} p1
+ * @param {Point} p2
+ * @param {Point} pt
  */
 export function projectOntoChordBisector(p1, p2, pt) {
     const mx = (p1.x + p2.x) / 2;
@@ -151,6 +183,9 @@ export function projectOntoChordBisector(p1, p2, pt) {
 
 /**
  * Clamp a bulge point so it stays within half-chord distance of the chord midpoint.
+ * @param {Point} p1
+ * @param {Point} p2
+ * @param {Point} b
  */
 export function clampBulgePoint(p1, p2, b) {
     const mx = (p1.x + p2.x) / 2;
@@ -170,6 +205,9 @@ export function clampBulgePoint(p1, p2, b) {
  * The ratio is the signed perpendicular distance from the chord midpoint,
  * normalized by the half-chord length.  Positive = left side of p1->p2.
  * Returns 0 if the chord is degenerate.
+ * @param {Point} p1
+ * @param {Point} p2
+ * @param {Point} b
  */
 export function bulgeRatio(p1, p2, b) {
     const halfChord = Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2;
@@ -188,6 +226,9 @@ export function bulgeRatio(p1, p2, b) {
 /**
  * Reconstruct a bulge point from a signed ratio and a chord p1->p2.
  * Inverse of bulgeRatio().  The result is clamped to half-chord distance.
+ * @param {Point} p1
+ * @param {Point} p2
+ * @param {number} ratio
  */
 export function bulgePointFromRatio(p1, p2, ratio) {
     const mx = (p1.x + p2.x) / 2;
@@ -210,6 +251,9 @@ export function bulgePointFromRatio(p1, p2, ratio) {
 
 /**
  * Check if two points match within epsilon (Chebyshev distance).
+ * @param {Point|null|undefined} a
+ * @param {Point|null|undefined} b
+ * @param {number} [epsilon]
  */
 export function pointsMatch(a, b, epsilon = 1e-6) {
     return a && b && Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon;
@@ -220,6 +264,10 @@ export function pointsMatch(a, b, epsilon = 1e-6) {
  * Uses the normalized cross product (sine of the angle at b).
  * Returns true if the angle deviates less than angleTol from 180°.
  * Degenerate zero-length spans are treated as collinear.
+ * @param {Point} a
+ * @param {Point} b
+ * @param {Point} c
+ * @param {number} [angleTol]
  */
 export function pointsCollinear(a, b, c, angleTol = 0.05) {
     const dx1 = b.x - a.x, dy1 = b.y - a.y;
@@ -232,6 +280,9 @@ export function pointsCollinear(a, b, c, angleTol = 0.05) {
 /**
  * Check if two segments are collinear (parallel and overlapping direction).
  * seg1/seg2 are { a: {x,y}, b: {x,y} }.
+ * @param {Segment} seg1
+ * @param {Segment} seg2
+ * @param {number} [angleTol]
  */
 export function segmentsCollinear(seg1, seg2, angleTol = 0.05) {
     const dx1 = seg1.b.x - seg1.a.x, dy1 = seg1.b.y - seg1.a.y;
@@ -245,6 +296,10 @@ export function segmentsCollinear(seg1, seg2, angleTol = 0.05) {
  * If three points are nearly collinear (within threshold world units),
  * project mid onto the line through outer and far.
  * Returns the projected point, or null if not collinear enough.
+ * @param {Point} outer
+ * @param {Point} mid
+ * @param {Point} far
+ * @param {number} threshold
  */
 export function collinearSnap(outer, mid, far, threshold) {
     const dx1 = mid.x - outer.x, dy1 = mid.y - outer.y;

@@ -2,6 +2,19 @@ import * as THREE from '../../../assets/vendor/three.module.js';
 
 export const COLOR_COMPONENT = [40, 44, 52];
 
+/** @typedef {{x: number, y: number, z: number}} ModelVertex */
+/** @typedef {{idx: number[], color?: number[]}} ModelFace */
+/**
+ * A triangulated model: vertices, and faces indexing them with an sRGB colour (0-255).
+ * @typedef {{verts: ModelVertex[], faces: ModelFace[]}} ModelMesh
+ */
+
+/**
+ * Parse Wavefront OBJ text (with inline `newmtl`/`Kd` colours) into vertices and
+ * triangulated, coloured faces.
+ * @param {string|null|undefined} objText
+ * @returns {{vertices: ModelVertex[], faces: Array<{idx: number[], color: number[]}>, source: string}|null}
+ */
 export function parseObjModel(objText) {
     if (!objText) return null;
     /** @type {Array<{x:number,y:number,z:number}>} */
@@ -15,6 +28,7 @@ export function parseObjModel(objText) {
     // Source discriminator: the KiCad WRL/STEP→OBJ converter names materials
     // `m_<r>_<g>_<b>`; EasyEDA OBJs use numeric names with `endmtl` blocks.
     let kicadMaterial = false;
+    let builtInModel = false;
 
     for (const raw of objText.split('\n')) {
         const line = raw.trim();
@@ -23,6 +37,9 @@ export function parseObjModel(objText) {
         const kw = sp < 0 ? line : line.slice(0, sp);
         const rest = sp < 0 ? '' : line.slice(sp + 1).trim();
         switch (kw) {
+            case '#':
+                if (rest === 'ClearPCB procedural package; millimetres; Z up') builtInModel = true;
+                break;
             case 'v': {
                 const p = rest.split(/\s+/);
                 vertices.push({ x: +p[0], y: +p[1], z: +p[2] });
@@ -62,9 +79,16 @@ export function parseObjModel(objText) {
         }
     }
     if (!vertices.length || !faces.length) return null;
-    return { vertices, faces, source: kicadMaterial ? 'kicad' : 'easyeda' };
+    return { vertices, faces, source: builtInModel ? 'builtin' : kicadMaterial ? 'kicad' : 'easyeda' };
 }
 
+/**
+ * Build a three.js geometry from a mesh; grouped by face colour, its groups are listed
+ * in `userData.groupVertCounts`.
+ * @param {ModelMesh} mesh
+ * @param {boolean} [groupByColor]
+ * @returns {THREE.BufferGeometry & {userData: {groupVertCounts?: number[]}}}
+ */
 export function meshToGeometry(mesh, groupByColor = false) {
     const col = new THREE.Color();
     if (!groupByColor) {
@@ -148,7 +172,7 @@ export function meshToGeometry(mesh, groupByColor = false) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
-    geo.userData.groupVertCounts = groupVertCounts;
+    Object.assign(geo.userData, { groupVertCounts });
     return geo;
 }
 
@@ -166,6 +190,7 @@ export function makeComponentMaterial() {
     return makeMaterial();
 }
 
+/** @param {number[]} groupVertCounts */
 export function makeComponentGroupMaterials(groupVertCounts) {
     return groupVertCounts.map((_, i) => {
         const m = makeComponentMaterial();

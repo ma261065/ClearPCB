@@ -1,8 +1,22 @@
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
-import { findNearbyPad, resolveGridMagnetSnap } from './track-draw.js';
+import { findNearbyPad, resolveGridMagnetSnap } from './track-snap.js';
 import { resolvePathPoint, resolvePathTranslation } from '../../shapes/path-snap.js';
+import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
+import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../shared/ui/context-menu.js').MenuItem} MenuItem */
+/** @typedef {import('../../shapes/path-snap.js').PathDragConstraint} PathDragConstraint */
+/** @typedef {{id: string, x: number, y: number, [key: string]: unknown}} PathAnchor */
+/** @typedef {{id: string, kind: string, object: any, locked?: boolean, getBounds: () => any, hitTest: (point: Point, tolerance?: number) => boolean, invalidate: () => void, beginAnchorDrag: (id: string|number|undefined, point: Point, options?: any) => boolean, updateAnchorDrag?: (point: Point) => void, endAnchorDrag?: (commit: boolean, options?: object) => void, getAnchors: () => PathAnchor[], clearEdit?: () => void}} PathAdapter Dynamic path adapters proxy different selectable model objects. */
 export { pathMoveInteraction } from '../../shapes/path-interaction.js';
 
+/**
+ * @param {PcbEditor} app
+ * @param {PathAdapter} adapter
+ * @param {string} anchorId
+ * @param {() => void} prepare
+ */
 export function beginPathSplit(app, adapter, anchorId, prepare) {
     const original = adapter.beginAnchorDrag;
     adapter.beginAnchorDrag = (id, point, options) => {
@@ -10,9 +24,9 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
         if (started) {
             prepare();
             if (adapter.kind === 'shape') {
-                app._selectedBoardShapeNode = null;
-                app._selectedBoardShapeSegment = null;
-            } else if (adapter.kind === 'track') app._trackEdit = null;
+                setBoardShapeNodeFocus(app, null);
+                setBoardShapeSegmentFocus(app, null);
+            } else if (adapter.kind === 'track') /** @type {() => void} */ (adapter.clearEdit)();
         }
         return started;
     };
@@ -20,6 +34,13 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
     return !!anchor && beginPcbAnchorInteraction(app, adapter, anchor, anchor, true);
 }
 
+/**
+ * @param {PcbEditor} app
+ * @param {Point} point
+ * @param {Point[]} [neighbours]
+ * @param {boolean} [pads]
+ * @param {Array<[Point, Point]>} [continuations]
+ */
 export function snapPathPoint(app, point, neighbours = [], pads = false, continuations = []) {
     if (app.viewport?.shiftHeld) return { x: point.x, y: point.y };
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
@@ -30,61 +51,62 @@ export function snapPathPoint(app, point, neighbours = [], pads = false, continu
     return resolvePathPoint(point, neighbours, grid, threshold, null, continuations);
 }
 
-export function snapPathTranslation(app, points, delta, neighbours = [], constraints = []) {
+/**
+ * Track paths pass `pads` to lock moved nodes onto pads; board shapes and fills do not.
+ * @param {PcbEditor} app
+ * @param {Point[]} points
+ * @param {Point} delta
+ * @param {Point[]} [neighbours]
+ * @param {PathDragConstraint[]} [constraints]
+ * @param {boolean} [pads]
+ */
+export function snapPathTranslation(app, points, delta, neighbours = [], constraints = [], pads = false) {
     if (app.viewport?.shiftHeld) return delta;
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
     return resolvePathTranslation(points, delta, neighbours, constraints, threshold,
-        (point, tolerance) => findNearbyPad(app, point, tolerance),
+        pads ? (point, tolerance) => findNearbyPad(app, point, tolerance) : () => null,
         (point, fixed) => snapPathPoint(app, point, fixed));
 }
 
+/**
+ * @param {{node?: boolean, segment?: boolean, curved?: boolean, standalone?: boolean, split?: (() => any)|null,
+ *   deleteNode?: (() => any)|null, convert?: (() => any)|null, deleteSegment?: (() => any)|null,
+ *   deleteObject?: (() => any)|null, label?: string}} actions
+ */
 export function pathContextActions({ node, segment, curved, standalone = false, split, deleteNode, convert, deleteSegment, deleteObject, label }) {
     if (node) return [
         split && { text: 'Split', onClick: split },
         deleteNode && { text: 'Delete node', onClick: deleteNode },
-    ].filter(Boolean);
+    ].filter(item => !!item);
     return [
         segment && convert && { text: `Convert to ${curved ? 'Line' : 'Arc'}${standalone ? '' : ' Segment'}`, onClick: convert },
         segment && !standalone && deleteSegment && { text: 'Delete segment', onClick: deleteSegment },
         deleteObject && { text: `Delete ${label}`, onClick: deleteObject },
-    ].filter(Boolean);
+    ].filter(item => !!item);
 }
 
+/** @param {MenuItem[]} items @param {string} prefix @param {() => boolean} prepare
+ * @returns {import('../../shared/ui/property-fields.js').PropertyActionGroup[]}
+ */
+export function pathPropertyActions(items, prefix, prepare) {
+    return items.length ? [{ title: 'Actions', actions: items.map((item, index) => ({
+        id: `${prefix}${index}`, label: item.text, title: item.text,
+        run: () => { if (prepare()) item.onClick(); },
+    })) }] : [];
+}
+
+/** @param {string} id */
 export function dismissPathContextMenu(id) {
-    const menu = document.getElementById(id);
-    if (!menu) return;
-    const handlers = menu._dismiss;
-    if (handlers) {
-        document.removeEventListener('mousedown', handlers.dismiss, { capture: true });
-        document.removeEventListener('keydown', handlers.onKey, { capture: true });
-    }
-    menu.remove();
+    dismissContextMenu(id);
 }
 
+/**
+ * @param {string} id
+ * @param {MenuItem[]} items
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {() => void} [refresh]
+ */
 export function showPathContextMenu(id, items, clientX, clientY, refresh = () => {}) {
-    dismissPathContextMenu(id);
-    if (!items.length) return;
-    const menu = document.createElement('div');
-    menu.id = id;
-    menu.style.cssText = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;left:${clientX}px;top:${clientY}px;`;
-    for (const item of items) {
-        const element = document.createElement('div');
-        element.textContent = item.text;
-        element.style.cssText = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
-        element.addEventListener('mouseenter', () => { element.style.background = '#3a3a3a'; });
-        element.addEventListener('mouseleave', () => { element.style.background = ''; });
-        element.addEventListener('click', event => { dismissPathContextMenu(id); item.onClick(event); refresh(); });
-        menu.appendChild(element);
-    }
-    menu.addEventListener('contextmenu', event => event.preventDefault());
-    document.body.appendChild(menu);
-    const dismiss = event => { if (!menu.contains(event.target)) dismissPathContextMenu(id); };
-    const onKey = event => { if (event.key === 'Escape') dismissPathContextMenu(id); };
-    setTimeout(() => {
-        if (document.getElementById(id) !== menu) return;
-        document.addEventListener('mousedown', dismiss, { capture: true });
-        document.addEventListener('keydown', onKey, { capture: true });
-    }, 0);
-    menu._dismiss = { dismiss, onKey };
-    return menu;
+    return showContextMenu(id, items, clientX, clientY, { onChosen: refresh });
 }

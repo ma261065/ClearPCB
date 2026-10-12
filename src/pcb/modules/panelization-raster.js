@@ -1,7 +1,16 @@
-import { inlineSvgComputedStyles } from '../../ui/modules/export.js';
+import { inlineSvgComputedStyles } from '../../shared/ui/export.js';
+import { stripRemovalHatches } from './removal-hatch.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{x: number, y: number, w: number, h: number, points: Point[]}} PanelRasterBounds */
 
 const NS = 'http://www.w3.org/2000/svg';
 
+/**
+ * @param {PanelRasterBounds} bounds
+ * @param {number} scale
+ * @param {number} [pixelRatio]
+ */
 export function panelRasterSize(bounds, scale, pixelRatio = 1) {
     const longest = Math.max(bounds.w, bounds.h);
     const requested = longest * Math.max(0.01, scale || 1) * Math.min(2, pixelRatio || 1);
@@ -10,12 +19,24 @@ export function panelRasterSize(bounds, scale, pixelRatio = 1) {
         height: Math.max(1, Math.ceil(bounds.h / longest * pixels)) };
 }
 
+/**
+ * @param {PcbEditor} app
+ * @param {Iterable<[string, SVGGElement]>} sourceLayers
+ * @param {SVGElement} target
+ * @param {PanelRasterBounds} bounds
+ * @returns {() => void}
+ */
 export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
-    const viewport = app.viewport;
+    const layers = [...sourceLayers];
+    sourceLayers = layers;
+    const holeLayer = layers.find(([id]) => id === 'hole')?.[1];
+    const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
     let disposed = false;
     let revision = 0;
+    /** @type {ReturnType<typeof setTimeout>|null} */
     let timer = null;
     let busy = false;
+    /** @type {string|null} */
     let bitmapUrl = null;
     const size = () => panelRasterSize(bounds, viewport.scale, globalThis.devicePixelRatio);
     let requestedSize = size();
@@ -25,6 +46,7 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
         if (disposed || busy) return;
         busy = true;
         const ticket = revision;
+        /** @type {string|null} */
         let sourceUrl = null;
         try {
             const dimensions = size();
@@ -34,7 +56,9 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             root.setAttribute('height', String(dimensions.height));
             root.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
             for (const child of viewport.svg?.children || []) {
-                if (child.localName === 'defs') root.appendChild(child.cloneNode(true));
+                // Not the editor's <defs>: its copper-cut clips are sized to the on-screen view.
+                if (child.localName === 'defs' && !child.hasAttribute?.('data-pcb-defs')
+                    && !child.hasAttribute?.('data-panel-preview-defs')) root.appendChild(child.cloneNode(true));
             }
             const defs = document.createElementNS(NS, 'defs');
             const clip = document.createElementNS(NS, 'clipPath');
@@ -49,8 +73,12 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             const artwork = document.createElementNS(NS, 'g');
             artwork.setAttribute('clip-path', `url(#${clipId})`);
             for (const [, layer] of sourceLayers) {
-                const clone = layer.cloneNode(true);
-                inlineSvgComputedStyles(layer, clone);
+                const clone = /** @type {SVGGElement} */ (layer.cloneNode(true));
+                inlineSvgComputedStyles(
+                    /** @type {SVGSVGElement} */ (/** @type {unknown} */ (layer)),
+                    /** @type {SVGSVGElement} */ (/** @type {unknown} */ (clone)),
+                );
+                stripRemovalHatches(clone);
                 artwork.appendChild(clone);
             }
             root.appendChild(artwork);
@@ -59,7 +87,7 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             await new Promise((resolve, reject) => {
                 image.onload = resolve;
                 image.onerror = () => reject(new Error('Unable to render panel artwork.'));
-                image.src = sourceUrl;
+                image.src = /** @type {string} */ (sourceUrl);
             });
             if (disposed || ticket !== revision) return;
             const canvas = document.createElement('canvas');
@@ -89,9 +117,12 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
         timer = setTimeout(refresh, 120);
     };
     const observer = new MutationObserver(records => {
+        /** @param {string|null} value */
         const withoutCulling = value => (value || '').split(/\s+/).filter(name => name && name !== 'culled').sort().join(' ');
+        records = records.filter(record => !(record.type === 'attributes'
+            && record.attributeName === 'clip-path' && record.target === holeLayer));
         if (records.every(record => record.type === 'attributes' && record.attributeName === 'class'
-            && withoutCulling(record.oldValue) === withoutCulling(record.target.getAttribute('class')))) return;
+            && withoutCulling(record.oldValue) === withoutCulling(/** @type {Element} */ (record.target).getAttribute('class')))) return;
         schedule();
     });
     for (const [, layer] of sourceLayers) {
@@ -101,7 +132,8 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const observeDefinitions = () => {
         let added = false;
         for (const child of viewport.svg?.children || []) {
-            if (child.localName !== 'defs' || observedDefs.has(child)) continue;
+            if (child.localName !== 'defs' || child.hasAttribute?.('data-pcb-defs')
+                || child.hasAttribute?.('data-panel-preview-defs') || observedDefs.has(child)) continue;
             observedDefs.add(child);
             observer.observe(child, { subtree: true, childList: true, attributes: true, characterData: true });
             added = true;

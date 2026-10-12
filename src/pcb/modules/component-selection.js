@@ -1,7 +1,501 @@
-import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
+import { beginDragSession, refreshDragRatlines, releaseDragSession } from './drag-session.js';
+import { getPcbSelection, isPcbSelected, registerPcbPlacementHitTest, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
+import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
+import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand, placementTransform, isPlacementMirrored } from './track-commands.js';
+import { worldToPlacementLocal } from './ref-text-geometry.js';
+import { dismissTrackContextMenu } from './track-select.js';
+import { setHoverHighlight } from './copper-halos.js';
+import { areClearancesVisible, getPadHaloGroup } from './clearance-overlay.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { isEditorActive } from './pcb-editor-api.js';
+import { showContextMenu } from '../../shared/ui/context-menu.js';
+import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
+import { hideNetTooltip } from './net-tooltip.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../core/pcb-placement-geometry.js').PlacementBounds} PlacementBounds */
+/** @typedef {{padId: string, width?: number, height?: number}} ComponentPadOffset */
+/** @typedef {{x: number, y: number}} PadPosition */
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} WorldBounds */
+/** @typedef {{culled: boolean, lodFar: boolean, cullSig?: string, cullBounds?: WorldBounds}} PlacementViewState */
+/** @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement */
 
-function outlineForPlacement(placement) {
+/** @type {WeakMap<PcbEditor, {raf: number, pending: MouseEvent|null}>} */
+const componentDragFrames = new WeakMap();
+/** @type {WeakMap<PcbEditor, string>} */
+const hoveredComponents = new WeakMap();
+/** @type {WeakMap<PcbEditor, HTMLDivElement>} */
+const componentPopups = new WeakMap();
+const PCB_LOD_PIXEL_THRESHOLD = 24;
+/** @type {WeakMap<object, PlacementViewState>} */
+const placementViewStates = new WeakMap();
+
+/** @param {object} placement */
+function ensurePlacementViewState(placement) {
+    let state = placementViewStates.get(placement);
+    if (!state) {
+        state = { culled: false, lodFar: false };
+        placementViewStates.set(placement, state);
+    }
+    return state;
+}
+
+/** @param {object|null|undefined} placement */
+export function isPlacementCulled(placement) {
+    return !!placement && !!placementViewStates.get(placement)?.culled;
+}
+
+/** @param {object|null|undefined} placement */
+export function isPlacementLodFar(placement) {
+    return !!placement && !!placementViewStates.get(placement)?.lodFar;
+}
+
+/** @param {object} placement */
+export function resetPlacementCullView(placement) {
+    const state = ensurePlacementViewState(placement);
+    state.culled = false;
+    state.lodFar = false;
+}
+
+/** @param {object|null|undefined} placement */
+export function getPlacementCullBounds(placement) {
+    return placement ? placementViewStates.get(placement)?.cullBounds || null : null;
+}
+
+/** @param {PcbEditor} app @param {Placement} placement */
+function showFootprintCrosshair(app, placement) {
+    if (!placement || !app.viewport?.setCrosshair) return;
+    app.viewport.setCrosshair({ x: placement.x, y: placement.y });
+}
+
+/** @param {PcbEditor} app */
+export function getComponentDrag(app) {
+    return getPcbInteraction(app, '_drag');
+}
+
+/** @param {PcbEditor} app @param {string} compId @param {string} message */
+export function showComponentPopup(app, compId, message) {
+    const pl = app.placements.get(compId);
+    if (!pl || !app.viewport?.worldToScreen || !app.viewport?.svg) return;
+
+    // Approximate popup anchor at footprint centre (bounds are in the
+    // footprint's local space, offset by the placement translate).
+    const b = pl.bounds;
+    const cx = pl.x + (b ? b.x + b.width / 2 : 0);
+    const cy = pl.y + (b ? b.y + b.height / 2 : 0);
+
+    const screen = app.viewport.worldToScreen({ x: cx, y: cy });
+    const svgRect = app.viewport.svg.getBoundingClientRect();
+
+    // Remove any existing popup so rapid presses don't stack.
+    componentPopups.get(app)?.remove();
+
+    const popup = document.createElement('div');
+    popup.className = 'pcb-component-popup';
+    popup.textContent = message;
+    popup.style.left = `${svgRect.left + screen.x}px`;
+    popup.style.top = `${svgRect.top + screen.y}px`;
+    document.body.appendChild(popup);
+    componentPopups.set(app, popup);
+
+    requestAnimationFrame(() => popup.classList.add('show'));
+    window.setTimeout(() => {
+        popup.classList.remove('show');
+        window.setTimeout(() => {
+            popup.remove();
+            if (componentPopups.get(app) === popup) componentPopups.delete(app);
+        }, 250);
+    }, 1400);
+}
+
+/** @param {PcbEditor} app @param {string} componentId @param {Point} worldPos */
+export function beginComponentDrag(app, componentId, worldPos) {
+    const placement = app.placements.get(componentId);
+    if (!placement || placement.locked) return false;
+    setHoverHighlight(app, null);
+    hoverComponent(app, null);
+    hideNetTooltip(app);
+    const drag = {
+        compId: componentId,
+        startWorld: worldPos,
+        startPos: { x: placement.x, y: placement.y },
+        session: beginDragSession(app, { nets: netsForComponent(app, componentId) }),
+    };
+    setPcbInteraction(app, '_drag', drag);
+    if (areClearancesVisible(app)) {
+        const group = getPadHaloGroup(app, componentId);
+        if (group) group.style.display = 'none';
+        const overlay = app.getLayerGroup('clearance-overlay');
+        if (overlay) {
+            for (const net of drag.session.nets || []) {
+                for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
+                    /** @type {SVGElement} */ (element).style.display = 'none';
+                }
+
+            }
+            overlay.style.willChange = 'transform';
+        }
+    }
+    showFootprintCrosshair(app, placement);
+    return true;
+}
+
+/**
+ * Hide/show footprints based on whether they intersect the viewport, and
+ * collapse on-screen footprints that are drawn very small to a single
+ * placeholder rect. This keeps each SVG viewBox change from repainting the
+ * tens of thousands of pad/silk/text nodes of a large board.
+ * @param {PcbEditor} app
+ */
+export function updatePcbCulling(app) {
+    if (!app.viewport || !app.placements.size) return;
+    const vb = app.viewport.getVisibleBounds();
+    const w = vb.maxX - vb.minX;
+    const h = vb.maxY - vb.minY;
+    const margin = Math.max(w, h) * 0.5; // 50% overdraw so nothing pops in
+    const minX = vb.minX - margin, maxX = vb.maxX + margin;
+    const minY = vb.minY - margin, maxY = vb.maxY + margin;
+    const scale = app.viewport.scale;
+
+    for (const [compId, pl] of app.placements) {
+        const b = placementWorldBounds(pl);
+        if (!b) continue;
+        const inView = b.maxX >= minX && b.minX <= maxX &&
+                       b.maxY >= minY && b.minY <= maxY;
+        // Keep every selected footprint detailed so it stays editable.
+        const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
+        const far = inView && px < PCB_LOD_PIXEL_THRESHOLD
+            && !isPcbSelected(app, 'component', compId);
+
+        // Detail (real geometry) is visible only when in view AND not far.
+        const detailHidden = !inView || far;
+        const state = ensurePlacementViewState(pl);
+        if (detailHidden !== state.culled) {
+            state.culled = detailHidden;
+            for (const el of pl.elements) el.classList.toggle('culled', detailHidden);
+        }
+        // Placeholder is visible only when in view AND far.
+        const lodShown = inView && far;
+        if (lodShown === state.lodFar) continue;
+        state.lodFar = lodShown;
+        if (pl.lodEl) {
+            if (lodShown) syncLodTransform(pl);
+            pl.lodEl.classList.toggle('culled', !lodShown);
+        }
+    }
+}
+
+/**
+ * Force every footprint (and its placeholder) back to its detailed,
+ * non-culled state. Used before measuring all artwork for fit-to-content,
+ * since culled (display:none) groups report a zero bounding box. The next
+ * view-change re-applies culling automatically.
+ * @param {PcbEditor} app
+ */
+export function uncullAllPlacements(app) {
+    for (const [, pl] of app.placements) {
+        const state = ensurePlacementViewState(pl);
+        if (state.culled) {
+            state.culled = false;
+            for (const el of pl.elements) el.classList.remove('culled');
+        }
+        if (state.lodFar) {
+            state.lodFar = false;
+            if (pl.lodEl) pl.lodEl.classList.add('culled');
+        }
+    }
+}
+
+/**
+ * The set of net names a placement's pads belong to (from the netlist).
+ * Used to scope the live ratsnest rebuild during a drag to just the nets
+ * that actually move with the component.
+ * @param {Pick<PcbEditor, 'netlist'>} app
+ * @param {string} compId
+ * @returns {Set<string>}
+ */
+export function netsForComponent(app, compId) {
+    const nets = new Set();
+    for (const entry of (app.netlist || [])) {
+        if (!entry?.net) continue;
+        for (const pin of (entry.pins || [])) {
+            if (pin.componentId === compId) { nets.add(entry.net); break; }
+        }
+    }
+    return nets;
+}
+
+/**
+ * Keep a placement's LOD placeholder rect aligned with the footprint's
+ * current pose. Called when revealing it and whenever the footprint moves.
+ * @param {Placement} pl
+ */
+function syncLodTransform(pl) {
+    if (!pl.lodEl) return;
+    pl.lodEl.setAttribute('transform', placementTransform(/** @type {import('../../core/pcb-placement-geometry.js').Placement} */ (pl)));
+}
+
+/**
+ * World-space AABB of a placement's footprint bounds (local courtyard/
+ * outline rotated by the placement rotation and translated to position).
+ * Cached and recomputed only when the placement's pose changes.
+ * @param {Placement} pl
+ * @returns {WorldBounds|null}
+ */
+function placementWorldBounds(pl) {
+    const b = pl.bounds;
+    if (!b) return null;
+    const rot = pl.rotation || 0;
+    const mx = isPlacementMirrored(pl) ? -1 : 1;
+    const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
+    const state = ensurePlacementViewState(pl);
+    if (state.cullSig === sig && state.cullBounds) return state.cullBounds;
+    const rad = rot * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const corners = [
+        [b.x, b.y],
+        [b.x + b.width, b.y],
+        [b.x, b.y + b.height],
+        [b.x + b.width, b.y + b.height],
+    ];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [lx0, ly] of corners) {
+        const lx = lx0 * mx;
+        const wx = pl.x + lx * cos - ly * sin;
+        const wy = pl.y + lx * sin + ly * cos;
+        if (wx < minX) minX = wx;
+        if (wx > maxX) maxX = wx;
+        if (wy < minY) minY = wy;
+        if (wy > maxY) maxY = wy;
+    }
+    state.cullBounds = { minX, minY, maxX, maxY };
+    state.cullSig = sig;
+    return state.cullBounds;
+}
+
+/** @param {PcbEditor} app @param {Point} worldPos */
+export function updateComponentDrag(app, worldPos) {
+    const drag = getComponentDrag(app);
+    if (!drag) return;
+    const newX = drag.startPos.x + worldPos.x - drag.startWorld.x;
+    const newY = drag.startPos.y + worldPos.y - drag.startWorld.y;
+    const placement = app.placements.get(drag.compId);
+    if (!placement || placement.locked) return;
+    const snap = app.snapToGrid({ x: newX, y: newY });
+    if (placement.x === snap.x && placement.y === snap.y) return;
+    previewPlacementPose(app, drag.compId, { x: snap.x, y: snap.y });
+    showFootprintCrosshair(app, placement);
+    refreshDragRatlines(app, drag.session);
+}
+
+/** @param {PcbEditor} app @param {MouseEvent} e */
+export function scheduleComponentDragUpdate(app, e) {
+    let frame = componentDragFrames.get(app);
+    if (!frame) {
+        frame = { raf: 0, pending: null };
+        componentDragFrames.set(app, frame);
+    }
+    frame.pending = e;
+    if (frame.raf) return;
+    frame.raf = requestAnimationFrame(() => {
+        frame.raf = 0;
+        const ev = frame.pending;
+        frame.pending = null;
+        if (!ev || !isEditorActive(app) || !getComponentDrag(app)) return;
+        handleComponentDrag(app, ev);
+    });
+}
+
+/** @param {PcbEditor} app @param {MouseEvent} e */
+export function handleComponentDrag(app, e) {
+    if (!getComponentDrag(app)) return;
+    if (!app.viewport) return;
+    app.viewport.shiftHeld = e.shiftKey;
+    updateComponentDrag(app, app.screenToWorld(e));
+}
+
+/** @param {PcbEditor} app @param {boolean} [commit] */
+export function endComponentDrag(app, commit = true) {
+    const drag = getComponentDrag(app);
+    if (!drag) return;
+    const frame = componentDragFrames.get(app);
+    if (frame?.raf) {
+        cancelAnimationFrame(frame.raf);
+        frame.raf = 0;
+    }
+    const pending = frame?.pending || null;
+    if (frame) frame.pending = null;
+    if (commit && pending) handleComponentDrag(app, pending);
+    const { compId, startPos } = drag;
+    const placement = app.placements.get(compId);
+    setPcbInteraction(app, '_drag', null);
+    releaseDragSession(app, drag.session);
+    if (areClearancesVisible(app)) {
+        const overlay = app.getLayerGroup('clearance-overlay');
+        if (overlay) overlay.style.willChange = '';
+    }
+    if (app.viewport) {
+        app.viewport.svg.style.cursor = getPcbSelection(app, 'component').length ? 'grab' : 'default';
+        app.viewport.hideCrosshair?.();
+    }
+    if (commit && placement && (placement.x !== startPos.x || placement.y !== startPos.y)) {
+        finishPlacementPreview(app, () => {
+            const command = new MovePlacementCommand(app, compId, startPos.x, startPos.y, placement.x, placement.y);
+            app.history.execute(command);
+        });
+    } else {
+        finishPlacementPreview(app);
+        app.refreshClearanceHalos();
+        app.updateRatsnest();
+    }
+}
+
+/**
+ * Hit-test: find which component contains a world position.
+ * Tests against the footprint's courtyard/outline bounds (the same box
+ * drawn as the selection highlight). Falls back to the pad bounding-box
+ * extent for footprints without stored bounds. Returns the component ID
+ * or null. Iterates in insertion order and keeps the last (topmost)
+ * match so overlapping components resolve to the one drawn on top.
+ * @param {Pick<PcbEditor, 'placements'>} app
+ * @param {{x: number, y: number}} worldPos
+ * @param {boolean} [all=false] Return every hit in top-to-bottom order for overlap selection.
+ * @returns {string|string[]|null}
+ */
+export function hitTestComponent(app, worldPos, all = false) {
+    /** @type {string|null} */
+    let hit = null;
+    /** @type {string[]|null} */
+    const hits = all ? [] : null;
+    for (const [compId, pl] of app.placements) {
+        const b = pl.bounds;
+        if (b) {
+            // `bounds` is in footprint-LOCAL coordinates; the rendered
+            // halo/LOD rects apply the full placement transform
+            // (translate → rotate → mirror). Map the cursor into the same
+            // local frame by inverting that transform, then test the
+            // axis-aligned local bounds rect — otherwise a rotated or
+            // mirrored footprint's hit box wouldn't match its halo.
+            const local = worldToPlacementLocal(worldPos, pl);
+            if (
+                local.x >= b.x && local.x <= b.x + b.width
+                && local.y >= b.y && local.y <= b.y + b.height
+            ) {
+                hit = compId;
+                hits?.push(compId);
+            }
+            continue;
+        }
+        // Fallback: no courtyard/outline — use the union of pad bounding
+        // boxes plus a small margin so the body between pads is clickable.
+        const MARGIN = 0.5; // mm
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const off of (pl.padOffsets || [])) {
+            const pos = pl.pads.get(off.padId);
+            if (!pos) continue;
+            const w = (off.width || 1.2) / 2;
+            const h = (off.height || 1.2) / 2;
+            if (pos.x - w < minX) minX = pos.x - w;
+            if (pos.y - h < minY) minY = pos.y - h;
+            if (pos.x + w > maxX) maxX = pos.x + w;
+            if (pos.y + h > maxY) maxY = pos.y + h;
+        }
+        if (
+            minX !== Infinity
+            && worldPos.x >= minX - MARGIN && worldPos.x <= maxX + MARGIN
+            && worldPos.y >= minY - MARGIN && worldPos.y <= maxY + MARGIN
+        ) {
+            hit = compId;
+            hits?.push(compId);
+        }
+    }
+    return hits ? hits.reverse() : hit;
+}
+
+/**
+ * Hover highlight for a component under the select-tool cursor: a faint
+ * dashed outline over the footprint's bounds, matching the selection box
+ * but lighter. Skipped for the currently selected component (its solid
+ * highlight already shows). Pass null to clear. The rect is appended to
+ * the footprint's first layer group so it inherits the placement
+ * transform (bounds are in footprint-local coords).
+ * @param {PcbEditor} app
+ * @param {string|null} compId
+ */
+export function hoverComponent(app, compId) {
+    if (compId === getPcbSelection(app, 'component')[0]) compId = null;
+    const previous = hoveredComponents.get(app) || null;
+    if (previous === compId) return;
+    if (previous) {
+        const oldPl = app.placements.get(previous);
+        oldPl?.elements?.[0]?.querySelector('.pcb-hover-highlight')?.remove();
+    }
+    if (compId) hoveredComponents.set(app, compId);
+    else hoveredComponents.delete(app);
+    if (!compId) return;
+    const pl = app.placements.get(compId);
+    const b = pl?.bounds;
+    if (!pl?.elements?.length || !b) { hoveredComponents.delete(app); return; }
+    const NS = 'http://www.w3.org/2000/svg';
+    const hl = document.createElementNS(NS, 'rect');
+    hl.setAttribute('class', 'pcb-hover-highlight');
+    hl.setAttribute('x', String(b.x));
+    hl.setAttribute('y', String(b.y));
+    hl.setAttribute('width', String(b.width));
+    hl.setAttribute('height', String(b.height));
+    hl.setAttribute('fill', 'rgba(51,153,255,0.07)');
+    hl.setAttribute('stroke', '#3399ff');
+    hl.setAttribute('stroke-width', '0.1');
+    hl.setAttribute('stroke-dasharray', '0.5 0.35');
+    hl.setAttribute('pointer-events', 'none');
+    pl.elements[0].appendChild(hl);
+}
+
+/** @param {PcbEditor} app */
+export function getHoveredComponent(app) {
+    return hoveredComponents.get(app) || null;
+}
+
+/**
+ * Show a small "Show 3D" context menu for a placed footprint that carries a
+ * 3D OBJ model, at the given screen position. Takes the component id (not a
+ * placement object) so the action resolves the *live* placement at click
+ * time — mirroring the Properties button — and never acts on a placement
+ * that was orphaned by an autosave/schematic re-sync between right-click
+ * and selecting the menu item.
+ * @param {PcbEditor} app
+ * @param {string} compId
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showComponent3DMenu(app, compId, clientX, clientY) {
+    if (!hasAny3DModel(app.placements.get(compId))) return;
+    dismissTrackContextMenu();
+    showContextMenu('pcbTrackContextMenu',
+        [{ text: '🧊 Show 3D', onClick: () => openComponent3DPopout(app, compId) }], clientX, clientY);
+}
+
+/**
+ * Open the interactive 3D model pop-out for a placement (or compId).
+ * @param {PcbEditor} app
+ * @param {string|Placement} placementOrId
+ */
+export function openComponent3DPopout(app, placementOrId) {
+    const pl = typeof placementOrId === 'string'
+        ? app.placements.get(placementOrId)
+        : placementOrId;
+    if (!hasAny3DModel(pl)) return;
+    const title = buildComponent3DTitle(pl);
+    openComponent3DFromData({ data: pl, title })
+        .then((ok) => {
+            if (!ok) console.warn('No renderable 3D model found for component');
+        })
+        .catch(err => console.error('Failed to open 3D pop-out:', err));
+}
+
+/** @param {Placement|null|undefined} placement */
+function outlineForPlacement(placement = null) {
     const bounds = placement?.bounds;
     if (!bounds) return [{ x: placement?.x || 0, y: placement?.y || 0 }];
     return [
@@ -12,7 +506,25 @@ function outlineForPlacement(placement) {
     ].map((point) => appLocalToWorld(placement, point));
 }
 
-function boundsForPlacement(placement) {
+/** @param {Placement|null|undefined} placement */
+function boundsForPlacement(placement = null) {
+    if (!placement?.bounds) {
+        const padOffsets = /** @type {ComponentPadOffset[]} */ (placement?.padOffsets || []);
+        const pads = padOffsets.flatMap(off => {
+            const pos = placement?.pads?.get(off.padId);
+            if (!pos) return [];
+            const halfWidth = (off.width || 1.2) / 2 + 0.5;
+            const halfHeight = (off.height || 1.2) / 2 + 0.5;
+            return [{ x: pos.x - halfWidth, y: pos.y - halfHeight },
+                { x: pos.x + halfWidth, y: pos.y + halfHeight }];
+        });
+        if (pads.length) return {
+            minX: Math.min(...pads.map((point) => point.x)),
+            minY: Math.min(...pads.map((point) => point.y)),
+            maxX: Math.max(...pads.map((point) => point.x)),
+            maxY: Math.max(...pads.map((point) => point.y)),
+        };
+    }
     const points = outlineForPlacement(placement);
     return {
         minX: Math.min(...points.map((point) => point.x)),
@@ -22,6 +534,7 @@ function boundsForPlacement(placement) {
     };
 }
 
+/** @param {Placement} placement @param {Point} point */
 function appLocalToWorld(placement, point) {
     const rad = (Number(placement.rotation) || 0) * Math.PI / 180;
     const mirror = (!!placement.mirror) !== (placement.side === 'bottom') ? -1 : 1;
@@ -32,7 +545,10 @@ function appLocalToWorld(placement, point) {
     };
 }
 
+/** @param {PcbEditor} app @param {string} componentId @param {string} id */
 export function createComponentSelectionAdapter(app, componentId, id) {
+    /** @type {{center: Point, start: Point, rotation: number, nets: Set<string>}|null} */
+    let rotationDrag = null;
     return {
         id,
         kind: 'component',
@@ -40,6 +556,11 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         get visible() { return app.placements?.has(componentId); },
         get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
+        getAnchors() {
+            const placement = app.placements?.get(componentId);
+            return placement ? [rotationHandleAnchor(boundsForPlacement(placement), app.viewport?.scale ?? 1)] : [];
+        },
+        /** @param {Point} pointer @param {number} scale */
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(
                 outlineForPlacement(app.placements?.get(componentId)),
@@ -47,17 +568,69 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 scale,
             );
         },
-        hitTest(point) { return getComponentSelectionHit(app, point) === componentId; },
+        /** @param {Point} point */
+        hitTest(point) { return getComponentSelectionHits(app, point).has(componentId); },
         getPosition() {
             const placement = app.placements?.get(componentId);
             return { x: placement?.x || 0, y: placement?.y || 0 };
         },
-        beginMove(worldPos) { return app._beginComponentDrag(componentId, worldPos); },
-        updateMove(worldPos) { app._updateComponentDrag(worldPos); },
-        endMove(commit) { if (commit) app._endDrag(); },
-        invalidate() { app._updatePcbCulling?.(); },
+        /** @param {Point} worldPos */
+        beginMove(worldPos) { return beginComponentDrag(app, componentId, worldPos); },
+        /** @param {Point} worldPos */
+        updateMove(worldPos) { updateComponentDrag(app, worldPos); },
+        /** @param {boolean} commit */
+        endMove(commit) { endComponentDrag(app, commit); },
+        /** @param {string|number|undefined} anchorId @param {Point} worldPos */
+        beginAnchorDrag(anchorId, worldPos) {
+            const placement = app.placements?.get(componentId);
+            if (anchorId !== 'rotate' || !placement || placement.locked) return false;
+            rotationDrag = {
+                center: { x: placement.x, y: placement.y }, start: { ...worldPos },
+                rotation: placement.rotation || 0, nets: netsForComponent(app, componentId),
+            };
+            beginRotationHandleDrag(app);
+            hoverComponent(app, null);
+            hideNetTooltip(app);
+            return true;
+        },
+        /** @param {Point} worldPos */
+        updateAnchorDrag(worldPos) {
+            const placement = app.placements?.get(componentId);
+            if (!rotationDrag || !placement || placement.locked) return;
+            // Footprint transforms use SVG's clockwise-positive angles.
+            const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation, true);
+            if ((placement.rotation || 0) === rotation) return;
+            previewPlacementPose(app, componentId, { rotation });
+            app.updateRatsnest({ nets: rotationDrag.nets, skipFillRefresh: true });
+        },
+        /** @param {boolean} commit */
+        endAnchorDrag(commit) {
+            if (!rotationDrag) return;
+            const placement = app.placements?.get(componentId);
+            const before = rotationDrag.rotation;
+            rotationDrag = null;
+            endRotationHandleDrag(app);
+            if (!placement) {
+                finishPlacementPreview(app);
+                return;
+            }
+            const after = placement.rotation || 0;
+            if (commit && !placement.locked && after !== before) {
+                // Seed automatic-placement history from the original pose, without repainting it.
+                placement.rotation = before;
+                finishPlacementPreview(app, () => app.history.execute(new RotatePlacementCommand(app, componentId, before, after)));
+            } else if (after !== before) {
+                placement.rotation = before;
+                restorePlacementPosePreview(app);
+                app.updateRatsnest();
+            } else if (finishPlacementPreview(app)) {
+                app.updateRatsnest();
+            }
+        },
+        invalidate() { updatePcbCulling(app); },
         render() { this.invalidate(); },
     };
 }
 
 registerPcbSelectionAdapter('component', createComponentSelectionAdapter);
+registerPcbPlacementHitTest('component', hitTestComponent);

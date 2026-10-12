@@ -1,85 +1,164 @@
+import { getPropertyEditor } from './property-editors.js';
+import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance, refreshBoardShapeClearance } from './clearance-overlay.js';
+import { getBoardShapeDrag } from './board-shape-drag.js';
+import { isRotationHandleDragActive } from './rotation-handle.js';
+import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
+/** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('./clearance-overlay.js').ClearanceShape | {id: string, [key: string]: any}} ClearanceShape Clearance refresh accepts heterogeneous model instances with extra geometry fields. */
+/** @typedef {{pendingShapeClearances: Map<string, ClearanceShape>|null, deferredShapeCopperCuts: boolean}} ShapeClearanceRefreshState */
+/** @type {WeakMap<PcbEditor, number>} */
 const pendingRefreshes = new WeakMap();
+/** @type {WeakMap<PcbEditor, () => void>} */
 const activeHolds = new WeakMap();
+/** @type {WeakMap<PcbEditor, ShapeClearanceRefreshState>} */
+const shapeClearanceRefreshes = new WeakMap();
 
+/** @param {PcbEditor} app */
+function shapeClearanceRefreshState(app) {
+    let state = shapeClearanceRefreshes.get(app);
+    if (!state) shapeClearanceRefreshes.set(app, state = {
+        pendingShapeClearances: null,
+        deferredShapeCopperCuts: false,
+    });
+    return state;
+}
+
+/**
+ * The shape-clearance debounce state, for tests.
+ * @param {PcbEditor} app
+ */
+export function pictureRefreshState(app) {
+    return shapeClearanceRefreshState(app);
+}
+
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null|undefined} shape
+ */
+export function isShapeClearancePending(app, shape) {
+    return !!shape?.id && (shapeClearanceRefreshState(app).pendingShapeClearances?.has(shape.id) || false);
+}
+
+/** @param {PcbEditor} app */
+export function deferShapeCopperCuts(app) {
+    shapeClearanceRefreshState(app).deferredShapeCopperCuts = true;
+}
+
+/** @param {PcbEditor} app */
+export function areShapeCopperCutsDeferred(app) {
+    return !!shapeClearanceRefreshState(app).deferredShapeCopperCuts;
+}
+
+/**
+ * @param {PcbEditor} app
+ * @param {boolean} deferred
+ */
+export function setShapeCopperCutsDeferred(app, deferred) {
+    shapeClearanceRefreshState(app).deferredShapeCopperCuts = !!deferred;
+}
+
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null} shape
+ */
+export function shouldDeferShapeClearance(app, shape) {
+    return !!shape && isPictureCopperRefreshPending(app) && isShapeClearancePending(app, shape)
+        && (('kind' in shape && shape.kind === 'image') || ('content' in shape && typeof shape.content === 'string'));
+}
+
+/** @param {PcbEditor} app */
 function refreshEditedClearances(app) {
-    const shapes = app._pendingShapeClearances;
-    app._pendingShapeClearances = null;
+    const state = shapeClearanceRefreshState(app);
+    const shapes = state.pendingShapeClearances;
+    state.pendingShapeClearances = null;
     for (const shape of shapes?.values() || []) {
         if (app.boardShapes?.includes(shape) || app.texts?.get(shape.id) === shape) {
-            app._refreshBoardShapeClearance?.(shape);
+            refreshBoardShapeClearance(app, /** @type {import('./clearance-overlay.js').ClearanceShape} */ (shape));
         } else {
-            const cached = app._boardShapeClearanceCache?.get(shape.id);
+            const cached = getBoardShapeClearance(app, shape.id);
             for (const element of cached?.elements || []) element.parentNode?.removeChild(element);
-            app._boardShapeClearanceCache?.delete(shape.id);
+            forgetBoardShapeClearance(app, shape.id);
         }
     }
 }
 
+/** @param {PcbEditor} app */
 function flushCopperCuts(app) {
-    if (!app._deferredShapeCopperCuts) return;
-    app._deferredShapeCopperCuts = false;
-    app._updateCopperCuts?.();
-    app._scheduleRemovalHatchRender?.();
+    const state = shapeClearanceRefreshState(app);
+    if (!state.deferredShapeCopperCuts) return;
+    state.deferredShapeCopperCuts = false;
+    app.updateCopperCuts();
 }
 
-export function bindPictureRefreshHold(app, input, host = window) {
-    if (!input) return;
-    const begin = (event) => {
-        const pointer = event.type === 'pointerdown';
-        if (pointer ? event.button !== 0 : !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-        if (event.repeat) return;
-        activeHolds.get(app)?.();
-        const release = (endEvent) => {
-            if (endEvent && endEvent.type !== 'blur') {
-                if (pointer ? endEvent.pointerId !== event.pointerId : endEvent.key !== event.key) return;
-            }
-            for (const name of endings) host.removeEventListener(name, release, true);
-            activeHolds.delete(app);
-            if (app._pictureCopperRefreshPending) schedulePictureCopperRefresh(app);
-        };
-        const endings = pointer ? ['pointerup', 'pointercancel', 'blur'] : ['keyup', 'blur'];
-        activeHolds.set(app, release);
-        const timer = pendingRefreshes.get(app);
-        if (timer !== undefined) clearTimeout(timer);
-        pendingRefreshes.delete(app);
-        for (const name of endings) host.addEventListener(name, release, true);
+/**
+ * Hold picture-copper refreshes while a Properties number field is held (its
+ * spinner pressed or an Arrow key held): a field's `hold` hooks
+ * (shared/ui/property-fields.js). The refresh owed meanwhile runs on release.
+ * @param {PcbEditor} app
+ * @returns {{begin: () => void, end: () => void}}
+ */
+export function pictureRefreshHold(app) {
+    const end = () => {
+        if (activeHolds.get(app) !== end) return;
+        activeHolds.delete(app);
+        if (isPictureCopperRefreshPending(app)) schedulePictureCopperRefresh(app);
     };
-    input.addEventListener('pointerdown', begin);
-    input.addEventListener('keydown', begin);
+    return {
+        begin() {
+            activeHolds.get(app)?.();
+            const timer = pendingRefreshes.get(app);
+            if (timer !== undefined) clearTimeout(timer);
+            pendingRefreshes.delete(app);
+            activeHolds.set(app, end);
+        },
+        end,
+    };
 }
 
+
+/** @param {PcbEditor} app */
 export function cancelPictureCopperRefresh(app) {
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
-    app._pictureCopperRefreshPending = false;
+    setPictureCopperRefreshPending(app, false);
     flushCopperCuts(app);
     refreshEditedClearances(app);
 }
 
+/**
+ * @param {PcbEditor} app
+ * @param {ClearanceShape|null} [shape]
+ */
 export function schedulePictureCopperRefresh(app, shape = null) {
+    refreshSelectedDrcMarker(app);
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
-    app._pictureCopperRefreshPending = true;
+    setPictureCopperRefreshPending(app, true);
     if (shape) {
-        app._pendingShapeClearances ??= new Map();
-        app._pendingShapeClearances.set(shape.id, shape);
+        const state = shapeClearanceRefreshState(app);
+        state.pendingShapeClearances ??= new Map();
+        state.pendingShapeClearances.set(shape.id, shape);
     }
-    const cached = app._boardShapeClearanceCache?.get(shape?.id);
-    for (const element of cached?.elements || []) {
-        element.parentNode?.removeChild(element);
+    if (shape && shouldDeferShapeClearance(app, shape)) {
+        const cached = getBoardShapeClearance(app, shape.id);
+        for (const element of cached?.elements || []) {
+            element.parentNode?.removeChild(element);
+        }
     }
-    if (activeHolds.has(app) || app._rotationHandleDrag || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
+    if (activeHolds.has(app) || isRotationHandleDragActive(app) || getPropertyEditor(app, 'boardShape')?.active
+        || ['vertex', 'segment'].includes(getBoardShapeDrag(app)?.mode)) return;
     pendingRefreshes.set(app, setTimeout(() => {
         pendingRefreshes.delete(app);
-        app._pictureCopperRefreshPending = false;
+        setPictureCopperRefreshPending(app, false);
         flushCopperCuts(app);
         refreshEditedClearances(app);
-        if (app._refreshFills?.() !== true) {
-            app._updateRatsnest?.({ skipFillRefresh: true });
-            if (app._drcShouldRun?.()) app._scheduleDRC?.();
+        if (app.refreshFills() !== true) {
+            app.updateRatsnest({ skipFillRefresh: true });
+            scheduleDrc(app);
         }
-        app._board3d?.refresh?.();
+        refreshBoardView(app);
     }, 100));
 }
