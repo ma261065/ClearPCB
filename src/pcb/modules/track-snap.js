@@ -490,6 +490,10 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     }
     contacts = contacts ?? contactsAt(target);
     const contactShapes = /** @type {any[]} */ (contacts);
+    // Fill coverage is background copper, not an authored endpoint target.
+    // Keep fills in copperShapes/contactNets for guide and conflict context, but
+    // do not let merely clicking inside one finish the track.
+    const endpointShapes = contactShapes.filter((shape) => shape.type !== 'fill');
     const vias = /** @type {Via[]} */ (app.vias || []).filter((candidate) => candidate.visible !== false
         && Math.hypot(target.x - candidate.x, target.y - candidate.y) <= candidate.diameter / 2);
     const nodeNets = [];
@@ -508,7 +512,7 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
         ...(via ? { snapType: 'via', via } : {}),
         contactNets,
         copperShapes: contactShapes,
-        copperContact: !!snap.trackSegment || contactShapes.length > 0 || vias.length > 0,
+        copperContact: !!snap.trackSegment || endpointShapes.length > 0 || vias.length > 0,
     };
 }
 

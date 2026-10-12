@@ -21,6 +21,7 @@ import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
 import { setDidSchematicDrag } from './draw-states.js';
+import { clearContextSegmentHighlight, showContextSegmentHighlight } from './schematic-view.js';
 import { isWireItem as isWireShape, isPolylineItem as isPolylineShape, isArcItem as isArcShape, isNoConnectItem as isNoConnectShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
@@ -35,7 +36,7 @@ import { isWireItem as isWireShape, isPolylineItem as isPolylineShape, isArcItem
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{wire: WireShape, nodeId: string}} WireNodeRef */
 /** @typedef {{junctionWire: WireShape, junctionNodeId: string, wireToDrag: WireShape|null, dragAnchorId: string|null, allConnecting: WireNodeRef[]}} TJunctionInfo */
-/** @typedef {{text: string, onClick: () => void}} ContextMenuItem */
+/** @typedef {{text: string, onClick: () => void, onEnter?: () => void, onLeave?: () => void}} ContextMenuItem */
 /** @typedef {{startPoint: Point, endPoint: Point, lineWidth?: number}} ArcLineState */
 
 /** @param {WireShape} wire */
@@ -182,17 +183,12 @@ export function deleteJunction(app, junctionInfo) {
     const deg = wire.degree(junctionNodeId);
     if (deg < 3) return;
 
-    // Capture true pre-split snapshots so undo can restore the original
-    // single-wire junction state (including label visibility ownership).
-    const preSplitWireStates = new Map();
-    for (const s of app.shapes) {
-        if (s.type === 'wire') preSplitWireStates.set(s, s.captureState());
-    }
+    // Only the split graph participates. Unrelated wires must not be refreshed,
+    // diffed or conflict-checked by this operation.
+    const preSplitWireStates = new Map([[wire, wire.captureState()]]);
     const preSplitLabelTextStates = new Map();
-    for (const [w] of preSplitWireStates) {
-        if (w.labelText && app.shapes.includes(w.labelText)) {
-            preSplitLabelTextStates.set(w.labelText, w.labelText.captureState());
-        }
+    if (wire.labelText && app.shapes.includes(wire.labelText)) {
+        preSplitLabelTextStates.set(wire.labelText, wire.labelText.captureState());
     }
 
     const pos = wire.nodes.get(junctionNodeId);
@@ -283,16 +279,11 @@ export function deleteJunction(app, junctionInfo) {
     }
     wire.invalidate();
 
-    // Capture before-states for the drag wire (and any TJ-linked wires)
-    // so commitAnchorDrag can build the undo batch.
+    // The original wire plus its new fragments are the changed network.
     const dragBefore = captureShapeState(app, /** @type {ShapeModel} */ (dragWire));
     const anchorWireStates = new Map();
-    // Include the original wire (and any other split-off wires) so
-    // commitAnchorDrag snapshots them correctly.
-    for (const s of app.shapes) {
-        if (s.type === 'wire' && s !== dragWire) {
-            anchorWireStates.set(s, s.captureState());
-        }
+    for (const splitWire of [wire, ...newFragments]) {
+        if (splitWire !== dragWire) anchorWireStates.set(splitWire, splitWire.captureState());
     }
 
     const pt = { x: pos.x, y: pos.y };
@@ -340,6 +331,18 @@ function finishShapeRemoval(app) {
     finishShapeRefinement(app);
 }
 
+/** @param {SchematicEditor} app @param {SchematicDrawable|null|undefined} shape */
+function retainShapeSelection(app, shape) {
+    setShapeNodeFocus(app, null);
+    setShapeSegmentFocus(app, null);
+    if (shape && app.shapes.includes(shape)) app.selection.select(shape, false);
+    else {
+        app.selection.clearSelection({ notify: false });
+        app.selection.notifyChanged();
+    }
+    app.renderShapes(true);
+}
+
 /**
  * Delete a wire segment (edge).  If the wire has only one edge, delete the
  * whole wire.  Otherwise remove the edge and split into connected components,
@@ -356,14 +359,17 @@ export function deleteWireSegment(app, wire, edgeId) {
         if (!parts) return;
         const batch = new BatchCommand('Delete segment');
         batch.add(new DeleteShapesCommand(app, [wire]));
+        /** @type {PolylineShape[]} */
+        const fragments = [];
         for (const part of parts) {
             const fragment = /** @type {PolylineShape} */ (wire.clone());
             fragment.applyEditablePath(part);
             fragment.fill = false;
+            fragments.push(fragment);
             batch.add(new AddShapeCommand(app, fragment));
         }
         app.history.execute(batch);
-        finishShapeRemoval(app);
+        retainShapeSelection(app, fragments[0]);
         return;
     }
     // Segment deletion reaches the graph fallback only for wire segments.
@@ -395,6 +401,8 @@ export function deleteWireSegment(app, wire, edgeId) {
 
     // Split into connected components
     const components = /** @type {Set<string>[]} */ (wireGraph.connectedComponents());
+    /** @type {WireShape|null} */
+    let survivor = wireGraph;
     if (components.length <= 1) {
         // Still one connected component — just modify in place
         const afterState = wireGraph.captureState();
@@ -417,6 +425,7 @@ export function deleteWireSegment(app, wire, edgeId) {
             for (const sub of fragments) {
                 batch.add(new AddShapeCommand(app, sub));
             }
+            survivor = fragments[0];
         }
 
         // Restore original for undo
@@ -424,7 +433,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     }
 
     app.history.execute(batch);
-    app.selection.notifyChanged();
+    retainShapeSelection(app, survivor);
 }
 
 /**
@@ -556,19 +565,6 @@ export function splitAnchorAndDrag(app, shape, anchorId) {
         if ('isRect' in shape) shape.isRect = false;
     }
 
-    // For wires, capture T-junction links at this position
-    /** @type {Array<{otherWire: WireShape, otherNodeId: string}>} */
-    const tjLinks = [];
-    const wireStates = new Map();
-    for (const other of app.shapes) {
-        if (other === shape || !isWireShape(other)) continue;
-        const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
-        if (otherNid) {
-            tjLinks.push({ otherWire: other, otherNodeId: otherNid });
-            if (!wireStates.has(other)) wireStates.set(other, captureShapeState(app, other));
-        }
-    }
-
     app.selection.clearSelection();
     app.selection.select(shape, false);
 
@@ -580,12 +576,14 @@ export function splitAnchorAndDrag(app, shape, anchorId) {
         startScreen: null,
         anchorId: newNodeId,
         wireAnchorOriginal: { x: pos.x, y: pos.y },
-        tjLinks,
-        wireStates: wireStates.size > 0 ? wireStates : null,
+        // Split explicitly detaches this branch. Other wires touching the old
+        // node stay put instead of following the newly separated endpoint.
+        tjLinks: [],
+        wireStates: null,
         excludePin: null,
         ncLinks: [],
         junctionBeforeWireStates: null,
-        junctionBeforeLabelTextStates: null
+        junctionBeforeLabelTextStates: null,
     });
     app.interactionState = 'anchorDrag';
     setDidSchematicDrag(app, false);
@@ -598,7 +596,7 @@ export function splitAnchorAndDrag(app, shape, anchorId) {
 
 /**
  * Disconnect a wire endpoint from a pin and immediately enter anchor-drag,
- * mirroring the user flow of "Split junction".
+ * mirroring the user flow of "Split".
  * @param {SchematicEditor} app
  * @param {WireShape} wire
  * @param {string} anchorId
@@ -739,7 +737,7 @@ export function schematicAnchorActions(app, shape, anchorId, canDeletePoint = tr
 
     if (junctionInfo) {
         items.push({
-            text: 'Split junction',
+            text: 'Split',
             onClick: () => deleteJunction(app, junctionInfo)
         });
     }
@@ -772,8 +770,10 @@ export function dismissAnchorContextMenu() {
  */
 export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
     if (shape.locked) return;
-    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
+    setShapeSegmentFocus(app, null);
     setShapeNodeFocus(app, null);
+    app.selection.select(shape, false);
+    app.renderShapes(true);
     app.updatePropertiesPanel(app.selection.getSelection());
     const items = schematicSegmentActions(app, shape, edgeId, true);
     if (items.length) createContextMenu(items, clientX, clientY);
@@ -806,14 +806,18 @@ export function schematicSegmentActions(app, shape, edgeId, floating = false) {
     if (edgeId != null && segmentShape.edges.size > 1) {
         items.push({
             text: 'Delete Segment',
-            onClick: () => deleteWireSegment(app, segmentShape, edgeId)
+            onClick: () => deleteWireSegment(app, segmentShape, edgeId),
+            onEnter: () => showContextSegmentHighlight(app, segmentShape, edgeId),
+            onLeave: () => clearContextSegmentHighlight(app),
         });
     }
 
     if (isWireShape(segmentShape)) {
         items.push({
             text: 'Delete Wire',
-            onClick: () => deleteWire(app, segmentShape)
+            onClick: () => deleteWire(app, segmentShape),
+            onEnter: () => showContextSegmentHighlight(app, segmentShape, null),
+            onLeave: () => clearContextSegmentHighlight(app),
         });
     }
 

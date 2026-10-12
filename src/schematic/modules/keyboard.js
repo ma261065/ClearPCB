@@ -16,6 +16,7 @@ import {
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { isSchematicDrawingActive } from './drawing.js';
 import { isComponentItem, isNetItem, isTextItem } from '../../core/schematic-items.js';
+import { dismissAnchorContextMenu } from './context-menu.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../components/Component.js').Component} Component */
@@ -255,6 +256,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'Escape': {
                     // All cancellation precedence lives in runSchematicEscapeAction.
                     // Escape is always consumed in schematic mode.
+                    dismissAnchorContextMenu();
                     runSchematicEscapeAction(app);
                     e.preventDefault();
                     e.stopPropagation();

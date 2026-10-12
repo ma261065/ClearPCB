@@ -109,6 +109,20 @@ for (const gap of [0.001, 0.025, 0.1, 0.5]) {
 
 {
     const app = fixture();
+    const fill = new CopperFill({ layer: 'top-copper', net: '' });
+    setComputedFill(fill, [{ outer: rectangle(-5, -5, 25, 5).points, holes: [] }]);
+    app.boardShapes.push(fill);
+    const draw = startTrackDraw(app, { x: 0, y: 0 });
+    assert.equal(draw.snap.copperContact, false, 'unnamed fill coverage is not an endpoint target');
+    addTrackWaypoint(app, { x: 5, y: 3 });
+    assert.equal(getTrackDraw(app), draw,
+        'single click over an unnamed fill adds a waypoint instead of finishing the track');
+    assert.equal(draw.points.length, 2);
+    cancelTrackDraw(app);
+}
+
+{
+    const app = fixture();
     const ground = new CopperFill({ layer: 'top-copper', net: 'GND' });
     setComputedFill(ground, [{ outer: rectangle(-5, -5, 25, 5).points,
         holes: [rectangle(19, -1, 21, 1).points] }]);

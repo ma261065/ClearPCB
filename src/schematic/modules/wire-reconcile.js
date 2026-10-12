@@ -270,10 +270,11 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
  * @param {SchematicEditor} app
  * @param {Wire[]} changedWires - the wires that just changed
  * @param {Set<Wire>|null} [skipSet] - wires to skip pairwise checks against
+ * @returns {Set<Wire>} Surviving and removed wires touched by reconciliation.
  */
 export function reconcileWires(app, changedWires, skipSet = null) {
     const changed = new Set(changedWires.filter(w => app.shapes.includes(w)));
-    if (changed.size === 0) return;
+    if (changed.size === 0) return new Set();
 
     // Discover affected wires (any wire whose nodes/edges are near a changed wire)
     const affected = new Set(changed);
@@ -348,6 +349,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
             if (sub.edges.size > 0) {
                 addShapeInternal(app, sub);
                 changed.add(sub);
+                affected.add(sub);
                 newFragments.push(sub);
             }
         }
@@ -367,6 +369,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         // Re-home generic attached labels to the nearest post-split fragment
         rehomeAttachedWireLabelsAfterSplit(w, [w, ...newFragments]);
     }
+    return affected;
 }
 
 /**
@@ -378,9 +381,10 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
  * @param {Map<any,any>|null} [labelTextBefore] - dynamic captured label-text states before mutation
+ * @param {Iterable<Wire>|null} [newWireCandidates] - scope for detecting newly created wires; defaults to all wires
  * @returns {BatchCommand|null} - batch or null if nothing changed
  */
-export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], labelTextBefore = null) {
+export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], labelTextBefore = null, newWireCandidates = null) {
     const batch = new BatchCommand(label);
     let anyChanges = false;
 
@@ -408,8 +412,9 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
 
     // New wires (from splits) — not in beforeStates
     const extraSet = new Set(extraAdds);
-    for (const s of [...app.shapes]) {
-        if (isWire(s) && !beforeStates.has(s) && !extraSet.has(s)) {
+    const candidates = newWireCandidates || app.shapes.filter(isWire);
+    for (const s of candidates) {
+        if (app.shapes.includes(s) && !beforeStates.has(s) && !extraSet.has(s)) {
             batch.add(new AddShapeCommand(app, s));
             anyChanges = true;
         }

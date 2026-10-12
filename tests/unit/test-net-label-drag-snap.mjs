@@ -3,7 +3,14 @@ import { Component } from '../../src/components/Component.js';
 import { Net } from '../../src/shapes/net.js';
 import { Wire } from '../../src/shapes/wire.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
-import { PIN_PICKUP_SNAP_TOL, resolveWireSnapPosition } from '../../src/schematic/modules/wire-snap.js';
+import {
+    getDrawingSnappedPosition,
+    PIN_PICKUP_SNAP_TOL,
+    resolveWireSnapPosition,
+    WIRE_PIN_SNAP_MAX_TOL,
+    WIRE_PIN_SNAP_MIN_TOL,
+    wirePinSnapTolerance,
+} from '../../src/schematic/modules/wire-snap.js';
 import { resolvePinSnapPlacement } from '../../src/schematic/modules/component-snap.js';
 import { SCHEMATIC_TOOLS } from '../../src/schematic/modules/schematic-tools.js';
 import { moveDragState, anchorDragState } from '../../src/schematic/modules/draw-states.js';
@@ -24,6 +31,25 @@ assert.equal(snap.snapPin.component, target);
 assert.deepEqual({ x: snap.x, y: snap.y }, { x: 10, y: 20 });
 const noTarget = resolveWireSnapPosition({ ...app, components: [] }, { x: 9, y: 20 }, { excludePin });
 assert.equal(noTarget.snapType, 'grid', 'Label cannot snap onto its own virtual pin');
+assert.equal(WIRE_PIN_SNAP_MAX_TOL, PIN_PICKUP_SNAP_TOL,
+    'Normal-zoom routing uses the deliberate pin-pickup radius');
+assert.equal(wirePinSnapTolerance({ zoom: 10 }), 0.5);
+assert.equal(wirePinSnapTolerance({ zoom: 30 }), 0.375);
+assert.equal(wirePinSnapTolerance({ zoom: 50 }), 0.25);
+assert.equal(wirePinSnapTolerance({ zoom: 100 }), WIRE_PIN_SNAP_MIN_TOL);
+const highZoomTolerance = wirePinSnapTolerance({ zoom: 50 });
+for (const offset of [highZoomTolerance - 0.01, highZoomTolerance + 0.01, WIRE_PIN_SNAP_MAX_TOL]) {
+    const routingApp = {
+        components: [target],
+        shapes: [],
+        wirePoints: [],
+        viewport: { zoom: 50, getSnappedPosition: point => ({ ...point }) },
+    };
+    const routed = getDrawingSnappedPosition(routingApp,
+        { x: target.x + offset, y: target.y });
+    assert.equal(routed.snapType === 'pin', offset < highZoomTolerance,
+        `5000% wire routing ${offset < highZoomTolerance ? 'accepts' : 'rejects'} ${offset.toFixed(2)} mm pin approach`);
+}
 
 for (const rotation of [0, 90, 180, 270]) {
     for (const mirror of [false, true]) {

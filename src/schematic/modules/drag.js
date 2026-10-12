@@ -289,14 +289,31 @@ function captureLabelTextStates(app, beforeAll) {
  * @param {Map<Wire, import('../../shapes/wire.js').WireState>} beforeAll - Complete wire before-state map
  * @param {string} label - Undo command label
  * @param {Map<Text, import('../../shapes/text.js').TextState>} labelTextBefore - Label text before-states
- * @returns {BatchCommand|null}
+ * @returns {{batch:BatchCommand|null, affected:Set<Wire>}}
  */
 function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBefore) {
-    reconcileWires(app, changedWires);
-    for (const w of changedWires) {
+    const affected = reconcileWires(app, changedWires);
+    for (const w of affected) {
         if (app.shapes.includes(w)) refreshWireConnections(app, w);
     }
-    return buildWireDiffBatch(app, beforeAll, label, [], labelTextBefore);
+    return {
+        batch: buildWireDiffBatch(app, beforeAll, label, [], labelTextBefore, affected),
+        affected,
+    };
+}
+
+/** @param {SchematicEditor} app @param {Iterable<Wire>} wires */
+function affectedNetConflict(app, wires) {
+    for (const wire of wires) {
+        if (!app.shapes.includes(wire)) continue;
+        const names = new Set();
+        for (const [, connection] of wire.pinConnections) {
+            const net = findNetById(app, connection.componentId);
+            if (net?.net) names.add(net.net);
+        }
+        if (names.size > 1) return [...names].sort();
+    }
+    return null;
 }
 
 /**
@@ -437,37 +454,26 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             }
         }
 
-        const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move anchor', labelTextBefore);
+        const result = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move anchor', labelTextBefore);
+        const batch = result.batch;
 
         // Add NC commands
         const b = batch || new BatchCommand('Move anchor');
         addNoConnectCommands(app, b, ncLinks);
         pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
-        // Post-commit check: refresh all wire connections, then check if
-        // any wire now has two or more Net shapes with different names.
-        for (const w of app.shapes) {
-            if (isWire(w)) refreshWireConnections(app, w);
-        }
-        for (const w of app.shapes) {
-            if (!isWire(w)) continue;
-            const netNames = new Set();
-            for (const [, conn] of w.pinConnections) {
-                const ns = findNetById(app, conn.componentId);
-                if (ns?.net) netNames.add(ns.net);
-            }
-            if (netNames.size > 1) {
-                const sorted = [...netNames].sort();
-                app.alert(
-                    `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
-                    { title: 'Net Conflict' }
-                );
-                app.history.undo();
-                app.history.redoStack.pop();
-                app.history._notifyChanged();
-                app.renderShapes(true);
-                return false;
-            }
+        // Reject only conflicts created in the network touched by this drag.
+        const conflict = affectedNetConflict(app, result.affected);
+        if (conflict) {
+            app.alert(
+                `Cannot merge wire segments with different net names: "${conflict[0]}" and "${conflict[1]}".`,
+                { title: 'Net Conflict' }
+            );
+            app.history.undo();
+            app.history.redoStack.pop();
+            app.history._notifyChanged();
+            app.renderShapes(true);
+            return false;
         }
 
         // Select surviving dragged wire
@@ -633,7 +639,8 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
     const labelTextBefore = captureLabelTextStates(app, beforeAll);
 
     const changedWires = [...wireStates.keys()].filter(w => app.shapes.includes(w));
-    const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move wire segment', labelTextBefore);
+    const result = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move wire segment', labelTextBefore);
+    const batch = result.batch;
 
     // Add NC + label commands
     const b = batch || new BatchCommand('Move wire segment');
@@ -649,34 +656,20 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
 
     pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
-    // Post-commit check: net conflict
-    for (const w of app.shapes) {
-        if (isWire(w)) refreshWireConnections(app, w);
-    }
-    for (const w of app.shapes) {
-        if (!isWire(w)) continue;
-        const netNames = new Set();
-        for (const [, conn] of w.pinConnections) {
-            const ns = findNetById(app, conn.componentId);
-            if (ns?.net) netNames.add(ns.net);
+    const conflict = affectedNetConflict(app, result.affected);
+    if (conflict) {
+        app.alert(
+            `Cannot merge wire segments with different net names: "${conflict[0]}" and "${conflict[1]}".`,
+            { title: 'Net Conflict' }
+        );
+        app.history.undo();
+        app.history.redoStack.pop();
+        for (const wire of result.affected) {
+            if (app.shapes.includes(wire)) refreshWireConnections(app, wire);
         }
-        if (netNames.size > 1) {
-            const sorted = [...netNames].sort();
-            app.alert(
-                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
-                { title: 'Net Conflict' }
-            );
-            app.history.undo();
-            app.history.redoStack.pop();
-
-            for (const rw of app.shapes) {
-                if (isWire(rw)) refreshWireConnections(app, rw);
-            }
-
-            app.history._notifyChanged();
-            app.renderShapes(true);
-            return false;
-        }
+        app.history._notifyChanged();
+        app.renderShapes(true);
+        return false;
     }
 
     app.renderShapes(true);

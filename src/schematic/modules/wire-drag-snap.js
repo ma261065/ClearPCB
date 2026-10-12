@@ -3,7 +3,7 @@
  * dragged: collinear chains, pin bridges, off-grid neighbours and sticky wires.
  */
 import { distanceToSegment, pointsCollinear, collinearSnap } from '../../core/geometry.js';
-import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint } from './wire-snap.js';
+import { SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint, wirePinSnapTolerance } from './wire-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { snapNodeToMixedAxes } from '../../shapes/path-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -458,8 +458,9 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     /** @type {PinSnap|WirePointSnap|null} */
     let highlight = null;
 
-    const pinA = findNearbyPin(app.components, rawA, PIN_SNAP_TOL);
-    const pinB = findNearbyPin(app.components, rawB, PIN_SNAP_TOL);
+    const pinTolerance = wirePinSnapTolerance(app.viewport);
+    const pinA = findNearbyPin(app.components, rawA, pinTolerance);
+    const pinB = findNearbyPin(app.components, rawB, pinTolerance);
     /** @type {PinSnap|null} */
     let bestPin = null;
     /** @type {Point|null} */

@@ -88,7 +88,8 @@ pads, vias and copper shapes), preserving schematic-pad Net authority. It reject
 incompatible named connections before committing. A segment merely crossing
 other copper does not trigger a Net-conflict popup or label that copper; physical
 short/clearance checking remains DRC's job. Starting or bending a track over a named
-pour does not adopt its net: an unassigned track stays Net=None until it joins a
+or unnamed pour does not adopt its net or finish click-to-draw: an unassigned
+track stays Net=None until it joins a
 pad, via, track or authored copper shape (or the user selects a net). A different-net
 or unassigned track reserves clearance in that pour when it is recomputed.
 Drawing and dragging share the

@@ -258,6 +258,73 @@ export function isCulled(entity) {
  */
 const lastPassScale = new WeakMap();
 const shapeSegmentSelectionElements = new WeakMap();
+const contextSegmentHighlightElements = new WeakMap();
+
+/** @param {SchematicEditor} app */
+export function clearContextSegmentHighlight(app) {
+    contextSegmentHighlightElements.get(app)?.remove();
+    contextSegmentHighlightElements.delete(app);
+}
+
+/** @param {SVGElement} element @param {number} width @param {string} className */
+function styleContextHighlight(element, width, className) {
+    element.setAttribute('fill', 'none');
+    element.setAttribute('stroke-linecap', 'round');
+    element.setAttribute('pointer-events', 'none');
+    element.setAttribute('stroke-width', String(width));
+    element.setAttribute('class', className);
+}
+
+/**
+ * Border one graph edge, or every edge when `edgeId` is null, while a
+ * context-menu delete action is hovered.
+ * @param {SchematicEditor} app
+ * @param {SchematicDrawable} shape
+ * @param {string|null} edgeId
+ */
+export function showContextSegmentHighlight(app, shape, edgeId) {
+    clearContextSegmentHighlight(app);
+    if (!(shape.type === 'wire' || shape.type === 'polyline')
+        || typeof app.viewport?.contentLayer?.appendChild !== 'function') return;
+    const graph = /** @type {PolylineGraph} */ (shape);
+    const edgeIds = edgeId == null ? [...graph.edges.keys()] : [edgeId];
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('class', 'schematic-context-segment-highlight');
+    group.setAttribute('pointer-events', 'none');
+    const pixel = 1 / Math.max(0.01, app.viewport.scale || 1);
+    for (const id of edgeIds) {
+        const edge = graph.edges.get(id);
+        const first = edge ? graph.nodes.get(edge.from) : null;
+        const second = edge ? graph.nodes.get(edge.to) : null;
+        if (!first || !second) continue;
+        const bulge = Number(graph.getEdgeAttr(id, 'bulge')) || 0;
+        const straight = bulge ? null : graph.getStraightEdgePortion(id);
+        if (!bulge && !straight) continue;
+        const makeElement = () => {
+            const element = document.createElementNS('http://www.w3.org/2000/svg', bulge ? 'path' : 'line');
+            if (bulge) element.setAttribute('d', arcEdgePathD(first, second, bulge));
+            else if (straight) {
+                element.setAttribute('x1', String(straight.first.x));
+                element.setAttribute('y1', String(straight.first.y));
+                element.setAttribute('x2', String(straight.second.x));
+                element.setAttribute('y2', String(straight.second.y));
+            }
+            return element;
+        };
+        const width = Math.max(Number(graph.getEdgeAttr(id, 'width')) || graph.lineWidth, pixel);
+        const border = makeElement();
+        border.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
+        styleContextHighlight(border, width + 4 * pixel, 'schematic-context-segment-border');
+        group.appendChild(border);
+        const foreground = makeElement();
+        foreground.setAttribute('stroke', '#e94560');
+        styleContextHighlight(foreground, width, 'schematic-context-segment-foreground');
+        group.appendChild(foreground);
+    }
+    if (!group.children.length) return;
+    app.viewport.contentLayer.appendChild(group);
+    contextSegmentHighlightElements.set(app, group);
+}
 
 /** @param {SchematicEditor} app */
 export function getShapeSegmentSelectionElement(app) {

@@ -111,16 +111,22 @@ function fixture(shape) {
     return app;
 }
 
-function expectDeletionNotification(app) {
+function expectDeletionNotification(app, selection = []) {
     assert.equal(app.selectionNotifications.length, 1, 'Publish the final selection once after deletion');
-    assert.deepEqual(app.selectionNotifications[0].selection, []);
+    assert.deepEqual(app.selectionNotifications[0].selection, selection);
     assert.deepEqual(app.selectionNotifications[0].shapes, app.shapes, 'Subscribers see the completed command');
     assert.equal(app.selectionNotifications[0].segment, null);
     assert.equal(app.selectionNotifications[0].node, null);
-    assert.ok(app.ui.propertiesPanel.textContent.includes('None selected'), 'Selection subscribers clear stale Properties');
-    assert.equal(document.getElementById('prop_lineWidth'), null);
-    assert.equal(document.getElementById('prop_net'), null);
-    assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'home', 'Empty selection leaves Properties');
+    if (selection.length) {
+        assert.ok(app.ui.propertiesPanel.textContent.includes('1 selected'),
+            'A surviving segment-deletion fragment remains selected in Properties');
+        assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'properties');
+    } else {
+        assert.ok(app.ui.propertiesPanel.textContent.includes('None selected'), 'Selection subscribers clear stale Properties');
+        assert.equal(document.getElementById('prop_lineWidth'), null);
+        assert.equal(document.getElementById('prop_net'), null);
+        assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'home', 'Empty selection leaves Properties');
+    }
 }
 
 for (const nodeId of ['n0', 'n1']) for (const action of ['Delete', 'Backspace', 'context']) {
@@ -230,7 +236,7 @@ for (const key of ['Delete', 'Backspace']) {
             assert.equal(remaining.edges.size, 3);
             assert.equal(viewOf(remaining).element.parentNode, app.viewport.contentLayer);
             assert.equal(app.history.undoStack.length, 1);
-            expectDeletionNotification(app);
+            expectDeletionNotification(app, [remaining]);
             app.history.undo();
             assert.deepEqual(app.shapes, [rectangle]);
             assert.deepEqual(rectangle.captureState(), before);
@@ -343,7 +349,7 @@ for (const edgeId of ['e0', 'e1']) {
     assert.equal(app.selectionNotifications.length, 1, 'Wire graph changes publish only the completed selection');
     if (edgeId === 'e1') {
         assert.equal(app.shapes.length, 2);
-        expectDeletionNotification(app);
+        expectDeletionNotification(app, [app.shapes[0]]);
     } else {
         assert.deepEqual(app.selectionNotifications[0].selection, [wire], 'An in-place wire edit keeps its selection');
         assert.equal(wire.edges.size, 2);
@@ -361,7 +367,8 @@ for (const edgeId of ['e0', 'e1']) {
     app.selection.select(other, true);
     app.selectionNotifications.length = 0;
     deleteWireSegment(app, shape, 'e0');
-    expectDeletionNotification(app);
+    const survivor = app.shapes.find(candidate => candidate !== other);
+    expectDeletionNotification(app, [survivor]);
     assert.ok(app.shapes.includes(other), 'Context deletion does not remove unrelated selected objects');
     assert.equal(app.selection.isSelected(other), false, 'Existing context-deletion selection clearing is preserved');
 }
