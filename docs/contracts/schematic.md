@@ -58,6 +58,12 @@ owner intent APIs such as `getSchematicDrag`, `getPendingAnchorDrag`,
 `getSchematicTextEdit`. `test-schematic-interactions` checks the table, routes,
 guards and owner-only slot writes.
 
+Component-only clipboard placement has transient transform state owned by
+`clipboard.js`. Space rotates the paste ghost right, X flips it horizontally
+and Y flips it vertically around the clipboard centroid. Confirmation applies
+the same transform to the new components; cancellation or a later paste resets
+the state without changing the stored clipboard.
+
 Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as
 each PCB tool is in `pcb-tools.js`. The entry defines its name, shortcut, ribbon
 label, selection setup (the component picker, Net defaults or a placement ghost)
@@ -131,9 +137,29 @@ with the crossed wire rather than being centred on the centreline intersection.
 Because there is no wider crosswise under-stroke, no end-cap dashes appear at
 extreme zoom. The side strokes span the crossed wire's complete rendered width;
 their junction-local length is not capped below that required coverage.
+Two physical component pins at the same schematic point are one derived
+electrical contact. The model-only netlist query groups them without authoring
+a wire or attachment record, and the view draws one green, non-interactive
+junction dot at that point. Moving either component away removes both the
+derived connection and the dot.
+A NetLabel directly contacting a physical component pin uses that same derived
+green junction dot. The label-to-pin netlist rule and the dot share the same
+connection tolerance; moving, hiding, deleting or undoing the label removes the
+dot without inventing wire geometry.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
+inline typing replaces `(c)`, `(r)`, `(tm)`, `(u)` and `(o)` (including
+uppercase forms) with ©, ®, ™, µ and Ω using the same shared mapping as PCB
+text. While inline editing, Properties shows the same Insert symbol picker as
+PCB text for standalone Text, component Reference and component Value fields;
+it inserts at the caret or replaces the current selection. These
+changes remain part of the schematic edit's single editor-history command.
+The passive-value unit dialog is placement-only; editing an existing passive
+Value uses this shared inline text path like every other field.
+Before the edit is committed, immediate Ctrl/Cmd+Z after an automatic symbol
+replacement restores its literal token without stepping editor history, matching
+PCB inline text.
 dropping attaches it. Movement and attachment undo together. Attached text offers
 “Detach from wire” or “Detach from shape” according to its owner, in Properties
 (with an explanatory tooltip) and its context menu;

@@ -6,7 +6,10 @@ import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { flipComponentH, flipComponentV, isPlacingComponent, rotateComponentRight } from './components.js';
 import { handleTextEditKey, hasSchematicTextEdit } from './text-edit.js';
-import { beginPastePreview, cutSelection } from './clipboard.js';
+import {
+    beginPastePreview, cutSelection, flipPastePreviewHorizontal, flipPastePreviewVertical,
+    isTransformingPastedComponents, rotatePastePreviewRight,
+} from './clipboard.js';
 import {
     canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
 } from './editor-actions.js';
@@ -37,6 +40,11 @@ function canActOnSelection(app) {
  * @param {KeyboardEvent} e
  */
 function handleFlipHorizontal(app, e) {
+    if (!hasSchematicTextEdit(app) && isTransformingPastedComponents(app)) {
+        flipPastePreviewHorizontal(app);
+        e.preventDefault();
+        return true;
+    }
     if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentH(app);
         e.preventDefault();
@@ -56,6 +64,11 @@ function handleFlipHorizontal(app, e) {
  * @param {KeyboardEvent} e
  */
 function handleFlipVertical(app, e) {
+    if (!hasSchematicTextEdit(app) && isTransformingPastedComponents(app)) {
+        flipPastePreviewVertical(app);
+        e.preventDefault();
+        return;
+    }
     if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentV(app);
         e.preventDefault();
@@ -74,6 +87,11 @@ function handleFlipVertical(app, e) {
  * @param {KeyboardEvent} e
  */
 function handleSpaceRotate(app, e) {
+    if (!hasSchematicTextEdit(app) && isTransformingPastedComponents(app)) {
+        rotatePastePreviewRight(app);
+        e.preventDefault();
+        return;
+    }
     // Rotate component while placing.
     if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         rotateComponentRight(app);

@@ -10,6 +10,7 @@ import { finishSelectionInteraction } from './selection-interaction.js';
 import { openComponent3DPopout } from './component-selection.js';
 import { SetRefStyleCommand } from './ref-text-selection.js';
 import { bindStrokeTextProps } from './text-properties.js';
+import { activeTextInlineEdit, insertInlineTextSymbol } from './text-inline-edit.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @param {PcbEditor} app @returns {ComponentProperties} */
@@ -37,6 +38,8 @@ export function getComponentProperties(app) {
         renderReference: /** @param {string} id */ (id) => app.rerenderRef(id),
         drawReferenceOverlay: (id, tether) => app.drawRefOverlay(id, tether),
         setReferenceStyle: (id, before, after) => app.history.execute(new SetRefStyleCommand(app, id, before, after)),
+        activeTextEdit: () => activeTextInlineEdit(app),
+        insertInlineSymbol: (textId, symbol) => insertInlineTextSymbol(app, textId, symbol),
     })));
 }
 

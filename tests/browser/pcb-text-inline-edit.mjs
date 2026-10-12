@@ -214,6 +214,12 @@ export const scenarios = [{
         assert.equal((await editState(page)).shown, 'ABC \u00A9', '(c) becomes the copyright sign');
         await page.keyboard.press('Control+z');
         assert.equal((await editState(page)).shown, 'ABC (c)', 'Ctrl+Z right after restores the literal (c)');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.type('(u) (o)');
+        assert.equal((await editState(page)).shown, '\u00B5 \u03A9', '(u) and (o) become micro and Ohm');
+        await page.keyboard.press('Control+z');
+        assert.equal((await editState(page)).shown, '\u00B5 (o)',
+            'Ctrl+Z right after restores the literal final symbol token');
     },
 }, {
     name: 'text-edit-properties-change-keeps-the-typing',

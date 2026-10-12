@@ -19,6 +19,8 @@ import { isComponentItem, isTextItem } from '../../core/schematic-items.js';
 /**
  * @typedef {{[key: string]: unknown, id?: string|number, type?: string, x?: number, y?: number, w?: number, h?: number, nd?: Record<string, [number, number]>, pts?: number[], sp?: Point, ep?: Point, bp?: Point, ir?: boolean, cn?: unknown[], rot?: number, mir?: boolean, ref?: string, pkg?: string, val?: string, sr?: boolean, sv?: boolean, props?: import('../../components/Component.js').ComponentProperties, cid?: string, fk?: string|null, att?: unknown, lk?: boolean, locked?: boolean}} SerializedShapeData
  * @typedef {SerializedShapeData & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData
+ * @typedef {'rotateRight'|'flipHorizontal'|'flipVertical'} PasteTransformOperation
+ * @typedef {{a:number,b:number,c:number,d:number,position:Point,operations:PasteTransformOperation[]}} PasteTransform
  */
 /** @param {SchematicItem} item @returns {item is SchematicItem & {x: number, y: number}} */
 const hasPointPosition = item => 'x' in item && typeof item.x === 'number' && 'y' in item && typeof item.y === 'number';
@@ -29,11 +31,62 @@ let clipboard = [];
 // Pre-built ghost SVG captured at copy time (avoids expensive rebuild on paste)
 /** @type {SVGGElement|null} */
 let clipboardGhostSvg = null;
+/** @type {WeakMap<object, PasteTransform>} */
+const pasteTransforms = new WeakMap();
 
 /** @param {SchematicEditor} app */
 export function isPastingClipboard(app) {
     return !!getSchematicInteraction(app, 'pastingClipboard');
 }
+
+/** @param {SchematicEditor} app */
+export function isTransformingPastedComponents(app) {
+    return isPastingClipboard(app) && clipboard.length > 0
+        && clipboard.every(data => data._clipType === 'component');
+}
+
+/** @param {SchematicEditor} app */
+function pasteTransform(app) {
+    let state = pasteTransforms.get(app);
+    if (!state) {
+        state = { a: 1, b: 0, c: 0, d: 1, position: { x: 0, y: 0 }, operations: [] };
+        pasteTransforms.set(app, state);
+    }
+    return state;
+}
+
+/** @param {SchematicEditor} app */
+function renderPasteTransform(app) {
+    if (!app.pastePreviewGroup) return;
+    const state = pasteTransform(app);
+    app.pastePreviewGroup.setAttribute('transform',
+        `matrix(${state.a} ${state.b} ${state.c} ${state.d} ${state.position.x} ${state.position.y})`);
+}
+
+/** @param {SchematicEditor} app @param {PasteTransformOperation} operation */
+function transformPastePreview(app, operation) {
+    if (!isTransformingPastedComponents(app)) return false;
+    const state = pasteTransform(app);
+    const { a, b, c, d } = state;
+    if (operation === 'rotateRight') {
+        state.a = -b; state.b = a;
+        state.c = -d; state.d = c;
+    } else if (operation === 'flipHorizontal') {
+        state.a = -a; state.c = -c;
+    } else {
+        state.b = -b; state.d = -d;
+    }
+    state.operations.push(operation);
+    renderPasteTransform(app);
+    return true;
+}
+
+/** @param {SchematicEditor} app */
+export const rotatePastePreviewRight = app => transformPastePreview(app, 'rotateRight');
+/** @param {SchematicEditor} app */
+export const flipPastePreviewHorizontal = app => transformPastePreview(app, 'flipHorizontal');
+/** @param {SchematicEditor} app */
+export const flipPastePreviewVertical = app => transformPastePreview(app, 'flipVertical');
 
 /**
  * @param {SchematicEditor} app
@@ -228,6 +281,7 @@ export function beginPastePreview(app) {
 
     app.viewport.contentLayer.appendChild(ghost);
     app.pastePreviewGroup = ghost;
+    pasteTransforms.set(app, { a: 1, b: 0, c: 0, d: 1, position: { x: 0, y: 0 }, operations: [] });
     setPastingClipboard(app, true);
     app.interactionState = 'placing';
     app.viewport.svg.style.cursor = 'crosshair';
@@ -236,7 +290,7 @@ export function beginPastePreview(app) {
     // and show crosshair immediately (before the first mousemove).
     const mousePos = app.viewport.currentMouseWorld || { x: 0, y: 0 };
     const snapped = app.viewport.getSnappedPosition(mousePos);
-    ghost.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
+    updatePastePreview(app, snapped);
     app.showCrosshair();
     app.updateCrosshair(snapped);
 }
@@ -286,7 +340,10 @@ function _buildGhostFallback(app) {
  */
 export function updatePastePreview(app, worldPos) {
     if (!app.pastePreviewGroup || !isPastingClipboard(app)) return;
-    app.pastePreviewGroup.setAttribute('transform', `translate(${worldPos.x}, ${worldPos.y})`);
+    const state = pasteTransform(app);
+    state.position.x = worldPos.x;
+    state.position.y = worldPos.y;
+    renderPasteTransform(app);
 }
 
 /**
@@ -298,6 +355,7 @@ export function confirmPaste(app, worldPos) {
     if (!isPastingClipboard(app) || clipboard.length === 0) return;
 
     const snapped = app.viewport.getSnappedPosition(worldPos);
+    const transform = pasteTransform(app);
 
     /** @type {SchematicDrawable[]} */
     const pastedShapes = [];
@@ -320,6 +378,26 @@ export function confirmPaste(app, worldPos) {
                 showValue: data.sv,
                 properties: data.props
             });
+            const beforeBounds = comp.getBounds();
+            const beforeCenter = beforeBounds
+                ? { x: (beforeBounds.minX + beforeBounds.maxX) / 2, y: (beforeBounds.minY + beforeBounds.maxY) / 2 }
+                : { x: comp.x, y: comp.y };
+            for (const operation of transform.operations) {
+                if (operation === 'rotateRight') comp.rotate(90);
+                else if (operation === 'flipHorizontal') comp.flipHorizontal();
+                else comp.flipVertical();
+            }
+            const relativeCenter = { x: beforeCenter.x - snapped.x, y: beforeCenter.y - snapped.y };
+            const desiredCenter = {
+                x: snapped.x + transform.a * relativeCenter.x + transform.c * relativeCenter.y,
+                y: snapped.y + transform.b * relativeCenter.x + transform.d * relativeCenter.y,
+            };
+            const afterBounds = comp.getBounds();
+            const afterCenter = afterBounds
+                ? { x: (afterBounds.minX + afterBounds.maxX) / 2, y: (afterBounds.minY + afterBounds.maxY) / 2 }
+                : { x: comp.x, y: comp.y };
+            comp.x += desiredCenter.x - afterCenter.x;
+            comp.y += desiredCenter.y - afterCenter.y;
             pastedComponents.push(comp);
         } else {
             // structuredClone is faster than JSON round-trip and handles all types
@@ -359,6 +437,7 @@ export function cancelPaste(app) {
         app.pastePreviewGroup = null;
     }
     setPastingClipboard(app, false);
+    pasteTransforms.delete(app);
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.viewport.svg.style.cursor = '';
 

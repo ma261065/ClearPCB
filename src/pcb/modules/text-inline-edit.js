@@ -1,4 +1,5 @@
 import { createInlineTextOverlay, setInlineTextInputActive } from '../../shared/ui/inline-text-overlay.js';
+import { textSymbolReplacementAtCaret } from '../../shared/ui/text-symbol-autoreplace.js';
 import { isLayerVisible } from './layers.js';
 import { boardShapeLocked } from './object-locks.js';
 import { invalidateDrcRefresh } from './drc-refresh.js';
@@ -54,6 +55,28 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
  */
 export function activeTextInlineEdit(app) {
     return getPcbInteraction(app, '_textEdit');
+}
+
+/**
+ * Insert text at the active native input caret, replacing its selection.
+ * @param {PcbEditor} app
+ * @param {string} textId
+ * @param {string} symbol
+ * @returns {boolean}
+ */
+export function insertInlineTextSymbol(app, textId, symbol) {
+    const edit = activeTextInlineEdit(app);
+    if (!edit || edit.text?.id !== textId || !symbol) return false;
+    const input = edit.input;
+    const selectionStart = input.selectionStart ?? input.value.length;
+    const selectionEnd = input.selectionEnd ?? selectionStart;
+    input.value = input.value.slice(0, selectionStart) + symbol + input.value.slice(selectionEnd);
+    const position = selectionStart + symbol.length;
+    try { input.setSelectionRange(position, position); } catch { /* Some test doubles do not implement selections. */ }
+    const event = typeof Event === 'function' ? new Event('input', { bubbles: true }) : { type: 'input', bubbles: true };
+    input.dispatchEvent(event);
+    input.focus?.();
+    return true;
 }
 
 /**
@@ -163,27 +186,17 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         // Inline autoreplace for common typographic symbols. Matches
         // only at the caret, only while typing, and goes through the
         // browser's editing command so Ctrl+Z restores a literal "(c)".
-        const AUTOREPLACE = [
-            ['(c)',  '\u00A9'],
-            ['(C)',  '\u00A9'],
-            ['(r)',  '\u00AE'],
-            ['(R)',  '\u00AE'],
-            ['(tm)', '\u2122'],
-            ['(TM)', '\u2122'],
-        ];
         const caret = input.selectionStart ?? input.value.length;
         const typing = /** @type {InputEvent} */ (event)?.inputType === 'insertText';
-        for (const [from, to] of typing ? AUTOREPLACE : []) {
-            if (caret >= from.length &&
-                input.value.slice(caret - from.length, caret) === from) {
-                const start = caret - from.length;
-                try { input.setSelectionRange(start, caret); } catch { /* */ }
-                // insertText fires its own input event (not 'insertText' typing, so no loop).
-                if (!document.execCommand('insertText', false, to)) {
-                    input.value = input.value.slice(0, start) + to + input.value.slice(caret);
-                    try { input.setSelectionRange(start + to.length, start + to.length); } catch { /* */ }
-                }
-                break;
+        const replacement = typing ? textSymbolReplacementAtCaret(input.value, caret) : null;
+        if (replacement) {
+            try { input.setSelectionRange(replacement.start, replacement.end); } catch { /* */ }
+            // insertText fires its own input event (not 'insertText' typing, so no loop).
+            if (!document.execCommand('insertText', false, replacement.text)) {
+                input.value = input.value.slice(0, replacement.start)
+                    + replacement.text + input.value.slice(replacement.end);
+                const nextCaret = replacement.start + replacement.text.length;
+                try { input.setSelectionRange(nextCaret, nextCaret); } catch { /* */ }
             }
         }
         if (text.content !== input.value) {

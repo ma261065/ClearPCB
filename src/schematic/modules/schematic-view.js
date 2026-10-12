@@ -30,6 +30,7 @@ import {
 } from '../render/component-renderer.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderWireCrossings } from './wire-crossings.js';
+import { renderComponentPinJunctions } from './component-pin-junctions.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -78,6 +79,7 @@ export function refreshSelectionVisual(app, entity) {
 export function mountShape(app, shape) {
     const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
     app.viewport.addContent(element);
+    if (shape.type === 'net') renderComponentPinJunctions(app);
 }
 
 /**
@@ -115,6 +117,7 @@ export function mountComponent(app, component) {
     let element = componentViewOf(component)?.element;
     if (!element) element = buildComponentSymbol(component);
     app.viewport.addComponentContent(element);
+    renderComponentPinJunctions(app);
 }
 
 /** Detach a component symbol, keeping it for a later mount. */
@@ -347,6 +350,7 @@ export function renderShapes(app, force = false) {
     }
     lastPassScale.set(app, scale);
     renderWireCrossings(app);
+    renderComponentPinJunctions(app);
     renderShapeSegmentSelection(app);
     refreshAxisGlow(app);
     updateLabelGuide(app);

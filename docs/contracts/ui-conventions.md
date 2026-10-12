@@ -91,6 +91,10 @@ raises it and moves the cue to its edges.
 Schematic shape hover and selection use a six-screen-pixel margin outside the
 rendered geometry at every zoom; there is no additional fixed 0.5 mm margin at
 high zoom.
+While placing a component-only schematic paste, the normal component-placement
+shortcuts remain active: Space rotates right, X flips horizontally and Y flips
+vertically. The preview and placed component use the same transform, and each
+new paste starts from the copied orientation.
 Dragging a wire segment computes collinearity from the rigid translation of
 both segment endpoints. When that translation makes the moved segment and an
 adjoining stationary segment collinear, the usual blue dotted collinearity
@@ -104,6 +108,13 @@ stroke is shifted to the actual intersection of that overpass edge with the
 crossed wire. The cue is confined to the crossing, ignores pointer input and
 does not change connectivity.
 Crossings at authored nodes, shared endpoints and T-junctions have no cue.
+Direct contact between pins of two physical schematic components shows the same
+green junction-dot visual used for wire-to-pin connections. The dot is derived
+from the coincident pin geometry, ignores pointer input and disappears when the
+components separate.
+A NetLabel attached directly to a component pin shows the same green dot at the
+pin. It is likewise presentation-only and follows the label's derived geometric
+connection.
 
 The flat 2D board viewer pans and zooms a cached transparent board image, leaving
 its background fixed. Dragging with either the left or right mouse button pans

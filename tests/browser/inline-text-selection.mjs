@@ -58,6 +58,99 @@ export const scenarios = [{
         await page.keyboard.type('discard');
         await page.keyboard.press('Escape');
         assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes[0].text), 'hello PCB');
+
+        await page.evaluate(() => window.bootstrap.schematicApp.startTextEdit(
+            window.bootstrap.schematicApp.shapes[0]));
+        await page.keyboard.press('Control+a');
+        const historyBeforeSymbolUndo = await page.evaluate(() =>
+            window.bootstrap.schematicApp.history.undoStack.length);
+        await page.keyboard.type('(u)');
+        assert.equal((await schematicState(page)).text, 'µ');
+        await page.keyboard.press('Control+z');
+        assert.deepEqual(await schematicState(page), { text: '(u)', caret: 3, anchor: null },
+            'schematic inline Undo restores the literal symbol token');
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.history.undoStack.length),
+            historyBeforeSymbolUndo, 'inline symbol Undo does not step editor history');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.type('(c) (R) (tm) (u) (O)');
+        assert.deepEqual(await schematicState(page), { text: '© ® ™ µ Ω', caret: 9, anchor: null },
+            'schematic inline typing uses the same symbol tokens as PCB text');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes[0].text), '© ® ™ µ Ω');
+        await page.keyboard.press('Control+z');
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes[0].text), 'hello PCB',
+            'symbol insertion remains part of the schematic inline-edit undo step');
+
+        await page.evaluate(() => {
+            const app = window.bootstrap.schematicApp;
+            app.selectTool('select');
+            const text = app.shapes[0];
+            app.selection.select(text, false);
+            app.startTextEdit(text);
+        });
+        const picker = page.locator('#propTextInsert');
+        assert.equal(await picker.count(), 1, 'schematic text editing exposes the PCB symbol picker');
+        await picker.selectOption('µ');
+        assert.equal((await schematicState(page)).text, 'hello PCBµ',
+            'symbol picker inserts at the active schematic caret');
+        await page.keyboard.press('Shift+ArrowLeft');
+        await picker.selectOption('Ω');
+        assert.equal((await schematicState(page)).text, 'hello PCBΩ',
+            'symbol picker replaces the active schematic selection');
+        await page.keyboard.press('Escape');
+    },
+}, {
+    name: 'schematic-reference-and-value-edits-show-symbol-picker',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const fields = await page.evaluate(async centre => {
+            const app = window.bootstrap.schematicApp;
+            const { Component } = await import('/src/components/Component.js');
+            const { BuiltInComponents } = await import('/src/components/BuiltInComponents.js');
+            const { AddComponentCommand } = await import('/src/schematic/modules/commands.js');
+            const component = new Component(BuiltInComponents[0], {
+                ...centre,
+                reference: 'R9',
+                value: '10k',
+            });
+            app.history.execute(new AddComponentCommand(app, component));
+            return {
+                reference: component.refText.id,
+                value: component.valueText.id,
+            };
+        }, await viewCentre(page));
+        for (const [field, symbol] of [['reference', 'Ω'], ['value', 'µ']]) {
+            await page.evaluate(({ id }) => {
+                const app = window.bootstrap.schematicApp;
+                const text = app.shapes.find(shape => shape.id === id);
+                app.selection.select(text, false);
+                app.startTextEdit(text);
+            }, { id: fields[field] });
+            const picker = page.locator('#propTextInsert');
+            const pickerCount = await picker.count();
+            const diagnostic = pickerCount ? null : await page.evaluate(async () => {
+                const app = window.bootstrap.schematicApp;
+                const { getSchematicTextEdit } = await import('/src/schematic/modules/text-edit.js');
+                return {
+                    fields: app.components[0]?.getFieldTexts().map(text => ({
+                        id: text.id, key: text.fieldKey, visible: text.visible, text: text.text,
+                    })),
+                    edit: getSchematicTextEdit(app)?.shape?.id,
+                    selected: app.selection.getSelection().map(item => item.id),
+                };
+            });
+            assert.equal(pickerCount, 1,
+                `${field} editing shows the shared symbol picker: ${JSON.stringify(diagnostic)}`);
+            await picker.selectOption(symbol);
+            assert.equal((await schematicState(page)).text.endsWith(symbol), true,
+                `${field} picker inserts into the active field text`);
+            await page.keyboard.press('Enter');
+        }
+        const result = await page.evaluate(() => {
+            const component = window.bootstrap.schematicApp.components.find(item => item.reference.startsWith('R9'));
+            return { reference: component.reference, value: component.value };
+        });
+        assert.deepEqual(result, { reference: 'R9Ω', value: '10kµ' });
     },
 }, {
     name: 'pcb-inline-text-selection-highlight-and-replacement',

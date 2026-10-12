@@ -84,7 +84,7 @@ import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, updatePadPreview } from '../pcb/modules/pad-tool.js';
 import { clearViaPreview, clearViaRing } from '../pcb/modules/via-tool.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
-import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
+import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit, insertInlineTextSymbol } from '../pcb/modules/text-inline-edit.js';
 import { showClearances, refreshClearanceHalos, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 import { hideNetTooltip } from '../pcb/modules/net-tooltip.js';
 import { isAutorouterActive, runAutoRoute as runAutoRouteAction, cancelAutoRoute as cancelAutoRouteAction, disposeAutorouter, clearRoutes as clearPcbRoutes } from '../pcb/modules/autorouter-actions.js';
@@ -980,26 +980,7 @@ export default class PCBApp {
      */
     showTextProperties(text) {
         showTextProperties(this, /** @type {PcbText} */ (text), () => activeTextInlineEdit(this),
-            (textId, symbol) => this._insertInlineTextSymbol(textId, symbol));
-    }
-
-    /**
-     * @param {string} textId
-     * @param {string} symbol
-     */
-    _insertInlineTextSymbol(textId, symbol) {
-        const edit = activeTextInlineEdit(this);
-        if (!edit || edit.text?.id !== textId) return false;
-        const input = edit.input;
-        const selectionStart = input.selectionStart ?? input.value.length;
-        const selectionEnd = input.selectionEnd ?? selectionStart;
-        input.value = input.value.slice(0, selectionStart) + symbol + input.value.slice(selectionEnd);
-        const position = selectionStart + symbol.length;
-        try { input.setSelectionRange(position, position); } catch { /* Some test doubles do not implement selections. */ }
-        const event = typeof Event === 'function' ? new Event('input', { bubbles: true }) : { type: 'input', bubbles: true };
-        input.dispatchEvent(event);
-        input.focus?.();
-        return true;
+            (textId, symbol) => insertInlineTextSymbol(this, textId, symbol));
     }
 
     /**

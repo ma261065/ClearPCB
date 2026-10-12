@@ -38,7 +38,6 @@ import { adaptShortcutsInDOM } from '../schematic/modules/platform-keys.js';
 import { setupCallbacks } from '../schematic/modules/callbacks.js';
 import { getOverlapHitCount } from '../schematic/modules/callbacks.js';
 import { updateUndoRedoButtons, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
-import { needsValueDialog, showValueDialog } from '../schematic/modules/value-dialog.js';
 import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
 import {
     startTextEdit,
@@ -413,33 +412,8 @@ export default class SchematicApp {
         return true;
     }
 
-    /**
-     * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
-     * @param {SchematicItem} shape - The text shape to edit.
-     */
+    /** Begins shared inline text editing on a schematic text shape. @param {SchematicItem} shape */
     startTextEdit(shape) {
-        const textShape = shape?.type === 'text' ? /** @type {TextShape} */ (shape) : null;
-        // For value fields on passive components, show the value dialog instead
-        if (textShape && textShape.fieldKey === 'value' && textShape.parentComponent) {
-            const comp = /** @type {Component} */ (/** @type {unknown} */ (textShape.parentComponent));
-            if (needsValueDialog(comp.definition)) {
-                const screenPos = this.viewport.worldToScreen({ x: textShape.x, y: textShape.y });
-                showValueDialog(comp.definition, screenPos.x, screenPos.y, {
-                    currentValue: comp.value, allowEscape: true
-                }).then(value => {
-                    if (value !== null && comp.valueText) {
-                        const oldValue = comp.value;
-                        if (value !== oldValue) {
-                            comp.value = value;
-                            comp.valueText.text = value;
-                            comp.valueText.invalidate();
-                            this.renderShapes(true);
-                        }
-                    }
-                });
-                return;
-            }
-        }
         startTextEdit(this, /** @type {TextShape} */ (shape));
     }
 

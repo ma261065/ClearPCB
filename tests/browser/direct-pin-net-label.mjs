@@ -21,6 +21,9 @@ export const scenarios = [{
         }, await viewCentre(page));
         const netlist = await page.evaluate(() => window.bootstrap.project.getNetlist());
         assert.deepEqual(netlist.find(net => net.net === 'Gnd')?.pins, [pin]);
+        await waitForPage(page, () => document.querySelectorAll('.direct-pin-junction-dot').length === 1);
+        assert.equal(await page.locator('.direct-pin-junction-dot').evaluate(dot =>
+            getComputedStyle(dot).fill), 'rgb(0, 204, 102)');
         assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes.some(shape => shape.type === 'wire')), false,
             'A direct pin label must not require an invented wire');
         await page.locator('.mode-tab[data-mode="pcb"]').click();
@@ -50,10 +53,13 @@ export const scenarios = [{
         await page.keyboard.press('Escape');
         await page.locator('.mode-tab[data-mode="schematic"]').click();
         await page.evaluate(() => window.bootstrap.schematicApp.history.undo());
+        assert.equal(await page.locator('.direct-pin-junction-dot').count(), 0,
+            'Undoing the direct NetLabel removes its derived connection dot');
         await page.locator('.mode-tab[data-mode="pcb"]').click();
         await waitForPage(page, () => !window.bootstrap.pcbApp.netNames().includes('Gnd'));
         await page.locator('.mode-tab[data-mode="schematic"]').click();
         await page.evaluate(() => window.bootstrap.schematicApp.history.redo());
+        await waitForPage(page, () => document.querySelectorAll('.direct-pin-junction-dot').length === 1);
         await page.locator('.mode-tab[data-mode="pcb"]').click();
         await waitForPage(page, () => window.bootstrap.pcbApp.netNames().includes('Gnd'));
     },
