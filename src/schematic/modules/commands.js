@@ -10,7 +10,7 @@ import { applySchematicItemState } from '../../core/schematic-state.js';
  */
 
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
-import { applyStickyConnections } from './sticky-wires.js';
+import { applyStickyConnections, captureStickyNetLabels, followStickyNetLabels } from './sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
 import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
@@ -201,6 +201,7 @@ export class MoveShapesCommand extends Command {
         super(label);
         this.app = app;
         this.itemIds = items.map(s => s.id);
+        this.netLabels = captureStickyNetLabels(app, new Set(this.itemIds));
         this.dx = dx;
         this.dy = dy;
     }
@@ -256,7 +257,7 @@ export class MoveShapesCommand extends Command {
     _updateStickyWires() {
         // Skip explicitly moved NoConnect shapes so user-intentful drags
         // don't snap back to connected pins.
-        applyStickyConnections(this.app, { movedIds: new Set(this.itemIds) });
+        applyStickyConnections(this.app, { movedIds: new Set(this.itemIds), netLabels: this.netLabels });
     }
 }
 
@@ -313,6 +314,7 @@ export class ModifyShapeCommand extends Command {
      * @param {ShapeState} state - State object from captureState()
      */
     _applyState(shape, state) {
+        const netLabels = shape instanceof Component ? captureStickyNetLabels(this.app, new Set([shape.id])) : [];
         const oldRotation = shape instanceof Component ? shape.rotation : undefined;
         const oldMirror = shape instanceof Component ? shape.mirror : undefined;
         applySchematicItemState(shape, state);
@@ -320,6 +322,7 @@ export class ModifyShapeCommand extends Command {
             const rebuild = ('rotation' in state && state.rotation !== undefined && state.rotation !== oldRotation)
                 || ('mirror' in state && state.mirror !== undefined && state.mirror !== oldMirror);
             refreshComponentPose(shape, { rebuild });
+            applyStickyConnections(this.app, { movedIds: new Set([shape.id]), netLabels });
         }
         // Sync field text changes back to parent component or wire
         if ('text' in state && isTextShape(shape) && shape.parentComponent && shape.fieldKey) {
@@ -390,6 +393,8 @@ export class ModifyPropertyCommand extends Command {
      * @param {boolean} useNew - If true apply newValue; otherwise restore oldValue
      */
     _applyValues(useNew) {
+        const netLabels = ['x', 'y', 'rotation', 'mirror'].includes(this.prop)
+            ? captureStickyNetLabels(this.app, new Set(this.entries.map(entry => entry.id))) : [];
         const lookup = new Map();
         for (const s of this.app.shapes) lookup.set(s.id, s);
         for (const c of this.app.components) lookup.set(c.id, c);
@@ -472,6 +477,9 @@ export class ModifyPropertyCommand extends Command {
                 item.valueText.invalidate();
             }
         }
+        if (netLabels.length) applyStickyConnections(this.app, {
+            movedIds: new Set(this.entries.map(entry => entry.id)), netLabels,
+        });
         this.app.renderShapes(true);
     }
 
@@ -792,6 +800,7 @@ export class TransformComponentCommand extends Command {
         super(label);
         this.app = app;
         this.type = type;
+        this.netLabels = captureStickyNetLabels(app, new Set(components.map(component => component.id)));
         this.entries = components.map(c => ({
             id: c.id,
             oldX: c.x,
@@ -857,10 +866,12 @@ export class TransformComponentCommand extends Command {
      * circular imports.
      */
     _updateStickyWires() {
+        followStickyNetLabels(this.app, this.netLabels);
         for (const shape of this.app.shapes) {
             if (isWire(shape)) {
                 for (const [nodeId, conn] of shape.pinConnections) {
-                    const comp = this.app.components.find(c => c.id === conn.componentId);
+                    const comp = this.app.components.find(c => c.id === conn.componentId)
+                        || this.app.shapes.filter(isNet).find(s => s.id === conn.componentId);
                     if (comp) {
                         const pos = comp.getPinPosition(conn.pinNumber);
                         if (pos) {

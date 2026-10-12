@@ -161,7 +161,7 @@ export function refreshNoConnectConnection(app, nc) {
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
  * @param {SchematicEditor} app
- * @param {{movedIds?: Set<string>}} [options]
+ * @param {{movedIds?: Set<string>, netLabels?: import('./sticky-wires.js').StickyNetLabel[]}} [options]
  */
 export function updateStickyWires(app, options = undefined) {
     applyStickyConnections(app, options);

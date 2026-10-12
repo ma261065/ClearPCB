@@ -18,7 +18,7 @@ import { applyOffGridNeighborSnap } from './wire-drag-snap.js';
 /** @typedef {PinIdentity & {distance: number, worldPos: Point}} PinSnapInfo */
 /** @typedef {{wire: Wire, nodeId: string}} ExcludedWireNode */
 /** @typedef {{a: Point, b: Point}} WireSegment */
-/** @typedef {{excludePin?: PinIdentity|null, excludeWire?: Wire|Set<Wire>|null, excludeNode?: ExcludedWireNode|null, extraSegments?: WireSegment[]|null, pinTolerance?: number, wireTolerance?: number}} WireSnapOptions */
+/** @typedef {{excludePin?: PinIdentity|null, excludePinOwners?: ReadonlySet<string>, excludeWire?: Wire|Set<Wire>|null, excludeNode?: ExcludedWireNode|null, extraSegments?: WireSegment[]|null, pinTolerance?: number, wireTolerance?: number}} WireSnapOptions */
 /** @typedef {{x:number, y:number, snapPin: PinSnapInfo|null, snapType: 'pin'|'endpoint'|'segment'|'grid', wireDir?: 'horizontal'|'vertical'|'angled'}} WireSnapResult */
 /** @typedef {{x:number, y:number, type: 'endpoint'|'segment', wire: Wire|null, wireDir?: 'horizontal'|'vertical'|'angled'}} NearbyWirePoint */
 
@@ -34,6 +34,9 @@ export const SNAP_SCREEN_PX = 5;
 
 /** Tolerance for pin snap detection during drawing (world units). */
 export const PIN_SNAP_TOL = 1.5;
+
+/** Pin target radius for wire pickup and NetLabel placement/dragging (mm). */
+export const PIN_PICKUP_SNAP_TOL = 0.5;
 
 /** Tolerance for wire-to-wire snap detection (world units). */
 export const WIRE_SNAP_TOL = 0.5;
@@ -62,14 +65,17 @@ export const PIN_DEPART_RATIO = 2;
  * @param {Point} worldPos
  * @param {number} [tolerance]
  * @param {SchematicItem[]|null} [shapes] - extra shapes (e.g. Net labels) to also test
+ * @param {PinIdentity|null} [excludePin]
+ * @param {ReadonlySet<string>} [excludePinOwners]
  * @returns {PinSnapInfo|null}
  */
-export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null) {
+export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null, excludePin = null, excludePinOwners) {
     /** @type {PinSnapInfo|null} */
     let nearest = null;
     let minDist = tolerance;
 
     for (const component of components) {
+        if (excludePinOwners?.has(component.id)) continue;
         if (!component.symbol || !component.symbol.pins) continue;
         // Hoist the component transform out of the per-pin loop. The old code
         // called component.getPinPosition(pin.number) for every pin, which
@@ -80,13 +86,14 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
         const cos = Math.cos(rad), sin = Math.sin(rad);
         const mirror = !!component.mirror;
         for (const pin of /** @type {ComponentPin[]} */ (component.symbol.pins)) {
+            const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
+            if (excludePin && isSamePin(excludePin, { component, pin, pinKey })) continue;
             const lx = mirror ? -pin.x : pin.x;
             const ly = pin.y;
             const wx = lx * cos - ly * sin + cx;
             const wy = lx * sin + ly * cos + cy;
             const dist = Math.hypot(worldPos.x - wx, worldPos.y - wy);
             if (dist < minDist) {
-                const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
                 minDist = dist;
                 nearest = { component, pin, pinKey, distance: dist, worldPos: { x: wx, y: wy } };
             }
@@ -96,10 +103,12 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
     if (shapes) {
         for (const shape of shapes) {
             if (shape.type !== 'net') continue;
+            if (excludePinOwners?.has(shape.id)) continue;
             const netShape = /** @type {NetShape} */ (shape);
+            const pin = /** @type {ComponentPin} */ (netShape.symbol.pins[0]);
+            if (excludePin && isSamePin(excludePin, { component: netShape, pin, pinKey: pin.number })) continue;
             const dist = Math.hypot(worldPos.x - netShape.x, worldPos.y - netShape.y);
             if (dist < minDist) {
-                const pin = /** @type {ComponentPin} */ (netShape.symbol.pins[0]);
                 minDist = dist;
                 nearest = { component: netShape, pin, pinKey: pin.number, distance: dist, worldPos: { x: netShape.x, y: netShape.y } };
             }
@@ -162,6 +171,7 @@ function pinDepartAxis(pin) {
 export function resolveWireSnapPosition(app, worldPos, options = {}) {
     const {
         excludePin = null,
+        excludePinOwners,
         excludeWire = null,
         excludeNode = null,
         extraSegments = null,
@@ -170,8 +180,8 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
     } = options;
 
     // 1. Pin snap (highest priority) — includes component pins AND Net labels
-    const nearPin = findNearbyPin(app.components, worldPos, pinTolerance, app.shapes);
-    if (nearPin && !(excludePin && isSamePin(excludePin, nearPin))) {
+    const nearPin = findNearbyPin(app.components, worldPos, pinTolerance, app.shapes, excludePin, excludePinOwners);
+    if (nearPin) {
         return {
             x: nearPin.worldPos.x,
             y: nearPin.worldPos.y,

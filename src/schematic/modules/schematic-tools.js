@@ -15,7 +15,7 @@ import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget } from './label-attachment.js';
 import { createNetToolGhost, createNoConnectToolGhost, updateToolGhost } from './tool-ghost.js';
 import { addWireWaypoint, finishWireDrawing, getWireJunctionData, hasWireJunctionDot, startWireDrawing, updateSnapHighlight, updateWireDrawing } from './wire.js';
-import { resolveWireSnapPosition } from './wire-snap.js';
+import { resolveWireSnapPosition, PIN_PICKUP_SNAP_TOL } from './wire-snap.js';
 import {
     addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, isSchematicDrawingActive, shapeDrawingClick, startDrawing, updateDrawing,
 } from './drawing.js';
@@ -102,9 +102,12 @@ function shapeTool(kind, name, content, key) {
  * @returns {SchematicTool}
  */
 function pinMarkerTool(id, name, key, onSelected, content) {
+    /** @param {SchematicEditor} app @param {{x:number,y:number}} point */
+    const snapPlacement = (app, point) => resolvePinSnapPlacement(app, point,
+        id === 'net' ? { pinTolerance: PIN_PICKUP_SNAP_TOL } : {});
     /** @param {SchematicEditor} app @param {Positions} pos */
     const showPlacement = (app, { worldPos }) => {
-        const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
+        const { resolved, pos } = snapPlacement(app, worldPos);
         updateSnapHighlight(app, resolved);
         updateToolGhost(app, pos);
     };
@@ -112,7 +115,7 @@ function pinMarkerTool(id, name, key, onSelected, content) {
         id, name, key, content, newShapeDefaults: true, onSelected,
         /** @param {SchematicEditor} app */
         press(app, _event, { worldPos }) {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
+            const { resolved, pos } = snapPlacement(app, worldPos);
             setDrawSnapResult(app, resolved);
             if (!isSchematicDrawingActive(app)) { startDrawing(app, pos); }
             else { finishDrawing(app, pos); }
@@ -120,7 +123,7 @@ function pinMarkerTool(id, name, key, onSelected, content) {
         },
         /** @param {SchematicEditor} app */
         pressDrawing(app, _event, { worldPos }) {
-            const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
+            const { resolved, pos } = snapPlacement(app, worldPos);
             setDrawSnapResult(app, resolved);
             finishDrawing(app, pos);
             updateToolGhost(app, pos);
@@ -143,7 +146,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
         press(app, event, { worldPos }) {
             app.selection.clearSelection();
             app.renderShapes(true);
-            const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
+            const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_PICKUP_SNAP_TOL });
             startWireDrawing(app, { x: snap.x, y: snap.y, snapPin: snap.snapPin || null });
             app.interactionState = 'drawing';
             event.preventDefault();
@@ -169,7 +172,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
         },
         /** @param {SchematicEditor} app */
         hover(app, _event, { worldPos }) {
-            updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
+            updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_PICKUP_SNAP_TOL }));
         },
         /** @param {SchematicEditor} app */
         moveDrawing(app, _event, { worldPos }) {

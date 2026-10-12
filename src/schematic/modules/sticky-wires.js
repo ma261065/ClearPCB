@@ -1,10 +1,53 @@
 /**
  * Shared sticky-wire update logic used by interaction code and undo commands.
  */
+import { SCHEMATIC_CONNECTION_TOLERANCE } from '../../core/netlist.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/wire.js').Wire} Wire */
 /** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
 /** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {{net: import('../../shapes/net.js').Net, component: Component, pinX: number, pinY: number, offsetX: number, offsetY: number}} StickyNetLabel */
+
+/**
+ * Capture direct pin contacts before a component moves. Contacts are derived from
+ * authored geometry, not a persistent cache that can retain a detached label.
+ * @param {SchematicEditor} app @param {Set<string>} movedIds
+ * @returns {StickyNetLabel[]}
+ */
+export function captureStickyNetLabels(app, movedIds) {
+    const links = [];
+    for (const shape of app.shapes) {
+        if (shape.type !== 'net' || movedIds.has(shape.id)) continue;
+        let closest = SCHEMATIC_CONNECTION_TOLERANCE;
+        /** @type {StickyNetLabel|null} */
+        let link = null;
+        for (const component of app.components) {
+            if (!movedIds.has(component.id)) continue;
+            for (const pin of component.symbol?.pins || []) {
+                const point = component.localToWorld(pin.x, pin.y);
+                const distance = Math.hypot(shape.x - point.x, shape.y - point.y);
+                if (distance >= closest) continue;
+                closest = distance;
+                link = { net: shape, component, pinX: pin.x, pinY: pin.y,
+                    offsetX: shape.x - point.x, offsetY: shape.y - point.y };
+            }
+        }
+        if (link) links.push(link);
+    }
+    return links;
+}
+
+/** @param {SchematicEditor} app @param {StickyNetLabel[]} links @returns {Set<string>} */
+export function followStickyNetLabels(app, links) {
+    const moved = new Set();
+    for (const { net, component, pinX, pinY, offsetX, offsetY } of links) {
+        if (!app.shapes.includes(net) || !app.components.includes(component)) continue;
+        const point = component.localToWorld(pinX, pinY);
+        net.move(point.x + offsetX - net.x, point.y + offsetY - net.y);
+        moved.add(net.id);
+    }
+    return moved;
+}
 
 /** @param {unknown} item @returns {item is Component} */
 const hasPinPosition = item => !!item && typeof item === 'object' && typeof /** @type {{getPinPosition?: unknown}} */ (item).getPinPosition === 'function';
@@ -15,10 +58,11 @@ const hasPinPosition = item => !!item && typeof item === 'object' && typeof /** 
  * start) stay in place so the wire maintains its shape.
  *
  * @param {SchematicEditor} app
- * @param {{ movedIds?: Set<string> }} [options]
+ * @param {{ movedIds?: Set<string>, netLabels?: StickyNetLabel[] }} [options]
  */
 export function applyStickyConnections(app, options = {}) {
-    const { movedIds = null } = options;
+    const movedLabels = followStickyNetLabels(app, options.netLabels || []);
+    const movedIds = options.movedIds ? new Set([...options.movedIds, ...movedLabels]) : null;
 
     for (const shape of app.shapes) {
         if (shape.type === 'wire') {

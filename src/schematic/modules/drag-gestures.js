@@ -15,6 +15,7 @@ import { isJoinable } from '../../shapes/shape-join.js';
 import { createBoxSelectElement } from '../../shared/ui/box-selection.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { captureStickyNetLabels } from './sticky-wires.js';
 import { hasSchematicTextEdit } from './text-edit.js';
 import { DRAG_THRESHOLD_PX, getDidSchematicDrag, resolveState, STATE_TABLE } from './draw-states.js';
 import { isWireItem as isWireShape, isNoConnectItem as isNoConnectShape, isComponentItem as isComponentShape } from '../../core/schematic-items.js';
@@ -85,8 +86,12 @@ export function beginSelectionMove(app, worldPos, snapped) {
     const movable = movableSelection(app);
     const dragObjectStartPos = movable[0] ? movable[0].getPosition() : { ...snapped };
     beginMoveDragSession(app, worldPos, dragObjectStartPos);
+    const movedIds = collectMovingComponentIds(movable);
+    const links = captureStickyNetLabels(app, movedIds);
+    getSchematicDrag(app).netLabels = links;
+    for (const { net } of links) movedIds.add(net.id);
     // Bridge pin-connected wire nodes ONCE so pins can move freely
-    bridgeStickyPinNodes(app, collectMovingComponentIds(movable));
+    bridgeStickyPinNodes(app, movedIds);
     app.viewport.svg.style.cursor = 'move';
     app.renderShapes();
 }

@@ -45,7 +45,7 @@ import { isWireItem as isWire, isNetItem as isNet, isNoConnectItem as isNoConnec
 /** @typedef {{worldPos?: Point, component?: SchematicItem|{id: string}, pin?: {number: string|number}}} DragPinRef */
 /** @typedef {SchematicDrawable & {nodes: Map<string, Point>, edges: Map<string, {from: string, to: string}>, degree(nodeId: string): number, getAnchorSnapMode(anchorId: string): string, isRect?: boolean, getOrderedNodeIds?: () => string[], neighborNodes(anchorId: string): string[], moveAnchor(anchorId: string, x: number, y: number): string|null|undefined, bulge?: number}} DragShape */
 /** @typedef {{nodes: Record<string, Point>, edges: Record<string, {from: string, to: string}>}} GraphState */
-/** @typedef {{componentId: string, lockedPinKey: string|number|null, lastResult: import('./wire-snap.js').WireSnapResult|null}} ComponentSnapState */
+/** @typedef {{componentId: string, connectedPinNumbers: Set<string>, lockedPinKey: string|number|null, lastResult: import('./wire-snap.js').WireSnapResult|null}} ComponentSnapState */
 /** @typedef {{shape: DragShape, anchorId: string, edgeId: string, startWorld?: Point, startWorldPos: Point, startSnapped?: Point, startPositions: Map<SchematicItem, Point>, beforeStates: Map<SchematicItem, ShapeState>, midpointPlacement?: boolean, excludePin?: DragPinRef|null, pathSplit?: unknown, beforeState?: ShapeState, joinTarget?: unknown, axis?: 'horizontal'|'vertical', workingState?: GraphState, wireStates: Map<DragShape, GraphState>, tjLinks?: unknown, _componentSnapState?: ComponentSnapState, [key: string]: unknown}} SchematicDragState */
 /** @typedef {{shape: SchematicDrawable, anchorId: string, screenPos: Point, snapped: Point, preInsertState?: ShapeState, [key: string]: unknown}} PendingAnchorDragState */
 
@@ -195,12 +195,13 @@ export function cancelPendingAnchorDrag(app) {
 export function captureMoveDragStates(app, selection) {
     /** @type {Set<object>} */
     const moved = new Set(selection);
+    for (const { net } of getSchematicDrag(app)?.netLabels || []) moved.add(net);
     /** @type {Map<SchematicItem, ShapeState>} */
     const states = new Map();
     for (const item of selection) states.set(item, item.captureState());
     for (const shape of app.shapes) {
         if (states.has(shape)) continue;
-        if (isWire(shape) || (isText(shape) && shape.parentComponent && moved.has(shape.parentComponent))) {
+        if (isWire(shape) || moved.has(shape) || (isText(shape) && shape.parentComponent && moved.has(shape.parentComponent))) {
             states.set(shape, shape.captureState());
         }
     }
@@ -721,6 +722,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     for (const s of movedShapes) {
         if (isComponent(s)) movingCompIds.add(s.id);
         if (isWire(s)) movingCompIds.add(s.id);
+        if (isNet(s)) movingCompIds.add(s.id);
     }
 
     const itemsForCommand = movedShapes.filter(s =>
@@ -731,6 +733,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         shape.move(-totalDx, -totalDy);
         if (isComponent(shape)) refreshComponentPose(shape);
     }
+    for (const { net } of getSchematicDrag(app)?.netLabels || []) net.move(-totalDx, -totalDy);
 
     const command = new MoveShapesCommand(app, itemsForCommand, totalDx, totalDy);
     app.history.execute(command);

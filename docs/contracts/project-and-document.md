@@ -107,6 +107,21 @@ schematic adapter to invalidate/render. PCB owns its dialogs, preview, history
 entry and derived-display updates. The model can load, rename/undo, derive
 connectivity and serialize without either editor or a DOM. Pure connectivity
 queries live in `core/netlist.js`.
+Netlist extraction resolves Net labels directly at posed component pins using
+the shared schematic attachment tolerance. The component's model transform
+accounts for rotation and mirroring. A direct label names the pin and its wired
+net, suppresses that pin's default net and merges with other pins bearing the
+same label. Wire attachment records referring to virtual Net-label pins are
+not physical export pins; a coincident labeled component pin is recovered from
+wire-node geometry. Queries do not rewrite authored wires or labels, and
+conflicting direct labels surface an explicit error rather than picking a net.
+Direct labels survive headless save/load and feed the same PCB pad-net and
+dropdown sources as wired labels.
+Component editing captures direct-label pin contacts before movement, retaining
+those links only for the gesture or undo command. Labels and their field texts
+follow posed pins before wires update; cancellation restores their before
+states. Moving a label alone does not create a persistent cached attachment, so
+the next component edit derives attachment from the label's current position.
 
 ## Serialization and Loading
 

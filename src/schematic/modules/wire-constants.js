@@ -1,1 +1,1 @@
-export const VERTEX_EPSILON = 0.15;
+export { SCHEMATIC_CONNECTION_TOLERANCE as VERTEX_EPSILON } from '../../core/netlist.js';

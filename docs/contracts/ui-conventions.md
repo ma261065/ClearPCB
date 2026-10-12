@@ -1,5 +1,32 @@
 # UI Conventions
 
+Both editors' status bars align labels, monospace values, hints and filenames
+on a shared text baseline rather than vertically centering their different font
+boxes. The status bar retains its 24 px height.
+
+Placing a NetLabel directly on a schematic pin names that pin's PCB net without
+requiring a wire. If the pin already has a wire, the label names the connected
+wire net too. Same-named labels join their pins, and the label spelling is
+preserved in PCB net menus. Moving or removing the label restores the remaining
+wire name or the default single-pin net on the next schematic-to-PCB sync.
+Dragging a standalone NetLabel by its symbol or connection anchor uses the same
+0.5 mm pin snap tolerance as placing a new label or picking up a wire at a pin.
+This does not change active-wire routing's existing approach tolerance.
+Snap probes
+use the raw projected connection point before grid quantization, exclude the
+label's own virtual pin, and move the connection point exactly to the highlighted
+target. Already wire-connected whole-label drags retain sticky-wire behavior.
+NetLabels directly on component pins follow the pin when the component moves,
+rotates or flips, including live drag, Escape and undo/redo. Their visible text
+travels once with the label, and wires owned by that label follow afterward.
+Contacts are captured from authored geometry before each edit, so dragging a
+label off its pin detaches it without persistent attachment metadata.
+During component dragging, yellow snap dots indicate potential new connections
+for free pins only. Pins already attached to wires, including wires attached
+through a direct pin NetLabel, are excluded from the connection magnet; their
+sticky wires still follow normally. The component's own pins and other moving
+pin owners cannot become snap targets.
+
 Both editors offer only Fit, not a separate Default view action. Outside text
 and Properties inputs, Home activates Select, opens the active editor's Home tab and fits its
 content using the same operation as the Fit button. Native Home-key cursor

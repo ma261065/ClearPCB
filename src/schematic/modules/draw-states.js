@@ -19,6 +19,7 @@
  * or dragged lands is component-snap.js.
  */
 import { updateStickyWires } from './wire-reconcile.js';
+import { captureStickyNetLabels } from './sticky-wires.js';
 import { updateSnapHighlight, VERTEX_EPSILON } from './wire.js';
 import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
 import { computeAnchorCollinearSnap, computeSegmentDragSnap, applyOffGridNeighborSnap } from './wire-drag-snap.js';
@@ -51,7 +52,7 @@ import { isPastingClipboard } from './clipboard.js';
 import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
-import { resolveDraggingComponentSnap, resolvePinSnapPlacement, resolvePlacingComponentSnap } from './component-snap.js';
+import { resolveDraggingComponentSnap, resolveNetLabelDragSnap, resolvePlacingComponentSnap } from './component-snap.js';
 import { isComponentItem, isNetItem, isTextItem, isWireItem, isPolylineItem, isGraphItem as isGraphShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
@@ -923,11 +924,12 @@ export const moveDragState = {
         const targetPos = { x: getSchematicDrag(app).objectStartPos.x + mouseDelta.x, y: getSchematicDrag(app).objectStartPos.y + mouseDelta.y };
         const sel = selNow;
         const movingCompIds = collectMovingComponentIds(sel);
+        const netLabels = getSchematicDrag(app).netLabels ??= captureStickyNetLabels(app, movingCompIds);
+        for (const { net } of netLabels) movingCompIds.add(net.id);
         const snappedTarget = getMoveDragSnappedTarget(app);
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
 
-        // Net drag highlight should follow projected snapped shape position,
-        // not raw mouse movement, to avoid flicker when shape is stationary.
+        // Probe the raw projected label anchor before grid snapping, matching placement.
         const dragNet = selNow.length === 1 && isNetItem(selNow[0]) ? selNow[0] : null;
         let deferredNetSnap = null;
         if (dragNet) {
@@ -935,21 +937,17 @@ export const moveDragState = {
                 isWireItem(s) && [...s.pinConnections.values()].some(c => c.componentId === dragNet.id)
             );
             if (!alreadyConnected) {
-                const previewDx = snappedTarget.x - getSchematicDrag(app).lastSnapped.x;
-                const previewDy = snappedTarget.y - getSchematicDrag(app).lastSnapped.y;
+                const previewDx = targetPos.x - getSchematicDrag(app).lastSnapped.x;
+                const previewDy = targetPos.y - getSchematicDrag(app).lastSnapped.y;
                 const pinProbe = {
                     x: dragNet.x + previewDx,
                     y: dragNet.y + previewDy
                 };
-                const netPin = dragNet.symbol?.pins?.[0] || null;
-                const netPinKey = netPin
-                    ? (/** @type {{_key?: string|number, _id?: string|number, number: string|number}} */ (netPin))._key
-                        || (/** @type {{_key?: string|number, _id?: string|number, number: string|number}} */ (netPin))._id
-                        || netPin.number
-                    : undefined;
-                const { resolved } = resolvePinSnapPlacement(app, pinProbe, {
-                    excludePin: netPin ? { component: dragNet, pin: netPin, pinKey: netPinKey } : undefined
-                });
+                const resolved = resolveNetLabelDragSnap(app, dragNet, pinProbe);
+                if (resolved.snapType !== 'grid') {
+                    snappedTarget.x = getSchematicDrag(app).lastSnapped.x + resolved.x - dragNet.x;
+                    snappedTarget.y = getSchematicDrag(app).lastSnapped.y + resolved.y - dragNet.y;
+                }
                 deferredNetSnap = resolved;
             }
         }
@@ -959,7 +957,7 @@ export const moveDragState = {
         const dragComp = selNow.find(isComponentWithPins);
         let deferredComponentSnap = null;
         if (dragComp) {
-            const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, getSchematicDrag(app).lastSnapped);
+            const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, getSchematicDrag(app).lastSnapped, movingCompIds);
             snappedTarget.x = compSnap.targetPos.x;
             snappedTarget.y = compSnap.targetPos.y;
             deferredComponentSnap = compSnap.pinSnap;
@@ -987,7 +985,7 @@ export const moveDragState = {
                 }
             }
             if (movingCompIds.size > 0) {
-                updateStickyWires(app, { movedIds: movingCompIds });
+                updateStickyWires(app, { movedIds: movingCompIds, netLabels });
                 renderGuideLines(app, stickyGuides);
             }
             propagateMovedWireJunctions(app, sel, dx, dy);
@@ -1074,6 +1072,12 @@ export const anchorDragState = {
 
         if (getSchematicDrag(app).shape.type === 'noconnect') {
             const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+            updateSnapHighlight(app, snap);
+            anchorPos = { x: snap.x, y: snap.y };
+        }
+        if (isNetItem(getSchematicDrag(app).shape)) {
+            const net = /** @type {Net} */ (getSchematicDrag(app).shape);
+            const snap = resolveNetLabelDragSnap(app, net, worldPos);
             updateSnapHighlight(app, snap);
             anchorPos = { x: snap.x, y: snap.y };
         }
