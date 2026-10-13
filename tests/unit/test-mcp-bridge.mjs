@@ -15,7 +15,8 @@ class FakeSocket {
 }
 
 globalThis.location = { origin: 'https://clearpcb.org' };
-globalThis.localStorage = { getItem: () => null };
+let configuredEndpoint = null;
+globalThis.localStorage = { getItem: () => configuredEndpoint };
 globalThis.WebSocket = FakeSocket;
 globalThis.window = { setTimeout };
 
@@ -28,7 +29,7 @@ const project = {
 const states = [];
 const bridge = new McpBridge(project, { onStateChanged: state => states.push(state) });
 bridge.enable();
-assert.match(bridge.mcpUrl, /^https:\/\/clearpcb\.org\/mcp\/[0-9a-f-]{36}$/);
+assert.match(bridge.mcpUrl, /^https:\/\/clearpcb-mcp\.mikealex\.workers\.dev\/mcp\/[0-9a-f-]{36}$/);
 assert.equal(String(sockets[0].url), bridge.mcpUrl.replace('https://', 'wss://').replace('/mcp/', '/mcp/relay/'));
 sockets[0].emit('open');
 assert.equal(states.at(-1).connected, true);
@@ -79,5 +80,12 @@ await new Promise(resolve => setTimeout(resolve, 0));
 assert.match(sockets[0].sent.at(-1).error, /Unsupported/);
 bridge.disable();
 assert.equal(states.at(-1).enabled, false);
+
+configuredEndpoint = 'http://localhost:8787/ignored-path';
+const localBridge = new McpBridge(project);
+localBridge.enable();
+assert.match(localBridge.mcpUrl, /^http:\/\/localhost:8787\/mcp\/[0-9a-f-]{36}$/);
+assert.match(String(sockets.at(-1).url), /^ws:\/\/localhost:8787\/mcp\/relay\/[0-9a-f-]{36}$/);
+localBridge.disable();
 
 console.log('PASS: MCP bridge pairs, reads, patches, reports errors, and disables cleanly');

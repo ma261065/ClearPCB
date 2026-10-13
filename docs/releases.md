@@ -17,8 +17,9 @@ version `1` are separate from app release versions.
 
 The experimental MCP Worker is deployed separately through the **Deploy MCP
 Worker** workflow. GitHub Pages continues to serve the application; Cloudflare
-intercepts only `clearpcb.org/mcp*`. See [mcp.md](mcp.md) for the required
-Cloudflare zone, repository secrets, local testing, and security limitations.
+serves MCP from `clearpcb-mcp.mikealex.workers.dev`. See [mcp.md](mcp.md) for
+the required Cloudflare account setup, repository secrets, local testing, and
+security limitations.
 
 ## Automated Regression Gate
 

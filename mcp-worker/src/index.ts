@@ -20,6 +20,7 @@ interface RelayResponse {
 }
 
 const SESSION_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORKER_HOSTNAME = 'clearpcb-mcp.mikealex.workers.dev';
 const CHUNK_SIZE = 192 * 1024;
 const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
 const JSON_VALUE = z.unknown();
@@ -231,8 +232,8 @@ export default {
         if (!sessionId) return new Response('Not found.', { status: 404 });
         return createMcpHandler(() => createServer(env, sessionId), {
             route: url.pathname,
-            allowedHostnames: ['clearpcb.org', 'localhost', '127.0.0.1'],
-            allowedOriginHostnames: ['clearpcb.org', 'localhost', '127.0.0.1'],
+            allowedHostnames: [WORKER_HOSTNAME, 'localhost', '127.0.0.1'],
+            allowedOriginHostnames: [WORKER_HOSTNAME, 'clearpcb.org', 'localhost', '127.0.0.1'],
             legacy: 'stateless',
         })(request, env, ctx);
     },

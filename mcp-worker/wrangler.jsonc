@@ -4,12 +4,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-27",
   "compatibility_flags": ["nodejs_compat"],
-  "routes": [
-    {
-      "pattern": "clearpcb.org/mcp*",
-      "zone_name": "clearpcb.org"
-    }
-  ],
+  "workers_dev": true,
+  "preview_urls": false,
   "durable_objects": {
     "bindings": [
       {

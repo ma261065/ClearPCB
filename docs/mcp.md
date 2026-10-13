@@ -54,7 +54,7 @@ localStorage.setItem('clearpcb_mcp_endpoint', 'http://localhost:8787');
 location.reload();
 ```
 
-Remove the override to return to the same-origin production endpoint:
+Remove the override to return to the production Worker endpoint:
 
 ```javascript
 localStorage.removeItem('clearpcb_mcp_endpoint');
@@ -73,23 +73,28 @@ Run `npm run check` in `mcp-worker` to type-check the Worker.
 ## Cloudflare Deployment
 
 The existing site remains hosted by GitHub Pages. GitHub Pages cannot execute
-MCP POST requests or accept WebSockets, so Cloudflare intercepts only
-`clearpcb.org/mcp*`; all other paths continue to the Pages origin.
+MCP POST requests or accept WebSockets, so the browser connects directly to
+`https://clearpcb-mcp.mikealex.workers.dev`. The Worker accepts production
+browser relay connections only from `https://clearpcb.org`; moving the MCP
+endpoint does not expose the relay to arbitrary websites.
 
 One-time setup:
 
-1. Add `clearpcb.org` as an active Cloudflare zone and proxy its DNS record.
-2. Create a Cloudflare API token that can deploy Workers, Worker routes, and
-   Durable Objects for that zone.
+1. Confirm that the Cloudflare account's `workers.dev` subdomain is `mikealex`.
+2. Create a Cloudflare API token that can deploy Workers and Durable Objects.
+   No `clearpcb.org` zone or DNS permission is required.
 3. Add repository secrets `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID`.
 4. Run the **Deploy MCP Worker** GitHub Actions workflow.
-5. Confirm that `https://clearpcb.org/mcp/not-a-session` returns `404` while
-   the rest of `https://clearpcb.org` still loads from GitHub Pages.
+5. Confirm that
+   `https://clearpcb-mcp.mikealex.workers.dev/mcp/not-a-session` returns `404`.
+6. Open `https://clearpcb.org`, enable MCP, and confirm that its generated URL
+   starts with `https://clearpcb-mcp.mikealex.workers.dev/mcp/`.
 
-The Worker route and Durable Object migration are declared in
-`mcp-worker/wrangler.jsonc`. Deployment is intentionally separate from the
-stable-site release workflow while MCP remains experimental.
+The `workers.dev` publication and Durable Object migration are declared in
+`mcp-worker/wrangler.jsonc`. No ClearPCB DNS records or nameserver changes are
+needed. Deployment is intentionally separate from the stable-site release
+workflow while MCP remains experimental.
 
 Before treating this as a production service, add authenticated user sessions,
 rate limits, audit logging, and session revocation independent of the browser

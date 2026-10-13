@@ -1,6 +1,7 @@
 import { applyJsonPatch } from './json-patch.js';
 
 const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
+const DEFAULT_ENDPOINT = 'https://clearpcb-mcp.mikealex.workers.dev';
 const CHUNK_SIZE = 192 * 1024;
 const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
 
@@ -16,7 +17,7 @@ function endpointOrigin() {
         const configured = localStorage.getItem(SESSION_STORAGE_KEY);
         if (configured) return new URL(configured).origin;
     } catch { /* local storage unavailable */ }
-    return location.origin;
+    return DEFAULT_ENDPOINT;
 }
 
 function makeSessionId() {
