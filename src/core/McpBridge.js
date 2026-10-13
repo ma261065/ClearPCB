@@ -1,4 +1,5 @@
 import { applyJsonPatch } from './json-patch.js';
+import { BuiltInComponents } from '../components/BuiltInComponents.js';
 
 const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
 const DEFAULT_ENDPOINT = 'https://clearpcb-mcp.mikealex.workers.dev';
@@ -27,6 +28,56 @@ function makeSessionId() {
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function getComponentCatalog() {
+    return {
+        usage: {
+            component: {
+                type: 'component', id: 'comp_1', dn: 'Resistor',
+                x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
+            },
+            notes: [
+                'Use a catalog dn directly; do not add bundled definitions to schematic.defs.',
+                'Component x/y is the symbol origin. Rotate pin offsets around that origin by rot degrees.',
+                'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
+                'PCB placements use the schematic component id and include x, y, and rot.',
+                'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
+            ],
+            wire: {
+                id: 'wire_1', type: 'wire',
+                nd: { n0: [36.19, 25], n1: [45, 25] },
+                ed: { e0: ['n0', 'n1'] },
+                pc: { n0: { cid: 'comp_1', pn: '1' } },
+                n: 'SIGNAL',
+            },
+            placement: { x: 35, y: -20, rot: 0 },
+            track: {
+                id: 'track_1', type: 'track', l: 'top-copper',
+                nd: { n0: [35, -20], n1: [45, -20] },
+                ed: { e0: ['n0', 'n1'] },
+                pdc: { n0: { cid: 'comp_1', pn: '1' } },
+                n: 'SIGNAL', w: 0.25,
+            },
+        },
+        components: BuiltInComponents.map(definition => ({
+            dn: definition.name,
+            description: definition.description,
+            defaultReference: definition.defaultReference,
+            defaultValue: definition.defaultValue,
+            pins: definition.symbol.pins.map(pin => ({
+                number: String(pin.number),
+                name: pin.name,
+                x: pin.x,
+                y: pin.y,
+                orientation: pin.orientation,
+                length: pin.length,
+                type: pin.type,
+            })),
+            footprintName: definition.footprintName,
+            footprintShapes: definition.footprintShapes,
+        })),
+    };
 }
 
 export class McpBridge {
@@ -167,7 +218,9 @@ export class McpBridge {
                 throw new Error('Invalid relay request.');
             }
             let result;
-            if (request.method === 'get_project') {
+            if (request.method === 'get_component_catalog') {
+                result = getComponentCatalog();
+            } else if (request.method === 'get_project') {
                 result = this.project.serialize();
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');

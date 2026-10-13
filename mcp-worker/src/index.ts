@@ -9,7 +9,7 @@ interface Env {
 
 interface RelayRequest {
     id: string;
-    method: 'get_project' | 'replace_project' | 'apply_project_patch';
+    method: 'get_component_catalog' | 'get_project' | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
 
@@ -63,15 +63,21 @@ function toolResult(result: unknown) {
 
 function createServer(env: Env, sessionId: string) {
     const server = new McpServer({ name: 'ClearPCB', version: '0.1.0' });
+    server.registerTool('get_component_catalog', {
+        title: 'Get ClearPCB component catalog',
+        description: 'List valid bundled component dn values, symbol pins, default footprints and canonical component/wire/placement/track examples. Call this before adding components, especially when the project is empty. Bundled components use dn directly and must not be added to schematic.defs.',
+        inputSchema: {},
+        annotations: { readOnlyHint: true },
+    }, async () => toolResult(await invokeTab(env, sessionId, { method: 'get_component_catalog' })));
     server.registerTool('get_project', {
         title: 'Get ClearPCB project',
-        description: 'Return the complete canonical project currently open in the paired ClearPCB tab.',
+        description: 'Return the complete canonical project currently open in the paired ClearPCB tab. Call get_component_catalog before constructing components or PCB footprints.',
         inputSchema: {},
         annotations: { readOnlyHint: true },
     }, async () => toolResult(await invokeTab(env, sessionId, { method: 'get_project' })));
     server.registerTool('replace_project', {
         title: 'Replace ClearPCB project',
-        description: 'Validate and replace the complete project in the paired ClearPCB tab.',
+        description: 'Validate and replace the complete canonical project in the paired ClearPCB tab. Use get_component_catalog instead of guessing component definitions.',
         inputSchema: { project: z.record(z.string(), JSON_VALUE) },
         annotations: { destructiveHint: true, idempotentHint: false },
     }, async ({ project }) => toolResult(await invokeTab(env, sessionId, {
@@ -79,7 +85,7 @@ function createServer(env: Env, sessionId: string) {
     })));
     server.registerTool('apply_project_patch', {
         title: 'Patch ClearPCB project',
-        description: 'Atomically apply RFC 6902 JSON Patch operations, validate the result, and load it in the paired tab.',
+        description: 'Atomically apply RFC 6902 JSON Patch operations, validate the result, and load it in the paired tab. Use get_component_catalog for valid component dn, pin and footprint data.',
         inputSchema: { patch: z.array(PATCH_OPERATION).min(1).max(100) },
         annotations: { destructiveHint: true, idempotentHint: false },
     }, async ({ patch }) => toolResult(await invokeTab(env, sessionId, {

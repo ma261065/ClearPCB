@@ -5,8 +5,13 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes three tools:
+The prototype exposes four tools:
 
+- `get_component_catalog` returns valid built-in component `dn` values, pin
+  positions and numbers, default footprint pad records, and canonical compact
+  examples for components, wires, placements and pad-bonded tracks. Agents
+  should call it before adding parts to an empty project. Built-in definitions
+  are referenced directly by `dn` and must not be copied into `schematic.defs`.
 - `get_project` returns the complete canonical ClearPCB project.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch

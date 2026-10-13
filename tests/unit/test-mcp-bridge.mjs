@@ -34,6 +34,16 @@ assert.equal(String(sockets[0].url), bridge.mcpUrl.replace('https://', 'wss://')
 sockets[0].emit('open');
 assert.equal(states.at(-1).connected, true);
 
+sockets[0].emit('message', JSON.stringify({ id: 'catalog', method: 'get_component_catalog' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+const catalog = sockets[0].sent.at(-1).result;
+assert.equal(catalog.usage.component.dn, 'Resistor');
+assert.ok(catalog.usage.notes.some(note => note.includes('do not add bundled definitions')));
+assert.deepEqual(catalog.components.find(component => component.dn === 'IC_DIP8').pins.map(pin => pin.number),
+    ['1', '2', '3', '4', '5', '6', '7', '8']);
+assert.ok(catalog.components.find(component => component.dn === 'LED').footprintShapes
+    .some(shape => shape.includes('PAD')));
+
 sockets[0].emit('message', JSON.stringify({ id: 'read', method: 'get_project' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(sockets[0].sent.at(-1).result.type, 'clearpcb-project');
