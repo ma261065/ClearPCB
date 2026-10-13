@@ -15,6 +15,7 @@ import { getTextEditBoxGeometry, measureTextGlyphBBox, setTextEditElementProvide
 import { createLockIcon, buildPointAnchorsGroup } from '../../core/ui-helpers.js';
 import { ensureView, viewOf } from './shape-view-state.js';
 import { schematicLockPosition } from './lock-placement.js';
+import { schematicConnectionDotRadius } from './connection-dot.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -28,8 +29,6 @@ import { isSchematicLocked } from '../../shapes/lock-owner.js';
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_STROKE_PIXELS = 1;
 const ANCHOR_SIZE_PIXELS = 8;
-const MIN_JUNCTION_RADIUS = 0.4;
-const JUNCTION_SCREEN_PX = 2.5;
 const NC_HALF = 0.8;
 
 /** @param {string|number} color */
@@ -353,7 +352,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
                 el.appendChild(strokePath);
             }
 
-            const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
+            const jr = schematicConnectionDotRadius(scale);
             for (const [nid, pos] of shape.nodes) {
                 if (shape.degree(nid) >= 3) {
                     const c = document.createElementNS(NS, 'circle');
@@ -420,7 +419,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
     }
 
     if (shape.type === 'wire') {
-        const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
+        const jr = schematicConnectionDotRadius(scale);
         for (const [nid, pos] of shape.nodes) {
             if (shape.degree(nid) >= 3) {
                 const c = document.createElementNS(NS, 'circle');
@@ -505,7 +504,7 @@ export function updateWireElement(shape, el, strokeColor, fillColor, scale, view
     }
     updatePolylineGraphElement(shape, el, strokeColor, fillColor, scale, view);
     if (shape.pinConnections && shape.pinConnections.size > 0) {
-        const r = Math.max(0.4, 2.5 / scale);
+        const r = schematicConnectionDotRadius(scale);
         for (const nid of shape.pinConnections.keys()) {
             const pos = shape.nodes.get(nid);
             if (!pos) continue;

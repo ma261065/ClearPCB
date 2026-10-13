@@ -50,6 +50,7 @@ import {
 import { getSchematicTextEdit } from './text-edit.js';
 import { isPastingClipboard } from './clipboard.js';
 import { isSchematicDrawingActive } from './drawing.js';
+import { schematicConnectionDotRadius } from '../render/connection-dot.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
 import { resolveDraggingComponentSnap, resolveNetLabelDragSnap, resolvePlacingComponentSnap } from './component-snap.js';
@@ -336,7 +337,7 @@ export function contextNodeTargetRadiusPx(app, shape, nodeId) {
         const hasDot = shape.degree(nodeId) >= 3
             || shape.pinConnections.has(nodeId)
             || !!detectTJunction(app, shape, nodeId);
-        if (hasDot) radiusPx = Math.max(radiusPx, Math.max(0.4 * scale, 2.5) + 3);
+        if (hasDot) radiusPx = Math.max(radiusPx, schematicConnectionDotRadius(scale) * scale + 3);
     }
     return radiusPx;
 }

@@ -16,6 +16,7 @@ const dismissHandlers = /** @type {WeakMap<Element, DismissHandlers>} */ (new We
 
 /** Close the menu with this id, and its global listeners, if it is open. @param {string} id */
 export function dismissContextMenu(id) {
+    if (typeof document === 'undefined') return;
     const menu = document.getElementById(id);
     if (!menu) return;
     const handlers = dismissHandlers.get(menu);

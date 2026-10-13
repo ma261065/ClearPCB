@@ -331,8 +331,8 @@ function commandAppFor(shape) {
     junction.addEdge(centerId, branch);
     const app = appFor(junction);
     app.viewport.scale = 50;
-    expect('junction context target follows its 20px rendered radius plus 3px padding',
-        contextNodeTargetRadiusPx(app, junction, centerId) === 23);
+    expect('junction context target follows its capped 8px rendered radius plus 3px padding',
+        contextNodeTargetRadiusPx(app, junction, centerId) === 11);
 }
 
 {

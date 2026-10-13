@@ -28,6 +28,7 @@ const NS = 'http://www.w3.org/2000/svg';
 
 export const HALO_CLASS = 'pcb-track-selection';
 const HOVER_CLASS = 'pcb-track-hover';
+export const TRACK_CONTEXT_PREVIEW_CLASS = 'pcb-track-context-preview';
 const VIA_BATCH_HALO_CLASS = 'pcb-box-via-sel';
 
 /** Halo stroke colour — translucent white overlays the track so the
@@ -82,6 +83,59 @@ const hoverKeys = new WeakMap();
 export function clearHoverHighlight(app) {
     removeHalosByClass(app, HOVER_CLASS);
     hoverKeys.delete(app);
+}
+
+/** @param {PcbEditor} app */
+export function clearTrackContextPreview(app) {
+    removeHalosByClass(app, TRACK_CONTEXT_PREVIEW_CLASS);
+}
+
+/**
+ * Border one track edge, or every edge when `edgeId` is null, for a hovered
+ * context-menu delete action.
+ * @param {PcbEditor} app
+ * @param {Track} track
+ * @param {string|null} edgeId
+ */
+export function showTrackContextPreview(app, track, edgeId) {
+    clearTrackContextPreview(app);
+    track = displayedTrack(app, canonicalTrack(app, track));
+    const parent = app.getLayerGroup('selection-overlay');
+    if (!parent || !trackIsVisible(track)) return;
+    const group = document.createElementNS(NS, 'g');
+    group.setAttribute('class', TRACK_CONTEXT_PREVIEW_CLASS);
+    group.setAttribute('pointer-events', 'none');
+    const scale = Math.max(0.01, app.viewport?.scale || 1);
+    const edgePaths = resolveTrackEdgePaths(track);
+    const edgeIds = edgeId == null ? [...track.edges.keys()] : [edgeId];
+    for (const id of edgeIds) {
+        const points = edgePaths.get(id);
+        if (!points?.length) continue;
+        const layer = track.getEdgeLayer(id) || 'top-copper';
+        if (!isLayerVisible(layer)) continue;
+        const width = track.getEdgeWidth(id) || 0.2;
+        const makeLine = () => {
+            const line = document.createElementNS(NS, 'polyline');
+            line.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+            line.setAttribute('fill', 'none');
+            line.setAttribute('stroke-linecap', 'round');
+            line.setAttribute('stroke-linejoin', 'round');
+            line.setAttribute('pointer-events', 'none');
+            return line;
+        };
+        const border = makeLine();
+        border.setAttribute('class', 'pcb-track-context-border');
+        border.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
+        border.setAttribute('stroke-width', String(width + 4 / scale));
+        group.appendChild(border);
+        const foreground = makeLine();
+        foreground.setAttribute('class', 'pcb-track-context-foreground');
+        foreground.setAttribute('stroke', layer === 'bottom-copper' ? '#2479b5' : '#e74c3c');
+        foreground.setAttribute('stroke-width', String(width));
+        foreground.setAttribute('stroke-opacity', '0.9');
+        group.appendChild(foreground);
+    }
+    if (group.children.length) parent.appendChild(group);
 }
 
 /**

@@ -5,6 +5,7 @@ import { handleTrackDrawKey } from './track-draw.js';
 import { handleFillDrawKey } from './copper-fill-draw.js';
 import { handleShapeDrawKey } from './board-shape-draw.js';
 import { selectPcbTool } from './tool-lifecycle.js';
+import { dismissTrackContextMenu } from './track-select.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /*
@@ -107,7 +108,10 @@ export function handlePcbKeyDown(app, e) {
     if (e.key === 'Delete' || e.key === 'Backspace') {
         return runPcbDeleteAction(app);
     }
-    if (e.key === 'Escape') return runPcbEscapeAction(app);
+    if (e.key === 'Escape') {
+        dismissTrackContextMenu();
+        return runPcbEscapeAction(app);
+    }
     // Component transform shortcuts (match the schematic editor):
     //   Space = rotate right, X = flip horizontal, Y = flip vertical.
     const selectedRef = getPcbSelection(app, 'reftext')[0] || null;

@@ -396,12 +396,22 @@ hovering **Delete Wire** borders every edge. The red selected wire remains the
 foreground in both previews. Leaving the item or dismissing the menu by any
 route removes the preview before an action runs. Deleting a segment selects the
 first surviving wire/shape fragment.
+PCB track menus use the same targeted delete preview: hovering **Delete
+segment** borders only that edge, while **Delete track** borders every edge.
+For a track containing only one segment, the equivalent **Delete segment**
+action is omitted and only **Delete track** is offered.
+The inner preview follows each edge's actual top/bottom copper color, and menu
+dismissal removes it.
 Right-click edge targeting runs before the broader anchor-handle hit area
 outside the node target. Ordinary nodes have a six-screen-pixel minimum target;
 nodes showing a junction or pin-connection dot use the full rendered dot radius
 plus three pixels. Thus exposed portions of short segments still offer **Delete
 Segment**, while **Delete point**, **Split** and related node actions
 remain easy to target.
+Schematic junction, wire-to-pin, direct-pin and direct-NetLabel dots retain a
+nominal 0.4 mm radius but clamp to 2.5–8 screen pixels. Dense temporary bridge
+junctions therefore remain legible instead of merging into fat wire blocks at
+extreme zoom.
 **Split** on a wire node detaches only the chosen branch and starts dragging its
 new endpoint. Other wire graphs touching the original point remain stationary;
 their Net labels therefore cannot be carried into a false merge conflict.

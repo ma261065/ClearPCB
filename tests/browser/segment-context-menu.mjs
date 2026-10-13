@@ -31,7 +31,8 @@ export const scenarios = [{
             app.addShape(junction);
             app.selection.select(wire, false);
             app.renderShapes(true);
-            const dotRadiusPx = Math.max(0.4 * app.viewport.scale, 2.5);
+            const dot = document.querySelector('.junction-dot');
+            const dotRadiusPx = Number(dot?.getAttribute('r')) * app.viewport.scale;
             return {
                 midpoint: { x: centre.x - 0.5, y: centre.y },
                 node: { x: centre.x, y: centre.y },
@@ -100,7 +101,8 @@ export const scenarios = [{
             'The ordinary node target remains comfortably larger than an exact pixel');
         await page.keyboard.press('Escape');
 
-        assert.ok(setup.junctionDotRadiusPx > 10, '5000% junction dot visibly exceeds the normal node target');
+        assert.ok(Math.abs(setup.junctionDotRadiusPx - 8) < 1e-9,
+            '5000% junction dot is capped instead of becoming a fat blob');
         const junctionDot = page.locator('.junction-dot');
         assert.equal(await junctionDot.count(), 1);
 
