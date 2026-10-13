@@ -8,7 +8,7 @@ import { errorHasName } from '../../core/errors.js';
 import { updateSnapHighlight, COLLINEAR_EPSILON, VERTEX_EPSILON } from './wire.js';
 import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
 import { captureStickyGuideBaseline, computeAnchorCollinearSnap, computeStickyWireSnaps, buildCollinearChain, bridgeCollinearPinEndpoints } from './wire-drag-snap.js';
-import { cancelDragGesture, clearDragState, clearPendingAnchorDrag, commitMoveDrag, commitSegmentDrag, getPendingAnchorDrag, getSchematicDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, setPendingAnchorDrag, setSchematicDrag, commitShapeJoin } from './drag.js';
+import { cancelDragGesture, captureMoveDragStates, clearDragState, clearPendingAnchorDrag, commitMoveDrag, commitSegmentDrag, getPendingAnchorDrag, getSchematicDrag, resolveAnchorDragOnMouseUp, restoreMoveDragStates, revertSegmentDragIfNoMove, setPendingAnchorDrag, setSchematicDrag, commitShapeJoin } from './drag.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire-reconcile.js';
 import { isJoinable } from '../../shapes/shape-join.js';
@@ -91,6 +91,7 @@ export function beginSelectionMove(app, worldPos, snapped) {
     getSchematicDrag(app).netLabels = links;
     for (const { net } of links) movedIds.add(net.id);
     getSchematicDrag(app).stickyGuideBaseline = captureStickyGuideBaseline(app, movedIds);
+    getSchematicDrag(app).restoreStates = captureMoveDragStates(app, movable);
     // Bridge pin-connected wire nodes ONCE so pins can move freely
     bridgeStickyPinNodes(app, movedIds);
     app.viewport.svg.style.cursor = 'move';
@@ -542,11 +543,11 @@ export function handleDragEnd(app) {
 
 /** @param {SchematicEditor} app */
 function commitDragGesture(app) {
-    if (getDidSchematicDrag(app) && getSchematicDrag(app).mode === 'move') {
-        commitMoveDrag(app, getSchematicDrag(app).totalDx, getSchematicDrag(app).totalDy);
-        // Clean up redundant collinear nodes left by bridge insertion
-        for (const wire of app.shapes) {
-            if (isWireShape(wire)) collapseRedundantWirePoints(app, wire);
+    if (getSchematicDrag(app).mode === 'move') {
+        if (getDidSchematicDrag(app)) {
+            commitMoveDrag(app, getSchematicDrag(app).totalDx, getSchematicDrag(app).totalDy);
+        } else {
+            restoreMoveDragStates(app);
         }
     } else if (getSchematicDrag(app).mode === 'segment' && getSchematicDrag(app).shape?.type === 'polyline') {
         if (getDidSchematicDrag(app)) {

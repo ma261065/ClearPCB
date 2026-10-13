@@ -28,7 +28,8 @@ export const scenarios = [{
             app.viewport.snapToGrid = false;
             app.viewport.zoomIn();
             app.viewport.zoomIn();
-            return { centre, id: component.id };
+            return { centre, id: component.id,
+                wireStates: app.shapes.filter(shape => shape.type === 'wire').map(wire => wire.captureState()) };
         }, await viewCentre(page));
         await viewportSettled(page, 'schematic');
         const start = await screenPoint(page, 'schematic', setup.centre.x, setup.centre.y);
@@ -61,14 +62,41 @@ export const scenarios = [{
         }
         await page.mouse.up();
         assert.equal(await page.locator('.wire-junction-highlight').count(), 0);
-        const after = await page.evaluate(id => window.bootstrap.schematicApp.components
-            .find(component => component.id === id).captureState(), setup.id);
+        const after = await page.evaluate(id => {
+            const app = window.bootstrap.schematicApp;
+            return {
+                component: app.components.find(component => component.id === id).captureState(),
+                wires: app.shapes.filter(shape => shape.type === 'wire').map(wire => ({
+                    state: wire.captureState(),
+                    temporaryNodes: [...wire.nodes.values()].filter(node =>
+                        node._stickyBridge || node._stickyBridgeBend || node._pinDetachJunction).length,
+                })),
+            };
+        }, setup.id);
+        assert.ok(after.wires.every(wire => Object.keys(wire.state.edges).length === 1
+            && wire.temporaryNodes === 0), 'Commit removes temporary bridge topology from both straight wires');
         await page.keyboard.press('Control+z');
-        assert.ok(Math.abs(await page.evaluate(id => window.bootstrap.schematicApp.components
-            .find(component => component.id === id).x, setup.id) - setup.centre.x) < 1e-9);
+        const undone = await page.evaluate(id => {
+            const app = window.bootstrap.schematicApp;
+            return {
+                x: app.components.find(component => component.id === id).x,
+                wires: app.shapes.filter(shape => shape.type === 'wire').map(wire => wire.captureState()),
+            };
+        }, setup.id);
+        assert.ok(Math.abs(undone.x - setup.centre.x) < 1e-9);
+        assert.deepEqual(undone.wires, setup.wireStates, 'Undo restores exact pre-bridge wire graphs');
         await page.keyboard.press('Control+y');
-        assert.deepEqual(await page.evaluate(id => window.bootstrap.schematicApp.components
-            .find(component => component.id === id).captureState(), setup.id), after);
+        assert.deepEqual(await page.evaluate(id => {
+            const app = window.bootstrap.schematicApp;
+            return {
+                component: app.components.find(component => component.id === id).captureState(),
+                wires: app.shapes.filter(shape => shape.type === 'wire').map(wire => ({
+                    state: wire.captureState(),
+                    temporaryNodes: [...wire.nodes.values()].filter(node =>
+                        node._stickyBridge || node._stickyBridgeBend || node._pinDetachJunction).length,
+                })),
+            };
+        }, setup.id), after);
     },
 }, {
     name: 'component-drag-sticky-bridges-have-no-false-horizontal-guides',

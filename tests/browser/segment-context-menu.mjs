@@ -101,8 +101,8 @@ export const scenarios = [{
             'The ordinary node target remains comfortably larger than an exact pixel');
         await page.keyboard.press('Escape');
 
-        assert.ok(Math.abs(setup.junctionDotRadiusPx - 8) < 1e-9,
-            '5000% junction dot is capped instead of becoming a fat blob');
+        assert.ok(Math.abs(setup.junctionDotRadiusPx - 100) < 1e-9,
+            '5000% junction dot retains its physical 0.4 mm radius');
         const junctionDot = page.locator('.junction-dot');
         assert.equal(await junctionDot.count(), 1);
 

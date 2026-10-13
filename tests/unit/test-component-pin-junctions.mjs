@@ -4,18 +4,9 @@ import { BuiltInComponents } from '../../src/components/BuiltInComponents.js';
 import { collectCoincidentComponentPins } from '../../src/core/component-pin-connectivity.js';
 import { extractNetlist } from '../../src/core/netlist.js';
 import { renderComponentPinJunctions } from '../../src/schematic/modules/component-pin-junctions.js';
-import {
-    CONNECTION_DOT_MAX_RADIUS_PX,
-    CONNECTION_DOT_MIN_RADIUS_PX,
-    schematicConnectionDotRadius,
-} from '../../src/schematic/render/connection-dot.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-assert.equal(schematicConnectionDotRadius(1) * 1, CONNECTION_DOT_MIN_RADIUS_PX);
-assert.equal(schematicConnectionDotRadius(20) * 20, 8);
-assert.equal(schematicConnectionDotRadius(250) * 250, CONNECTION_DOT_MAX_RADIUS_PX);
-assert.equal(schematicConnectionDotRadius(500) * 500, CONNECTION_DOT_MAX_RADIUS_PX);
 const definition = BuiltInComponents.find(component => component.name === 'Resistor');
 const first = new Component(definition, { id: 'first', reference: 'R1', x: 0, y: 0 });
 const second = new Component(definition, { id: 'second', reference: 'R2', x: 0, y: 0 });

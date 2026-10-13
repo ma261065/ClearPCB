@@ -408,10 +408,9 @@ nodes showing a junction or pin-connection dot use the full rendered dot radius
 plus three pixels. Thus exposed portions of short segments still offer **Delete
 Segment**, while **Delete point**, **Split** and related node actions
 remain easy to target.
-Schematic junction, wire-to-pin, direct-pin and direct-NetLabel dots retain a
-nominal 0.4 mm radius but clamp to 2.5–8 screen pixels. Dense temporary bridge
-junctions therefore remain legible instead of merging into fat wire blocks at
-extreme zoom.
+Schematic junction, wire-to-pin, direct-pin and direct-NetLabel dots use a
+0.4 mm radius, with a 2.5-screen-pixel minimum at low zoom. They retain their
+physical size and therefore continue scaling on screen as the view zooms in.
 **Split** on a wire node detaches only the chosen branch and starts dragging its
 new endpoint. Other wire graphs touching the original point remain stationary;
 their Net labels therefore cannot be carried into a false merge conflict.

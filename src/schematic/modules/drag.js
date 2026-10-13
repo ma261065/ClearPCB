@@ -11,7 +11,7 @@
  */
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from './commands.js';
-import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire-reconcile.js';
+import { reconcileWires, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire-reconcile.js';
 import { updateSnapHighlight } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
@@ -212,7 +212,7 @@ export function captureMoveDragStates(app, selection) {
  * Undo a cancelled move drag's live changes from its snapshot, with one redraw.
  * @param {SchematicEditor} app
  */
-function restoreMoveDragStates(app) {
+export function restoreMoveDragStates(app) {
     const states = getSchematicDrag(app)?.restoreStates;
     if (!states) return;
     for (const [entity, state] of states) {
@@ -707,6 +707,7 @@ export function revertSegmentDragIfNoMove(app, wireStates) {
 export function commitMoveDrag(app, totalDx, totalDy) {
     const selectedShapes = app.selection.getSelection();
     const movedShapes = selectedShapes.filter(s => !isSchematicLocked(s));
+    const attachedWireStates = getSchematicDrag(app)?.stickyGuideBaseline || new Map();
 
     if (movedShapes.length === 0 || (totalDx === 0 && totalDy === 0)) return true;
 
@@ -732,12 +733,17 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     app.history.execute(command);
 
     // Post-move: reconcile wire overlaps
-    const movedWires = movedShapes.filter(isWire).filter(w => app.shapes.includes(w));
+    const movedWires = [...new Set([
+        ...movedShapes.filter(isWire),
+        ...attachedWireStates.keys(),
+    ])].filter(w => app.shapes.includes(w));
     if (movedWires.length > 0) {
-        const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
+        const beforeAll = buildBeforeAllWireStates(app, attachedWireStates);
+        const labelTextBefore = captureLabelTextStates(app, beforeAll);
+        const { batch: reconcileBatch } = reconcileAndBuildBatch(
+            app, movedWires, beforeAll, 'Move wire cleanup', labelTextBefore);
         if (reconcileBatch) {
-            // Pop reconcile batch + MoveShapesCommand, combine into one
-            app.history.popUndo(2);
+            app.history.popUndo(1);
             const combined = new BatchCommand('Move + wire cleanup');
             combined.add(command);
             for (const cmd of reconcileBatch.commands) combined.add(cmd);

@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { Component } from '../../src/components/Component.js';
 import { Net } from '../../src/shapes/net.js';
 import { Wire } from '../../src/shapes/wire.js';
+import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 import { resolveDraggingComponentSnap } from '../../src/schematic/modules/component-snap.js';
-import { setSchematicDrag, getSchematicDrag } from '../../src/schematic/modules/drag.js';
-import { beginSelectionMove } from '../../src/schematic/modules/drag-gestures.js';
+import { setSchematicDrag, getSchematicDrag, cancelDragGesture, commitMoveDrag } from '../../src/schematic/modules/drag.js';
+import { beginSelectionMove, handleDragEnd } from '../../src/schematic/modules/drag-gestures.js';
 import { moveDragState } from '../../src/schematic/modules/draw-states.js';
 
 installFakeDom();
@@ -17,10 +18,13 @@ function fixture() {
     const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     wire.pinConnections.set([...wire.nodes.keys()][0], { componentId: component.id, pinNumber: '1' });
     const app = { components: [component], shapes: [wire],
+        history: new CommandHistory(), interactionState: 'idle',
         wireSnapPin: null,
         viewport: { scale: 20, svg: fakeElement('svg'), layers: new Map(), getSnappedPosition: point => ({ ...point }) },
-        selection: { getSelection: () => [component] },
-        renderShapes() {}, fileManager: { setDirty() {} },
+        selection: { getSelection: () => [component], keepSelected() {} },
+        renderShapes() {}, hideCrosshair() {}, removeBoxSelectElement() {},
+        fileManager: { setDirty() {} }, updatePropertiesPanel() {},
+        alert(message) { assert.fail(message); },
     };
     setSchematicDrag(app, { netLabels: [] });
     return { app, component, wire };
@@ -97,6 +101,34 @@ for (const delta of [{ x: 0.3, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 0.3 }, { x: 2,
         assert.deepEqual({ x: node.x, y: node.y }, component.getPinPosition(1),
             'Suppressing connection snaps does not detach the sticky wire');
     }
+}
+
+{
+    const { app, wire } = fixture();
+    const authored = wire.captureState();
+    beginSelectionMove(app, { x: 0, y: 0 }, { x: 0, y: 0 });
+    assert.notDeepEqual(wire.captureState(), authored, 'Drag setup may insert temporary bridge topology');
+    cancelDragGesture(app);
+    assert.deepEqual(wire.captureState(), authored, 'Cancelling restores exact pre-bridge wire topology');
+
+    beginSelectionMove(app, { x: 0, y: 0 }, { x: 0, y: 0 });
+    handleDragEnd(app);
+    assert.deepEqual(wire.captureState(), authored, 'A click without movement does not retain bridge topology');
+}
+
+{
+    const { app, wire } = fixture();
+    const authored = wire.captureState();
+    beginSelectionMove(app, { x: 0, y: 0 }, { x: 0, y: 0 });
+    moveDragState.mousemove(app, {}, { worldPos: { x: 4, y: 3 } });
+    commitMoveDrag(app, getSchematicDrag(app).totalDx, getSchematicDrag(app).totalDy);
+    const committed = wire.captureState();
+    assert.ok(Object.keys(committed.edges).length <= 3,
+        'Commit reconciles the attached wire instead of retaining clustered bridge edges');
+    app.history.undo();
+    assert.deepEqual(wire.captureState(), authored, 'Undo restores exact authored topology from before bridge insertion');
+    app.history.redo();
+    assert.deepEqual(wire.captureState(), committed, 'Redo restores the reconciled committed topology');
 }
 
 console.log('PASS component drag ignores already-wired pin magnets while preserving free-pin targets and sticky wires');

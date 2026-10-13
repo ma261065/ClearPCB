@@ -573,8 +573,9 @@ function stickyStationaryNeighbor(wire, pinNodeId, neighborId, movingCompIds) {
 }
 
 /**
- * Capture simplified wires attached to a moved owner before bridge insertion.
- * A later guide is meaningful only if the corresponding topology simplifies.
+ * Capture exact wires attached to a moved owner before bridge insertion.
+ * Guide comparison cleans cloned snapshots, while commit/cancel use these
+ * authored states for exact topology restoration and undo.
  * @param {SchematicEditor} app @param {Set<string>} movingCompIds
  * @returns {Map<Wire, import('../../shapes/wire.js').WireState>}
  */
@@ -583,9 +584,7 @@ export function captureStickyGuideBaseline(app, movingCompIds) {
     for (const shape of app.shapes) {
         if (shape.type !== 'wire'
             || ![...shape.pinConnections.values()].some(conn => movingCompIds.has(conn.componentId))) continue;
-        const copy = /** @type {Wire} */ (shape.clone());
-        copy.cleanGraph();
-        baseline.set(shape, copy.captureState());
+        baseline.set(shape, shape.captureState());
     }
     return baseline;
 }

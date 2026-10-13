@@ -4,7 +4,6 @@ import {
     SCHEMATIC_CONNECTION_TOLERANCE,
 } from '../../core/component-pin-connectivity.js';
 import { WIRE_COLOR } from '../../shapes/wire.js';
-import { schematicConnectionDotRadius } from '../render/connection-dot.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -32,7 +31,7 @@ export function renderComponentPinJunctions(app) {
     if (typeof app.viewport?.contentLayer?.appendChild !== 'function') return;
     const group = junctionGroup(app);
     const scale = Math.max(0.01, app.viewport.scale || 1);
-    const radius = schematicConnectionDotRadius(scale);
+    const radius = Math.max(0.4, 2.5 / scale);
     const points = collectCoincidentComponentPins(app.components)
         .filter(contact => contact.pins.filter(({ pin }) => !pin.hidden).length >= 2)
         .map(contact => contact.point);

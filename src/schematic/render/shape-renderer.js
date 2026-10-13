@@ -15,7 +15,6 @@ import { getTextEditBoxGeometry, measureTextGlyphBBox, setTextEditElementProvide
 import { createLockIcon, buildPointAnchorsGroup } from '../../core/ui-helpers.js';
 import { ensureView, viewOf } from './shape-view-state.js';
 import { schematicLockPosition } from './lock-placement.js';
-import { schematicConnectionDotRadius } from './connection-dot.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -352,7 +351,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
                 el.appendChild(strokePath);
             }
 
-            const jr = schematicConnectionDotRadius(scale);
+            const jr = Math.max(0.4, 2.5 / scale);
             for (const [nid, pos] of shape.nodes) {
                 if (shape.degree(nid) >= 3) {
                     const c = document.createElementNS(NS, 'circle');
@@ -419,7 +418,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
     }
 
     if (shape.type === 'wire') {
-        const jr = schematicConnectionDotRadius(scale);
+        const jr = Math.max(0.4, 2.5 / scale);
         for (const [nid, pos] of shape.nodes) {
             if (shape.degree(nid) >= 3) {
                 const c = document.createElementNS(NS, 'circle');
@@ -504,7 +503,7 @@ export function updateWireElement(shape, el, strokeColor, fillColor, scale, view
     }
     updatePolylineGraphElement(shape, el, strokeColor, fillColor, scale, view);
     if (shape.pinConnections && shape.pinConnections.size > 0) {
-        const r = schematicConnectionDotRadius(scale);
+        const r = Math.max(0.4, 2.5 / scale);
         for (const nid of shape.pinConnections.keys()) {
             const pos = shape.nodes.get(nid);
             if (!pos) continue;
