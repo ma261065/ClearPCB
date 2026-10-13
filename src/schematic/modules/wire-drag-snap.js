@@ -3,7 +3,7 @@
  * dragged: collinear chains, pin bridges, off-grid neighbours and sticky wires.
  */
 import { distanceToSegment, pointsCollinear, collinearSnap } from '../../core/geometry.js';
-import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint } from './wire-snap.js';
+import { SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint, wirePinSnapTolerance } from './wire-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { snapNodeToMixedAxes } from '../../shapes/path-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -458,8 +458,9 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     /** @type {PinSnap|WirePointSnap|null} */
     let highlight = null;
 
-    const pinA = findNearbyPin(app.components, rawA, PIN_SNAP_TOL);
-    const pinB = findNearbyPin(app.components, rawB, PIN_SNAP_TOL);
+    const pinTolerance = wirePinSnapTolerance(app.viewport);
+    const pinA = findNearbyPin(app.components, rawA, pinTolerance);
+    const pinB = findNearbyPin(app.components, rawB, pinTolerance);
     /** @type {PinSnap|null} */
     let bestPin = null;
     /** @type {Point|null} */
@@ -572,8 +573,9 @@ function stickyStationaryNeighbor(wire, pinNodeId, neighborId, movingCompIds) {
 }
 
 /**
- * Capture simplified wires attached to a moved owner before bridge insertion.
- * A later guide is meaningful only if the corresponding topology simplifies.
+ * Capture exact wires attached to a moved owner before bridge insertion.
+ * Guide comparison cleans cloned snapshots, while commit/cancel use these
+ * authored states for exact topology restoration and undo.
  * @param {SchematicEditor} app @param {Set<string>} movingCompIds
  * @returns {Map<Wire, import('../../shapes/wire.js').WireState>}
  */
@@ -582,9 +584,7 @@ export function captureStickyGuideBaseline(app, movingCompIds) {
     for (const shape of app.shapes) {
         if (shape.type !== 'wire'
             || ![...shape.pinConnections.values()].some(conn => movingCompIds.has(conn.componentId))) continue;
-        const copy = /** @type {Wire} */ (shape.clone());
-        copy.cleanGraph();
-        baseline.set(shape, copy.captureState());
+        baseline.set(shape, shape.captureState());
     }
     return baseline;
 }

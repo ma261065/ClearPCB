@@ -38,6 +38,23 @@ export const PIN_SNAP_TOL = 1.5;
 /** Pin target radius for wire pickup and NetLabel placement/dragging (mm). */
 export const PIN_PICKUP_SNAP_TOL = 0.5;
 
+/** Pin approach radius below the high-zoom reduction band (mm). */
+export const WIRE_PIN_SNAP_MAX_TOL = 0.5;
+
+/** Pin approach radius at and above 5000% zoom (mm). */
+export const WIRE_PIN_SNAP_MIN_TOL = 0.25;
+
+/** @param {{zoom?:number}|null|undefined} viewport */
+export function wirePinSnapTolerance(viewport) {
+    const zoom = Number(viewport?.zoom);
+    const multiplier = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+    if (multiplier <= 10) return WIRE_PIN_SNAP_MAX_TOL;
+    if (multiplier >= 50) return WIRE_PIN_SNAP_MIN_TOL;
+    const progress = (multiplier - 10) / 40;
+    return WIRE_PIN_SNAP_MAX_TOL
+        + (WIRE_PIN_SNAP_MIN_TOL - WIRE_PIN_SNAP_MAX_TOL) * progress;
+}
+
 /** Tolerance for wire-to-wire snap detection (world units). */
 export const WIRE_SNAP_TOL = 0.5;
 
@@ -241,9 +258,9 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
  * @returns {WireSnapResult & {adjustLastX?: number, adjustLastY?: number, corner?: Point}}
  */
 export function getDrawingSnappedPosition(app, worldPos) {
-    // No points yet — use unified resolver (pin tol 1.0, no wires to snap to)
+    // No points yet — use the same restrained pin approach as active routing.
     if (app.wirePoints.length === 0) {
-        const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 1.0 });
+        const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: wirePinSnapTolerance(app.viewport) });
         return { x: snap.x, y: snap.y, snapPin: snap.snapPin, snapType: snap.snapType };
     }
 
@@ -295,7 +312,7 @@ export function getDrawingSnappedPosition(app, worldPos) {
     const snap = resolveWireSnapPosition(app, worldPos, {
         excludePin,
         extraSegments: extraSegments ?? undefined,
-        pinTolerance: PIN_SNAP_TOL,
+        pinTolerance: wirePinSnapTolerance(app.viewport),
         wireTolerance: WIRE_SNAP_TOL,
     });
 

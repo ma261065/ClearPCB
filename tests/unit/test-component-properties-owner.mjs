@@ -40,7 +40,7 @@ class Element {
 }
 
 function fixture() {
-    let active = true, available = true, selected = true;
+    let active = true, available = true, selected = true, textEdit = null;
     let placement = { reference: 'R1', side: 'bottom', mirror: true, rotation: 37.123456789,
         x: Math.PI, y: -Math.E, refSize: 1.23456789, refStrokeWidth: 0.123456789,
         refRot: 23.456789, model3dObj: 'model' };
@@ -75,6 +75,11 @@ function fixture() {
                 'Command receives the exact pre-preview baseline without any rollback repaint');
             actions.push(['style', id, before, after]);
             Object.assign(placement, after);
+        },
+        activeTextEdit: () => textEdit,
+        insertInlineSymbol: (textId, symbol) => {
+            actions.push(['symbol', textId, symbol]);
+            return true;
         },
         // The owner's contract uses a binding service, not a PCBApp-shaped object.
         // Real helper parsing/history/keyboard contracts remain integration-tested.
@@ -133,6 +138,7 @@ function fixture() {
         setActive(value) { active = value; },
         setAvailable(value) { available = value; },
         setSelected(value) { selected = value; },
+        setTextEdit(value) { textEdit = value; },
     };
 }
 
@@ -220,6 +226,7 @@ for (const boundary of ['inactive', 'replace', 'dispose', 'reference']) {
 
 {
     const f = fixture();
+    f.setTextEdit({ text: { id: 'part' } });
     f.owner.showReference('part');
     const binding = f.bindings[0];
     assert.equal(binding.model, f.placement);
@@ -227,6 +234,11 @@ for (const boundary of ['inactive', 'replace', 'dispose', 'reference']) {
     assert.equal(f.owner.affectsLayer('top-silk'), false);
     assert.equal(f.items.querySelector('#pcbPropRefName').textContent, 'R1');
     assert.equal(f.items.querySelector('#pcbPropRefLayer').textContent, 'bottom-silk');
+    const insert = f.items.querySelector('#pcbPropRefInsert');
+    assert.ok(insert, 'active PCB Reference editing shows the shared symbol picker');
+    insert.value = 'Ω';
+    insert.fire('change');
+    assert.deepEqual(f.actions.pop(), ['symbol', 'part', 'Ω']);
     assert.equal(binding.spec.fields[1].parse('-1'), 359);
     for (const field of binding.spec.fields) assert.equal(field.parse(''), null);
     binding.input('refSize', '2.3456789');

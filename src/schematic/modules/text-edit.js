@@ -7,6 +7,7 @@ import {
     measureTextGlyphBBox,
 } from '../../core/text-edit-geometry.js';
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
+import { textSymbolReplacementAtCaret } from '../../shared/ui/text-symbol-autoreplace.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { isWireItem as isWireShape } from '../../core/schematic-items.js';
@@ -14,7 +15,8 @@ import { isWireItem as isWireShape } from '../../core/schematic-items.js';
 /** @typedef {import('../../shapes/wire.js').Wire} WireShape */
 /** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
 /** @typedef {import('../../shared/ui/inline-text-overlay.js').InlineTextOverlay} InlineTextOverlay */
-/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, selectionAnchor?: number|null, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
+/** @typedef {{beforeText:string,beforeCaret:number,afterText:string,afterCaret:number}} SymbolUndo */
+/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, selectionAnchor?: number|null, symbolUndo: SymbolUndo[], overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
 /** @typedef {{x: number, width: number}} CaretProbe */
 
 /**
@@ -84,6 +86,7 @@ export function startTextEdit(app, shape) {
         originalText: initialText,
         caretIndex: initialCaret,
         selectionAnchor: null,
+        symbolUndo: [],
         overlay: null,
         overlayGroup: null,
         overlayBox: null,
@@ -95,7 +98,8 @@ export function startTextEdit(app, shape) {
 
     ensureOverlay(app);
     updateTextEditOverlay(app);
-
+    const selection = app.selection?.getSelection?.() || [];
+    if (selection.includes(shape)) app.updatePropertiesPanel(selection);
 }
 
 /**
@@ -196,10 +200,6 @@ export function endTextEdit(app, commit = true) {
         app.history.execute(command);
     }
 
-    // Refresh properties panel so it reflects the updated text
-    const sel = app.selection.getSelection();
-    if (sel.length > 0) app.updatePropertiesPanel(sel);
-
     state.overlay?.destroy();
     state.overlay = null;
     state.overlayGroup = null;
@@ -217,6 +217,9 @@ export function endTextEdit(app, commit = true) {
     if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }
+    // Re-describe after clearing edit state so the edit-only Insert picker is removed.
+    const sel = app.selection.getSelection();
+    if (sel.length > 0) app.updatePropertiesPanel(sel);
 }
 
 /**
@@ -229,6 +232,7 @@ export function endTextEdit(app, commit = true) {
 export function handleTextEditKey(app, e) {
     const state = getSchematicTextEdit(app);
     if (!state) return false;
+    if (!Array.isArray(state.symbolUndo)) state.symbolUndo = [];
 
     const shape = state.shape;
     const text = typeof shape.text === 'string' ? shape.text : '';
@@ -237,6 +241,18 @@ export function handleTextEditKey(app, e) {
     const selectionStart = Math.min(caret, anchor);
     const selectionEnd = Math.max(caret, anchor);
     const hasSelection = selectionStart !== selectionEnd;
+
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        const undo = state.symbolUndo.at(-1);
+        if (undo && text === undo.afterText) {
+            state.symbolUndo.pop();
+            updateText(app, undo.beforeText, undo.beforeCaret);
+        }
+        resetCaretBlink(state);
+        e.preventDefault();
+        e.stopPropagation();
+        return true;
+    }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         state.selectionAnchor = 0;
@@ -306,8 +322,25 @@ export function handleTextEditKey(app, e) {
     }
 
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const nextText = text.slice(0, selectionStart) + e.key + text.slice(selectionEnd);
-        updateText(app, nextText, selectionStart + 1);
+        const literalText = text.slice(0, selectionStart) + e.key + text.slice(selectionEnd);
+        const literalCaret = selectionStart + e.key.length;
+        let nextText = literalText;
+        let nextCaret = literalCaret;
+        const replacement = textSymbolReplacementAtCaret(literalText, literalCaret);
+        if (replacement) {
+            nextText = literalText.slice(0, replacement.start)
+                + replacement.text + literalText.slice(replacement.end);
+            nextCaret = replacement.start + replacement.text.length;
+            state.symbolUndo.push({
+                beforeText: literalText,
+                beforeCaret: literalCaret,
+                afterText: nextText,
+                afterCaret: nextCaret,
+            });
+        } else if (state.symbolUndo.at(-1)?.afterText !== text) {
+            state.symbolUndo.length = 0;
+        }
+        updateText(app, nextText, nextCaret);
         resetCaretBlink(state);
         e.preventDefault();
         e.stopPropagation();
@@ -318,6 +351,26 @@ export function handleTextEditKey(app, e) {
     // browser defaults or app shortcuts while editing text.
     e.preventDefault();
     e.stopPropagation();
+    return true;
+}
+
+/**
+ * Insert a symbol at the active schematic text caret, replacing any selection.
+ * @param {SchematicEditor} app
+ * @param {string} shapeId
+ * @param {string} symbol
+ * @returns {boolean}
+ */
+export function insertTextEditSymbol(app, shapeId, symbol) {
+    const state = getSchematicTextEdit(app);
+    if (!state || state.shape.id !== shapeId || !symbol || isSchematicLocked(state.shape)) return false;
+    const text = typeof state.shape.text === 'string' ? state.shape.text : '';
+    const caret = state.caretIndex ?? text.length;
+    const anchor = state.selectionAnchor ?? caret;
+    const start = Math.min(caret, anchor);
+    const end = Math.max(caret, anchor);
+    updateText(app, text.slice(0, start) + symbol + text.slice(end), start + symbol.length);
+    resetCaretBlink(state);
     return true;
 }
 

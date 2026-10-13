@@ -14,7 +14,8 @@ import { hasOwnLock, isSchematicLocked } from '../../shapes/lock-owner.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderSchematicPropertyPanel } from './property-host.js';
-import { getSchematicTextEdit } from './text-edit.js';
+import { getSchematicTextEdit, insertTextEditSymbol } from './text-edit.js';
+import { textSymbolPickerField } from '../../shared/ui/text-symbol-autoreplace.js';
 import { isComponentItem, isNetItem, isPolylineItem, isTextItem, isWireItem, isWireOrNetItem, isCircleItem } from '../../core/schematic-items.js';
 import { applySchematicItemState } from '../../core/schematic-state.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -592,6 +593,18 @@ function describeFields(app, selection, context) {
     if (!netShown) appendNet();
     const textShapes = selection.filter(isTextItem);
     if (textShapes.length > 0 && textShapes.length === selection.length) {
+        const textEdit = getSchematicTextEdit(app);
+        if (selection.length === 1 && textEdit?.shape === textShapes[0]) {
+            fields.push(textSymbolPickerField({
+                id: 'propTextInsert',
+                disabled: allLocked,
+                insert: symbol => {
+                    if (!isCurrentSelection()) return;
+                    insertTextEditSymbol(app, textShapes[0].id, symbol);
+                    app.updatePropertiesPanel(selection);
+                },
+            }));
+        }
         const rotation = textShapes[0].rotation;
         const mixed = textShapes.some(text => text.rotation !== rotation);
         fields.push({

@@ -12,6 +12,7 @@ import { applySchematicItemState } from '../../core/schematic-state.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { applyStickyConnections, captureStickyNetLabels, followStickyNetLabels } from './sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
+import { renderComponentPinJunctions } from './component-pin-junctions.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
 import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -603,6 +604,7 @@ export class DeleteComponentsCommand extends Command {
         }
         for (const wire of dirtyWires) redrawShape(app, wire);
         app.updateSelectableItems();
+        renderComponentPinJunctions(app);
         app.fileManager.setDirty(true);
     }
 

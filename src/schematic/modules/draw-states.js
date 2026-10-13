@@ -21,7 +21,7 @@
 import { updateStickyWires } from './wire-reconcile.js';
 import { captureStickyNetLabels } from './sticky-wires.js';
 import { updateSnapHighlight, VERTEX_EPSILON } from './wire.js';
-import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
+import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL, wirePinSnapTolerance } from './wire-snap.js';
 import { computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap } from './wire-drag-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
@@ -324,6 +324,24 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
 // ─── Context menu helpers ──────────────────────────────────────────
 
 /**
+ * Screen-pixel radius in which a node context menu takes priority over an edge.
+ * @param {SchematicEditor} app
+ * @param {SchematicItem} shape
+ * @param {string} nodeId
+ */
+export function contextNodeTargetRadiusPx(app, shape, nodeId) {
+    const scale = Math.max(0.01, app.viewport.scale || 1);
+    let radiusPx = 6;
+    if (isWireItem(shape)) {
+        const hasDot = shape.degree(nodeId) >= 3
+            || shape.pinConnections.has(nodeId)
+            || !!detectTJunction(app, shape, nodeId);
+        if (hasDot) radiusPx = Math.max(radiusPx, Math.max(0.4 * scale, 2.5) + 3);
+    }
+    return radiusPx;
+}
+
+/**
  * @param {SchematicEditor} app
  * @param {Point} worldPos
  * @param {number} clientX
@@ -379,7 +397,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
  * @param {number} clientX
  * @param {number} clientY
  */
-function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
+function handleSegmentContextMenu(app, worldPos, clientX, clientY, skipNodeCore = false) {
     const segTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (const shape of app.shapes) {
         if (!shape.locked && shape.type === 'arc' && shape.hitTest(worldPos, segTolerance)) {
@@ -390,6 +408,14 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
         if (shape.locked || !isGraphShape(shape)) continue;
         const edgeId = shape.hitTestEdge(worldPos, segTolerance);
         if (!edgeId) continue;
+        if (skipNodeCore) {
+            const scale = Math.max(0.01, app.viewport.scale || 1);
+            const onNodeTarget = [...shape.nodes].some(([nodeId, node]) => {
+                const radiusPx = contextNodeTargetRadiusPx(app, shape, nodeId);
+                return Math.hypot(node.x - worldPos.x, node.y - worldPos.y) * scale <= radiusPx;
+            });
+            if (onNodeTarget) continue;
+        }
         selectContextTargetShape(app, shape);
         showSegmentContextMenu(app, shape, edgeId, clientX, clientY);
         return true;
@@ -410,6 +436,9 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
         showLabelContextMenu(app, hit, clientX, clientY);
         return true;
     }
+    // A selected anchor's visible hit area can cover an entire short edge. Let
+    // the edge win outside a small node-centre core so Delete Segment remains reachable.
+    if (handleSegmentContextMenu(app, worldPos, clientX, clientY, true)) return true;
     if (handleAnchorContextMenu(app, worldPos, clientX, clientY)) return true;
     if (handleSegmentContextMenu(app, worldPos, clientX, clientY)) return true;
     return handleComponentContextMenu(app, worldPos, clientX, clientY);
@@ -1095,7 +1124,8 @@ export const anchorDragState = {
 
             if (getSchematicDrag(app).excludePin?.worldPos) {
                 const excludedPin = getSchematicDrag(app).excludePin.worldPos;
-                if (Math.hypot(worldPos.x - excludedPin.x, worldPos.y - excludedPin.y) > PIN_SNAP_TOL)
+                if (Math.hypot(worldPos.x - excludedPin.x, worldPos.y - excludedPin.y)
+                    > wirePinSnapTolerance(app.viewport))
                     getSchematicDrag(app).excludePin = null;
             }
 
@@ -1105,7 +1135,7 @@ export const anchorDragState = {
                 const snap = resolveWireSnapPosition(app, worldPos, {
                     excludeNode: { wire: getSchematicDrag(app).shape, nodeId: getSchematicDrag(app).anchorId },
                     excludePin: getSchematicDrag(app).excludePin || null,
-                    pinTolerance: PIN_SNAP_TOL
+                    pinTolerance: wirePinSnapTolerance(app.viewport)
                 });
                 anchorPos = { x: snap.x, y: snap.y };
                 snappedToTarget = snap.snapType === 'pin' || snap.snapType === 'endpoint' || snap.snapType === 'segment';

@@ -31,12 +31,16 @@ const {
 } = await import('../../src/schematic/modules/schematic-view.js');
 const { updateShapeAnchors } = await import('../../src/schematic/render/shape-renderer.js');
 const { ensureView, viewOf } = await import('../../src/schematic/render/shape-view-state.js');
-const { getPendingShapeSegmentToggle, idleState, anchorDragState, getDidSchematicDrag, setDidSchematicDrag, setPendingShapeSegmentToggle } = await import('../../src/schematic/modules/draw-states.js');
+const { contextNodeTargetRadiusPx, getPendingShapeSegmentToggle, idleState, anchorDragState, getDidSchematicDrag, setDidSchematicDrag, setPendingShapeSegmentToggle } = await import('../../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../../src/schematic/modules/properties.js');
 const { Circle } = await import('../../src/shapes/circle.js');
 const { Arc } = await import('../../src/shapes/arc.js');
 const { Wire } = await import('../../src/shapes/wire.js');
-const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../../src/schematic/modules/context-menu.js');
+const { Net } = await import('../../src/shapes/net.js');
+const {
+    deleteJunction, detectTJunction, dismissAnchorContextMenu, setSchematicShapeSegmentType,
+    showSegmentContextMenu, splitAnchorAndDrag,
+} = await import('../../src/schematic/modules/context-menu.js');
 const { runSchematicDeleteAction } = await import('../../src/schematic/modules/editor-actions.js');
 const {
     clearPendingAnchorDrag,
@@ -47,6 +51,7 @@ const {
     setSchematicDrag,
     commitShapeJoin,
 } = await import('../../src/schematic/modules/drag.js');
+const { syncAnchorDragLinkedNodes } = await import('../../src/schematic/modules/drag-gestures.js');
 const { SelectionManager } = await import('../../src/core/SelectionManager.js');
 const { runSchematicEscapeAction } = await import('../../src/schematic/modules/editor-actions.js');
 const { setPathSegmentType } = await import('../../src/shapes/path-operations.js');
@@ -267,6 +272,8 @@ function appFor(shape) {
             gridVisible: true,
             isPanning: false,
             svg: { style: {} },
+            contentLayer: element('g'),
+            addContent(child) { this.contentLayer.appendChild(child); },
             getSnappedPosition(point) {
                 return { x: Math.round(point.x), y: Math.round(point.y) };
             },
@@ -293,6 +300,7 @@ function commandAppFor(shape) {
             if (!item) return;
             if (!selected.includes(item)) selected.push(item);
         },
+        invalidateHitCache() {},
         notifyChanged() {},
     };
     Object.assign(app, {
@@ -314,6 +322,17 @@ function commandAppFor(shape) {
         },
     });
     return app;
+}
+
+{
+    const junction = new Wire({ points: [{ x: -5, y: 0 }, { x: 0, y: 0 }, { x: 5, y: 0 }] });
+    const centerId = junction.nodeAt({ x: 0, y: 0 }, 1e-9);
+    const branch = junction.addNode(0, -5);
+    junction.addEdge(centerId, branch);
+    const app = appFor(junction);
+    app.viewport.scale = 50;
+    expect('junction context target follows its 20px rendered radius plus 3px padding',
+        contextNodeTargetRadiusPx(app, junction, centerId) === 23);
 }
 
 {
@@ -404,6 +423,55 @@ for (const closed of [false, true]) {
             expect('split redo restores both pieces and their metadata', JSON.stringify(app.shapes.map(item => item.captureState())) === JSON.stringify(placed));
         }
     }
+}
+{
+    const source = new Wire({ id: 'split-source', net: 'source-net',
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }] });
+    const neighbor = new Wire({ id: 'stationary-neighbor', net: 'other-net',
+        points: [{ x: 10, y: 0 }, { x: 10, y: -10 }] });
+    const app = commandAppFor(source);
+    app.shapes.push(neighbor);
+    const neighborBefore = neighbor.captureState();
+    splitAnchorAndDrag(app, source, 'n1', 0, 0);
+    expect('Split does not retain touching foreign wires as drag links',
+        getSchematicDrag(app).tjLinks.length === 0 && getSchematicDrag(app).wireStates === null);
+    const separated = { x: 10, y: 5 };
+    source.moveAnchor(getSchematicDrag(app).anchorId, separated.x, separated.y);
+    syncAnchorDragLinkedNodes(app, separated);
+    expect('Split moves only the chosen branch and leaves every touching wire stationary',
+        JSON.stringify(neighbor.captureState()) === JSON.stringify(neighborBefore));
+}
+{
+    const source = new Wire({ id: 'affected-source',
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }] });
+    const junctionId = source.nodeAt({ x: 10, y: 0 }, 1e-9);
+    const branchId = source.addNode(10, 10);
+    source.addEdge(junctionId, branchId);
+    const unrelated = new Wire({ id: 'unrelated-conflict',
+        points: [{ x: 100, y: 0 }, { x: 110, y: 0 }] });
+    const firstNet = new Net({ id: 'unrelated-net-a', x: 100, y: 0, net: 'net-a' });
+    const secondNet = new Net({ id: 'unrelated-net-b', x: 110, y: 0, net: 'net-b' });
+    const unrelatedNodes = [...unrelated.nodes.keys()];
+    unrelated.pinConnections.set(unrelatedNodes[0], { componentId: firstNet.id, pinNumber: 'conn' });
+    unrelated.pinConnections.set(unrelatedNodes[1], { componentId: secondNet.id, pinNumber: 'conn' });
+    const app = commandAppFor(source);
+    app.shapes.push(unrelated, firstNet, secondNet);
+    const alerts = [];
+    app.alert = message => alerts.push(message);
+    const unrelatedBefore = unrelated.captureState();
+    const junctionInfo = detectTJunction(app, source, junctionId);
+    deleteJunction(app, junctionInfo);
+    const drag = getSchematicDrag(app);
+    expect('junction Split snapshots only the original graph and its fragments',
+        drag.junctionBeforeWireStates.size === 1
+        && !drag.junctionBeforeWireStates.has(unrelated)
+        && !drag.wireStates.has(unrelated));
+    drag.shape.moveAnchor(drag.anchorId, 10, 5);
+    setDidSchematicDrag(app, true);
+    resolveAnchorDragOnMouseUp(app, drag.shape, drag.beforeState, true,
+        drag.wireStates, drag.ncLinks, drag.junctionBeforeWireStates, drag.junctionBeforeLabelTextStates);
+    expect('junction Split validates only its fragments, not an unrelated pre-existing conflict',
+        alerts.length === 0 && JSON.stringify(unrelated.captureState()) === JSON.stringify(unrelatedBefore));
 }
 {
     const shape = new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 2 }, lineWidth: 0.8 });
@@ -570,7 +638,10 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         const listeners = new Map();
         return { style: {}, children: [], appendChild(child) { this.children.push(child); },
             addEventListener(type, listener) { listeners.set(type, listener); },
-            click() { listeners.get('click')?.(); }, remove() { menu = null; },
+            click() { listeners.get('click')?.(); },
+            enter() { listeners.get('mouseenter')?.(); },
+            leave() { listeners.get('mouseleave')?.(); },
+            remove() { menu = null; },
         };
     };
     document.querySelector = () => menu;
@@ -583,6 +654,19 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         app.renderShapes = () => {};
         const edgeId = [...shape.edges.keys()][0];
         showSegmentContextMenu(app, shape, edgeId, 10, 10);
+        const deleteSegment = menu.children.find(child => child.textContent === 'Delete Segment');
+        deleteSegment.enter();
+        const highlightGroup = app.viewport.contentLayer.children.find(child =>
+            child.classList.contains('schematic-context-segment-highlight'));
+        const highlight = highlightGroup?.children.find(child =>
+            child.classList.contains('schematic-context-segment-foreground'));
+        expect('hovering Delete Segment borders exactly the targeted edge', !!highlight
+            && highlightGroup.children.length === 2
+            && Number(highlight.getAttribute('x1')) === 0 && Number(highlight.getAttribute('y1')) === 0
+            && Number(highlight.getAttribute('x2')) === 10 && Number(highlight.getAttribute('y2')) === 0);
+        deleteSegment.leave();
+        expect('leaving Delete Segment clears its preview', !app.viewport.contentLayer.children.some(child =>
+            child.classList.contains('schematic-context-segment-highlight')));
         const convert = menu.children.find(child => child.textContent === 'Convert to Arc Segment');
         expect('schematic polygon segment menu exposes arc conversion', !!convert);
         convert.click();

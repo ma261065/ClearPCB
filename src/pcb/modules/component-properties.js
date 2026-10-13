@@ -2,6 +2,7 @@ import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint
 import { isLayerVisible } from './layers.js';
 import { isRefTextLocked } from './ref-text-selection.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
+import { textSymbolPickerField } from '../../shared/ui/text-symbol-autoreplace.js';
 
 /**
  * @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement
@@ -46,6 +47,8 @@ const numberParse = (min, normalize = value => value) => text => {
  * @property {(id: string) => void} renderReference
  * @property {(id: string, tether: boolean) => void} drawReferenceOverlay
  * @property {(id: string, before: RefStylePatch, after: RefStylePatch) => void} setReferenceStyle
+ * @property {() => any} activeTextEdit
+ * @property {(textId:string, symbol:string) => boolean} insertInlineSymbol
  */
 export class ComponentProperties {
     /** @param {ComponentPropertiesCapabilities} capabilities */
@@ -244,6 +247,16 @@ export class ComponentProperties {
                 title: 'Reference',
                 fields: [
                     { key: 'reference', id: 'pcbPropRefName', type: 'readout', label: 'Reference', value: placement.reference ?? '' },
+                    ...(this.capabilities.activeTextEdit()?.text?.id === compId
+                        ? /** @type {import('../../shared/ui/property-fields.js').PropertyField[]} */ ([textSymbolPickerField({
+                            id: 'pcbPropRefInsert',
+                            disabled,
+                            insert: symbol => {
+                                if (!this._isCurrent(retained)) return;
+                                this.capabilities.insertInlineSymbol(compId, symbol);
+                                refresh();
+                            },
+                        })]) : []),
                     { key: 'layer', id: 'pcbPropRefLayer', type: 'readout', label: 'Layer',
                         value: this.capabilities.layerLabel(silkLayer()) },
                     ...binding.fields(disabled),

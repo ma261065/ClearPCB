@@ -8,14 +8,15 @@ const MENU_STYLE = 'position:fixed;z-index:10000;background:#2b2b2b;border:1px s
     + 'padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;';
 const ITEM_STYLE = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
 
-/** @typedef {{text: string, onClick: (event?: MouseEvent) => void}} MenuItem */
-/** @typedef {{timer: ReturnType<typeof setTimeout>, dismiss: (event: MouseEvent) => void, onKey: (event: KeyboardEvent) => void}} DismissHandlers */
+/** @typedef {{text: string, onClick: (event?: MouseEvent) => void, onEnter?: () => void, onLeave?: () => void}} MenuItem */
+/** @typedef {{timer: ReturnType<typeof setTimeout>, dismiss: (event: MouseEvent) => void, onKey: (event: KeyboardEvent) => void, cleanup: () => void}} DismissHandlers */
 
 /** Each open menu's global listeners and their pending attach timer. */
 const dismissHandlers = /** @type {WeakMap<Element, DismissHandlers>} */ (new WeakMap());
 
 /** Close the menu with this id, and its global listeners, if it is open. @param {string} id */
 export function dismissContextMenu(id) {
+    if (typeof document === 'undefined') return;
     const menu = document.getElementById(id);
     if (!menu) return;
     const handlers = dismissHandlers.get(menu);
@@ -24,6 +25,7 @@ export function dismissContextMenu(id) {
         clearTimeout(handlers.timer);
         document.removeEventListener('mousedown', handlers.dismiss, { capture: true });
         document.removeEventListener('keydown', handlers.onKey, { capture: true });
+        handlers.cleanup();
     }
     menu.remove();
 }
@@ -44,12 +46,25 @@ export function showContextMenu(id, items, clientX, clientY, { className = '', o
     menu.id = id;
     if (className) menu.className = className;
     menu.style.cssText = `${MENU_STYLE}left:${clientX}px;top:${clientY}px;`;
+    /** @type {null|(() => void)} */
+    let activeLeave = null;
     for (const item of items) {
         const element = document.createElement('div');
         element.textContent = item.text;
         element.style.cssText = ITEM_STYLE;
-        element.addEventListener('mouseenter', () => { element.style.background = '#3a3a3a'; });
-        element.addEventListener('mouseleave', () => { element.style.background = ''; });
+        element.addEventListener('mouseenter', () => {
+            activeLeave?.();
+            activeLeave = item.onLeave || null;
+            element.style.background = '#3a3a3a';
+            item.onEnter?.();
+        });
+        element.addEventListener('mouseleave', () => {
+            element.style.background = '';
+            if (activeLeave === item.onLeave) {
+                activeLeave?.();
+                activeLeave = null;
+            }
+        });
         element.addEventListener('click', event => {
             dismissContextMenu(id);
             item.onClick(event);
@@ -72,6 +87,10 @@ export function showContextMenu(id, items, clientX, clientY, { className = '', o
         document.addEventListener('mousedown', dismiss, { capture: true });
         document.addEventListener('keydown', onKey, { capture: true });
     }, 0);
-    dismissHandlers.set(menu, { dismiss, onKey, timer });
+    const cleanup = () => {
+        activeLeave?.();
+        activeLeave = null;
+    };
+    dismissHandlers.set(menu, { dismiss, onKey, timer, cleanup });
     return menu;
 }

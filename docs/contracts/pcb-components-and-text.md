@@ -116,9 +116,14 @@ edit or deletion command;
 there is no temporary authored-content rollback. Enter commits, and so does
 leaving the edit by clicking elsewhere on the board, choosing another tool or
 ribbon tab, or switching to the schematic (`cancelPcbDrawingMode`); only Escape
-cancels, and a plain blur keeps editing. Typing `(c)`, `(r)` or `(tm)` inserts
-the symbol through the browser's `insertText` command, so Ctrl+Z straight after
+cancels, and a plain blur keeps editing. Typing `(c)`, `(r)`, `(tm)`, `(u)` or
+`(o)` inserts the shared ©, ®, ™, µ or Ω symbol mapping through the browser's
+`insertText` command, so Ctrl+Z straight after
 restores the literal text; Ctrl+Z while typing never steps the editor history.
+The shared Insert symbol dropdown is present while editing free PCB Text or a
+component Reference designator and inserts at the active native-input caret.
+PCB has no separately rendered Value text object; component Value remains
+schematic-owned metadata used by BOM and placement data.
 Cancel restores presentation
 from the current model, preserving independently committed property changes.
 Blank-content deletion and cancelled new-placement cleanup use

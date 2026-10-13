@@ -24,7 +24,7 @@ import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { getPropertyEditor } from './property-editors.js';
 import { showTrackNodeProperties, showTrackProperties, showTrackSegmentProperties, showTrackSelectionProperties } from './track-properties.js';
-import { HALO_CLASS, HALO_COLOR, clearHoverHighlight, drawSegmentHalo, drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './copper-halos.js';
+import { HALO_CLASS, HALO_COLOR, clearHoverHighlight, clearTrackContextPreview, drawSegmentHalo, drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass, showTrackContextPreview } from './copper-halos.js';
 import { showViaProperties } from './via-properties.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
@@ -628,11 +628,13 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
  */
 export function trackContextActions(app, track, nodeId = null, edgeId = null, floating = false) {
     if (isPcbObjectLocked(app, 'track', track)) return [];
-    return pathContextActions({ node: nodeId != null, segment: edgeId != null,
+    const items = /** @type {import('../../shared/ui/context-menu.js').MenuItem[]} */ (pathContextActions({
+        node: nodeId != null, segment: edgeId != null,
         curved: edgeId != null && !!track.edges.get(edgeId)?.bulge,
         split: nodeId && track.degree(nodeId) >= 2 ? () => splitTrackNodeAndDrag(app, track, nodeId) : null,
         deleteNode: nodeId && track.degree(nodeId) <= 2 ? () => deleteSelectedTrack(app) : null,
-        deleteSegment: edgeId != null ? () => deleteTrackSegmentAt(app, track, edgeId) : null,
+        deleteSegment: edgeId != null && track.edges.size > 1
+            ? () => deleteTrackSegmentAt(app, track, edgeId) : null,
         convert: edgeId != null ? () => {
             const before = track.captureState();
             const edge = track.edges.get(edgeId);
@@ -650,5 +652,15 @@ export function trackContextActions(app, track, nodeId = null, edgeId = null, fl
         } : null,
         deleteObject: () => { clearTrackSelection(app); app.history.execute(new RemoveTrackCommand(app, track)); },
         label: 'track',
-    }).filter(Boolean);
+    }).filter(Boolean));
+    for (const item of items) {
+        if (item.text === 'Delete segment') {
+            item.onEnter = () => showTrackContextPreview(app, track, edgeId);
+            item.onLeave = () => clearTrackContextPreview(app);
+        } else if (item.text === 'Delete track') {
+            item.onEnter = () => showTrackContextPreview(app, track, null);
+            item.onLeave = () => clearTrackContextPreview(app);
+        }
+    }
+    return items;
 }

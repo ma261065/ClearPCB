@@ -11,7 +11,10 @@ preserved in PCB net menus. Moving or removing the label restores the remaining
 wire name or the default single-pin net on the next schematic-to-PCB sync.
 Dragging a standalone NetLabel by its symbol or connection anchor uses the same
 0.5 mm pin snap tolerance as placing a new label or picking up a wire at a pin.
-This does not change active-wire routing's existing approach tolerance.
+Active wire routing and wire node/segment dragging use a millimetre-based pin
+approach radius: 0.5 mm through 1000% zoom, reducing linearly to 0.25 mm at
+5000%, and remaining 0.25 mm above that. Component placement retains its
+separate magnet.
 Snap probes
 use the raw projected connection point before grid quantization, exclude the
 label's own virtual pin, and move the connection point exactly to the highlighted
@@ -91,6 +94,10 @@ raises it and moves the cue to its edges.
 Schematic shape hover and selection use a six-screen-pixel margin outside the
 rendered geometry at every zoom; there is no additional fixed 0.5 mm margin at
 high zoom.
+While placing a component-only schematic paste, the normal component-placement
+shortcuts remain active: Space rotates right, X flips horizontally and Y flips
+vertically. The preview and placed component use the same transform, and each
+new paste starts from the copied orientation.
 Dragging a wire segment computes collinearity from the rigid translation of
 both segment endpoints. When that translation makes the moved segment and an
 adjoining stationary segment collinear, the usual blue dotted collinearity
@@ -104,6 +111,13 @@ stroke is shifted to the actual intersection of that overpass edge with the
 crossed wire. The cue is confined to the crossing, ignores pointer input and
 does not change connectivity.
 Crossings at authored nodes, shared endpoints and T-junctions have no cue.
+Direct contact between pins of two physical schematic components shows the same
+green junction-dot visual used for wire-to-pin connections. The dot is derived
+from the coincident pin geometry, ignores pointer input and disappears when the
+components separate.
+A NetLabel attached directly to a component pin shows the same green dot at the
+pin. It is likewise presentation-only and follows the label's derived geometric
+connection.
 
 The flat 2D board viewer pans and zooms a cached transparent board image, leaving
 its background fixed. Dragging with either the left or right mouse button pans
@@ -375,3 +389,33 @@ preview keep showing each step while the run settles; Escape discards it. Undo/r
 save/open/new, PCB fabrication export and switching editors call
 `flushSettledChanges()` first, so a run still settling is committed rather than
 lost or refused.
+Right-clicking a schematic wire selects the whole wire in red and keeps that
+selection while the menu is open or the pointer leaves it. Hovering **Delete
+Segment** draws a blue border around the exact straight or curved target edge;
+hovering **Delete Wire** borders every edge. The red selected wire remains the
+foreground in both previews. Leaving the item or dismissing the menu by any
+route removes the preview before an action runs. Deleting a segment selects the
+first surviving wire/shape fragment.
+PCB track menus use the same targeted delete preview: hovering **Delete
+segment** borders only that edge, while **Delete track** borders every edge.
+For a track containing only one segment, the equivalent **Delete segment**
+action is omitted and only **Delete track** is offered.
+The inner preview follows each edge's actual top/bottom copper color, and menu
+dismissal removes it.
+Right-click edge targeting runs before the broader anchor-handle hit area
+outside the node target. Ordinary nodes have a six-screen-pixel minimum target;
+nodes showing a junction or pin-connection dot use the full rendered dot radius
+plus three pixels. Thus exposed portions of short segments still offer **Delete
+Segment**, while **Delete point**, **Split** and related node actions
+remain easy to target.
+Schematic junction, wire-to-pin, direct-pin and direct-NetLabel dots use a
+0.4 mm radius, with a 2.5-screen-pixel minimum at low zoom. They retain their
+physical size and therefore continue scaling on screen as the view zooms in.
+**Split** on a wire node detaches only the chosen branch and starts dragging its
+new endpoint. Other wire graphs touching the original point remain stationary;
+their Net labels therefore cannot be carried into a false merge conflict.
+After Split/anchor/segment reconciliation, pin/NetLabel connections, undo
+diffing and Net conflict validation run only for the affected wire network,
+including newly created fragments. Junction Split snapshots only the original
+wire and those fragments; unrelated pre-existing conflicts elsewhere cannot
+reject the edit.

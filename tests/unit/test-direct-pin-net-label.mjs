@@ -4,6 +4,7 @@ import { Net } from '../../src/shapes/net.js';
 import { Wire } from '../../src/shapes/wire.js';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { extractNetlist, SCHEMATIC_CONNECTION_TOLERANCE } from '../../src/core/netlist.js';
+import { collectDirectPinLabelContacts } from '../../src/core/component-pin-connectivity.js';
 import { BuiltInComponents } from '../../src/components/BuiltInComponents.js';
 import { defaultPcbStackup } from '../../src/core/project-format.js';
 
@@ -17,6 +18,8 @@ for (const rotation of [0, 37, 90, 180, 270]) {
         const label = new Net({ ...point, net: 'Gnd' });
         const state = { components: [component], shapes: [label] };
         const before = [component.toJSON(), label.toJSON()];
+        assert.equal(collectDirectPinLabelContacts(state.components, state.shapes).length, 1,
+            'Direct label-to-pin geometry also drives the junction-dot query');
         assert.deepEqual(pinsFor(state, 'Gnd'), [{ componentId: component.id, pinNumber: '1' }]);
         assert.equal(extractNetlist(state).some(net => net.net === 'R1.1'), false,
             'Named pin must not also receive the default single-pin name');
@@ -27,6 +30,7 @@ for (const rotation of [0, 37, 90, 180, 270]) {
         assert.deepEqual(pinsFor(state, 'Ground'), [{ componentId: component.id, pinNumber: '1' }],
             'Direct label renames are reflected without cached netlist state');
         label.x += SCHEMATIC_CONNECTION_TOLERANCE + 0.01;
+        assert.equal(collectDirectPinLabelContacts(state.components, state.shapes).length, 0);
         assert.equal(pinsFor(state, 'Ground'), undefined, 'Nearby disconnected label is not a pin net');
         assert.deepEqual(pinsFor(state, 'R1.1'), [{ componentId: component.id, pinNumber: '1' }]);
         label.x -= 0.02;

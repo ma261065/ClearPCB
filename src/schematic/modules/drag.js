@@ -11,7 +11,7 @@
  */
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from './commands.js';
-import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire-reconcile.js';
+import { reconcileWires, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire-reconcile.js';
 import { updateSnapHighlight } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
@@ -212,7 +212,7 @@ export function captureMoveDragStates(app, selection) {
  * Undo a cancelled move drag's live changes from its snapshot, with one redraw.
  * @param {SchematicEditor} app
  */
-function restoreMoveDragStates(app) {
+export function restoreMoveDragStates(app) {
     const states = getSchematicDrag(app)?.restoreStates;
     if (!states) return;
     for (const [entity, state] of states) {
@@ -289,14 +289,31 @@ function captureLabelTextStates(app, beforeAll) {
  * @param {Map<Wire, import('../../shapes/wire.js').WireState>} beforeAll - Complete wire before-state map
  * @param {string} label - Undo command label
  * @param {Map<Text, import('../../shapes/text.js').TextState>} labelTextBefore - Label text before-states
- * @returns {BatchCommand|null}
+ * @returns {{batch:BatchCommand|null, affected:Set<Wire>}}
  */
 function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBefore) {
-    reconcileWires(app, changedWires);
-    for (const w of changedWires) {
+    const affected = reconcileWires(app, changedWires);
+    for (const w of affected) {
         if (app.shapes.includes(w)) refreshWireConnections(app, w);
     }
-    return buildWireDiffBatch(app, beforeAll, label, [], labelTextBefore);
+    return {
+        batch: buildWireDiffBatch(app, beforeAll, label, [], labelTextBefore, affected),
+        affected,
+    };
+}
+
+/** @param {SchematicEditor} app @param {Iterable<Wire>} wires */
+function affectedNetConflict(app, wires) {
+    for (const wire of wires) {
+        if (!app.shapes.includes(wire)) continue;
+        const names = new Set();
+        for (const [, connection] of wire.pinConnections) {
+            const net = findNetById(app, connection.componentId);
+            if (net?.net) names.add(net.net);
+        }
+        if (names.size > 1) return [...names].sort();
+    }
+    return null;
 }
 
 /**
@@ -437,37 +454,26 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             }
         }
 
-        const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move anchor', labelTextBefore);
+        const result = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move anchor', labelTextBefore);
+        const batch = result.batch;
 
         // Add NC commands
         const b = batch || new BatchCommand('Move anchor');
         addNoConnectCommands(app, b, ncLinks);
         pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
-        // Post-commit check: refresh all wire connections, then check if
-        // any wire now has two or more Net shapes with different names.
-        for (const w of app.shapes) {
-            if (isWire(w)) refreshWireConnections(app, w);
-        }
-        for (const w of app.shapes) {
-            if (!isWire(w)) continue;
-            const netNames = new Set();
-            for (const [, conn] of w.pinConnections) {
-                const ns = findNetById(app, conn.componentId);
-                if (ns?.net) netNames.add(ns.net);
-            }
-            if (netNames.size > 1) {
-                const sorted = [...netNames].sort();
-                app.alert(
-                    `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
-                    { title: 'Net Conflict' }
-                );
-                app.history.undo();
-                app.history.redoStack.pop();
-                app.history._notifyChanged();
-                app.renderShapes(true);
-                return false;
-            }
+        // Reject only conflicts created in the network touched by this drag.
+        const conflict = affectedNetConflict(app, result.affected);
+        if (conflict) {
+            app.alert(
+                `Cannot merge wire segments with different net names: "${conflict[0]}" and "${conflict[1]}".`,
+                { title: 'Net Conflict' }
+            );
+            app.history.undo();
+            app.history.redoStack.pop();
+            app.history._notifyChanged();
+            app.renderShapes(true);
+            return false;
         }
 
         // Select surviving dragged wire
@@ -633,7 +639,8 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
     const labelTextBefore = captureLabelTextStates(app, beforeAll);
 
     const changedWires = [...wireStates.keys()].filter(w => app.shapes.includes(w));
-    const batch = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move wire segment', labelTextBefore);
+    const result = reconcileAndBuildBatch(app, changedWires, beforeAll, 'Move wire segment', labelTextBefore);
+    const batch = result.batch;
 
     // Add NC + label commands
     const b = batch || new BatchCommand('Move wire segment');
@@ -649,34 +656,20 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
 
     pushBatchIfNonEmpty(app, batch || (b.commands.length > 0 ? b : null));
 
-    // Post-commit check: net conflict
-    for (const w of app.shapes) {
-        if (isWire(w)) refreshWireConnections(app, w);
-    }
-    for (const w of app.shapes) {
-        if (!isWire(w)) continue;
-        const netNames = new Set();
-        for (const [, conn] of w.pinConnections) {
-            const ns = findNetById(app, conn.componentId);
-            if (ns?.net) netNames.add(ns.net);
+    const conflict = affectedNetConflict(app, result.affected);
+    if (conflict) {
+        app.alert(
+            `Cannot merge wire segments with different net names: "${conflict[0]}" and "${conflict[1]}".`,
+            { title: 'Net Conflict' }
+        );
+        app.history.undo();
+        app.history.redoStack.pop();
+        for (const wire of result.affected) {
+            if (app.shapes.includes(wire)) refreshWireConnections(app, wire);
         }
-        if (netNames.size > 1) {
-            const sorted = [...netNames].sort();
-            app.alert(
-                `Cannot merge wire segments with different net names: "${sorted[0]}" and "${sorted[1]}".`,
-                { title: 'Net Conflict' }
-            );
-            app.history.undo();
-            app.history.redoStack.pop();
-
-            for (const rw of app.shapes) {
-                if (isWire(rw)) refreshWireConnections(app, rw);
-            }
-
-            app.history._notifyChanged();
-            app.renderShapes(true);
-            return false;
-        }
+        app.history._notifyChanged();
+        app.renderShapes(true);
+        return false;
     }
 
     app.renderShapes(true);
@@ -714,6 +707,7 @@ export function revertSegmentDragIfNoMove(app, wireStates) {
 export function commitMoveDrag(app, totalDx, totalDy) {
     const selectedShapes = app.selection.getSelection();
     const movedShapes = selectedShapes.filter(s => !isSchematicLocked(s));
+    const attachedWireStates = getSchematicDrag(app)?.stickyGuideBaseline || new Map();
 
     if (movedShapes.length === 0 || (totalDx === 0 && totalDy === 0)) return true;
 
@@ -739,12 +733,17 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     app.history.execute(command);
 
     // Post-move: reconcile wire overlaps
-    const movedWires = movedShapes.filter(isWire).filter(w => app.shapes.includes(w));
+    const movedWires = [...new Set([
+        ...movedShapes.filter(isWire),
+        ...attachedWireStates.keys(),
+    ])].filter(w => app.shapes.includes(w));
     if (movedWires.length > 0) {
-        const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
+        const beforeAll = buildBeforeAllWireStates(app, attachedWireStates);
+        const labelTextBefore = captureLabelTextStates(app, beforeAll);
+        const { batch: reconcileBatch } = reconcileAndBuildBatch(
+            app, movedWires, beforeAll, 'Move wire cleanup', labelTextBefore);
         if (reconcileBatch) {
-            // Pop reconcile batch + MoveShapesCommand, combine into one
-            app.history.popUndo(2);
+            app.history.popUndo(1);
             const combined = new BatchCommand('Move + wire cleanup');
             combined.add(command);
             for (const cmd of reconcileBatch.commands) combined.add(cmd);

@@ -7,6 +7,11 @@
  * Net labels directly touching component pins name those pins and their
  * connected wire nets, without needing an extra wire.
  */
+import {
+    collectCoincidentComponentPins,
+    SCHEMATIC_CONNECTION_TOLERANCE,
+} from './component-pin-connectivity.js';
+export { SCHEMATIC_CONNECTION_TOLERANCE } from './component-pin-connectivity.js';
 
 /**
  * @typedef {Object} PinRef
@@ -26,9 +31,6 @@
 /** @typedef {{pins?:SymbolPin[], _source?:string}} ComponentSymbol */
 /** @typedef {{id:string, reference?:string, value?:string, definition?:ComponentDefinition|null, symbol?:ComponentSymbol|null, localToWorld?: (x:number,y:number) => {x:number,y:number}}} SchematicComponent */
 /** @typedef {{shapes?:NetShape[], components?:SchematicComponent[]}} SchematicState */
-
-/** Matches the schematic pin/wire attachment tolerance. */
-export const SCHEMATIC_CONNECTION_TOLERANCE = 0.15;
 
 /**
  * Extract a netlist from the schematic document's current state.
@@ -112,6 +114,20 @@ export function extractNetlist(schematicApp) {
     for (const [key, { net }] of labeledPins) {
         if (!wiredPins.has(key)) addPins(net, [key]);
         wiredPins.add(key);
+    }
+    for (const group of collectCoincidentComponentPins(schematicApp.components)) {
+        const keys = group.pins.map(pin => pin.key);
+        const names = [...netMap].filter(([, pins]) => keys.some(key => pins.has(key)))
+            .map(([name]) => name);
+        const uniqueNames = [...new Set(names)];
+        if (uniqueNames.length > 1) {
+            throw new Error(`Conflicting nets ${uniqueNames.map(net => `"${net}"`).join(' and ')} on directly joined component pins.`);
+        }
+        const first = group.pins[0];
+        const net = uniqueNames[0]
+            || `${first.component.reference || 'U?'}.${first.pin.number}`;
+        addPins(net, keys);
+        for (const key of keys) wiredPins.add(key);
     }
 
     // Convert to array form

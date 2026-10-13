@@ -28,7 +28,11 @@ const definition = {
         'SILK~LINE~-3~-2~3~-2~0.15~top',
     ],
 };
-const component = index => new Component(structuredClone(definition), { id: `part-${index}`, reference: `J${index + 1}` });
+const component = index => new Component(structuredClone(definition), {
+    id: `part-${index}`,
+    reference: `J${index + 1}`,
+    x: index * 100,
+});
 const project = new ProjectDocument();
 const parts = Array.from({ length: 5 }, (_, index) => component(index));
 project.schematicDocument.components.push(...parts);

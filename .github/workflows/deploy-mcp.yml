@@ -16,7 +16,7 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         working-directory: mcp-worker
-        run: npm install
+        run: npm ci
       - name: Type-check
         working-directory: mcp-worker
         run: npm run check

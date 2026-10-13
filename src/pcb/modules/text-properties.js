@@ -8,6 +8,7 @@ import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { displayRotationDegrees } from '../../core/number-inputs.js';
 import { TEXT_LAYERS, createPcbText } from '../../core/pcb-text.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
+import { textSymbolPickerField } from '../../shared/ui/text-symbol-autoreplace.js';
 import { pcbLayerOption, isLayerVisible } from './layers.js';
 import { boardShapeLocked, lockedProperty } from './object-locks.js';
 import { pictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
@@ -28,19 +29,6 @@ import { isEditorActive } from './pcb-editor-api.js';
 /** @typedef {{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:StrokeTextModel,v:any)=>void, value?:(m:StrokeTextModel)=>any, wrap?:boolean}} StrokeTextFieldSpec */
 /** @typedef {{fields: Array<StrokeTextFieldSpec>, editable?:()=>boolean, begin?:(m:StrokeTextModel)=>StrokeTextModel, cancel?:(snap:StrokeTextModel)=>void, preview:(m:StrokeTextModel)=>void, commit:(m:StrokeTextModel, snap:StrokeTextModel)=>void, refresh?:()=>void}} StrokeTextBindingSpec */
 /** @typedef {{model:StrokeTextModel, spec:StrokeTextBindingSpec, affectsLayer:(layerId:string)=>boolean, readonly active:boolean, fields:(disabled?:boolean, hold?:any)=>PropertyField[], commit:()=>void, cancel:()=>boolean, dispose:()=>void}} StrokeTextBinding */
-
-const SYMBOLS = [
-    ['', 'Symbol\u2026'],
-    ['\u00A9', '\u00A9 Copyright'],
-    ['\u00AE', '\u00AE Registered'],
-    ['\u2122', '\u2122 Trademark'],
-    ['\u00B0', '\u00B0 Degree'],
-    ['\u00B5', '\u00B5 Micro'],
-    ['\u03A9', '\u03A9 Ohm'],
-    ['\u00B1', '\u00B1 Plus-minus'],
-    ['\u00D7', '\u00D7 Times'],
-    ['\u00F7', '\u00F7 Divide'],
-].map(([value, label]) => ({ value, label }));
 
 /** @param {number} value */
 const wrapDegrees = value => ((Math.round(value) % 360) + 360) % 360;
@@ -194,15 +182,18 @@ export function showTextProperties(app, text, textEdit = () => null, insertInlin
             title: 'Text',
             fields: [
                 lock.field,
-                ...(isEditingThis() ? /** @type {PropertyField[]} */ ([{ key: 'insert', id: 'pcbPropTextInsert', type: 'select', label: 'Insert',
-                    value: '', disabled: readOnly, options: SYMBOLS, commit: symbol => {
-                        if (!symbol || boardShapeLocked(text)) { refresh(); return; }
+                ...(isEditingThis() ? /** @type {PropertyField[]} */ ([textSymbolPickerField({
+                    id: 'pcbPropTextInsert',
+                    disabled: readOnly,
+                    insert: symbol => {
+                        if (boardShapeLocked(text)) { refresh(); return; }
                         if (!insertInlineSymbol(text.id, symbol)) {
                             app.history.execute(new EditTextCommand(app, text.id,
                                 { content: (text.content || '') + symbol }));
                         }
                         refresh();
-                    } }]) : []),
+                    },
+                })]) : []),
                 ...binding.fields(readOnly, hold),
                 { key: 'border', id: 'pcbPropTextBorder', type: 'checkbox', label: 'Border',
                     value: text.border, disabled: readOnly, commit: value => {
