@@ -10,7 +10,8 @@ const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
  * @typedef {{chunks: Array<string|undefined>, bytes: number}} ChunkTransfer
  * @typedef {{id: string, method: string, params?: Record<string, unknown>}} RelayRequest
  * @typedef {{id: string, result?: unknown, error?: string}} RelayResponse
- * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, connectionError?: string, canRevert?: boolean}} McpBridgeState
+ * @typedef {{id: string, name: string, version?: string}} PairingClient
+ * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, pairingCode?: string, pairingExpiresAt?: number, pendingClient?: PairingClient, pairedClient?: PairingClient, connectionError?: string, canRevert?: boolean}} McpBridgeState
  */
 
 function endpointOrigin() {
@@ -30,20 +31,50 @@ function makeSessionId() {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function getComponentCatalog() {
+/** @param {typeof BuiltInComponents[number]} definition */
+function componentDefinition(definition) {
     return {
-        usage: {
+        dn: definition.name,
+        description: definition.description,
+        defaultReference: definition.defaultReference,
+        defaultValue: definition.defaultValue,
+        pins: definition.symbol.pins.map(pin => ({
+            number: String(pin.number),
+            name: pin.name,
+            x: pin.x,
+            y: pin.y,
+            orientation: pin.orientation,
+            length: pin.length,
+            type: pin.type,
+        })),
+        footprintName: definition.footprintName,
+        footprintShapes: definition.footprintShapes,
+    };
+}
+
+function describeSchema() {
+    return {
+        format: {
+            envelope: {
+                required: ['type', 'version', 'schematic'],
+                optional: ['created', 'pcb'],
+                constants: { type: 'clearpcb-project', version: '1.0' },
+            },
+            schematic: {
+                required: ['shapes', 'components'],
+                optional: ['settings', 'defs'],
+                shapeTypes: ['wire', 'junction', 'no-connect', 'label', 'power', 'text', 'component'],
+            },
+            pcb: {
+                optional: ['settings', 'placements', 'shapes', 'design', 'board'],
+                shapeTypes: ['track', 'via', 'zone', 'keepout', 'text', 'dimension', 'graphic'],
+            },
+        },
+        examples: {
             component: {
                 type: 'component', id: 'comp_1', dn: 'Resistor',
                 x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
             },
-            notes: [
-                'Use a catalog dn directly; do not add bundled definitions to schematic.defs.',
-                'Component x/y is the symbol origin. Rotate pin offsets around that origin by rot degrees.',
-                'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
-                'PCB placements use the schematic component id and include x, y, and rot.',
-                'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
-            ],
             wire: {
                 id: 'wire_1', type: 'wire',
                 nd: { n0: [36.19, 25], n1: [45, 25] },
@@ -60,23 +91,13 @@ function getComponentCatalog() {
                 n: 'SIGNAL', w: 0.25,
             },
         },
-        components: BuiltInComponents.map(definition => ({
-            dn: definition.name,
-            description: definition.description,
-            defaultReference: definition.defaultReference,
-            defaultValue: definition.defaultValue,
-            pins: definition.symbol.pins.map(pin => ({
-                number: String(pin.number),
-                name: pin.name,
-                x: pin.x,
-                y: pin.y,
-                orientation: pin.orientation,
-                length: pin.length,
-                type: pin.type,
-            })),
-            footprintName: definition.footprintName,
-            footprintShapes: definition.footprintShapes,
-        })),
+        notes: [
+            'Use a built-in dn directly; do not add bundled definitions to schematic.defs.',
+            'Component x/y is the symbol origin. Rotate pin offsets around that origin by rot degrees.',
+            'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
+            'PCB placements are keyed by schematic component id and require x, y, and rot.',
+            'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
+        ],
     };
 }
 
@@ -95,13 +116,19 @@ export class McpBridge {
         this.retryTimer = 0;
         this.retryCount = 0;
         this.connectionError = '';
+        this.pairingCode = '';
+        this.pairingExpiresAt = 0;
+        this.pendingPairing = null;
+        this.pairedClient = null;
+        this.codeTimer = 0;
+        this.approvalTimer = 0;
         this.lastMcpSnapshot = null;
         /** @type {Map<string, ChunkTransfer>} */
         this.incomingChunks = new Map();
     }
 
     get mcpUrl() {
-        return this.sessionId ? `${endpointOrigin()}/mcp/${this.sessionId}` : '';
+        return `${endpointOrigin()}/mcp`;
     }
 
     enable() {
@@ -110,19 +137,33 @@ export class McpBridge {
         this.sessionId = makeSessionId();
         this.retryCount = 0;
         this.connectionError = '';
+        this.pairingCode = '';
+        this.pairingExpiresAt = 0;
+        this.pendingPairing = null;
+        this.pairedClient = null;
         this._connect();
         this._notify();
     }
 
     disable() {
+        const relayId = this.sessionId;
         this.enabled = false;
         this.connected = false;
         this.sessionId = '';
         this.connectionError = '';
+        this.pairingCode = '';
+        this.pairingExpiresAt = 0;
+        this.pendingPairing = null;
+        this.pairedClient = null;
         this.lastMcpSnapshot = null;
         this.incomingChunks.clear();
         clearTimeout(this.retryTimer);
+        clearTimeout(this.codeTimer);
+        clearTimeout(this.approvalTimer);
         this.retryTimer = 0;
+        this.codeTimer = 0;
+        this.approvalTimer = 0;
+        void this._revokePairing(relayId);
         this.socket?.close();
         this.socket = null;
         this._notify();
@@ -139,6 +180,7 @@ export class McpBridge {
             this.connected = true;
             this.retryCount = 0;
             this.connectionError = '';
+            void this._registerPairingCode();
             this._notify();
         });
         socket.addEventListener('message', event => void this._handleRelayFrame(socket, event.data));
@@ -164,6 +206,78 @@ export class McpBridge {
         this.lastMcpSnapshot = null;
         this._notify();
         return true;
+    }
+
+    approvePairing() {
+        if (!this.pendingPairing || !this.socket) return false;
+        const { requestId, client } = this.pendingPairing;
+        this._send(this.socket, { id: requestId, result: { approved: true } });
+        this.pendingPairing = null;
+        this.pairedClient = client;
+        this.pairingCode = '';
+        this.pairingExpiresAt = 0;
+        clearTimeout(this.codeTimer);
+        clearTimeout(this.approvalTimer);
+        this._notify();
+        return true;
+    }
+
+    denyPairing() {
+        if (!this.pendingPairing || !this.socket) return false;
+        this._send(this.socket, { id: this.pendingPairing.requestId, result: { approved: false } });
+        this.pendingPairing = null;
+        clearTimeout(this.approvalTimer);
+        this._notify();
+        void this._registerPairingCode();
+        return true;
+    }
+
+    disconnectClient() {
+        if (!this.pairedClient || !this.socket) return false;
+        this.socket.send(JSON.stringify({ transport: 'control', action: 'disconnect' }));
+        this.pairedClient = null;
+        void this._registerPairingCode();
+        this._notify();
+        return true;
+    }
+
+    async _registerPairingCode() {
+        if (!this.enabled || !this.connected || this.pairedClient || this.pendingPairing) return;
+        clearTimeout(this.codeTimer);
+        try {
+            const response = await fetch(new URL('/mcp/pairing/register', endpointOrigin()), {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ relayId: this.sessionId }),
+            });
+            const payload = await response.json();
+            if (!response.ok || typeof payload.code !== 'string' || typeof payload.expiresAt !== 'number') {
+                throw new Error(payload.error || `Pairing registration failed with HTTP ${response.status}.`);
+            }
+            this.pairingCode = payload.code;
+            this.pairingExpiresAt = payload.expiresAt;
+            const refreshIn = Math.max(1000, payload.expiresAt - Date.now());
+            this.codeTimer = window.setTimeout(() => void this._registerPairingCode(), refreshIn);
+            this.connectionError = '';
+        } catch (error) {
+            this.connectionError = /** @type {{message: string}} */ (error).message;
+        }
+        this._notify();
+    }
+
+    /** @param {string} relayId */
+    async _revokePairing(relayId) {
+        if (!relayId) return;
+        try {
+            await fetch(new URL('/mcp/pairing/revoke', endpointOrigin()), {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ relayId }),
+                keepalive: true,
+            });
+        } catch (error) {
+            console.error('Unable to revoke the MCP pairing code.', error);
+        }
     }
 
     /**
@@ -218,8 +332,44 @@ export class McpBridge {
                 throw new Error('Invalid relay request.');
             }
             let result;
-            if (request.method === 'get_component_catalog') {
-                result = getComponentCatalog();
+            if (request.method === 'request_pairing') {
+                const client = /** @type {Partial<PairingClient>|undefined} */ (request.params?.client);
+                if (!client || typeof client.id !== 'string' || typeof client.name !== 'string') {
+                    throw new Error('Invalid pairing client.');
+                }
+                if (this.pendingPairing || this.pairedClient) throw new Error('This tab already has an MCP client.');
+                this.pendingPairing = {
+                    requestId: request.id,
+                    client: /** @type {PairingClient} */ (client),
+                };
+                this.pairingCode = '';
+                this.pairingExpiresAt = 0;
+                clearTimeout(this.codeTimer);
+                clearTimeout(this.approvalTimer);
+                this.approvalTimer = window.setTimeout(() => {
+                    if (this.pendingPairing?.requestId !== request.id) return;
+                    this.pendingPairing = null;
+                    this._notify();
+                    void this._registerPairingCode();
+                }, 60_000);
+                this._notify();
+                return;
+            } else if (request.method === 'describe_schema') {
+                result = describeSchema();
+            } else if (request.method === 'list_parts') {
+                result = BuiltInComponents.map(definition => ({
+                    dn: definition.name,
+                    description: definition.description,
+                    defaultReference: definition.defaultReference,
+                    defaultValue: definition.defaultValue,
+                    pinCount: definition.symbol.pins.length,
+                    footprintName: definition.footprintName,
+                }));
+            } else if (request.method === 'get_part') {
+                const dn = request.params?.dn;
+                const definition = BuiltInComponents.find(candidate => candidate.name === dn);
+                if (!definition) throw new Error(`Unknown built-in component dn: ${String(dn)}`);
+                result = componentDefinition(definition);
             } else if (request.method === 'get_project') {
                 result = this.project.serialize();
             } else if (request.method === 'replace_project') {
@@ -227,13 +377,18 @@ export class McpBridge {
                 const previous = this.project.serialize();
                 await this.project.load(/** @type {import('./ProjectDocument.js').ProjectData} */ (request.params.project));
                 this.lastMcpSnapshot = previous;
-                result = this.project.serialize();
+                result = { ok: true, operation: 'replace_project' };
             } else if (request.method === 'apply_project_patch') {
                 const previous = this.project.serialize();
                 const updated = applyJsonPatch(previous, /** @type {Parameters<typeof applyJsonPatch>[1]} */ (request.params?.patch));
                 await this.project.load(/** @type {import('./ProjectDocument.js').ProjectData} */ (updated));
                 this.lastMcpSnapshot = previous;
-                result = this.project.serialize();
+                const patch = request.params?.patch;
+                result = {
+                    ok: true,
+                    operation: 'apply_project_patch',
+                    operations: Array.isArray(patch) ? patch.length : 0,
+                };
             } else {
                 throw new Error(`Unsupported MCP operation: ${request.method}`);
             }
@@ -276,6 +431,10 @@ export class McpBridge {
             connected: this.connected,
             sessionId: this.sessionId,
             mcpUrl: this.mcpUrl,
+            pairingCode: this.pairingCode,
+            pairingExpiresAt: this.pairingExpiresAt,
+            pendingClient: this.pendingPairing?.client,
+            pairedClient: this.pairedClient || undefined,
             connectionError: this.connectionError,
             canRevert: !!this.lastMcpSnapshot,
         });

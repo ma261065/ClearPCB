@@ -19,6 +19,18 @@ let configuredEndpoint = null;
 globalThis.localStorage = { getItem: () => configuredEndpoint };
 globalThis.WebSocket = FakeSocket;
 globalThis.window = { setTimeout };
+const fetchCalls = [];
+globalThis.fetch = async (url, options) => {
+    fetchCalls.push({ url: String(url), options });
+    if (String(url).endsWith('/mcp/pairing/register')) {
+        return {
+            ok: true,
+            status: 200,
+            json: async () => ({ code: 'K7QM-2X9R', expiresAt: Date.now() + 300_000 }),
+        };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+};
 
 const { McpBridge } = await import('../../src/core/McpBridge.js');
 let document = { type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } };
@@ -29,20 +41,40 @@ const project = {
 const states = [];
 const bridge = new McpBridge(project, { onStateChanged: state => states.push(state) });
 bridge.enable();
-assert.match(bridge.mcpUrl, /^https:\/\/clearpcb-mcp\.mikealex\.workers\.dev\/mcp\/[0-9a-f-]{36}$/);
-assert.equal(String(sockets[0].url), bridge.mcpUrl.replace('https://', 'wss://').replace('/mcp/', '/mcp/relay/'));
+assert.equal(bridge.mcpUrl, 'https://clearpcb-mcp.mikealex.workers.dev/mcp');
+assert.match(String(sockets[0].url), /^wss:\/\/clearpcb-mcp\.mikealex\.workers\.dev\/mcp\/relay\/[0-9a-f-]{36}$/);
 sockets[0].emit('open');
-assert.equal(states.at(-1).connected, true);
-
-sockets[0].emit('message', JSON.stringify({ id: 'catalog', method: 'get_component_catalog' }));
 await new Promise(resolve => setTimeout(resolve, 0));
-const catalog = sockets[0].sent.at(-1).result;
-assert.equal(catalog.usage.component.dn, 'Resistor');
-assert.ok(catalog.usage.notes.some(note => note.includes('do not add bundled definitions')));
-assert.deepEqual(catalog.components.find(component => component.dn === 'IC_DIP8').pins.map(pin => pin.number),
-    ['1', '2', '3', '4', '5', '6', '7', '8']);
-assert.ok(catalog.components.find(component => component.dn === 'LED').footprintShapes
-    .some(shape => shape.includes('PAD')));
+assert.equal(states.at(-1).connected, true);
+assert.equal(states.at(-1).pairingCode, 'K7QM-2X9R');
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'pair',
+    method: 'request_pairing',
+    params: { client: { id: 'client-1', name: 'Claude', version: '1.0' } },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(states.at(-1).pendingClient.name, 'Claude');
+assert.equal(bridge.approvePairing(), true);
+assert.deepEqual(sockets[0].sent.at(-1).result, { approved: true });
+assert.equal(states.at(-1).pairedClient.name, 'Claude');
+
+sockets[0].emit('message', JSON.stringify({ id: 'schema', method: 'describe_schema' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+const schema = sockets[0].sent.at(-1).result;
+assert.equal(schema.examples.component.dn, 'Resistor');
+assert.ok(schema.notes.some(note => note.includes('do not add bundled definitions')));
+
+sockets[0].emit('message', JSON.stringify({ id: 'parts', method: 'list_parts' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+const parts = sockets[0].sent.at(-1).result;
+assert.equal(parts.find(part => part.dn === 'IC_DIP8').pinCount, 8);
+
+sockets[0].emit('message', JSON.stringify({ id: 'part', method: 'get_part', params: { dn: 'LED' } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+const part = sockets[0].sent.at(-1).result;
+assert.deepEqual(part.pins.map(pin => pin.number), ['A', 'K']);
+assert.ok(part.footprintShapes.some(shape => shape.includes('PAD')));
 
 sockets[0].emit('message', JSON.stringify({ id: 'read', method: 'get_project' }));
 await new Promise(resolve => setTimeout(resolve, 0));
@@ -80,7 +112,11 @@ sockets[0].emit('message', JSON.stringify({
 }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(document.schematic.shapes.length, 1);
-assert.equal(sockets[0].sent.at(-1).result.schematic.shapes[0].id, 'shape-1');
+assert.deepEqual(sockets[0].sent.at(-1).result, {
+    ok: true,
+    operation: 'apply_project_patch',
+    operations: 1,
+});
 assert.equal(states.at(-1).canRevert, true);
 assert.equal(await bridge.revertLastChange(), true);
 assert.equal(document.schematic.shapes.length, 0);
@@ -88,14 +124,20 @@ assert.equal(states.at(-1).canRevert, false);
 sockets[0].emit('message', JSON.stringify({ id: 'bad', method: 'unknown' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.match(sockets[0].sent.at(-1).error, /Unsupported/);
+assert.equal(bridge.disconnectClient(), true);
+assert.deepEqual(sockets[0].sent.at(-1), { transport: 'control', action: 'disconnect' });
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(states.at(-1).pairedClient, undefined);
 bridge.disable();
+await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(states.at(-1).enabled, false);
+assert.ok(fetchCalls.some(call => call.url.endsWith('/mcp/pairing/revoke')));
 
 configuredEndpoint = 'http://localhost:8787/ignored-path';
 const localBridge = new McpBridge(project);
 localBridge.enable();
-assert.match(localBridge.mcpUrl, /^http:\/\/localhost:8787\/mcp\/[0-9a-f-]{36}$/);
+assert.equal(localBridge.mcpUrl, 'http://localhost:8787/mcp');
 assert.match(String(sockets.at(-1).url), /^ws:\/\/localhost:8787\/mcp\/relay\/[0-9a-f-]{36}$/);
 localBridge.disable();
 
-console.log('PASS: MCP bridge pairs, reads, patches, reports errors, and disables cleanly');
+console.log('PASS: MCP bridge registers, approves, discovers, patches, disconnects, and disables cleanly');

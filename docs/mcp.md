@@ -5,41 +5,56 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes four tools:
+The prototype exposes eight tools:
 
-- `get_component_catalog` returns valid built-in component `dn` values, pin
-  positions and numbers, default footprint pad records, and canonical compact
-  examples for components, wires, placements and pad-bonded tracks. Agents
-  should call it before adding parts to an empty project. Built-in definitions
-  are referenced directly by `dn` and must not be copied into `schematic.defs`.
+- `pair` requests browser approval using the short code shown in ClearPCB.
+- `pairing_status` reports whether the connector still has access to a live
+  tab.
+- `describe_schema` returns canonical shape fields, graph conventions and
+  worked component, wire, placement and track examples.
+- `list_parts` returns valid built-in component `dn` values and summaries.
+- `get_part` returns exact symbol pin geometry and footprint records for one
+  built-in part. Built-in definitions are referenced directly by `dn` and must
+  not be copied into `schematic.defs`.
 - `get_project` returns the complete canonical ClearPCB project.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
   operations, validates the resulting project, and loads it.
 
 Writes use the normal project loader, so invalid project data is rejected
-before either editor is changed. A write clears the editors' normal undo
-history. The MCP dialog retains one pre-write snapshot and offers **Revert last
-MCP change** until the session is disabled or another MCP write replaces it.
+before either editor is changed. Successful writes return a short operation
+summary rather than echoing the whole project. A write clears the editors'
+normal undo history. The MCP dialog retains one pre-write snapshot and offers
+**Revert last MCP change** until the session is disabled or another MCP write
+replaces it.
 
 ## Pairing
 
 1. Open ClearPCB and choose **AI Mode** in the ribbon.
 2. Select **Enable MCP**.
-3. Copy the generated URL into the MCP client.
-4. Disable the session when finished.
+3. Add `https://clearpcb-mcp.mikealex.workers.dev/mcp` to the MCP client once.
+4. Give the client the eight-character code shown in ClearPCB and ask it to
+   call `pair`.
+5. Check the client name in ClearPCB and select **Allow** or **Deny**.
+6. Use **Disconnect** or **Disable MCP** when finished.
 
-The browser generates a new random session ID each time MCP is enabled. The
-session URL is a temporary capability: anyone who has it can read and modify
-the open project while that tab remains enabled. The prototype has no account
-login or separate authorization layer. Do not share the URL or enable MCP for
-an untrusted client.
+Pairing codes expire after five minutes, can be used once and are limited to
+ten attempts per MCP protocol session. A code only identifies a waiting tab:
+it does not grant project access until the browser user approves the named
+client. One client may be paired with a tab at a time. Denial, disconnect,
+disabling MCP or closing the tab revokes access.
 
-The browser connects to `/mcp/relay/<session-id>` by WebSocket. MCP clients use
-`/mcp/<session-id>` over Streamable HTTP. A Durable Object keyed by the random
-session ID relays typed requests and responses; it does not store project data.
-Payloads larger than 192 KiB are chunked, with a 16 MiB limit per request or
-response.
+The browser connects to `/mcp/relay/<random-relay-id>` by WebSocket. MCP clients
+always use the stable `/mcp` Streamable HTTP URL. A client-session Durable
+Object owns the protocol `Mcp-Session-Id`; a pairing-broker Durable Object maps
+short-lived codes to waiting relay IDs; and the existing tab-relay Durable
+Object transports approved calls. None stores project data. Payloads larger
+than 192 KiB are chunked, with a 16 MiB limit per request or response.
+
+The sessionful transport is the Agents SDK compatibility transport because the
+current stateless handler intentionally has no protocol session to which a
+one-time approval can be bound. Project and pairing state remain separate from
+the transport and can move to OAuth without changing the browser protocol.
 
 ## Local Development
 
@@ -91,10 +106,11 @@ One-time setup:
 3. Add repository secrets `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID`.
 4. Run the **Deploy MCP Worker** GitHub Actions workflow.
-5. Confirm that
-   `https://clearpcb-mcp.mikealex.workers.dev/mcp/not-a-session` returns `404`.
-6. Open `https://clearpcb.org`, enable MCP, and confirm that its generated URL
-   starts with `https://clearpcb-mcp.mikealex.workers.dev/mcp/`.
+5. Confirm that `https://clearpcb-mcp.mikealex.workers.dev/mcp` responds to an
+   MCP client and ordinary browser GET requests do not expose project data.
+6. Open `https://clearpcb.org`, enable MCP, and confirm that it displays a
+   pairing code while the connector URL remains
+   `https://clearpcb-mcp.mikealex.workers.dev/mcp`.
 
 The `workers.dev` publication and Durable Object migration are declared in
 `mcp-worker/wrangler.jsonc`. No ClearPCB DNS records or nameserver changes are
