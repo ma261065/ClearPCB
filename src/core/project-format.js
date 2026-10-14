@@ -1,5 +1,6 @@
 import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
+import { BuiltInComponents } from '../components/BuiltInComponents.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
 /** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
@@ -60,6 +61,8 @@ const ARTWORK_FIELDS = {
     'deflate-tuples-v1': fields('encoding', 'bytes', 'data'),
     'reference-v1': fields('encoding', 'index'),
 };
+const BOND_FIELDS = fields('componentId', 'pinNumber');
+const BOND_POSITION_TOLERANCE = 0.001;
 
 /** @param {unknown} value */
 function numberedSnippet(value) {
@@ -203,6 +206,46 @@ function validateSchematic(schematic) {
         for (const [name, definition] of Object.entries(schematic.defs)) {
             requireRecord(definition, `schematic.defs.${name}`);
             rejectUnknownFields(definition, DEFINITION_FIELDS, `schematic.defs.${name}`);
+        }
+    }
+    validateSchematicPinBonds(schematic);
+}
+
+/** @param {JsonRecord} schematic */
+function validateSchematicPinBonds(schematic) {
+    const components = new Map(schematic.components.map(
+        /** @param {JsonRecord} component */
+        component => [String(component.id), component]));
+    const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
+    for (const [name, definition] of Object.entries(schematic.defs || {})) definitions.set(name, definition);
+    for (const [shapeIndex, shape] of schematic.shapes.entries()) {
+        if (shape.type !== 'wire' || shape.pc === undefined) continue;
+        requireRecord(shape.pc, `schematic.shapes[${shapeIndex}].pc`);
+        for (const [nodeId, value] of Object.entries(shape.pc)) {
+            const path = `schematic.shapes[${shapeIndex}].pc.${nodeId}`;
+            requireRecord(value, path);
+            rejectUnknownFields(value, BOND_FIELDS, path);
+            requireFields(value, BOND_FIELDS, path);
+            const node = /** @type {Record<string, [number, number]>} */ (shape.nd)[nodeId];
+            if (!node) invalid(path, 'Pin bond references a missing wire node.', value);
+            const component = components.get(String(value.componentId));
+            if (!component) invalid(path, 'Pin bond references a missing component.', value);
+            const definition = definitions.get(String(component.dn));
+            if (!definition) invalid(path, `Missing component definition: ${component.dn}.`, value);
+            const pin = definition.symbol?.pins?.find(candidate =>
+                String(candidate.number) === String(value.pinNumber));
+            if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) {
+                invalid(path, 'Pin bond references a missing physical pin.', value);
+            }
+            const rotation = (Number(component.rot) || 0) * Math.PI / 180;
+            const localX = component.mir ? -Number(pin.x) : Number(pin.x);
+            const localY = Number(pin.y);
+            const expectedX = Number(component.x) + localX * Math.cos(rotation) - localY * Math.sin(rotation);
+            const expectedY = Number(component.y) + localX * Math.sin(rotation) + localY * Math.cos(rotation);
+            if (Math.hypot(node[0] - expectedX, node[1] - expectedY) > BOND_POSITION_TOLERANCE) {
+                invalid(path, `Pin bond node must be at the physical pin position [${expectedX}, ${expectedY}].`,
+                    { node, componentId: value.componentId, pinNumber: value.pinNumber });
+            }
         }
     }
 }

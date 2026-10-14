@@ -42,6 +42,10 @@ assert.deepEqual(overrides.get('minimal'), {
 state.record('default', { x: 0, y: 0 });
 assert.deepEqual(state.serialize().default, { x: 0, y: 0, rotation: 0 },
     'Default reference styling/visibility is omitted from the saved file');
+state.autoSlots.set('generated', { x: 10, y: -10 });
+state.prune(['default']);
+assert.deepEqual(state.serialize(), { default: { x: 0, y: 0, rotation: 0 } },
+    'Pruning removes saved and automatic placements for deleted components');
 state.load(null);
 assert.equal(state.overrides, overrides);
 assert.equal(overrides.size, 0, 'Clearing the saved state does not replace its map');

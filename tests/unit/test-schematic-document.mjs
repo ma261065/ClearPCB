@@ -21,7 +21,7 @@ const input = {
         shapes: [
             { id: 'shape_900', type: 'text', x: 0, y: -2, t: 'R1', cid: 'comp_900', fk: 'reference' },
             { id: 'shape_901', type: 'wire', n: 'SIGNAL',
-                nd: { a: [0, 0], b: [10, 0] }, ed: { e: ['a', 'b'] },
+                nd: { a: [-3.81, 0], b: [6.19, 0] }, ed: { e: ['a', 'b'] },
                 pc: { a: { componentId: 'comp_900', pinNumber: '1' },
                     b: { componentId: 'comp_901', pinNumber: '1' } } },
             { id: 'shape_902', type: 'text', x: 5, y: -1, t: 'Signal',

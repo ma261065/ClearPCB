@@ -12,7 +12,7 @@ interface Env {
 interface RelayRequest {
     id: string;
     method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'search_parts' | 'get_part' | 'place_part'
-        | 'get_project' | 'replace_project' | 'apply_project_patch';
+        | 'get_project' | 'get_connection_points' | 'get_netlist' | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
 
@@ -277,6 +277,18 @@ export class ClientSession extends DurableObject<Env> {
             inputSchema: {},
             annotations: { readOnlyHint: true },
         }, async () => this.pairedTool(sessionId, 'get_project'));
+        server.registerTool('get_connection_points', {
+            title: 'Get ClearPCB connection points',
+            description: 'Return absolute schematic pin and PCB pad positions derived from the current project.',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+        }, async () => this.pairedTool(sessionId, 'get_connection_points'));
+        server.registerTool('get_netlist', {
+            title: 'Get ClearPCB netlist',
+            description: 'Return every derived electrical net and its component pins.',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+        }, async () => this.pairedTool(sessionId, 'get_netlist'));
         server.registerTool('replace_project', {
             title: 'Replace ClearPCB project',
             description: 'Validate and replace the complete canonical project. Returns a short operation summary.',
@@ -293,8 +305,15 @@ export class ClientSession extends DurableObject<Env> {
     }
 
     private async pair(sessionId: string, code: string) {
-        if (await this.ctx.storage.get<string>('relayId')) {
-            return toolError('ALREADY_PAIRED', 'This MCP session is already paired.');
+        const existingRelayId = await this.ctx.storage.get<string>('relayId');
+        if (existingRelayId) {
+            const status = await relayStub(this.env, existingRelayId).fetch('https://relay.internal/status', {
+                headers: { 'x-clearpcb-client-session': sessionId },
+            });
+            if (status.ok) {
+                return toolError('ALREADY_PAIRED', 'This MCP session is already paired.');
+            }
+            await this.ctx.storage.delete('relayId');
         }
         const attempts = await this.ctx.storage.get<number>('pairAttempts') || 0;
         if (attempts >= MAX_PAIRING_ATTEMPTS) {
@@ -349,7 +368,10 @@ export class ClientSession extends DurableObject<Env> {
             return toolResult(await invokeTab(this.env, relayId, sessionId, { method, params }));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            if (/revoked|not connected|disconnected/i.test(message)) await this.ctx.storage.delete('relayId');
+            if (/revoked|not connected|disconnected/i.test(message)) {
+                await this.ctx.storage.delete('relayId');
+                return toolError('PAIRING_REVOKED', `${message} Call pair with the current code shown in ClearPCB.`);
+            }
             return toolError('TAB_UNAVAILABLE', message);
         }
     }

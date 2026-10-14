@@ -37,6 +37,21 @@ let document = { type: 'clearpcb-project', version: '1.0', schematic: { shapes: 
 const project = {
     serialize: () => structuredClone(document),
     async load(value) { document = structuredClone(value); },
+    schematicDocument: {
+        components: [{
+            id: 'comp-geometry', reference: 'R9', value: '1k',
+            definition: { name: 'Resistor' },
+            symbol: { pins: [{ number: '1', name: '1', type: 'passive', x: -3.81, y: 0 }] },
+            localToWorld: (x, y) => ({ x: 40 + x, y: 25 + y }),
+        }],
+    },
+    resolvePcbLayout: () => ({
+        placements: new Map([['comp-geometry', {
+            reference: 'R9', footprint: 'R_Axial', x: 10, y: -10, rotation: 0, side: 'top',
+            pads: new Map([['pad-1', { number: '1', x: 10, y: -10 }]]),
+        }]]),
+    }),
+    getNetlist: () => [{ net: 'R9.1', pins: [{ componentId: 'comp-geometry', pinNumber: '1' }] }],
 };
 const externalDefinition = {
     name: 'KiCad_NE555D',
@@ -98,6 +113,11 @@ await new Promise(resolve => setTimeout(resolve, 0));
 const schema = sockets[0].sent.at(-1).result;
 assert.equal(schema.examples.component.dn, 'Resistor');
 assert.ok(schema.notes.some(note => note.includes('do not add bundled definitions')));
+assert.deepEqual(schema.format.schematic.shapeTypes,
+    ['polyline', 'wire', 'circle', 'arc', 'text', 'net', 'noconnect']);
+assert.equal(schema.format.schematic.shapeTypes.includes('power'), false);
+assert.equal(schema.format.pcb.optional.includes('boardShapes'), true);
+assert.equal(schema.format.pcb.optional.includes('shapes'), false);
 
 sockets[0].emit('message', JSON.stringify({ id: 'parts', method: 'list_parts' }));
 await new Promise(resolve => setTimeout(resolve, 0));
@@ -144,6 +164,15 @@ assert.equal(document.schematic.components.length, 0);
 sockets[0].emit('message', JSON.stringify({ id: 'read', method: 'get_project' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(sockets[0].sent.at(-1).result.type, 'clearpcb-project');
+sockets[0].emit('message', JSON.stringify({ id: 'points', method: 'get_connection_points' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.deepEqual(sockets[0].sent.at(-1).result.schematic.components[0].pins[0],
+    { number: '1', name: '1', type: 'passive', x: 36.19, y: 25 });
+assert.deepEqual(sockets[0].sent.at(-1).result.pcb.placements[0].pads[0],
+    { id: 'pad-1', number: '1', x: 10, y: -10 });
+sockets[0].emit('message', JSON.stringify({ id: 'netlist', method: 'get_netlist' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.nets[0].net, 'R9.1');
 const chunkedRequest = JSON.stringify({
     id: 'chunked-read',
     method: 'get_project',

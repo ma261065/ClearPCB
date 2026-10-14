@@ -36,7 +36,7 @@ const component = index => new Component(structuredClone(definition), {
 const project = new ProjectDocument();
 const parts = Array.from({ length: 5 }, (_, index) => component(index));
 project.schematicDocument.components.push(...parts);
-const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'SIGNAL' });
+const wire = new Wire({ points: [{ x: -5, y: 0 }, { x: 95, y: 0 }], net: 'SIGNAL' });
 const [firstNode, secondNode] = wire.nodes.keys();
 wire.pinConnections.set(firstNode, { componentId: parts[0].id, pinNumber: '1' });
 wire.pinConnections.set(secondNode, { componentId: parts[1].id, pinNumber: '1' });
@@ -97,6 +97,7 @@ const grown = project.resolvePcbLayout();
 assert.deepEqual([grown.placements.get(added.id).x, grown.placements.get(added.id).y], [10, -10],
     'New components reuse the first unoccupied current-grid cell');
 assert.equal(autoSlots, state.autoSlots, 'The model retains stable derived-map identity');
+project.schematicDocument.shapes.length = 0;
 const saved = project.serialize();
 assert.deepEqual(new Set(Object.keys(state.serialize())), new Set([...state.autoSlots.keys(), ...state.overrides.keys()]),
     'Automatic positions are saved without manufacturing live overrides');

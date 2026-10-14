@@ -13,7 +13,10 @@ const design = { trackWidth: 0.2345, clearance: 0.1234, viaDiameter: 0.6, viaDri
     units: 'inch', router: 'pathfinder', excludeSameFootprintPadClearance: false };
 const input = {
     ...blank(),
-    schematic: { shapes: [{ id: 'shape_1', type: 'circle', x: 5, y: 4, r: 2 }], components: [] },
+    schematic: {
+        shapes: [{ id: 'shape_1', type: 'circle', x: 5, y: 4, r: 2 }],
+        components: [{ type: 'component', id: 'U1', dn: 'Resistor', x: 10, y: 10, rot: 0, ref: 'R1', val: '10k' }],
+    },
     pcb: {
         stackup: defaultPcbStackup(), design, board: { width: 43.1234, height: 27.2345, radius: 2 },
         settings: { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: true, snapToGrid: true },

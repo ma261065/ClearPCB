@@ -5,7 +5,7 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes ten tools:
+The prototype exposes twelve tools:
 
 - `pair` requests browser approval using the short code shown in ClearPCB.
 - `pairing_status` reports whether the connector still has access to a live
@@ -23,13 +23,21 @@ The prototype exposes ten tools:
   coordinates. ClearPCB generates a reference when one is omitted and embeds
   external definitions automatically.
 - `get_project` returns the complete canonical ClearPCB project.
+- `get_connection_points` returns absolute schematic pin and PCB pad positions
+  derived from the live project. These computed positions are deliberately not
+  added to `get_project`, so its result remains valid round-trippable project
+  JSON.
+- `get_netlist` returns the derived electrical nets and their component pins.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
   operations, validates the resulting project, and loads it.
 
 Writes use the normal project loader, so invalid project data is rejected
-before either editor is changed. Successful writes return a short operation
-summary rather than echoing the whole project. A write clears the editors'
+before either editor is changed. A `pc` or `pdc` connection must name an
+existing component pin or pad, and its graph node must be at that physical
+connection point. Removing a schematic component also removes its saved PCB
+placement. Successful writes return a short operation summary rather than
+echoing the whole project. A write clears the editors'
 normal undo history. The MCP dialog retains one pre-write snapshot and offers
 **Revert last MCP change** until the session is disabled or another MCP write
 replaces it.
@@ -82,6 +90,11 @@ it does not grant project access until the browser user approves the named
 client. An unclaimed code is replaced automatically when it expires. One client
 may be paired with a tab at a time. Denial, disconnect, disabling MCP or
 closing the tab revokes access.
+
+Before returning `ALREADY_PAIRED`, the Worker verifies that the saved relay
+still has the same approved client session and a connected browser tab. A stale
+binding left by a tab restart or lost connection is discarded automatically,
+and the new `pair` request continues with the supplied code.
 
 The browser connects to `/mcp/relay/<random-relay-id>` by WebSocket. MCP clients
 always use the stable `/mcp` Streamable HTTP URL. A client-session Durable

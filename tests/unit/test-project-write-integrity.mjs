@@ -50,7 +50,52 @@ const corrupt = () => {
     assert.throws(() => assertSupportedPcb(multiLayer.pcb), /only two-layer boards/);
     assert.throws(() => storableProject(multiLayer),
         error => error instanceof ProjectIntegrityError && /only two-layer boards/.test(error.message));
+
+    const bonded = valid();
+    bonded.schematic.components.push({
+        type: 'component', id: 'resistor-1', dn: 'Resistor', x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
+    });
+    bonded.schematic.shapes.push({
+        id: 'wire-1', type: 'wire',
+        nd: { pin: [36.19, 25], end: [30, 25] },
+        ed: { edge: ['pin', 'end'] },
+        pc: { pin: { cid: 'resistor-1', pn: '1' } },
+    });
+    assert.doesNotThrow(() => validateEditableProject(bonded), 'A bond at the physical pin is valid');
+    bonded.schematic.shapes[0].nd.pin = [30, 30];
+    assert.throws(() => validateEditableProject(bonded),
+        error => /physical pin position/.test(error.message),
+        'A wire cannot claim a pin while its node is elsewhere');
     console.log('PASS storage form, live-data isolation and integrity errors');
+}
+
+{
+    const bonded = valid();
+    bonded.schematic.components.push({
+        type: 'component', id: 'resistor-1', dn: 'Resistor', x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
+    });
+    bonded.pcb.placements = { 'resistor-1': { x: 10, y: -10, rotation: 0 } };
+    bonded.pcb.tracks = [{
+        id: 'bonded-track', type: 'track',
+        nd: { pad: [6.19, -10], end: [15, -10] },
+        ed: { edge: ['pad', 'end'] },
+        pdc: { pad: { cid: 'resistor-1', pn: '1' } },
+    }];
+    const project = new ProjectDocument();
+    await project.load(bonded);
+    const badPadBond = structuredClone(bonded);
+    badPadBond.pcb.tracks[0].nd.pad = [30, 30];
+    await assert.rejects(project.load(badPadBond), /physical pad position/,
+        'A track cannot claim a pad while its node is elsewhere');
+
+    const removed = project.serialize();
+    removed.schematic.components = [];
+    removed.pcb.tracks = [];
+    assert.ok(removed.pcb.placements['resistor-1']);
+    await project.load(removed);
+    assert.equal(project.serialize().pcb.placements?.['resistor-1'], undefined,
+        'Removing a component also removes its saved PCB placement');
+    console.log('PASS physical schematic/PCB bonds and orphan placement cleanup');
 }
 
 function managerWithHandle() {

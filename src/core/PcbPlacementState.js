@@ -53,11 +53,24 @@ export class PcbPlacementState {
         return snapshot;
     }
 
+    /** Remove saved placement state for components that no longer exist. */
+    /** @param {Iterable<string>} componentIds */
+    prune(componentIds) {
+        const validIds = new Set(componentIds);
+        for (const id of this.overrides.keys()) {
+            if (!validIds.has(id)) this.overrides.delete(id);
+        }
+        for (const id of this.autoSlots.keys()) {
+            if (!validIds.has(id)) this.autoSlots.delete(id);
+        }
+    }
+
     /**
      * Resolve physical placements without rendering or changing authored overrides.
      * @param {PlacementComponent[]} components
+     * @param {{persistAutoSlots?: boolean}} [options]
      */
-    resolve(components) {
+    resolve(components, { persistAutoSlots = true } = {}) {
         const columns = Math.max(1, Math.ceil(Math.sqrt(components.length)));
         /** @param {number} index */
         const slotPosition = index => ({ x: 10 + (index % columns) * 20,
@@ -97,7 +110,9 @@ export class PcbPlacementState {
             updatePlacementPadPositions(placement);
             placements.set(component.id, placement);
         }
-        for (const [id, position] of newSlots) this.autoSlots.set(id, position);
+        if (persistAutoSlots) {
+            for (const [id, position] of newSlots) this.autoSlots.set(id, position);
+        }
         return placements;
     }
 

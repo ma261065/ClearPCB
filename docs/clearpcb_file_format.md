@@ -194,6 +194,10 @@ and `ew` for edge-specific layers and widths.
 | `n` | Net name; emitted when non-empty. New wires receive an auto-assigned `NetNNNN` name. |
 | `lo` | Non-default wire-label offset `[x, y]`. |
 
+Each `pc` entry is `{ "cid": "<component id>", "pn": "<pin number>" }`.
+Its key must name an existing wire node, its component and pin must exist, and
+the node coordinates must match the transformed physical pin position.
+
 ### Circle
 
 ```json
@@ -610,6 +614,10 @@ Tracks use the schematic graph base plus track fields:
 | `pdc` | Pad connections keyed by node ID. |
 | `sbs` | Identity of the board shape a track was converted from: `{ id, plated }` (both optional; `plated` only when the source was a plated hole). Reused when the track turns back into a board shape, the id only while no other shape uses it. If a file stores a full shape copy here, it is read and trimmed to these fields. |
 
+Each `pdc` entry uses the same `{ "cid", "pn" }` form. Its key must name an
+existing track node, its component placement and footprint pad must exist, and
+the node coordinates must match the resolved physical pad position.
+
 Per-edge maps contain only values that differ from the shape-wide default.
 
 Track node radii override the overall `cr` value. Setting the overall radius in
@@ -987,6 +995,9 @@ Resolved automatic footprint positions and explicit position, pose, reference
 style or lock overrides are persisted. Automatic positions become stable saved
 baselines on reload, preserving pad locations and track bonds after other
 components are deleted or reordered. The map key is the schematic component ID:
+
+Placement entries whose component IDs no longer exist are discarded during
+project load and serialization.
 
 ```json
 {

@@ -103,11 +103,20 @@ function describeSchema() {
             schematic: {
                 required: ['shapes', 'components'],
                 optional: ['settings', 'defs'],
-                shapeTypes: ['wire', 'junction', 'no-connect', 'label', 'power', 'text', 'component'],
+                shapeTypes: ['polyline', 'wire', 'circle', 'arc', 'text', 'net', 'noconnect'],
+                note: 'Components are records in schematic.components, not schematic.shapes.',
             },
             pcb: {
-                optional: ['settings', 'placements', 'shapes', 'design', 'board'],
-                shapeTypes: ['track', 'via', 'zone', 'keepout', 'text', 'dimension', 'graphic'],
+                required: ['stackup', 'design'],
+                optional: ['board', 'panelization', 'settings', 'tracks', 'vias', 'pads',
+                    'boardShapes', 'texts', 'placements'],
+                collections: {
+                    tracks: 'Copper graph tracks',
+                    vias: 'Drilled copper vias',
+                    pads: 'Standalone pads',
+                    boardShapes: 'Board graphics, outlines and copper fills',
+                    texts: 'PCB text records',
+                },
             },
         },
         examples: {
@@ -390,6 +399,42 @@ export class McpBridge {
             return { query, source, results: results.slice(0, limit) };
     }
 
+    _connectionPoints() {
+        const components = this.project.schematicDocument.components.map(component => ({
+            id: component.id,
+            reference: component.reference,
+            value: component.value,
+            definition: component.definition?.name,
+            pins: (component.symbol?.pins || []).map(pin => {
+                const point = component.localToWorld(Number(pin.x), Number(pin.y));
+                return {
+                    number: String(pin.number),
+                    name: pin.name,
+                    type: pin.type,
+                    x: point.x,
+                    y: point.y,
+                };
+            }),
+        }));
+        const layout = this.project.resolvePcbLayout({ persistAutoSlots: false });
+        const placements = [...layout.placements].map(([componentId, placement]) => ({
+            componentId,
+            reference: placement.reference,
+            footprint: placement.footprint,
+            x: placement.x,
+            y: placement.y,
+            rotation: placement.rotation,
+            side: placement.side,
+            pads: [...placement.pads].map(([id, pad]) => ({
+                id,
+                number: String(pad.number),
+                x: pad.x,
+                y: pad.y,
+            })),
+        }));
+        return { schematic: { components }, pcb: { placements } };
+    }
+
     /**
      * @param {WebSocket} socket
      * @param {unknown} raw
@@ -536,6 +581,10 @@ export class McpBridge {
                 };
             } else if (request.method === 'get_project') {
                 result = this.project.serialize();
+            } else if (request.method === 'get_connection_points') {
+                result = this._connectionPoints();
+            } else if (request.method === 'get_netlist') {
+                result = { nets: this.project.getNetlist() };
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');
                 const previous = this.project.serialize();

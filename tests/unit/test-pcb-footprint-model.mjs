@@ -94,6 +94,7 @@ assert.equal(copy.getPcbFootprint(component.id), null, 'New clears the source; n
 await copy.load(saved);
 assert.deepEqual(copy.getPcbFootprint(component.id), loaded);
 
+project.pcbDocument.tracks.length = 0;
 const resistor = new Component(BuiltInComponents.find(item => item.name === 'Resistor'), { id: component.id });
 project.schematicDocument.components[0] = resistor;
 for (const packageId of ['default', '0603', '0805', 'default']) {

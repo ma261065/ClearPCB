@@ -20,8 +20,8 @@ const longProject = {
             attachment: { dx: 1 }, border: true,
         }, {
             id: 'wire-1', type: 'wire',
-            graphNodes: { n0: [0, 0], n1: [1, 0] }, graphEdges: { e0: ['n0', 'n1'] },
-            pinConnections: { n0: { componentId: 'component-1', pinNumber: '1' } },
+            graphNodes: { n0: [0, 2.54], n1: [1, 2.54] }, graphEdges: { e0: ['n0', 'n1'] },
+            pinConnections: { n0: { componentId: 'component-1', pinNumber: '2' } },
         }, {
             id: 'nc-1', type: 'noconnect', x: 0, y: 0,
             pinConnection: { componentId: 'component-1', pinNumber: '2' },
@@ -149,7 +149,7 @@ assert.equal(compact.pcb.texts[0].bd, true);
 assert.equal(compact.pcb.placements['component-1'].rot, 90);
 assert.equal(compact.schematic.settings.gs, 2.54);
 assert.equal(compact.schematic.shapes[0].bd, true);
-assert.deepEqual(compact.schematic.shapes[1].pc.n0, { cid: 'component-1', pn: '1' });
+assert.deepEqual(compact.schematic.shapes[1].pc.n0, { cid: 'component-1', pn: '2' });
 assert.deepEqual(compact.schematic.shapes[2].pn, { cid: 'component-1', pn: '2' });
 assert.equal(compact.schematic.components[0].dn, 'R');
 assert.equal(compact.schematic.defs.R.n, 'R');
