@@ -162,6 +162,20 @@ export class ProjectDocument {
     synchronizePcbLayout() {
         const layout = this.resolvePcbLayout();
         const tracks = this.pcbDocument.tracks;
+        const netByPin = new Map(layout.netlist.flatMap(({ net, pins }) =>
+            pins.map(({ componentId, pinNumber }) => [`${componentId}:${pinNumber}`, net])));
+        for (const track of tracks) {
+            const bondedNets = new Set([...track.padConnections.values()]
+                .map(({ componentId, pinNumber }) => netByPin.get(`${componentId}:${pinNumber}`))
+                .filter((net) => typeof net === 'string'));
+            if (track.net && bondedNets.size === 1) {
+                const [net] = bondedNets;
+                if (track.net !== net) {
+                    track.net = net;
+                    track.invalidate();
+                }
+            }
+        }
         for (const [id, placement] of layout.placements) {
             if (placement.side === 'bottom') disconnectIncompatiblePadNodes(tracks, id, placement.padOffsets);
             // Preserve the legacy rebuild eligibility, including reference-offset placements.

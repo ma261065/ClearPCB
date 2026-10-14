@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { ProjectDocument } from '../../src/core/ProjectDocument.js';
 import { Component } from '../../src/components/Component.js';
 import { Track } from '../../src/shapes/track.js';
+import { Wire } from '../../src/shapes/wire.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
@@ -80,6 +81,31 @@ for (const pose of [
     assert.deepEqual(changes.map(count => count()), invalidations, 'Repeated synchronization does no redundant physical work');
     assert.equal(typeof document, 'undefined');
     assert.equal(typeof window, 'undefined');
+}
+
+{
+    const project = new ProjectDocument();
+    project.schematicDocument.components.push(new Component(structuredClone(definition), {
+        id: 'part', reference: 'U1',
+    }));
+    const wire = new Wire({ net: 'Net0001', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    wire.pinConnections.set('n0', { componentId: 'part', pinNumber: '1' });
+    wire.pinConnections.set('n1', { componentId: 'part', pinNumber: '2' });
+    project.schematicDocument.shapes.push(wire);
+    const track = new Track({
+        points: [{ x: 20, y: 20 }, { x: 30, y: 20 }],
+        net: 'VCC',
+        padConnections: {
+            n0: { componentId: 'part', pinNumber: '1' },
+            n1: { componentId: 'part', pinNumber: '2' },
+        },
+    });
+    project.pcbDocument.tracks.push(track);
+    project.synchronizePcbLayout();
+    assert.equal(track.net, 'Net0001',
+        'Pad-bonded PCB tracks use the schematic net identity, not a divergent imported label');
+    project.synchronizePcbLayout();
+    assert.equal(track.net, 'Net0001', 'Repeated layout synchronization remains stable');
 }
 
 {
