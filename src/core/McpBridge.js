@@ -146,6 +146,31 @@ function describeSchema() {
                     boardShapes: 'Board graphics, outlines and copper fills',
                     texts: 'PCB text records',
                 },
+                textRecord: {
+                    requiredFields: ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'],
+                    optionalFields: ['border', 'locked'],
+                    getProjectAliases: {
+                        content: 't',
+                        size: 's',
+                        rotation: 'rot',
+                        layer: 'l',
+                        strokeWidth: 'lw',
+                        border: 'bd',
+                        locked: 'lk',
+                    },
+                    coordinates: {
+                        x: 'Left edge of the first glyph, in board millimetres.',
+                        y: 'Text baseline, in board millimetres; positive Y is down.',
+                        size: 'Cap height in millimetres.',
+                        rotation: 'Degrees, counter-clockwise visually.',
+                    },
+                    layers: ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper',
+                        'top-document', 'bottom-document'],
+                    layerAliases: {
+                        'top-silkscreen': 'top-silk',
+                        'bottom-silkscreen': 'bottom-silk',
+                    },
+                },
             },
         },
         examples: {
@@ -175,6 +200,8 @@ function describeSchema() {
             'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
             'PCB placements are keyed by schematic component id and require x, y, and rot.',
             'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
+            'PCB text x/y is its left-baseline origin, not its centre; size is the cap height.',
+            'get_project compacts PCB text content/size/layer/strokeWidth to t/s/l/lw; apply_project_patch accepts long or compact field names.',
         ],
     };
 }

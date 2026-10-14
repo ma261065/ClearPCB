@@ -98,6 +98,40 @@ const corrupt = () => {
     console.log('PASS physical schematic/PCB bonds and orphan placement cleanup');
 }
 
+{
+    const base = valid();
+    base.schematic.components.push({
+        type: 'component', id: 'opamp-1', dn: 'OpAmp', x: 20, y: 20, rot: 0, ref: 'U1', val: 'LM358',
+    });
+    base.pcb.placements = { 'opamp-1': { x: 10, y: -10, rotation: 0 } };
+    const geometry = new ProjectDocument();
+    await geometry.load(base);
+    const legacyPad = geometry.resolvePcbLayout().placements.get('opamp-1').pads.get('1');
+    const migratedPad = geometry.resolvePcbLayout().placements.get('opamp-1').pads.get('3');
+
+    const legacy = structuredClone(base);
+    legacy.schematic.shapes.push({
+        id: 'legacy-opamp-wire', type: 'wire',
+        nd: { pin: [16.19, 21.27], end: [10, 21.27] },
+        ed: { edge: ['pin', 'end'] },
+        pc: { pin: { cid: 'opamp-1', pn: '+' } },
+    });
+    legacy.pcb.tracks = [{
+        id: 'legacy-opamp-track', type: 'track',
+        nd: { pad: [legacyPad.x, legacyPad.y], end: [legacyPad.x - 5, legacyPad.y] },
+        ed: { edge: ['pad', 'end'] },
+        pdc: { pad: { cid: 'opamp-1', pn: '+' } },
+    }];
+    const migrated = new ProjectDocument();
+    await migrated.load(legacy);
+    const saved = migrated.serialize();
+    assert.equal(saved.schematic.shapes[0].pc.pin.pn, '3');
+    assert.equal(saved.pcb.tracks[0].pdc.pad.pn, '3');
+    assert.deepEqual(saved.pcb.tracks[0].nd.pad,
+        [Math.round(migratedPad.x * 10000) / 10000, Math.round(migratedPad.y * 10000) / 10000]);
+    console.log('PASS legacy OpAmp schematic and PCB bonds migrate to the LM741 pinout');
+}
+
 function managerWithHandle() {
     const manager = new FileManager();
     const events = [];

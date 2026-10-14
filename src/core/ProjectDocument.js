@@ -1,5 +1,5 @@
 import { FileManager } from './FileManager.js';
-import { validateEditableProject } from './project-format.js';
+import { LEGACY_OPAMP_PAD_PIN, validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
 import { PcbDocument } from './PcbDocument.js';
@@ -23,6 +23,7 @@ function validatePcbPadBonds(schematicPrepared, pcbPrepared, pcbData) {
     for (const [trackIndex, track] of (pcbPrepared?.tracks || []).entries()) {
         for (const [nodeId, connection] of track.padConnections) {
             const path = `pcb.tracks[${trackIndex}].pdc.${nodeId}`;
+            const sourceConnection = pcbData?.tracks?.[trackIndex]?.pdc?.[nodeId];
             const node = track.nodes.get(nodeId);
             if (!node) throw new Error(`${path}: Pad bond references a missing track node.`);
             const placement = placements.get(String(connection.componentId));
@@ -31,6 +32,11 @@ function validatePcbPadBonds(schematicPrepared, pcbPrepared, pcbData) {
                 || [...placement.pads.values()].find(candidate =>
                     String(candidate.number) === String(connection.pinNumber));
             if (!pad) throw new Error(`${path}: Pad bond references a missing physical pad.`);
+            if (sourceConnection && Reflect.has(sourceConnection, LEGACY_OPAMP_PAD_PIN)) {
+                node.x = pad.x;
+                node.y = pad.y;
+                Reflect.deleteProperty(sourceConnection, LEGACY_OPAMP_PAD_PIN);
+            }
             if (Math.hypot(node.x - pad.x, node.y - pad.y) > BOND_POSITION_TOLERANCE) {
                 throw new Error(`${path}: Pad bond node must be at the physical pad position [${pad.x}, ${pad.y}].`);
             }

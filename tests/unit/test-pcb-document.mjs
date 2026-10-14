@@ -39,6 +39,8 @@ assert.deepEqual(textSnapshot, text, 'Undo/clipboard snapshots retain full text 
 textSnapshot.x = 999;
 assert.equal(text.x, 1.234567, 'Snapshots are independent of the model');
 const defaults = createPcbText({ layer: 'unknown', content: '' });
+assert.equal(createPcbText({ layer: 'top-silkscreen' }).layer, 'top-silk');
+assert.equal(createPcbText({ layer: 'bottom-silkscreen' }).layer, 'bottom-silk');
 assert.match(defaults.id, /^text-[a-z0-9]+$/);
 assert.deepEqual({ ...defaults, id: 'default' }, { id: 'default', content: '', x: 0, y: 0,
     size: 1, rotation: 0, layer: 'top-silk', strokeWidth: 0.15, border: false });

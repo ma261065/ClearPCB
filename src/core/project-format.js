@@ -63,6 +63,8 @@ const ARTWORK_FIELDS = {
 };
 const BOND_FIELDS = fields('componentId', 'pinNumber');
 const BOND_POSITION_TOLERANCE = 0.001;
+const LEGACY_OPAMP_PINS = new Map([['+', '3'], ['-', '2'], ['OUT', '6']]);
+export const LEGACY_OPAMP_PAD_PIN = Symbol('legacyOpAmpPadPin');
 
 /** @param {unknown} value */
 function numberedSnippet(value) {
@@ -237,6 +239,7 @@ function validateSchematicPinBonds(schematic) {
             if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) {
                 invalid(path, 'Pin bond references a missing physical pin.', value);
             }
+
             const rotation = (Number(component.rot) || 0) * Math.PI / 180;
             const localX = component.mir ? -Number(pin.x) : Number(pin.x);
             const localY = Number(pin.y);
@@ -247,6 +250,39 @@ function validateSchematicPinBonds(schematic) {
                     { node, componentId: value.componentId, pinNumber: value.pinNumber });
             }
         }
+    }
+}
+
+/** @param {JsonRecord} data */
+function migrateLegacyOpAmpPins(data) {
+    const schematic = /** @type {JsonRecord} */ (data.schematic);
+    const customDefinitions = new Set(Object.keys(schematic.defs || {}));
+    const components = /** @type {JsonRecord[]} */ (schematic.components || []);
+    const opAmps = new Set(components
+        .filter(component => component.dn === 'OpAmp' && !customDefinitions.has('OpAmp'))
+        .map(component => String(component.id)));
+    if (!opAmps.size) return;
+    /** @param {unknown} value @param {boolean} pcb */
+    const migrate = (value, pcb) => {
+        if (!record(value) || !opAmps.has(String(value.componentId))) return;
+        const legacy = String(value.pinNumber);
+        const pinNumber = LEGACY_OPAMP_PINS.get(legacy);
+        if (!pinNumber) return;
+        value.pinNumber = pinNumber;
+        if (pcb) {
+            Object.defineProperty(value, LEGACY_OPAMP_PAD_PIN, {
+                value: legacy,
+                enumerable: true,
+                configurable: true,
+            });
+        }
+    };
+    for (const shape of schematic.shapes || []) {
+        for (const connection of Object.values(record(shape.pc) ? shape.pc : {})) migrate(connection, false);
+        migrate(shape.pn, false);
+    }
+    for (const track of data.pcb?.tracks || []) {
+        for (const connection of Object.values(record(track.pdc) ? track.pdc : {})) migrate(connection, true);
     }
 }
 
@@ -579,6 +615,7 @@ export function validateProject(data) {
     }
     rejectUnknownFields(data, ENVELOPE_FIELDS, 'project');
     if (!record(data.schematic)) invalid('schematic', 'Missing schematic section.', data.schematic);
+    migrateLegacyOpAmpPins(data);
     validateSchematic(data.schematic);
     if (data.pcb != null) {
         requireRecord(data.pcb, 'pcb', 'Invalid PCB section.');

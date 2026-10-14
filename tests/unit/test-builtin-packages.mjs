@@ -6,6 +6,7 @@ import { generateFootprint } from '../../src/shared/pcb/footprint.js';
 import { parseObjModel } from '../../src/shared/3d/model-rendering.js';
 
 const canonical = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
+assert.equal(canonical.size, BuiltInComponents.length, 'Built-in component names are unique');
 const before = JSON.stringify(BuiltInComponents);
 const expectedCounts = {
     Resistor: 8, Resistor_IEC: 8, Capacitor: 8, Capacitor_Polarized: 4, Inductor: 5,
@@ -26,8 +27,7 @@ const expectedLabels = (name, id, original) => {
     if (name === 'NPN') return id === 'to92' ? ['B', 'C', 'E'] : ['B', 'E', 'C'];
     if (name === 'PNP') return ['B', 'E', 'C'];
     if (name === 'NMOS' || name === 'PMOS') return id === 'to92' ? ['G', 'D', 'S'] : ['G', 'S', 'D'];
-    if (name === 'OpAmp') return ['+', '-', 'OUT', '4', '5', '6', '7', '8'];
-    if (name === 'IC_DIP8') return ['1', '2', '3', '4', '5', '6', '7', '8'];
+    if (name === 'OpAmp' || name === 'IC_DIP8') return ['1', '2', '3', '4', '5', '6', '7', '8'];
     if (name === 'SW_Push') return ['1', '2', '1', '2'];
     if (name === 'Capacitor_Polarized') return ['+', '-'];
     if (name === 'Diode' || name === 'LED') return ['A', 'K'];

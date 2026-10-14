@@ -10,6 +10,9 @@ export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-cop
  * @returns {PcbText}
  */
 export function createPcbText(opts = {}) {
+    const layer = opts.layer === 'top-silkscreen' ? 'top-silk'
+        : opts.layer === 'bottom-silkscreen' ? 'bottom-silk'
+            : opts.layer;
     return {
         id: opts.id || `text-${Math.random().toString(36).slice(2, 10)}`,
         content: opts.content ?? 'Text',
@@ -17,7 +20,7 @@ export function createPcbText(opts = {}) {
         y: opts.y ?? 0,
         size: opts.size ?? 1.0,
         rotation: opts.rotation ?? 0,
-        layer: typeof opts.layer === 'string' && TEXT_LAYERS.includes(opts.layer) ? opts.layer : 'top-silk',
+        layer: typeof layer === 'string' && TEXT_LAYERS.includes(layer) ? layer : 'top-silk',
         strokeWidth: opts.strokeWidth ?? 0.15,
         border: !!opts.border,
         ...(opts.locked ? { locked: true } : {}),

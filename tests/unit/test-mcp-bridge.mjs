@@ -123,11 +123,17 @@ assert.deepEqual(schema.format.schematic.shapeTypes,
 assert.equal(schema.format.schematic.shapeTypes.includes('power'), false);
 assert.equal(schema.format.pcb.optional.includes('boardShapes'), true);
 assert.equal(schema.format.pcb.optional.includes('shapes'), false);
+assert.equal(schema.format.pcb.textRecord.coordinates.x.startsWith('Left edge'), true);
+assert.equal(schema.format.pcb.textRecord.coordinates.y.startsWith('Text baseline'), true);
+assert.equal(schema.format.pcb.textRecord.layerAliases['top-silkscreen'], 'top-silk');
+assert.equal(schema.notes.some(note => note.includes('compacts PCB text')), true);
 
 sockets[0].emit('message', JSON.stringify({ id: 'parts', method: 'list_parts' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 const parts = sockets[0].sent.at(-1).result;
 assert.equal(parts.find(part => part.dn === 'IC_DIP8').pinCount, 8);
+assert.equal(new Set(parts.map(part => part.dn)).size, parts.length);
+assert.equal(parts.find(part => part.dn === 'OpAmp').pinCount, 8);
 
 sockets[0].emit('message', JSON.stringify({ id: 'part', method: 'get_part', params: { dn: 'LED' } }));
 await new Promise(resolve => setTimeout(resolve, 0));

@@ -11,7 +11,9 @@ The prototype exposes thirteen tools:
 - `pairing_status` reports whether the connector still has access to a live
   tab.
 - `describe_schema` returns canonical shape fields, graph conventions and
-  worked component, wire, placement and track examples.
+  worked component, wire, placement and track examples. For PCB text it
+  explains the baseline-left `x,y` origin, cap-height size, supported layers,
+  layer aliases, and compact names returned by `get_project`.
 - `list_parts` returns valid built-in component `dn` values and summaries.
 - `search_parts` searches the built-in, KiCad and LCSC catalogs and returns
   compact source-qualified IDs. Remote searches require at least two
@@ -19,6 +21,9 @@ The prototype exposes thirteen tools:
 - `get_part` fetches exact symbol pin geometry, footprint records and metadata
   for a built-in, KiCad or LCSC part. Built-in definitions are referenced
   directly by `dn` and must not be copied into `schematic.defs`.
+  Built-in names are unique. The built-in `OpAmp` is an LM741 with pins 1-8;
+  projects saved with its former `+`, `-` and `OUT` aliases migrate those
+  schematic and PCB bonds to pins 3, 2 and 6 when loaded.
 - `place_part` fetches and places one source-qualified part at schematic
   coordinates. ClearPCB generates a reference when one is omitted and embeds
   external definitions automatically.
@@ -50,6 +55,14 @@ replaces it.
 `get_project` intentionally contains authored, round-trippable data only. Use
 `get_connection_points` for absolute pin and pad positions, and `get_netlist`
 for resolved electrical connectivity.
+
+PCB text uses `x,y` for the left edge of its first glyph on the text baseline
+(positive board Y points down); it is not centred on that point. `size` is the
+font cap height. Text layers use IDs such as `top-silk` and `bottom-silk`;
+`top-silkscreen` and `bottom-silkscreen` are accepted aliases. `apply_project_patch`
+accepts descriptive or compact field names, while `get_project` returns PCB
+text fields compacted (`content` → `t`, `size` → `s`, `layer` → `l`,
+`strokeWidth` → `lw`).
 
 ### Component sources
 
@@ -121,9 +134,10 @@ current stateless handler intentionally has no protocol session to which a
 one-time approval can be bound. Project and pairing state remain separate from
 the transport and can move to OAuth without changing the browser protocol.
 
-MCP clients commonly cache `tools/list` for the lifetime of a connector or chat
-session. Deploying a Worker with new tools does not update that existing list;
-reconnect the MCP connector or start a new chat after deployment.
+MCP clients commonly cache the advertised tool list for the lifetime of a
+connector or chat session. Deploying a Worker with new tools does not update
+that existing list; reconnect the MCP connector or start a new chat after
+deployment.
 
 ## Local Development
 
