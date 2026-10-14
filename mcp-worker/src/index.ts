@@ -11,7 +11,7 @@ interface Env {
 
 interface RelayRequest {
     id: string;
-    method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'get_part'
+    method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'search_parts' | 'get_part' | 'place_part'
         | 'get_project' | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
@@ -235,11 +235,42 @@ export class ClientSession extends DurableObject<Env> {
             annotations: { readOnlyHint: true },
         }, async () => this.pairedTool(sessionId, 'list_parts'));
         server.registerTool('get_part', {
-            title: 'Get a ClearPCB built-in part',
-            description: 'Return exact symbol pin geometry and footprint shapes for one built-in dn.',
-            inputSchema: { dn: z.string().min(1) },
+            title: 'Get a ClearPCB part',
+            description: 'Fetch exact symbol pins, footprint geometry and metadata for a built-in, KiCad or LCSC part. Use an ID returned by search_parts.',
+            inputSchema: {
+                source: z.enum(['builtin', 'kicad', 'lcsc']).default('builtin'),
+                id: z.string().min(1).optional(),
+                dn: z.string().min(1).optional(),
+            },
             annotations: { readOnlyHint: true },
-        }, async ({ dn }) => this.pairedTool(sessionId, 'get_part', { dn }));
+        }, async ({ source, id, dn }) =>
+            this.pairedTool(sessionId, 'get_part', { source, id: id || dn }));
+        server.registerTool('search_parts', {
+            title: 'Search ClearPCB component catalogs',
+            description: 'Search built-in, KiCad and/or LCSC catalogs. Returns compact source-qualified IDs for get_part or place_part.',
+            inputSchema: {
+                query: z.string().min(0).max(100),
+                source: z.enum(['builtin', 'kicad', 'lcsc', 'all']).default('all'),
+                limit: z.number().int().min(1).max(50).default(20),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ query, source, limit }) =>
+            this.pairedTool(sessionId, 'search_parts', { query, source, limit }));
+        server.registerTool('place_part', {
+            title: 'Place a ClearPCB schematic part',
+            description: 'Fetch and place a built-in, KiCad or LCSC part at schematic coordinates. External definitions are embedded automatically.',
+            inputSchema: {
+                source: z.enum(['builtin', 'kicad', 'lcsc']),
+                id: z.string().min(1),
+                x: z.number().finite(),
+                y: z.number().finite(),
+                ref: z.string().min(1).optional(),
+                value: z.string().optional(),
+                rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).default(0),
+            },
+            annotations: { destructiveHint: true, idempotentHint: false },
+        }, async ({ source, id, x, y, ref, value, rotation }) =>
+            this.pairedTool(sessionId, 'place_part', { source, id, x, y, ref, value, rotation }));
         server.registerTool('get_project', {
             title: 'Get ClearPCB project',
             description: 'Return the complete canonical project currently open in the paired ClearPCB tab.',

@@ -5,7 +5,7 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes eight tools:
+The prototype exposes ten tools:
 
 - `pair` requests browser approval using the short code shown in ClearPCB.
 - `pairing_status` reports whether the connector still has access to a live
@@ -13,9 +13,15 @@ The prototype exposes eight tools:
 - `describe_schema` returns canonical shape fields, graph conventions and
   worked component, wire, placement and track examples.
 - `list_parts` returns valid built-in component `dn` values and summaries.
-- `get_part` returns exact symbol pin geometry and footprint records for one
-  built-in part. Built-in definitions are referenced directly by `dn` and must
-  not be copied into `schematic.defs`.
+- `search_parts` searches the built-in, KiCad and LCSC catalogs and returns
+  compact source-qualified IDs. Remote searches require at least two
+  characters.
+- `get_part` fetches exact symbol pin geometry, footprint records and metadata
+  for a built-in, KiCad or LCSC part. Built-in definitions are referenced
+  directly by `dn` and must not be copied into `schematic.defs`.
+- `place_part` fetches and places one source-qualified part at schematic
+  coordinates. ClearPCB generates a reference when one is omitted and embeds
+  external definitions automatically.
 - `get_project` returns the complete canonical ClearPCB project.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
@@ -28,21 +34,54 @@ normal undo history. The MCP dialog retains one pre-write snapshot and offers
 **Revert last MCP change** until the session is disabled or another MCP write
 replaces it.
 
+### Component sources
+
+Use `search_parts` before retrieving or placing an online component:
+
+```json
+{ "query": "NE555", "source": "all", "limit": 20 }
+```
+
+Results identify their source and carry an ID suitable for `get_part` and
+`place_part`. Built-in IDs are definition names such as `Resistor`, KiCad IDs
+use `Library:Symbol` form such as `Timer:NE555D`, and LCSC IDs are supplier part
+numbers such as `C46749`.
+
+```json
+{
+  "source": "kicad",
+  "id": "Timer:NE555D",
+  "x": 70,
+  "y": 40,
+  "ref": "U1",
+  "value": "NE555D",
+  "rotation": 0
+}
+```
+
+KiCad and LCSC retrieval runs in the paired browser tab and reuses the same
+fetchers, caches, parsers and footprint conversion as the component picker.
+It therefore has the same network and upstream-service requirements as an
+interactive online component search. `get_part` omits raw 3D mesh text from
+its response; `place_part` still embeds available model data through the normal
+project serializer.
+
 ## Pairing
 
 1. Open ClearPCB and choose **AI Mode** in the ribbon.
 2. Select **Enable MCP**.
 3. Add `https://clearpcb-mcp.mikealex.workers.dev/mcp` to the MCP client once.
-4. Give the client the eight-character code shown in ClearPCB and ask it to
-   call `pair`.
+4. Copy the eight-character code shown in ClearPCB, give it to the client and
+   ask it to call `pair`.
 5. Check the client name in ClearPCB and select **Allow** or **Deny**.
 6. Use **Disconnect** or **Disable MCP** when finished.
 
 Pairing codes expire after five minutes, can be used once and are limited to
 ten attempts per MCP protocol session. A code only identifies a waiting tab:
 it does not grant project access until the browser user approves the named
-client. One client may be paired with a tab at a time. Denial, disconnect,
-disabling MCP or closing the tab revokes access.
+client. An unclaimed code is replaced automatically when it expires. One client
+may be paired with a tab at a time. Denial, disconnect, disabling MCP or
+closing the tab revokes access.
 
 The browser connects to `/mcp/relay/<random-relay-id>` by WebSocket. MCP clients
 always use the stable `/mcp` Streamable HTTP URL. A client-session Durable

@@ -302,41 +302,8 @@ export async function fetchAndPlaceKiCad(/** @type {ComponentPicker} */ picker, 
     setPlaceBtnLoading(picker, 'Fetching...', true);
     
     try {
-        // Use SearchManager to fetch from KiCad
-        const kicadData = await picker.searchManager.fetchFromKiCad(result.library, result.name);
-        const kicadSymbol = extractKiCadSymbol(kicadData);
-        const kicadProperties = kicadData?.properties || kicadData?.symbol?.properties || kicadSymbol?.properties;
-        
-        if (kicadData) {
-            const footprintName = getPropertyValue(picker, kicadProperties, 'Footprint');
-            let availability = null;
-            if (footprintName) {
-                availability = await picker.library.kicadFetcher.checkFootprintAvailability(footprintName);
-                if (!availability.hasFootprint) {
-                    picker.previewInfo.innerHTML += `<br><span style="color:var(--text-muted)">Footprint not found on KiCad GitLab</span>`;
-                }
-            }
-
-            // Create a component definition from KiCad data
-            const definition = buildKiCadDefinition(picker, kicadData, result);
-
-            // Fetch real footprint pad geometry so the PCB editor can render it
-            if (footprintName && !definition.footprintShapes) {
-                try {
-                    const fpPreview = await picker.library.kicadFetcher.fetchFootprintPreview(footprintName);
-                    if (fpPreview?.shapes?.length) {
-                        definition.footprintShapes = fpPreview.shapes;
-                        definition.footprintBBox = /** @type {import('../ComponentPicker.js').FootprintBox|null|undefined} */ (fpPreview.bbox);
-                    }
-                } catch (_) { /* non-fatal */ }
-            }
-            if (availability?.has3d && availability.modelUrl) {
-                definition.has3d = true;
-                definition.model3dUrl = availability.modelUrl;
-                definition.model3dName = footprintName || 'KiCad STEP model';
-            }
-            
-            picker.library.addDefinition(definition, 'KiCad');
+        const definition = await picker.library.fetchFromKiCad(result.library, result.name);
+        if (definition) {
             beginPlacement(picker, definition, { skipFootprint3d: true });
             
             if (definition.symbol) {

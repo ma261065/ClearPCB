@@ -1,5 +1,6 @@
 import { applyJsonPatch } from './json-patch.js';
 import { BuiltInComponents } from '../components/BuiltInComponents.js';
+import { Component, getComponentLibrary } from '../components/index.js';
 
 const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
 const DEFAULT_ENDPOINT = 'https://clearpcb-mcp.mikealex.workers.dev';
@@ -11,6 +12,7 @@ const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
  * @typedef {{id: string, method: string, params?: Record<string, unknown>}} RelayRequest
  * @typedef {{id: string, result?: unknown, error?: string}} RelayResponse
  * @typedef {{id: string, name: string, version?: string}} PairingClient
+ * @typedef {'builtin'|'kicad'|'lcsc'|'all'} PartSource
  * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, pairingCode?: string, pairingExpiresAt?: number, pendingClient?: PairingClient, pairedClient?: PairingClient, connectionError?: string, canRevert?: boolean}} McpBridgeState
  */
 
@@ -31,14 +33,16 @@ function makeSessionId() {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** @param {typeof BuiltInComponents[number]} definition */
+/** @param {import('../components/Component.js').ComponentDefinition} definition */
 function componentDefinition(definition) {
+    const rawSource = String(definition._source || 'Built-in').toLowerCase();
     return {
+        source: rawSource === 'built-in' ? 'builtin' : rawSource,
         dn: definition.name,
         description: definition.description,
         defaultReference: definition.defaultReference,
         defaultValue: definition.defaultValue,
-        pins: definition.symbol.pins.map(pin => ({
+        pins: (definition.symbol?.pins || []).map(pin => ({
             number: String(pin.number),
             name: pin.name,
             x: pin.x,
@@ -49,7 +53,43 @@ function componentDefinition(definition) {
         })),
         footprintName: definition.footprintName,
         footprintShapes: definition.footprintShapes,
+        footprintBBox: definition.footprintBBox,
+        manufacturer: definition.manufacturer,
+        mpn: definition.mpn,
+        supplierPartNumbers: definition.supplier_part_numbers,
+        datasheet: definition.datasheet,
+        productUrl: definition.productUrl,
+        has3d: !!definition.has3d,
+        model3dName: definition.model3dName,
+        model3dUrl: definition.model3dUrl,
     };
+}
+
+/**
+ * @param {string} value
+ * @returns {{library: string, name: string}}
+ */
+function parseKiCadId(value) {
+    const separator = value.indexOf(':');
+    if (separator <= 0 || separator === value.length - 1) {
+        throw new Error('KiCad part IDs must use "Library:Symbol" format.');
+    }
+    return { library: value.slice(0, separator), name: value.slice(separator + 1) };
+}
+
+/**
+ * @param {ReturnType<import('./ProjectDocument.js').ProjectDocument['serialize']>} project
+ * @param {import('../components/Component.js').ComponentDefinition} definition
+ */
+function nextReference(project, definition) {
+    const prefix = String(definition.defaultReference || 'U?').replace(/[0-9?]+$/, '') || 'U';
+    const pattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`, 'i');
+    let highest = 0;
+    for (const component of project.schematic.components) {
+        const match = pattern.exec(String(component.ref || ''));
+        if (match) highest = Math.max(highest, Number(match[1]));
+    }
+    return `${prefix}${highest + 1}`;
 }
 
 function describeSchema() {
@@ -104,10 +144,11 @@ function describeSchema() {
 export class McpBridge {
     /**
      * @param {import('./ProjectDocument.js').ProjectDocument} project
-     * @param {{onStateChanged?: (state: McpBridgeState) => void}} [options]
+     * @param {{onStateChanged?: (state: McpBridgeState) => void, componentLibrary?: import('../components/ComponentLibrary.js').ComponentLibrary|null}} [options]
      */
-    constructor(project, { onStateChanged = () => {} } = {}) {
+    constructor(project, { onStateChanged = () => {}, componentLibrary = null } = {}) {
         this.project = project;
+        this.componentLibrary = componentLibrary;
         this.onStateChanged = onStateChanged;
         this.enabled = false;
         this.connected = false;
@@ -261,6 +302,7 @@ export class McpBridge {
             this.connectionError = '';
         } catch (error) {
             this.connectionError = /** @type {{message: string}} */ (error).message;
+            this.codeTimer = window.setTimeout(() => void this._registerPairingCode(), 5000);
         }
         this._notify();
     }
@@ -278,6 +320,74 @@ export class McpBridge {
         } catch (error) {
             console.error('Unable to revoke the MCP pairing code.', error);
         }
+    }
+
+    /**
+     * @param {PartSource} source
+     * @param {string} id
+     * @returns {Promise<import('../components/Component.js').ComponentDefinition>}
+     */
+    async _resolvePart(source, id) {
+            if (source === 'builtin') {
+                const definition = BuiltInComponents.find(candidate => candidate.name === id);
+                if (!definition) throw new Error(`Unknown built-in component dn: ${id}`);
+                return definition;
+            }
+            const componentLibrary = this.componentLibrary || getComponentLibrary();
+            if (source === 'lcsc') return componentLibrary.fetchFromLCSC(id.toUpperCase());
+            if (source === 'kicad') {
+                const { library, name } = parseKiCadId(id);
+                return componentLibrary.fetchFromKiCad(library, name);
+            }
+            throw new Error(`Unsupported part source: ${source}`);
+        }
+
+        /**
+         * @param {string} query
+         * @param {PartSource} source
+         * @param {number} limit
+         */
+    async _searchParts(query, source, limit) {
+            const normalized = query.trim().toLowerCase();
+            const results = [];
+            if (source === 'builtin' || source === 'all') {
+                results.push(...BuiltInComponents
+                    .filter(definition => !normalized
+                        || `${definition.name} ${definition.description} ${definition.defaultValue}`.toLowerCase().includes(normalized))
+                    .map(definition => ({
+                        source: 'builtin',
+                        id: definition.name,
+                        name: definition.name,
+                        description: definition.description,
+                        footprintName: definition.footprintName,
+                    })));
+            }
+            const requests = [];
+            const library = this.componentLibrary || getComponentLibrary();
+            if (source === 'kicad' || source === 'all') {
+                requests.push(library.searchKiCad(query).then(matches => matches.map(match => ({
+                    source: 'kicad',
+                    id: `${match.library}:${match.name}`,
+                    name: match.name,
+                    library: match.library,
+                    description: `KiCad ${match.library} symbol`,
+                }))));
+            }
+            if (source === 'lcsc' || source === 'all') {
+                requests.push(library.searchLCSC(query).then(matches => matches
+                    .filter(match => match.lcscPartNumber)
+                    .map(match => ({
+                        source: 'lcsc',
+                        id: match.lcscPartNumber,
+                        name: match.mpn || match.lcscPartNumber,
+                        description: match.description,
+                        manufacturer: match.manufacturer,
+                        package: match.package,
+                        stock: match.stock,
+                    }))));
+            }
+            for (const remote of await Promise.all(requests)) results.push(...remote);
+            return { query, source, results: results.slice(0, limit) };
     }
 
     /**
@@ -366,10 +476,64 @@ export class McpBridge {
                     footprintName: definition.footprintName,
                 }));
             } else if (request.method === 'get_part') {
-                const dn = request.params?.dn;
-                const definition = BuiltInComponents.find(candidate => candidate.name === dn);
-                if (!definition) throw new Error(`Unknown built-in component dn: ${String(dn)}`);
+                const source = /** @type {PartSource} */ (request.params?.source || 'builtin');
+                const id = String(request.params?.id || request.params?.dn || '');
+                if (!id) throw new Error('get_part requires id.');
+                const definition = await this._resolvePart(source, id);
                 result = componentDefinition(definition);
+            } else if (request.method === 'search_parts') {
+                const query = String(request.params?.query || '').trim();
+                const source = /** @type {PartSource} */ (request.params?.source || 'all');
+                const limit = Math.max(1, Math.min(50, Number(request.params?.limit) || 20));
+                if (query.length < 2 && source !== 'builtin') {
+                    throw new Error('Remote part searches require at least two characters.');
+                }
+                result = await this._searchParts(query, source, limit);
+            } else if (request.method === 'place_part') {
+                const source = /** @type {Exclude<PartSource, 'all'>} */ (request.params?.source || 'builtin');
+                const id = String(request.params?.id || '');
+                const x = Number(request.params?.x);
+                const y = Number(request.params?.y);
+                if (!id) throw new Error('place_part requires id.');
+                if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('place_part requires finite x and y.');
+                const definition = await this._resolvePart(source, id);
+                const previous = this.project.serialize();
+                const updated = structuredClone(previous);
+                const reference = String(request.params?.ref || nextReference(previous, definition));
+                if (!reference) throw new Error('place_part requires a non-empty reference.');
+                if (previous.schematic.components.some(component =>
+                    String(component.ref || '').toLowerCase() === reference.toLowerCase())) {
+                    throw new Error(`Component reference already exists: ${reference}`);
+                }
+                const component = new Component(definition, {
+                    x,
+                    y,
+                    rotation: Number(request.params?.rotation) || 0,
+                    reference,
+                    value: request.params?.value === undefined ? undefined : String(request.params.value),
+                });
+                const serialized = component.toJSON();
+                const embedded = serialized.def;
+                delete serialized.def;
+                updated.schematic.components.push(serialized);
+                if (embedded) {
+                    updated.schematic.defs ||= {};
+                    updated.schematic.defs[definition.name] = embedded;
+                }
+                await this.project.load(updated);
+                this.lastMcpSnapshot = previous;
+                result = {
+                    ok: true,
+                    operation: 'place_part',
+                    component: {
+                        id: serialized.id,
+                        dn: serialized.dn,
+                        ref: serialized.ref,
+                        value: serialized.val,
+                        x: serialized.x,
+                        y: serialized.y,
+                    },
+                };
             } else if (request.method === 'get_project') {
                 result = this.project.serialize();
             } else if (request.method === 'replace_project') {

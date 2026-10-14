@@ -38,8 +38,42 @@ const project = {
     serialize: () => structuredClone(document),
     async load(value) { document = structuredClone(value); },
 };
+const externalDefinition = {
+    name: 'KiCad_NE555D',
+    description: 'NE555D timer',
+    category: 'KiCad',
+    defaultReference: 'U?',
+    defaultValue: 'NE555D',
+    _source: 'KiCad',
+    symbol: {
+        width: 20,
+        height: 20,
+        origin: { x: 10, y: 10 },
+        graphics: [],
+        pins: [{ number: '1', name: 'GND', x: 0, y: 10, orientation: 'right', length: 2.54, type: 'power_in' }],
+    },
+    footprintName: 'Package_SO:SOIC-8',
+    footprintShapes: ['PAD~1~RECT~0~0~1~2~0~~1~0~0~0~0~0'],
+    hasFootprint: true,
+};
+const componentLibrary = {
+    searchKiCad: async () => [{ library: 'Timer', name: 'NE555D', fullName: 'Timer:NE555D' }],
+    searchLCSC: async () => [{
+        lcscPartNumber: 'C46749',
+        mpn: 'NE555DR',
+        manufacturer: 'Texas Instruments',
+        description: 'Timer',
+        package: 'SOIC-8',
+        stock: 100,
+    }],
+    fetchFromKiCad: async () => structuredClone(externalDefinition),
+    fetchFromLCSC: async () => ({ ...structuredClone(externalDefinition), name: 'LCSC_C46749', _source: 'LCSC' }),
+};
 const states = [];
-const bridge = new McpBridge(project, { onStateChanged: state => states.push(state) });
+const bridge = new McpBridge(project, {
+    onStateChanged: state => states.push(state),
+    componentLibrary,
+});
 bridge.enable();
 assert.equal(bridge.mcpUrl, 'https://clearpcb-mcp.mikealex.workers.dev/mcp');
 assert.match(String(sockets[0].url), /^wss:\/\/clearpcb-mcp\.mikealex\.workers\.dev\/mcp\/relay\/[0-9a-f-]{36}$/);
@@ -75,6 +109,37 @@ await new Promise(resolve => setTimeout(resolve, 0));
 const part = sockets[0].sent.at(-1).result;
 assert.deepEqual(part.pins.map(pin => pin.number), ['A', 'K']);
 assert.ok(part.footprintShapes.some(shape => shape.includes('PAD')));
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'search-parts',
+    method: 'search_parts',
+    params: { query: '555', source: 'all', limit: 10 },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+const searchResults = sockets[0].sent.at(-1).result.results;
+assert.ok(searchResults.some(result => result.source === 'kicad' && result.id === 'Timer:NE555D'));
+assert.ok(searchResults.some(result => result.source === 'lcsc' && result.id === 'C46749'));
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'external-part',
+    method: 'get_part',
+    params: { source: 'kicad', id: 'Timer:NE555D' },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.source, 'kicad');
+assert.equal(sockets[0].sent.at(-1).result.footprintName, 'Package_SO:SOIC-8');
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'place-part',
+    method: 'place_part',
+    params: { source: 'kicad', id: 'Timer:NE555D', x: 70, y: 40 },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.component.ref, 'U1');
+assert.equal(document.schematic.components.at(-1).dn, 'KiCad_NE555D');
+assert.ok(document.schematic.defs.KiCad_NE555D);
+assert.equal(await bridge.revertLastChange(), true);
+assert.equal(document.schematic.components.length, 0);
 
 sockets[0].emit('message', JSON.stringify({ id: 'read', method: 'get_project' }));
 await new Promise(resolve => setTimeout(resolve, 0));
