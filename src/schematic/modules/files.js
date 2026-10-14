@@ -80,6 +80,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     clearAllShapes(app);
     clearAllComponents(app);
     app.document.load(data, prepared);
+    for (const component of app.components) component.createMissingFieldTexts(app);
 
     // Unified project format (v2.0)
     const sch = data.schematic || {};

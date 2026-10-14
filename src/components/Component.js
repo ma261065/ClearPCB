@@ -251,11 +251,12 @@ export class Component {
      * Both use 1.778mm font (≈7pt/70mil). Call once after the component
      * is placed. Adds them to app.shapes and returns the created models.
      * @param {{toolOptions: {textColor?: string|number}, shapes: Array<{type?: string}>}} app
+     * @param {Array<'reference'|'value'>} [fieldKeys]
      * @returns {Text[]}
      */
-    createFieldTexts(app) {
+    createFieldTexts(app, fieldKeys = ['reference', 'value']) {
         const symbol = this.symbol;
-        if (!symbol) return [];
+        if (!symbol || !fieldKeys.length) return [];
 
         // Compute local bounds (already includes 1.0 padding — matches the
         // selection / bounding box the user sees)
@@ -272,10 +273,11 @@ export class Component {
         const refLocal  = { x: cx, y: lb.minY - gap - fontSize * 0.35 };
         const valLocal  = { x: cx, y: lb.maxY + gap + fontSize };
 
-        const fields = [
+        const fields = /** @type {Array<{key: 'reference'|'value', label: string, local: {x: number, y: number}, visible: boolean}>} */ ([
             { key: 'reference', label: this.reference, local: refLocal, visible: this.showReference },
             { key: 'value',     label: this.value,     local: valLocal, visible: this.showValue }
-        ];
+        ]).filter(field => fieldKeys.includes(field.key)
+            && (field.key === 'reference' ? !this.refText : !this.valueText));
 
         const created = [];
         for (const f of fields) {
@@ -301,6 +303,19 @@ export class Component {
             created.push(text);
         }
         return created;
+    }
+
+    /**
+     * Restore any component field text omitted from an imported project.
+     * @param {{toolOptions: {textColor?: string|number}, shapes: Array<{type?: string}>}} app
+     * @returns {Text[]}
+     */
+    createMissingFieldTexts(app) {
+        /** @type {Array<'reference'|'value'>} */
+        const missing = [];
+        if (!this.refText) missing.push('reference');
+        if (!this.valueText) missing.push('value');
+        return this.createFieldTexts(app, missing);
     }
 
     /**

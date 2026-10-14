@@ -52,6 +52,11 @@ normal undo history. The MCP dialog retains one pre-write snapshot and offers
 **Revert last MCP change** until the session is disabled or another MCP write
 replaces it.
 
+Component `ref` and `val` data are displayed through linked schematic text
+shapes. When an imported project omits those generated shapes, ClearPCB
+recreates them from the component fields on load. Explicit `sr: false` or
+`sv: false` flags continue to hide the corresponding field.
+
 `get_project` intentionally contains authored, round-trippable data only. Use
 `get_connection_points` for absolute pin and pad positions, and `get_netlist`
 for resolved electrical connectivity.

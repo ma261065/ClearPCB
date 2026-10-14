@@ -590,7 +590,10 @@ const { viewOf, componentViewOf } = await import('../../src/schematic/render/sha
 const { SchematicDocument } = await import('../../src/core/SchematicDocument.js');
 const loadedModel = new SchematicDocument();
 const loadInput = { type: 'clearpcb-project', version: '1.0', schematic: {
-    components: [{ type: 'component', id: 'comp_800', dn: 'Resistor', x: 0, y: 0, ref: 'R8', val: '10k' }],
+    components: [
+        { type: 'component', id: 'comp_800', dn: 'Resistor', x: 0, y: 0, ref: 'R8', val: '10k' },
+        { type: 'component', id: 'comp_801', dn: 'Capacitor', x: 20, y: 0, ref: 'C8', val: '1uF', sr: false, sv: false },
+    ],
     shapes: [{ type: 'text', id: 'shape_800', x: 0, y: -2, t: 'R8', cid: 'comp_800', fk: 'reference' }],
 } };
 const prepared = loadedModel.prepare(loadInput);
@@ -604,6 +607,7 @@ const fieldElement = renderShape(loadedField, 1);
 const loadingEditor = Object.create(SchematicApp.prototype);
 Object.assign(loadingEditor, {
     document: loadedModel, selection: { clearSelection() {} },
+    toolOptions: { textColor: '#00b894' },
     viewport: { scale: 1, addContent: element => attached.push(element),
         addComponentContent: element => attached.push(element) },
     history: { clear() {} },
@@ -612,9 +616,22 @@ Object.assign(loadingEditor, {
 await loadDocument(loadingEditor, loadInput, prepared);
 assert.equal(loadingEditor.components[0], loadedComponent, 'Editor load adopts prepared model instances');
 assert.equal(loadingEditor.shapes[0], loadedField);
-assert.equal(loadedComponent.refText, loadedField);
-assert.deepEqual(attached, [fieldElement, componentViewOf(loadedComponent).element], 'Editor alone attaches loaded SVG');
+assert.equal(loadedComponent.refText, loadedField, 'Existing reference field is linked, not duplicated');
+assert.equal(loadingEditor.shapes.length, 4, 'Missing fields are restored for both components');
+assert.equal(loadedComponent.valueText.text, '10k');
+assert.equal(loadingEditor.components[1].refText.text, 'C8');
+assert.equal(loadingEditor.components[1].valueText.text, '1uF');
+assert.equal(loadingEditor.components[1].refText.visible, false, 'Restored fields preserve hidden-reference state');
+assert.equal(loadingEditor.components[1].valueText.visible, false, 'Restored fields preserve hidden-value state');
+assert.equal(attached.length, 6, 'Editor attaches loaded shapes, restored fields and symbols');
 assert.equal(viewOf(loadedField).element, fieldElement);
+assert.ok(attached.includes(viewOf(loadedComponent.valueText).element));
+assert.ok(attached.includes(viewOf(loadingEditor.components[1].refText).element));
+assert.ok(attached.includes(viewOf(loadingEditor.components[1].valueText).element));
+assert.ok(attached.includes(componentViewOf(loadedComponent).element));
+const savedFieldShapes = loadedModel.serialize().schematic.shapes.filter(shape => shape.cid);
+assert.deepEqual(savedFieldShapes.map(shape => [shape.cid, shape.fk]).sort(),
+    [['comp_800', 'reference'], ['comp_800', 'value'], ['comp_801', 'reference'], ['comp_801', 'value']]);
 loadingEditor.shapes = [];
 loadingEditor.components = [];
 assert.deepEqual(loadedModel.shapes, [], 'Editor clearing replaces the authoritative collections');

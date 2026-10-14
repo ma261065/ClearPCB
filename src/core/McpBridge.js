@@ -200,6 +200,7 @@ function describeSchema() {
             'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
             'PCB placements are keyed by schematic component id and require x, y, and rot.',
             'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
+            'Component ref/val fields are rendered as linked schematic text; missing field shapes are restored on load, unless sr/sv is false.',
             'PCB text x/y is its left-baseline origin, not its centre; size is the cap height.',
             'get_project compacts PCB text content/size/layer/strokeWidth to t/s/l/lw; apply_project_patch accepts long or compact field names.',
         ],
