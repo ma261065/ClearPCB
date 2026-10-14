@@ -3773,6 +3773,11 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     background: rgb(0 0 0 / 55%);
 }
 
+.mcp-session-open .mode-bar {
+    position: relative;
+    z-index: 10001;
+}
+
 .mcp-session-overlay.hide,
 .mcp-session-url.hide,
 .mcp-pairing-code.hide,

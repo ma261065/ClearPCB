@@ -5,7 +5,7 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes twelve tools:
+The prototype exposes thirteen tools:
 
 - `pair` requests browser approval using the short code shown in ClearPCB.
 - `pairing_status` reports whether the connector still has access to a live
@@ -28,9 +28,14 @@ The prototype exposes twelve tools:
   added to `get_project`, so its result remains valid round-trippable project
   JSON.
 - `get_netlist` returns the derived electrical nets and their component pins.
+- `connect` creates a bonded schematic wire between two `Reference.Pin`
+  endpoints, such as `U1.3` and `R3.1`. ClearPCB resolves transformed pin
+  positions and generates the wire ID and label.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
-  operations, validates the resulting project, and loads it.
+  operations, validates the resulting project, and loads it. The `patch`
+  argument accepts either the operation array or a JSON string containing that
+  array, for clients that encode large tool arguments as strings.
 
 Writes use the normal project loader, so invalid project data is rejected
 before either editor is changed. A `pc` or `pdc` connection must name an
@@ -41,6 +46,10 @@ echoing the whole project. A write clears the editors'
 normal undo history. The MCP dialog retains one pre-write snapshot and offers
 **Revert last MCP change** until the session is disabled or another MCP write
 replaces it.
+
+`get_project` intentionally contains authored, round-trippable data only. Use
+`get_connection_points` for absolute pin and pad positions, and `get_netlist`
+for resolved electrical connectivity.
 
 ### Component sources
 
@@ -84,6 +93,10 @@ project serializer.
 5. Check the client name in ClearPCB and select **Allow** or **Deny**.
 6. Use **Disconnect** or **Disable MCP** when finished.
 
+The AI Mode dialog remains open while paired, but the **Schematic** and
+**PCB Layout** tabs stay clickable so the browser user can inspect both editors
+as MCP changes arrive. All other controls behind the dialog remain blocked.
+
 Pairing codes expire after five minutes, can be used once and are limited to
 ten attempts per MCP protocol session. A code only identifies a waiting tab:
 it does not grant project access until the browser user approves the named
@@ -107,6 +120,10 @@ The sessionful transport is the Agents SDK compatibility transport because the
 current stateless handler intentionally has no protocol session to which a
 one-time approval can be bound. Project and pairing state remain separate from
 the transport and can move to OAuth without changing the browser protocol.
+
+MCP clients commonly cache `tools/list` for the lifetime of a connector or chat
+session. Deploying a Worker with new tools does not update that existing list;
+reconnect the MCP connector or start a new chat after deployment.
 
 ## Local Development
 

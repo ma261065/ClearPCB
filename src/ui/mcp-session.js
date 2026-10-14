@@ -201,10 +201,12 @@ export function createMcpSessionUi(bridge) {
 
     const close = () => {
         overlay.classList.add('hide');
+        document.body.classList.remove('mcp-session-open');
         ModalManager.pop('mcp-session');
     };
     const open = () => {
         overlay.classList.remove('hide');
+        document.body.classList.add('mcp-session-open');
         ModalManager.push('mcp-session', close);
         toggle.focus();
     };

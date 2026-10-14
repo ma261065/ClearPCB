@@ -12,7 +12,8 @@ interface Env {
 interface RelayRequest {
     id: string;
     method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'search_parts' | 'get_part' | 'place_part'
-        | 'get_project' | 'get_connection_points' | 'get_netlist' | 'replace_project' | 'apply_project_patch';
+        | 'get_project' | 'get_connection_points' | 'get_netlist' | 'connect'
+        | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
 
@@ -48,6 +49,29 @@ const PATCH_OPERATION = z.object({
     from: z.string().optional(),
     value: JSON_VALUE.optional(),
 }).strict();
+const PATCH_OPERATIONS = z.array(PATCH_OPERATION).min(1).max(100);
+const PATCH_INPUT = z.union([PATCH_OPERATIONS, z.string().min(1)]).transform((value, context) => {
+    if (Array.isArray(value)) return value;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch {
+        context.addIssue({
+            code: 'custom',
+            message: 'patch must be an RFC 6902 operation array or a JSON string containing that array.',
+        });
+        return z.NEVER;
+    }
+    const result = PATCH_OPERATIONS.safeParse(parsed);
+    if (!result.success) {
+        context.addIssue({
+            code: 'custom',
+            message: `patch JSON must decode to 1-100 valid RFC 6902 operations: ${result.error.issues[0]?.message || 'invalid patch'}`,
+        });
+        return z.NEVER;
+    }
+    return result.data;
+});
 
 function relayStub(env: Env, relayId: string): DurableObjectStub<TabRelay> {
     return env.TAB_RELAY.get(env.TAB_RELAY.idFromName(relayId));
@@ -289,6 +313,16 @@ export class ClientSession extends DurableObject<Env> {
             inputSchema: {},
             annotations: { readOnlyHint: true },
         }, async () => this.pairedTool(sessionId, 'get_netlist'));
+        server.registerTool('connect', {
+            title: 'Connect ClearPCB schematic pins',
+            description: 'Create a bonded schematic wire between two Reference.Pin endpoints using their exact physical positions.',
+            inputSchema: {
+                from: z.string().min(3),
+                to: z.string().min(3),
+                net: z.string().min(1).optional(),
+            },
+            annotations: { destructiveHint: true, idempotentHint: false },
+        }, async ({ from, to, net }) => this.pairedTool(sessionId, 'connect', { from, to, net }));
         server.registerTool('replace_project', {
             title: 'Replace ClearPCB project',
             description: 'Validate and replace the complete canonical project. Returns a short operation summary.',
@@ -297,8 +331,8 @@ export class ClientSession extends DurableObject<Env> {
         }, async ({ project }) => this.pairedTool(sessionId, 'replace_project', { project }));
         server.registerTool('apply_project_patch', {
             title: 'Patch ClearPCB project',
-            description: 'Atomically apply 1 to 100 RFC 6902 operations and return a short operation summary.',
-            inputSchema: { patch: z.array(PATCH_OPERATION).min(1).max(100) },
+            description: 'Atomically apply 1 to 100 RFC 6902 operations. patch may be an operation array or a JSON string containing one.',
+            inputSchema: { patch: PATCH_INPUT },
             annotations: { destructiveHint: true, idempotentHint: false },
         }, async ({ patch }) => this.pairedTool(sessionId, 'apply_project_patch', { patch }));
         return server;

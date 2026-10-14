@@ -1,6 +1,7 @@
 import { applyJsonPatch } from './json-patch.js';
 import { BuiltInComponents } from '../components/BuiltInComponents.js';
 import { Component, getComponentLibrary } from '../components/index.js';
+import { Wire } from '../shapes/wire.js';
 
 const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
 const DEFAULT_ENDPOINT = 'https://clearpcb-mcp.mikealex.workers.dev';
@@ -90,6 +91,34 @@ function nextReference(project, definition) {
         if (match) highest = Math.max(highest, Number(match[1]));
     }
     return `${prefix}${highest + 1}`;
+}
+
+/**
+ * @param {import('./ProjectDocument.js').ProjectDocument} project
+ * @param {string} endpoint
+ */
+function resolvePinEndpoint(project, endpoint) {
+    const separator = endpoint.lastIndexOf('.');
+    if (separator <= 0 || separator === endpoint.length - 1) {
+        throw new Error(`Pin endpoint "${endpoint}" must use Reference.Pin format, for example U1.3.`);
+    }
+    const reference = endpoint.slice(0, separator);
+    const pinNumber = endpoint.slice(separator + 1);
+    const matches = project.schematicDocument.components.filter(component =>
+        String(component.reference).toLowerCase() === reference.toLowerCase());
+    if (matches.length !== 1) {
+        throw new Error(matches.length
+            ? `Component reference is not unique: ${reference}`
+            : `Unknown component reference: ${reference}`);
+    }
+    const component = matches[0];
+    const pin = (component.symbol?.pins || []).find(candidate =>
+        String(candidate.number) === pinNumber);
+    if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) {
+        throw new Error(`Unknown physical pin: ${endpoint}`);
+    }
+    const point = component.localToWorld(Number(pin.x), Number(pin.y));
+    return { component, pinNumber, point };
 }
 
 function describeSchema() {
@@ -585,6 +614,45 @@ export class McpBridge {
                 result = this._connectionPoints();
             } else if (request.method === 'get_netlist') {
                 result = { nets: this.project.getNetlist() };
+            } else if (request.method === 'connect') {
+                const fromName = String(request.params?.from || '').trim();
+                const toName = String(request.params?.to || '').trim();
+                if (!fromName || !toName) throw new Error('connect requires from and to pin endpoints.');
+                const from = resolvePinEndpoint(this.project, fromName);
+                const to = resolvePinEndpoint(this.project, toName);
+                if (from.component.id === to.component.id && from.pinNumber === to.pinNumber) {
+                    throw new Error('connect endpoints must identify different pins.');
+                }
+                const previous = this.project.serialize();
+                const wire = new Wire({
+                    points: [from.point, to.point],
+                    net: request.params?.net === undefined ? undefined : String(request.params.net),
+                });
+                const [fromNode, toNode] = wire.nodes.keys();
+                wire.pinConnections.set(fromNode, {
+                    componentId: from.component.id,
+                    pinNumber: from.pinNumber,
+                });
+                wire.pinConnections.set(toNode, {
+                    componentId: to.component.id,
+                    pinNumber: to.pinNumber,
+                });
+                const updated = structuredClone(previous);
+                const serialized = wire.toJSON();
+                updated.schematic.shapes.push(serialized);
+                await this.project.load(updated);
+                this.lastMcpSnapshot = previous;
+                result = {
+                    ok: true,
+                    operation: 'connect',
+                    wire: {
+                        id: serialized.id,
+                        label: serialized.wl,
+                        net: serialized.n || '',
+                        from: fromName,
+                        to: toName,
+                    },
+                };
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');
                 const previous = this.project.serialize();

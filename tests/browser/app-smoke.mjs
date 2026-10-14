@@ -61,6 +61,32 @@ export const scenarios = [
         },
     },
     {
+        name: 'mcp-modal-allows-only-editor-tab-switching',
+        async run(page, url) {
+            await openPcb(page, url);
+            await page.locator('#ribbonPCB [data-tab="pcb-file"]').click();
+            await page.locator('#ribbonPCB [data-mcp-session]').click();
+            const overlay = page.locator('.mcp-session-overlay');
+            await overlay.waitFor();
+            assert.equal(await page.locator('body').evaluate(body => body.classList.contains('mcp-session-open')), true);
+
+            const schematicTab = await page.locator('.mode-tab[data-mode="schematic"]').boundingBox();
+            assert.ok(schematicTab);
+            await page.mouse.click(schematicTab.x + schematicTab.width / 2, schematicTab.y + schematicTab.height / 2);
+            await waitForPage(page, () => document.querySelector('.mode-tab[data-mode="schematic"]')?.classList.contains('active'));
+            assert.equal(await overlay.isVisible(), true, 'Switching editors leaves the MCP dialog open');
+
+            const pcbTab = await page.locator('.mode-tab[data-mode="pcb"]').boundingBox();
+            assert.ok(pcbTab);
+            await page.mouse.click(pcbTab.x + pcbTab.width / 2, pcbTab.y + pcbTab.height / 2);
+            await waitForPage(page, () => document.querySelector('.mode-tab[data-mode="pcb"]')?.classList.contains('active'));
+            assert.equal(await overlay.isVisible(), true);
+
+            await page.locator('[data-mcp-close]').last().click();
+            assert.equal(await page.locator('body').evaluate(body => body.classList.contains('mcp-session-open')), false);
+        },
+    },
+    {
         name: 'pcb-track-drawing-and-undo',
         async run(page, url) {
             await openPcb(page, url);

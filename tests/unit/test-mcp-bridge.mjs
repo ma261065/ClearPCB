@@ -43,6 +43,11 @@ const project = {
             definition: { name: 'Resistor' },
             symbol: { pins: [{ number: '1', name: '1', type: 'passive', x: -3.81, y: 0 }] },
             localToWorld: (x, y) => ({ x: 40 + x, y: 25 + y }),
+        }, {
+            id: 'comp-target', reference: 'U2', value: 'Target',
+            definition: { name: 'Target' },
+            symbol: { pins: [{ number: '3', name: 'IN', type: 'input', x: 0, y: 0 }] },
+            localToWorld: (x, y) => ({ x: 50 + x, y: 25 + y }),
         }],
     },
     resolvePcbLayout: () => ({
@@ -173,6 +178,18 @@ assert.deepEqual(sockets[0].sent.at(-1).result.pcb.placements[0].pads[0],
 sockets[0].emit('message', JSON.stringify({ id: 'netlist', method: 'get_netlist' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(sockets[0].sent.at(-1).result.nets[0].net, 'R9.1');
+sockets[0].emit('message', JSON.stringify({
+    id: 'connect',
+    method: 'connect',
+    params: { from: 'R9.1', to: 'U2.3', net: 'SIGNAL' },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.wire.net, 'SIGNAL');
+assert.deepEqual(document.schematic.shapes[0].pc,
+    { n0: { componentId: 'comp-geometry', pinNumber: '1' },
+        n1: { componentId: 'comp-target', pinNumber: '3' } });
+assert.deepEqual(document.schematic.shapes[0].nd, { n0: [36.19, 25], n1: [50, 25] });
+assert.equal(await bridge.revertLastChange(), true);
 const chunkedRequest = JSON.stringify({
     id: 'chunked-read',
     method: 'get_project',
