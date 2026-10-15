@@ -3,6 +3,9 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { createRect, createLine, createPolygon } from '../../src/shapes/polyline.js';
 import { Wire } from '../../src/shapes/wire.js';
+import { Net } from '../../src/shapes/net.js';
+import { serializeSchematicDocument } from '../../src/core/SchematicDocument.js';
+import { storableProject } from '../../src/core/project-format.js';
 import { Arc } from '../../src/shapes/arc.js';
 import { viewOf } from '../../src/schematic/render/shape-view-state.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
@@ -126,6 +129,36 @@ function expectDeletionNotification(app, selection = []) {
         assert.equal(document.getElementById('prop_lineWidth'), null);
         assert.equal(document.getElementById('prop_net'), null);
         assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'home', 'Empty selection leaves Properties');
+    }
+}
+
+for (const multiple of [false, true]) for (const deleteWire of [false, true]) {
+    const net = new Net({ x: 0, y: 0, net: 'VCC' });
+    const app = fixture(net);
+    const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 20, y: 0 }], net: 'VCC' });
+    const nodeId = [...wire.nodes.keys()][0];
+    wire.pinConnections.set(nodeId, { componentId: net.id, pinNumber: 'conn' });
+    commandAddShapeInternal(app, wire);
+    if (multiple) {
+        const second = new Net({ x: 20, y: 0, net: 'VCC' });
+        commandAddShapeInternal(app, second);
+        app.selection.select(second, true);
+    }
+    if (deleteWire) app.selection.select(wire, true);
+    const serialize = () => storableProject(serializeSchematicDocument(app));
+    const before = serialize().schematic;
+    app.selectionNotifications.length = 0;
+    runSchematicDeleteAction(app);
+    assert.equal(app.shapes.some(shape => shape.type === 'net'), false);
+    if (!deleteWire) assert.equal(wire.pinConnections.size, 0, 'Deleting NetLabels removes all surviving wire bonds');
+    const after = serialize().schematic;
+    assert.ok(after.shapes.every(shape => shape.type !== 'text'), 'Linked Text is deleted with its NetLabel');
+    expectDeletionNotification(app);
+    for (let i = 0; i < 2; i++) {
+        app.history.undo();
+        assert.deepEqual(serialize().schematic, before, 'Undo restores exact labels, Text, names and bonds');
+        app.history.redo();
+        assert.deepEqual(serialize().schematic, after, 'Redo leaves a saveable project with no orphan bonds');
     }
 }
 

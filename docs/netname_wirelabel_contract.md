@@ -157,6 +157,11 @@ Editing the primary attached label or the wire's `wireLabel` property updates on
 
 ## Undo/redo rules
 
+Deleting Net labels removes their virtual-pin bonds from surviving wires before
+the deletion is published or saved. Undo restores those exact bonds alongside
+the labels and their Text records; redo removes them again. Deletion preserves
+authored wire geometry and net names, as component deletion does.
+
 Commands that change a wire or net label capture the affected shape state before
 and after the edit. Wire reconciliation records `wire.net`, `wire.wireLabel`,
 pin connections, label visibility/position and linked label text as part of its

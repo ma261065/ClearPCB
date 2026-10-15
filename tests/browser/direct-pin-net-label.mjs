@@ -1,7 +1,38 @@
 import assert from 'node:assert/strict';
-import { openSchematic, viewCentre, waitForPage } from './helpers/editor-helpers.mjs';
+import { openSchematic, saveAndReopen, viewCentre, waitForPage } from './helpers/editor-helpers.mjs';
 
 export const scenarios = [{
+    name: 'schematic-connected-net-label-delete-saves',
+    async run(page, url) {
+        await openSchematic(page, url);
+        await page.evaluate(async centre => {
+            const { Net } = await import('/src/shapes/net.js');
+            const { Wire } = await import('/src/shapes/wire.js');
+            const app = window.bootstrap.schematicApp;
+            app.addShape(new Wire({ points: [centre, { x: centre.x + 20, y: centre.y }] }));
+            const net = new Net({ ...centre, net: 'VCC' });
+            app.addShape(net);
+            app.selection.select(net);
+            app.renderShapes(true);
+        }, await viewCentre(page));
+        const snapshot = () => page.evaluate(async () => {
+            const { storableProject } = await import('/src/core/project-format.js');
+            const app = window.bootstrap.schematicApp;
+            return storableProject(app.serializeSection()).schematic;
+        });
+        const before = await snapshot();
+        await page.keyboard.press('Delete');
+        const after = await snapshot();
+        assert.equal(after.shapes.some(shape => shape.type === 'net'), false);
+        assert.ok(after.shapes.filter(shape => shape.type === 'wire').every(shape => !shape.pc));
+        await page.keyboard.press('Control+z');
+        assert.deepEqual(await snapshot(), before, 'Undo restores exact NetLabel Text and wire bonds');
+        await page.keyboard.press('Control+y');
+        assert.deepEqual(await snapshot(), after, 'Redo remains saveable');
+        await saveAndReopen(page, 'schematic');
+        assert.deepEqual(await snapshot(), after, 'Deleted NetLabel does not leave orphan bonds after recovery');
+    },
+}, {
     name: 'schematic-direct-pin-net-label-reaches-pcb-net-menus',
     async run(page, url) {
         await openSchematic(page, url);
