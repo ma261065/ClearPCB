@@ -164,6 +164,14 @@ dropping attaches it. Movement and attachment undo together. Attached text offer
 “Detach from wire” or “Detach from shape” according to its owner, in Properties
 (with an explanatory tooltip) and its context menu;
 detachment is undoable. Component reference/value fields are not reattached this way.
+Text owns its font size, including wire-attached labels, Net-label text and component
+fields. Attachment, reattachment, redraw and reopening preserve that size, including
+multi-selection edits alongside standalone text. Newly generated wire-name and Net
+labels default to 1.4 mm; attaching existing or newly placed Text preserves its own
+chosen size. Net parents have no font-size field or Text Size property. Their linked
+Text records are saved with `cid`/`fk` and their own `fs`; legacy parent `fs`/`fontSize`
+values are ignored, not migrated. A legacy Net with no Text record receives default
+Text at 1.4 mm on load.
 The attachment tip is hidden for text already attached to a shape or wire and returns after detachment.
 Hover attachment targets are available only for unattached text. Dragging attached
 text changes its offset from its existing owner without offering or adopting another

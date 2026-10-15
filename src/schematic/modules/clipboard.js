@@ -18,7 +18,7 @@ import { isComponentItem, isTextItem } from '../../core/schematic-items.js';
 /** @typedef {{x: number, y: number}} Point */
 /**
  * @typedef {{[key: string]: unknown, id?: string|number, type?: string, x?: number, y?: number, w?: number, h?: number, nd?: Record<string, [number, number]>, pts?: number[], sp?: Point, ep?: Point, bp?: Point, ir?: boolean, cn?: unknown[], rot?: number, mir?: boolean, ref?: string, pkg?: string, val?: string, sr?: boolean, sv?: boolean, props?: import('../../components/Component.js').ComponentProperties, cid?: string, fk?: string|null, att?: unknown, lk?: boolean, locked?: boolean}} SerializedShapeData
- * @typedef {SerializedShapeData & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData
+ * @typedef {SerializedShapeData & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition, _netText?: ReturnType<import('../../shapes/text.js').Text['toJSON']>}} ClipboardData
  * @typedef {'rotateRight'|'flipHorizontal'|'flipVertical'} PasteTransformOperation
  * @typedef {{a:number,b:number,c:number,d:number,position:Point,operations:PasteTransformOperation[]}} PasteTransform
  */
@@ -145,6 +145,9 @@ function serialiseItem(item, origin) {
         json._clipX = shapeCentroid.x - origin.x;
         json._clipY = shapeCentroid.y - origin.y;
         json._clipType = 'shape';
+        if (item.type === 'net' && item.labelText) {
+            json._netText = item.labelText.toJSON();
+        }
         return /** @type {ClipboardData} */ (json);
     }
 }
@@ -403,12 +406,25 @@ export function confirmPaste(app, worldPos) {
             // structuredClone is faster than JSON round-trip and handles all types
             const clone = structuredClone(data);
             // Pasted copies are new objects, so they start unlocked (as in the PCB editor).
-            const { id, _clipX, _clipY, _clipType, cid, fk, att, lk, locked, ...shapeData } = clone;
+            const { id, _clipX, _clipY, _clipType, _netText, cid, fk, att, lk, locked, ...shapeData } = clone;
             offsetShapeData(shapeData, snapped.x + _clipX, snapped.y + _clipY);
 
             const shape = createShape(shapeData);
             if (shape) {
                 pastedShapes.push(shape);
+                if (shape.type === 'net') {
+                    if (_netText) {
+                        const { id: textId, cid: parentId, fk: fieldKey, ...textData } = _netText;
+                        const text = createShape(textData);
+                        if (text.type === 'text') {
+                            text.parentComponent = shape;
+                            text.fieldKey = 'net';
+                            shape.labelText = text;
+                            shape.syncLabelText();
+                        }
+                    }
+                    pastedShapes.push(shape.ensureLabelText());
+                }
             }
         }
     }

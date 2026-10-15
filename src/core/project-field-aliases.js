@@ -152,6 +152,11 @@ function transformSchematic(schematic, target) {
     if (!record(schematic)) return schematic;
     convertRecord(schematic.settings, SCHEMATIC_SETTINGS, target, 'schematic.settings');
     for (const [index, shape] of (Array.isArray(schematic.shapes) ? schematic.shapes : []).entries()) {
+        // Legacy parent sizes are ignored; linked Text records own their size.
+        if (shape?.type === 'net') {
+            delete shape.fs;
+            delete shape.fontSize;
+        }
         convertRecord(shape, SCHEMATIC_SHAPE, 'short', `schematic.shapes[${index}]`);
         for (const [nodeId, connection] of Object.entries(record(shape?.pc) ? shape.pc : {})) {
             convertRecord(connection, PIN_CONNECTION, target, `schematic.shapes[${index}].pinConnections.${nodeId}`);

@@ -1,6 +1,5 @@
 import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
-import { Text } from '../../shapes/text.js';
 import { detachLabel } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
@@ -41,7 +40,7 @@ export function addShapeInternal(app, shape) {
     if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
     // Wire names are no longer materialized as dedicated wireLabel Text shapes.
     // Generic attached labels (fieldKey === 'label') are used instead.
-    if (netShape && !netShape.labelText) {
+    if (netShape) {
         _createNetText(app, netShape);
     }
     // When a Net label is placed on a wire, record the connection and propagate the net name
@@ -277,24 +276,8 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
  * @param {Net} Net
  */
 function _createNetText(app, Net) {
-    const pos = Net.getTextPosition();
-    const anchor = (Net.style === 'chevron') ? 'start' : 'middle';
-    const text = new Text({
-        x: pos.x,
-        y: pos.y,
-        text: Net.net,
-        fontSize: Net.fontSize,
-        fontFamily: 'Arial',
-        textAnchor: anchor,
-        color: 'var(--sch-text-label, #00b894)',
-        border: Net.border
-    });
-    text.parentComponent = Net;
-    text.fieldKey = 'net';
-    text.visible = Net.visible;
-    Net.labelText = text;
-
-    app.shapes.push(text);
+    const text = Net.ensureLabelText();
+    if (!app.shapes.includes(text)) app.shapes.push(text);
     mountShape(app, text);
 }
 

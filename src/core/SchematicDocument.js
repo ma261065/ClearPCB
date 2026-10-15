@@ -67,9 +67,7 @@ export function setComponentReference(component, reference) {
 /** @param {{shapes: SchematicDrawable[], components: Component[], settings?: object}} value @returns {ProjectData} */
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
-    const serializedShapes = shapes
-        .filter(shape => !(isTextShape(shape) && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
-        .map(shape => shape.toJSON());
+    const serializedShapes = shapes.map(shape => shape.toJSON());
     /** @type {Record<string, ComponentDefinition>} */
     const defs = {};
     for (const component of serializedComponents) {
@@ -107,8 +105,7 @@ export class SchematicDocument {
     prepare(data, getDefinition = builtInDefinition) {
         data = /** @type {ProjectData} */ (validateEditableProject(data));
         const schematic = /** @type {ProjectSchematicData} */ (data.schematic);
-        const shapes = schematic.shapes.filter(item => item.fk !== 'net')
-            .map(item => ({ data: item, shape: createShape(item) }));
+        const shapes = schematic.shapes.map(item => ({ data: item, shape: createShape(item) }));
         const components = schematic.components.map(item => {
             const component = deserializeComponent(/** @type {SerializedComponentData} */ ({ ...item, def: schematic.defs?.[String(item.dn)] }), getDefinition);
             if (!component) throw new Error(`Missing component definition: ${item.dn}`);
@@ -142,6 +139,20 @@ export class SchematicDocument {
             component.linkFieldTexts(this.shapes);
         }
         const targets = new Map([...this.shapes, ...this.components].map(item => [item.id, item]));
+        for (const shape of this.shapes) {
+            if (!isTextShape(shape) || shape.fieldKey !== 'net' || !shape._pendingComponentId) continue;
+            const target = targets.get(shape._pendingComponentId);
+            if (target?.type !== 'net') continue;
+            shape.parentComponent = target;
+            target.labelText = shape;
+            delete shape._pendingComponentId;
+            target.syncLabelText();
+        }
+        for (const shape of [...this.shapes]) {
+            if (shape.type === 'net' && !shape.labelText) {
+                this.shapes.push(shape.ensureLabelText());
+            }
+        }
         for (const shape of this.shapes) {
             if (!isTextShape(shape) || shape.fieldKey !== 'label' || !shape._pendingComponentId) continue;
             const target = targets.get(shape._pendingComponentId);

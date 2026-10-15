@@ -2,6 +2,7 @@ import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection 
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
 import { BuiltInComponents } from '../components/BuiltInComponents.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
+import { SCHEMATIC_CONNECTION_TOLERANCE } from './component-pin-connectivity.js';
 
 /** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
 
@@ -27,7 +28,7 @@ const SHAPE_FIELDS = {
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
     text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att', 'bd'),
-    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto', 'bd'),
+    net: fields('x', 'y', 'n', 'nst', 'no', 'nto', 'bd'),
     noconnect: fields('x', 'y', 'pn'),
 };
 const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'settings',
@@ -62,7 +63,6 @@ const ARTWORK_FIELDS = {
     'reference-v1': fields('encoding', 'index'),
 };
 const BOND_FIELDS = fields('componentId', 'pinNumber');
-const BOND_POSITION_TOLERANCE = 0.001;
 const LEGACY_OPAMP_PINS = new Map([['+', '3'], ['-', '2'], ['OUT', '6']]);
 export const LEGACY_OPAMP_PAD_PIN = Symbol('legacyOpAmpPadPin');
 
@@ -218,6 +218,11 @@ function validateSchematicPinBonds(schematic) {
     const components = new Map(schematic.components.map(
         /** @param {JsonRecord} component */
         component => [String(component.id), component]));
+    const netLabels = new Map(schematic.shapes.filter(
+        /** @param {JsonRecord} shape */
+        shape => shape.type === 'net').map(
+        /** @param {JsonRecord} shape */
+        shape => [String(shape.id), shape]));
     const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
     for (const [name, definition] of Object.entries(schematic.defs || {})) definitions.set(name, definition);
     for (const [shapeIndex, shape] of schematic.shapes.entries()) {
@@ -231,6 +236,19 @@ function validateSchematicPinBonds(schematic) {
             const node = /** @type {Record<string, [number, number]>} */ (shape.nd)[nodeId];
             if (!node) invalid(path, 'Pin bond references a missing wire node.', value);
             const component = components.get(String(value.componentId));
+            const netLabel = netLabels.get(String(value.componentId));
+            if (!component && netLabel) {
+                if (String(value.pinNumber) !== 'conn') {
+                    invalid(path, 'Pin bond references a missing net-label pin.', value);
+                }
+                const expectedX = Number(netLabel.x), expectedY = Number(netLabel.y);
+                if (!Number.isFinite(expectedX) || !Number.isFinite(expectedY)
+                    || Math.hypot(node[0] - expectedX, node[1] - expectedY) >= SCHEMATIC_CONNECTION_TOLERANCE) {
+                    invalid(path, `Pin bond node must be at the net-label connection position [${expectedX}, ${expectedY}].`,
+                        { node, componentId: value.componentId, pinNumber: value.pinNumber });
+                }
+                continue;
+            }
             if (!component) invalid(path, 'Pin bond references a missing component.', value);
             const definition = definitions.get(String(component.dn));
             if (!definition) invalid(path, `Missing component definition: ${component.dn}.`, value);
@@ -245,7 +263,7 @@ function validateSchematicPinBonds(schematic) {
             const localY = Number(pin.y);
             const expectedX = Number(component.x) + localX * Math.cos(rotation) - localY * Math.sin(rotation);
             const expectedY = Number(component.y) + localX * Math.sin(rotation) + localY * Math.cos(rotation);
-            if (Math.hypot(node[0] - expectedX, node[1] - expectedY) > BOND_POSITION_TOLERANCE) {
+            if (Math.hypot(node[0] - expectedX, node[1] - expectedY) >= SCHEMATIC_CONNECTION_TOLERANCE) {
                 invalid(path, `Pin bond node must be at the physical pin position [${expectedX}, ${expectedY}].`,
                     { node, componentId: value.componentId, pinNumber: value.pinNumber });
             }

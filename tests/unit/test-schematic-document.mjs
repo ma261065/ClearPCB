@@ -4,7 +4,8 @@ import { SchematicDocument } from '../../src/core/SchematicDocument.js';
 import { Component } from '../../src/components/Component.js';
 import { Shape } from '../../src/shapes/shape.js';
 import { viewOf, componentViewOf } from '../../src/schematic/render/shape-view-state.js';
-import { validateProject } from '../../src/core/project-format.js';
+import { validateProject, storableProject } from '../../src/core/project-format.js';
+import { createShape } from '../../src/shapes/index.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
@@ -90,4 +91,54 @@ model.clear();
 assert.deepEqual(model.components, []);
 assert.deepEqual(model.shapes, []);
 assert.throws(() => rename.undo(), /no longer available/, 'Stale commands fail explicitly');
+
+for (const parentSize of [{ fs: 9 }, { fontSize: 12 }, { fs: 9, fontSize: 12 }]) {
+    for (const savedTextSize of [undefined, 3.5]) {
+        const data = {
+            type: 'clearpcb-project', version: '1.0',
+            schematic: { components: [], shapes: [
+                { id: 'net_size_owner', type: 'net', x: 0, y: 0, n: 'VCC', ...parentSize },
+                ...(savedTextSize === undefined ? [] : [{
+                    id: 'net_size_text', type: 'text', x: 0, y: 0,
+                    t: 'VCC', fs: savedTextSize, cid: 'net_size_owner', fk: 'net',
+                }]),
+            ] },
+        };
+        const original = structuredClone(data);
+        const document = new SchematicDocument();
+        document.load(data);
+        const net = document.shapes.find(shape => shape.type === 'net');
+        const text = net.labelText;
+        assert.equal(text.parentComponent, net);
+        assert.equal(text.fontSize, savedTextSize ?? 1.4, 'Ignore parent size even when no Text was saved');
+        assert.equal(Object.hasOwn(net, 'fontSize'), false);
+        assert.equal(Object.hasOwn(net.captureState(), 'fontSize'), false);
+        assert.ok(!net.getPropertyDescriptors().some(prop => prop.key === 'fontSize'));
+        text.fontSize = 4;
+        net.syncLabelText();
+        assert.equal(text.fontSize, 4, 'Net synchronization preserves Text size');
+        const cloned = net.clone();
+        assert.equal(cloned.labelText.fontSize, 4);
+        assert.equal(cloned.labelText.parentComponent, cloned);
+        const saved = storableProject(document.serialize());
+        const parent = saved.schematic.shapes.find(shape => shape.type === 'net');
+        assert.equal(Object.hasOwn(parent, 'fs'), false);
+        assert.equal(Object.hasOwn(parent, 'fontSize'), false);
+        assert.equal(saved.schematic.shapes.filter(shape => shape.fk === 'net').length, 1);
+        assert.equal(saved.schematic.shapes.find(shape => shape.fk === 'net').fs, 4);
+        assert.equal(Object.hasOwn(storableProject(data).schematic.shapes[0], 'fs'), false,
+            'Storage also discards legacy parent size without constructing an editor');
+        const reopened = new SchematicDocument();
+        reopened.load(saved);
+        assert.equal(reopened.shapes.find(shape => shape.type === 'net').labelText.fontSize, 4);
+        assert.deepEqual(reopened.serialize().schematic, saved.schematic);
+        assert.deepEqual(data, original, 'Ignoring legacy parent size never mutates the input');
+    }
+}
+assert.equal(Object.hasOwn(createShape({ type: 'net', fs: 8 }), 'fontSize'), false);
+for (const fontSize of [0.5, 1, 3.5, 50]) {
+    const text = createShape({ type: 'text', fs: fontSize });
+    assert.equal(text.fontSize, fontSize, 'Every Properties-supported Text size loads unchanged');
+    assert.equal(createShape(text.toJSON()).fontSize, fontSize);
+}
 console.log('PASS: project-owned schematic load, rename/undo, connectivity and serialization without editors or DOM');

@@ -339,14 +339,15 @@ export function createShapeFromDrawing(app) {
                 app.alert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`, { title: 'Net Conflict' });
                 return null;
             }
-            return new Net({
+            const shape = new Net({
                 x: start.x,
                 y: start.y,
                 net,
-                fontSize: opts.netFontSize || 1.4,
                 style,
                 orientation: normalizeNetOrientation(typeof opts.netOrientation === 'string' ? opts.netOrientation : 'N')
             });
+            shape.ensureLabelText(opts.netFontSize || 1.4);
+            return shape;
         }
 
         case 'noconnect': {

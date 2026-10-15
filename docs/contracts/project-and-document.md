@@ -47,7 +47,12 @@ completed autosave into a storage-failure warning or cause it to be retried.
 Storage writes only what the loader accepts. Open and recovery validate a project
 with `validateEditableProject` (`project-format.js`); `FileManager` checks every
 Save, Save As and autosave with `storableProject`, the same validation, and writes
-the compact form it returns, so the check adds no copy. A project that fails is not
+the compact form it returns, so the check adds no copy. Schematic wire bonds may
+target physical component pins or a Net label's virtual `conn` pin at its anchor;
+both require an existing target and wire-node coordinates within the editor's shared
+0.15 mm schematic connection tolerance (strictly less than the limit). Validation
+preserves saved geometry rather than snapping nearby bonded nodes.
+A project that fails is not
 written. Save and Save As report the `ProjectIntegrityError` through the save-failure
 alert before any permission prompt or file picker, so the file on disk is not changed;
 autosave keeps the last good snapshot and the UI host says why, once per failure

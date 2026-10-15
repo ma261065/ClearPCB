@@ -20,6 +20,7 @@ const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { ProjectIntegrityError, assertSupportedPcb, defaultPcbStackup, storableProject, validateEditableProject } =
     await import('../../src/core/project-format.js');
 const { compactProjectAliases } = await import('../../src/core/project-field-aliases.js');
+const { SCHEMATIC_CONNECTION_TOLERANCE } = await import('../../src/core/component-pin-connectivity.js');
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 
 const design = () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'maze' });
@@ -67,6 +68,61 @@ const corrupt = () => {
         error => /physical pin position/.test(error.message),
         'A wire cannot claim a pin while its node is elsewhere');
     console.log('PASS storage form, live-data isolation and integrity errors');
+}
+
+{
+    for (const target of ['component', 'net']) {
+        const bonded = valid();
+        if (target === 'component') bonded.schematic.components.push({
+            type: 'component', id: 'bond-target', dn: 'Resistor', x: 3.81, y: 0, ref: 'R1', val: '10k',
+        });
+        else bonded.schematic.shapes.push({ id: 'bond-target', type: 'net', x: 0, y: 0, n: 'GND' });
+        const wire = { id: 'offset-wire', type: 'wire',
+            nd: { pin: [0, 0], end: [-5, 0] }, ed: { edge: ['pin', 'end'] },
+            pc: { pin: { cid: 'bond-target', pn: target === 'component' ? '1' : 'conn' } } };
+        bonded.schematic.shapes.push(wire);
+        for (const offset of [0.02, 0.0414, 0.10, SCHEMATIC_CONNECTION_TOLERANCE - 0.0001]) {
+            wire.nd.pin = [offset, 0];
+            const before = JSON.stringify(bonded);
+            assert.doesNotThrow(() => validateEditableProject(bonded), `${target}: editor-valid offset ${offset} loads`);
+            assert.doesNotThrow(() => storableProject(bonded), `${target}: editor-valid offset ${offset} saves`);
+            assert.equal(JSON.stringify(bonded), before, 'Validation preserves saved geometry');
+        }
+        for (const offset of [SCHEMATIC_CONNECTION_TOLERANCE, SCHEMATIC_CONNECTION_TOLERANCE + 0.0001]) {
+            wire.nd.pin = [offset, 0];
+            assert.throws(() => validateEditableProject(bonded), /position/,
+                `${target}: bonds at or beyond the editor tolerance are rejected`);
+        }
+    }
+    console.log('PASS saved schematic bonds use the editor connection tolerance without moving geometry');
+}
+
+{
+    const bonded = valid();
+    bonded.schematic.shapes.push(
+        { id: 'eda_s166', type: 'net', x: 57.15, y: -158.75, n: 'VCC', nst: 'arrow', no: 'E' },
+        { id: 'label-wire', type: 'wire',
+            nd: { n0: [50, -158.75], n1: [57.15, -158.75] }, ed: { e0: ['n0', 'n1'] },
+            pc: { n1: { cid: 'eda_s166', pn: 'conn' } }, n: 'VCC' });
+    assert.doesNotThrow(() => validateEditableProject(bonded), 'Net labels expose a valid virtual conn pin');
+    assert.doesNotThrow(() => storableProject(bonded), 'Net-label bonds can be saved');
+    const project = new ProjectDocument();
+    await project.load(bonded);
+    const saved = project.serialize();
+    assert.deepEqual(saved.schematic.shapes.find(shape => shape.id === 'label-wire').pc.n1,
+        { cid: 'eda_s166', pn: 'conn' }, 'Opening and saving preserves the net-label bond');
+    await new ProjectDocument().load(saved);
+
+    const wire = bonded.schematic.shapes[1];
+    wire.pc.n1.pn = '1';
+    assert.throws(() => validateEditableProject(bonded), /missing net-label pin/);
+    wire.pc.n1.pn = 'conn';
+    wire.nd.n1 = [57.15, -150];
+    assert.throws(() => validateEditableProject(bonded), /net-label connection position/);
+    wire.nd.n1 = [57.15, -158.75];
+    wire.pc.n1.cid = 'missing-label';
+    assert.throws(() => validateEditableProject(bonded), /missing component/);
+    console.log('PASS net-label virtual pin bonds, roundtrip and invalid-target checks');
 }
 
 {

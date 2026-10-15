@@ -54,7 +54,6 @@ property and compact JSON key `n`.
   x: number,
   y: number,
   n: string,
-  fs?: number,
   nst?: 't' | 'gnd' | 'arrow' | 'chevron',
   no?: 'N' | 'E' | 'S' | 'W',
   nto?: [number, number],
@@ -63,9 +62,11 @@ property and compact JSON key `n`.
 ```
 
 A `Net` exposes a virtual `conn` pin so the existing pin-to-wire attachment path
-can connect it to wires. Its display text is a derived `Text` shape with
-`fieldKey === 'net'`; `SchematicDocument.serialize()` omits that derived text
-and recreates it from the `Net` shape on load.
+can connect it to wires. Its display text is a linked `Text` shape with
+`fieldKey === 'net'`. The Text is saved separately and owns its font size;
+the Net controls its semantic name and attachment geometry, not its size.
+Legacy Net `fs`/`fontSize` values are ignored. If no linked Text was saved,
+loading creates one at the default 1.4 mm size.
 
 ## Text labels
 
@@ -79,6 +80,7 @@ JSON keys `cid` and `fk`, which load into `parentComponent` and `fieldKey`.
   x: number,
   y: number,
   t: string,
+  fs?: number,
   cid?: string,
   fk?: 'reference' | 'value' | 'net' | 'label' | 'wireLabel'
 }
@@ -146,8 +148,8 @@ Editing the primary attached label or the wire's `wireLabel` property updates on
 
 - Wire records persist `n` (`wire.net`) and `wl` (`wire.wireLabel`).
 - Net-label records persist their own `n` (`Net.net`) and display options.
-- Derived net-label text (`fieldKey === 'net'`) is omitted from the saved
-  schematic and recreated on load.
+- Linked net-label text (`fieldKey === 'net'`) is saved as a Text record, with
+  its own size and its parent link. Net parents never save text size.
 - Generic attached labels (`fieldKey === 'label'`) are saved as `Text` shapes and
   reattached to their parent by `cid` during load.
 - Net extraction in `src/core/netlist.js` reads `shape.net` from wires as the

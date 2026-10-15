@@ -11,14 +11,15 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { Text } from './text.js';
 
 /**
  * @typedef {{x: number, y: number}} Point
  * @typedef {'t'|'gnd'|'arrow'|'chevron'} NetStyle
  * @typedef {'N'|'E'|'S'|'W'} NetOrientation
- * @typedef {{x: number, y: number, net: string, fontSize: number, style: NetStyle, orientation: NetOrientation, textOffset: Point, border: boolean}} NetState
+ * @typedef {{x: number, y: number, net: string, style: NetStyle, orientation: NetOrientation, textOffset: Point, border: boolean}} NetState
  * @typedef {ReturnType<Shape['toJSON']> & {
- *   x: number, y: number, n: string, fs?: number, nst?: NetStyle,
+ *   x: number, y: number, n: string, nst?: NetStyle,
  *   no?: NetOrientation, bd?: boolean, nto?: number[]
  * }} NetJSON
  */
@@ -33,8 +34,7 @@ const SYMBOL_HALF = 0.8;
 const SYMBOL_TIP = 1.7;
 const SYMBOL_GAP = 0.3;
 
-/** Text defaults (mm). */
-const DEFAULT_FONT_SIZE = 1.4;
+/** Default text offset (mm). */
 const DEFAULT_TEXT_OFFSET = { x: 0, y: 0 };
 
 /** @type {Array<'t'|'gnd'|'arrow'|'chevron'>} */
@@ -334,7 +334,6 @@ export class Net extends Shape {
      * @param {number} [options.x=0]          - Anchor X (connection point) in mm.
      * @param {number} [options.y=0]          - Anchor Y (connection point) in mm.
      * @param {string} [options.net='NET']    - Net name text.
-    * @param {number} [options.fontSize=1.8] - Font size in mm.
     * @param {'t'|'gnd'|'arrow'|'chevron'} [options.style='t'] - Endpoint symbol style.
     * @param {'N'|'E'|'S'|'W'} [options.orientation='N'] - Label orientation.
     * @param {{x:number,y:number}|number[]} [options.textOffset] - Additional text offset (local space, mm).
@@ -354,10 +353,6 @@ export class Net extends Shape {
         this.y = ShapeValidator.validateCoordinate(options.y || 0, { name: 'y' });
         /** @type {string} */
         this.net = typeof options.net === 'string' ? options.net : 'NET';
-        /** @type {number} */
-        this.fontSize = ShapeValidator.validateNumber(options.fontSize || DEFAULT_FONT_SIZE, {
-            min: 0.5, max: 20, default: DEFAULT_FONT_SIZE, name: 'fontSize'
-        });
         /** @type {NetStyle} */
         this.style = normalizeNetStyle(options.style || 't');
         /** @type {boolean} */
@@ -543,10 +538,26 @@ export class Net extends Shape {
         this.invalidate();
     }
 
+    /** @param {number} [fontSize] */
+    ensureLabelText(fontSize = 1.4) {
+        if (!this.labelText) {
+            this.labelText = new Text({
+                ...this.getTextPosition(),
+                text: this.net,
+                fontSize,
+                color: 'var(--sch-text-label, #00b894)',
+                visible: this.visible
+            });
+            this.labelText.parentComponent = this;
+            this.labelText.fieldKey = 'net';
+            this.syncLabelText();
+        }
+        return this.labelText;
+    }
+
     syncLabelText() {
         if (!this.labelText) return;
         this.labelText.text = this.net;
-        this.labelText.fontSize = this.fontSize;
         this.labelText.rotation = 0;
         this.labelText.textAnchor = (this.style === 'chevron') ? 'start' : 'middle';
         this.labelText.border = this.border;
@@ -599,17 +610,23 @@ export class Net extends Shape {
     /** @override */
     clone() {
         this.syncTextOffsetFromLabelText();
-        return new Net({
+        const clone = new Net({
             ...this.toJSON(),
             x: this.x,
             y: this.y,
             net: this.net,
-            fontSize: this.fontSize,
             style: this.style,
             orientation: this.orientation,
             textOffset: { ...this.textOffset },
             border: this.border
         });
+        if (this.labelText) {
+            clone.labelText = this.labelText.clone();
+            clone.labelText.parentComponent = clone;
+            clone.labelText.fieldKey = 'net';
+            clone.syncLabelText();
+        }
+        return clone;
     }
 
     /** @override */
@@ -619,7 +636,6 @@ export class Net extends Shape {
             x: this.x,
             y: this.y,
             net: this.net,
-            fontSize: this.fontSize,
             style: this.style,
             orientation: this.orientation,
             textOffset: { ...this.textOffset },
@@ -632,7 +648,6 @@ export class Net extends Shape {
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
             { key: 'net',      label: 'Net',   type: 'text' },
-            { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 20, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
             { key: 'style',    label: 'Style',      type: 'select', options: [
                 { value: 't', label: 'T' },
@@ -664,7 +679,6 @@ export class Net extends Shape {
             y: _r4(this.y),
             n: this.net,
         };
-        if (this.fontSize !== DEFAULT_FONT_SIZE) json.fs = this.fontSize;
         if (this.style !== 't') json.nst = this.style;
         if (this.orientation !== 'N') json.no = this.orientation;
         if (this.border) json.bd = true;

@@ -56,7 +56,7 @@ export class Text extends Shape {
         this.text = typeof options.text === 'string' ? options.text : '';
         /** @type {number} */
         this.fontSize = ShapeValidator.validateNumber(options.fontSize || 2.0, {
-            min: 1,
+            min: 0.5,
             max: 50,
             default: 2.0,
             name: 'fontSize'
