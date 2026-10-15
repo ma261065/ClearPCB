@@ -6,6 +6,7 @@ import { boardDimensions } from '../../shared/pcb/board-outline.js';
 import { ensureSvgDefs } from './svg-defs.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{d?: string, count: number}} CopperCutGeometry */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} ClipBounds */
 
 /*
  * Copper cuts: the per-side SVG clip-paths that remove copper under copper-removal
@@ -14,7 +15,7 @@ import { ensureSvgDefs } from './svg-defs.js';
  * removal-hatch.js.)
  */
 
-/** @type {WeakMap<PcbEditor, {applied: {top?: string|null, bottom?: string|null}, geometry: Partial<Record<'top'|'bottom', CopperCutGeometry>>, active: boolean, defs: SVGDefsElement|null}>} */
+/** @type {WeakMap<PcbEditor, {applied: {top?: string|null, bottom?: string|null}, geometry: Partial<Record<'top'|'bottom', CopperCutGeometry>>, active: boolean, defs: SVGDefsElement|null, bounds?: ClipBounds, scale?: number}>} */
 const cutStates = new WeakMap();
 /** @type {Array<'top'|'bottom'>} */
 const COPPER_CUT_SIDES = ['top', 'bottom'];
@@ -80,18 +81,31 @@ export function updateCopperCuts(app, { geometryChanged = true } = {}) {
     // keeps the raster ~screen-sized at any zoom. Off-screen copper that
     // falls outside the rect is clipped away, but it is off-screen anyway.
     const vb = app.viewport?.getVisibleBounds?.();
+    const scale = app.viewport?.scale;
     let x0, y0, x1, y1;
     if (vb && Number.isFinite(vb.minX) && vb.maxX > vb.minX && vb.maxY > vb.minY) {
-        const mx = vb.maxX - vb.minX;
-        const my = vb.maxY - vb.minY;
-        x0 = vb.minX - mx; x1 = vb.maxX + mx;
-        y0 = vb.minY - my; y1 = vb.maxY + my;
+        const cached = state.bounds;
+        const width = vb.maxX - vb.minX, height = vb.maxY - vb.minY;
+        // Retain a guard band so the next pan frame cannot expose the clip edge.
+        if (cached && state.scale === scale
+            && cached.maxX - cached.minX <= width * 3.5
+            && cached.maxY - cached.minY <= height * 3.5
+            && vb.minX >= cached.minX + width * 0.25 && vb.maxX <= cached.maxX - width * 0.25
+            && vb.minY >= cached.minY + height * 0.25 && vb.maxY <= cached.maxY - height * 0.25) {
+            x0 = cached.minX; x1 = cached.maxX;
+            y0 = cached.minY; y1 = cached.maxY;
+        } else {
+            x0 = vb.minX - width; x1 = vb.maxX + width;
+            y0 = vb.minY - height; y1 = vb.maxY + height;
+        }
     } else {
         const { width, height } = boardDimensions(app);
         const m = Math.max(width || 100, height || 80);
         x0 = -m; x1 = (width || 100) + m;
         y0 = -(height || 80) - m; y1 = m;
     }
+    state.bounds = { minX: x0, minY: y0, maxX: x1, maxY: y1 };
+    state.scale = scale;
     /** @param {number} n */
     const r4 = (n) => Math.round(n * 10000) / 10000;
     // Rebuilding the clip-path <path> and re-setting the clip-path attribute

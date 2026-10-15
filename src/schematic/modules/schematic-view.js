@@ -79,7 +79,7 @@ export function refreshSelectionVisual(app, entity) {
 export function mountShape(app, shape) {
     const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
     app.viewport.addContent(element);
-    if (shape.type === 'net') renderComponentPinJunctions(app);
+    if (shape.type === 'net' || shape.type === 'noconnect') renderComponentPinJunctions(app);
 }
 
 /**

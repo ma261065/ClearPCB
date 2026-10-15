@@ -78,6 +78,10 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
                     /** @type {SVGSVGElement} */ (/** @type {unknown} */ (layer)),
                     /** @type {SVGSVGElement} */ (/** @type {unknown} */ (clone)),
                 );
+                for (const element of clone.querySelectorAll('.culled')) {
+                    element.classList.remove('culled');
+                    element.removeAttribute('display');
+                }
                 stripRemovalHatches(clone);
                 artwork.appendChild(clone);
             }

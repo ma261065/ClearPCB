@@ -1,6 +1,7 @@
 import {
     collectCoincidentComponentPins,
     collectDirectPinLabelContacts,
+    collectDirectPinNoConnectContacts,
     SCHEMATIC_CONNECTION_TOLERANCE,
 } from '../../core/component-pin-connectivity.js';
 import { WIRE_COLOR } from '../../shapes/wire.js';
@@ -35,7 +36,10 @@ export function renderComponentPinJunctions(app) {
     const points = collectCoincidentComponentPins(app.components)
         .filter(contact => contact.pins.filter(({ pin }) => !pin.hidden).length >= 2)
         .map(contact => contact.point);
-    for (const contact of collectDirectPinLabelContacts(app.components, app.shapes)) {
+    for (const contact of [
+        ...collectDirectPinLabelContacts(app.components, app.shapes),
+        ...collectDirectPinNoConnectContacts(app.components, app.shapes),
+    ]) {
         if (!points.some(point => Math.hypot(point.x - contact.point.x,
             point.y - contact.point.y) < SCHEMATIC_CONNECTION_TOLERANCE)) {
             points.push(contact.point);

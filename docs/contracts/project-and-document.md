@@ -148,7 +148,13 @@ model content by returning its own serialized section. The direct editor
 serialization APIs remain available and delegate to their models.
 
 The schematic model assembles shapes, components and deduplicated embedded
-definitions. Its view-settings adapter captures grid, paper size/orientation and
+definitions. Same-name definitions share a saved entry only when their serialized
+content matches. Imported and current-library symbol variants get distinct
+project-local definition keys, preserving each instance's pin geometry, footprint
+and model without renaming live library definitions. Generated keys avoid other
+definition names and cannot shadow bundled components. The keys and original
+library names survive save/reopen; the file format is unchanged.
+Its view-settings adapter captures grid, paper size/orientation and
 title-block settings, including detached title-block data. Current settings
 override the loaded fallback only for the saved snapshot; saving does not mutate
 either the fallback or live entities. Loading restores a file's title-block data

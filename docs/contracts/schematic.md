@@ -124,6 +124,9 @@ Wire anchor drags also compose compatible constraints: a segment target may
 slide along its own axis to the incident wire's H/V/45 alignment intersection.
 Exact pin/node targets stay exact and retain only guides already true at that
 point. Thus hard-target yellow feedback does not erase a compatible axis guide.
+Segment drags translate every node in the moving collinear chain from its
+drag-start position. Snap targets and alignment guides use each boundary node's
+own proposed position, including nodes beyond the grabbed segment's endpoints.
 Wire rendering distinguishes unjoined interior crossings without authoring
 geometry: two parallel canvas-colored side strokes are drawn just outside the
 visually upper wire, each exactly one screen pixel wide. Normal stacking follows
@@ -146,6 +149,13 @@ A NetLabel directly contacting a physical component pin uses that same derived
 green junction dot. The label-to-pin netlist rule and the dot share the same
 connection tolerance; moving, hiding, deleting or undoing the label removes the
 dot without inventing wire geometry.
+A visible No Connect marker on a physical pin also shows this green dot,
+without creating an electrical connection. Explicit bonds must match the pin
+and its position; legacy unbonded markers use physical contact within the same
+connection tolerance. Off-pin or hidden markers show no dot.
+No Connect placement uses the wire tool's 0.5 mm pin pickup radius. Moving
+the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
+1000% zoom, reducing linearly to 0.25 mm at 5000% zoom and above.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;

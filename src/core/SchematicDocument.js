@@ -68,17 +68,38 @@ export function setComponentReference(component, reference) {
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
     const serializedShapes = shapes.map(shape => shape.toJSON());
-    /** @type {Record<string, ComponentDefinition>} */
-    const defs = {};
+    /** @type {Map<string, ComponentDefinition>} */
+    const defs = new Map();
+    /** @type {Map<string, Map<string, string>>} */
+    const variants = new Map();
+    const builtInNames = new Set(BuiltInComponents.map(definition => definition.name));
+    const reservedNames = new Set([...builtInNames, ...serializedComponents.map(component => component.dn)]);
     for (const component of serializedComponents) {
         if (component.def && component.dn) {
-            if (!defs[component.dn]) defs[component.dn] = component.def;
+            const name = String(component.dn);
+            let byContent = variants.get(name);
+            if (!byContent) variants.set(name, byContent = new Map());
+            const content = JSON.stringify(component.def);
+            let key = byContent.get(content);
+            if (!key) {
+                key = name;
+                // A library name can identify different imported or updated symbols.
+                // Keep their serialized definitions distinct without renaming live parts.
+                if (defs.has(key) || builtInNames.has(key)) {
+                    let suffix = 2;
+                    do { key = `${name}__${suffix++}`; } while (reservedNames.has(key));
+                }
+                reservedNames.add(key);
+                defs.set(key, component.def);
+                byContent.set(content, key);
+            }
+            component.dn = key;
             delete component.def;
         }
     }
     /** @type {{settings: object, shapes: ReturnType<SchematicDrawable['toJSON']>[], components: ReturnType<Component['toJSON']>[], defs?: Record<string, ComponentDefinition>}} */
     const schematic = { settings, shapes: serializedShapes, components: serializedComponents };
-    if (Object.keys(defs).length) schematic.defs = defs;
+    if (defs.size) schematic.defs = Object.fromEntries(defs);
     return /** @type {ProjectData} */ (compactProjectAliases({
         version: '1.0', type: 'clearpcb-project', created: new Date().toISOString(), schematic,
     }));

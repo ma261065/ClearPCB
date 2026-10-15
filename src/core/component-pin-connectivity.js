@@ -2,7 +2,7 @@
 /** @typedef {{number?:string|number|null, hidden?:boolean, x?:number, y?:number}} SymbolPin */
 /** @typedef {{id:string, reference?:string, definition?:{name?:string}|null, symbol?:{pins?:SymbolPin[]}|null, localToWorld?: (x:number,y:number) => Point}} PinComponent */
 /** @typedef {{component:PinComponent,pin:SymbolPin,key:string,point:Point}} ComponentPinContact */
-/** @typedef {{id?:string,type?:string,x?:number,y?:number,visible?:boolean}} NetLabel */
+/** @typedef {{id?:string,type?:string,x?:number,y?:number,visible?:boolean,pinConnection?:{componentId:string,pinNumber:string|number}|null}} NetLabel */
 
 export const SCHEMATIC_CONNECTION_TOLERANCE = 0.15;
 
@@ -40,12 +40,40 @@ export function collectDirectPinLabelContacts(
     labels,
     tolerance = SCHEMATIC_CONNECTION_TOLERANCE,
 ) {
+    return collectDirectPinMarkerContacts(components, labels, 'net', tolerance);
+}
+
+/**
+ * Find visible No Connect markers on physical pins, respecting explicit bonds.
+ * Legacy unbonded markers use the same physical contact tolerance as NetLabels.
+ * @param {PinComponent[]|null|undefined} components
+ * @param {NetLabel[]|null|undefined} markers
+ * @param {number} [tolerance]
+ */
+export function collectDirectPinNoConnectContacts(
+    components,
+    markers,
+    tolerance = SCHEMATIC_CONNECTION_TOLERANCE,
+) {
+    return collectDirectPinMarkerContacts(components, markers, 'noconnect', tolerance);
+}
+
+/** @param {PinComponent[]|null|undefined} components
+ * @param {NetLabel[]|null|undefined} labels
+ * @param {string} type
+ * @param {number} tolerance
+ */
+function collectDirectPinMarkerContacts(components, labels, type, tolerance) {
     if (!(tolerance > 0)) return [];
     const pins = collectPhysicalPins(components);
-    const visibleLabels = (labels || []).filter(label => label.type === 'net' && label.visible !== false
+    const visibleLabels = (labels || []).filter(label => label.type === type && label.visible !== false
         && Number.isFinite(label.x) && Number.isFinite(label.y));
     return visibleLabels.flatMap(label => pins.filter(pin =>
-        Math.hypot(pin.point.x - /** @type {number} */ (label.x),
+        (type !== 'noconnect' || !label.pinConnection
+            || label.pinConnection.componentId === pin.component.id
+            && String(label.pinConnection.pinNumber) === String(pin.pin.number))
+        && (type !== 'noconnect' || !pin.pin.hidden)
+        && Math.hypot(pin.point.x - /** @type {number} */ (label.x),
             pin.point.y - /** @type {number} */ (label.y)) < tolerance)
         .map(pin => ({ label, pin, point: pin.point })));
 }

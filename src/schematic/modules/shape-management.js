@@ -168,7 +168,7 @@ export function removeShapeInternal(app, shape, options = {}) {
         app.selection.deselect(/** @type {SelectableSchematicDrawable} */ (shape));
         app.selection.invalidateHitCache();
         app.updateSelectableItems();
-        if (netShape) renderComponentPinJunctions(app);
+        if (netShape || shape.type === 'noconnect') renderComponentPinJunctions(app);
         app.fileManager.setDirty(true);
     }
 }
@@ -227,6 +227,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
 
     app.selection.invalidateHitCache();
     app.updateSelectableItems();
+    if (allData.some(({ shape }) => shape.type === 'noconnect')) renderComponentPinJunctions(app);
     app.fileManager.setDirty(true);
 }
 
@@ -266,6 +267,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
 
     app.updateSelectableItems();
     app.selection.invalidateHitCache();
+    if (allData.some(({ shape }) => shape.type === 'noconnect')) renderComponentPinJunctions(app);
     app.fileManager.setDirty(true);
 }
 

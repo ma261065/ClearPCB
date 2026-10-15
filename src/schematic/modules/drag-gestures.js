@@ -6,7 +6,7 @@
  */
 import { errorHasName } from '../../core/errors.js';
 import { updateSnapHighlight, COLLINEAR_EPSILON, VERTEX_EPSILON } from './wire.js';
-import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL } from './wire-snap.js';
+import { resolveWireSnapPosition, SNAP_SCREEN_PX, wirePinSnapTolerance } from './wire-snap.js';
 import { captureStickyGuideBaseline, computeAnchorCollinearSnap, computeStickyWireSnaps, buildCollinearChain, bridgeCollinearPinEndpoints } from './wire-drag-snap.js';
 import { cancelDragGesture, captureMoveDragStates, clearDragState, clearPendingAnchorDrag, commitMoveDrag, commitSegmentDrag, getPendingAnchorDrag, getSchematicDrag, resolveAnchorDragOnMouseUp, restoreMoveDragStates, revertSegmentDragIfNoMove, setPendingAnchorDrag, setSchematicDrag, commitShapeJoin } from './drag.js';
 import { ModifyShapeCommand } from './commands.js';
@@ -703,7 +703,7 @@ export function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, 
 
     const soloNoConnect = selection.length === 1 && isNoConnectShape(selection[0]) ? selection[0] : null;
     if (soloNoConnect) {
-        const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
+        const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: wirePinSnapTolerance(app.viewport) });
         snappedTargetOut.x = snap.x; snappedTargetOut.y = snap.y;
         updateSnapHighlight(app, snap);
     }

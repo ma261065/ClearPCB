@@ -206,6 +206,9 @@ export function clonePcbViewportForExport(app, opts) {
     try {
         svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
         b = getArtworkBoundsMm(app, layers || undefined);
+        // Copy styles before restoring viewport culling, otherwise off-screen
+        // artwork acquires a permanent display="none" in the exported SVG.
+        inlineSvgComputedStyles(originalSvg, svgNode);
     } finally {
         updatePcbCulling(app);
     }
@@ -222,10 +225,6 @@ export function clonePcbViewportForExport(app, opts) {
     svgNode.setAttribute('height', String(vbH));
     svgNode.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
     svgNode.setAttribute('style', `background:${bgColor}`);
-
-    // Copy computed colours/strokes from the live SVG so CSS-styled layers
-    // survive serialization.
-    inlineSvgComputedStyles(originalSvg, svgNode);
 
     // Strip viewport chrome and non-artwork layers.
     const dropSelectors = [

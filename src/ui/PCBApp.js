@@ -414,7 +414,7 @@ export default class PCBApp {
 
     /** @param {HTMLElement} container */
     createViewport(container) {
-        return new Viewport(container);
+        return new Viewport(container, { translatePan: true });
     }
 
     /** After every history change: refresh derived pours, dirty state, buttons and selection overlays. */

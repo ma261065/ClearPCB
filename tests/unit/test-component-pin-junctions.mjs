@@ -4,6 +4,8 @@ import { BuiltInComponents } from '../../src/components/BuiltInComponents.js';
 import { collectCoincidentComponentPins } from '../../src/core/component-pin-connectivity.js';
 import { extractNetlist } from '../../src/core/netlist.js';
 import { renderComponentPinJunctions } from '../../src/schematic/modules/component-pin-junctions.js';
+import { NoConnect } from '../../src/shapes/noconnect.js';
+import { SCHEMATIC_CONNECTION_TOLERANCE } from '../../src/core/component-pin-connectivity.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -47,5 +49,35 @@ assert.equal(group.children.length, 0, 'Separating the components removes the de
 assert.deepEqual(extractNetlist(state).find(net => net.net === 'R2.1')?.pins,
     [{ componentId: 'second', pinNumber: '1' }],
     'Separating the components restores independent default nets');
+
+const marker = new NoConnect({ ...firstPin, pinConnection: { componentId: first.id, pinNumber: '2' } });
+app.shapes.push(marker);
+const netlistBefore = extractNetlist(app);
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'No Connect on a pin shows a connection dot');
+assert.equal(group.children[0].getAttribute('fill'), '#00cc66');
+assert.equal(Number(group.children[0].getAttribute('cx')), firstPin.x);
+assert.equal(Number(group.children[0].getAttribute('cy')), firstPin.y);
+assert.deepEqual(extractNetlist(app), netlistBefore, 'The visual dot does not create an electrical connection');
+marker.visible = false;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'Hidden markers do not show dots');
+marker.visible = true;
+marker.x += SCHEMATIC_CONNECTION_TOLERANCE + 1e-6;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'An off-pin marker does not show a stale bond dot');
+marker.x = firstPin.x;
+marker.pinConnection.pinNumber = 'missing';
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'Invalid bonds do not claim a pin connection');
+marker.pinConnection = null;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'Legacy on-pin markers without a saved bond also show the dot');
+app.shapes.push(marker.clone());
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'Coincident markers do not duplicate dots');
+app.shapes.length = 0;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'Deleting markers clears their connection dots');
 
 console.log('PASS direct component-pin electrical groups and derived junction dots');

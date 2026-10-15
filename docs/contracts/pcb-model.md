@@ -273,6 +273,22 @@ position. Cancellation keeps the original cuts. Pan/zoom may resize the outer
 clip rectangle during the gesture without moving those holes. This shared clip
 policy covers single and grouped moves, both copper sides and Hole-layer cutouts,
 without recomputing pours or rebuilding clip paths on each pointer movement.
+In the editable PCB viewport, settled copper clips also reuse their one-screen
+overscan during panning. Only approaching its edge recentres the outer rectangle;
+zoom and viewport shrinkage keep it screen-sized to avoid oversized GPU rasters.
+Ordinary pans do not mutate copper clip paths or recalculate cutout geometry.
+The editable PCB viewport translates its world-space layer groups during a pan
+instead of changing the SVG viewBox on every move, avoiding full descendant
+layout. Logical bounds, pointer mapping, rulers, tool previews and culling still
+follow the current view. Release commits the viewBox and removes the temporary
+translation; zoom or resize during a gesture rebases it. Other viewports retain
+their existing viewBox pan behavior.
+Viewport culling also hides off-screen track runs, individual net labels and
+standalone via artwork, including boards without component placements. Their
+conservative world bounds are cached when rendered, with a quarter-viewport
+overdraw margin; pans do not measure SVG geometry or rewrite unchanged visibility.
+Label selection suppression remains independent of viewport visibility. Export
+temporarily restores all artwork and reapplies viewport culling afterwards.
 
 Board-outline setup lives in `core/pcb-outline-commands.js`.
 `PcbDocument.setBoardOutline()` validates and detaches incoming geometry before
