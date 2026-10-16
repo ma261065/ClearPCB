@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { installFakeDom } from './helpers/fake-dom.mjs';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 import { Track } from '../../src/shapes/track.js';
+import { Pad } from '../../src/shapes/pad.js';
 import { PCB_LAYERS } from '../../src/pcb/modules/layers.js';
 import { armBoxSelect, maybeStartBoxSelect, finishBoxSelect, refreshBoxSelectionHighlights } from '../../src/pcb/modules/box-select.js';
 import { getPcbSelection, setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
@@ -8,31 +9,7 @@ import { showPcbSelectionProperties } from '../../src/pcb/modules/selection-inte
 import { createTrackSelectionAdapter, selectTrackSegment } from '../../src/pcb/modules/track-select.js';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
-class Element {
-    attributes = new Map();
-    children = [];
-    parentNode = null;
-    dataset = {};
-    style = {};
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    removeAttribute(name) { this.attributes.delete(name); }
-    appendChild(child) { child.remove(); child.parentNode = this; this.children.push(child); }
-    remove() {
-        if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-        this.parentNode = null;
-    }
-    addEventListener() {}
-    querySelectorAll(selector) {
-        return this.children.flatMap(child => [
-            ...(child.getAttribute('class')?.split(' ').includes(selector.slice(1)) ? [child] : []),
-            ...child.querySelectorAll(selector),
-        ]);
-    }
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-}
 const document = installFakeDom();
-document.createElementNS = () => new Element();
 document.getElementById = () => null;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const frames = new Map();
@@ -46,12 +23,12 @@ const makeTrack = (id, y, layer) => new Track({ id, layer,
     points: [{ x: 1, y }, { x: 9, y }], net: 'GND' });
 function fixture(tracks) {
     const layers = new Map(['top-copper', 'bottom-copper', 'selection-overlay']
-        .map(layer => [layer, new Element()]));
+        .map(layer => [layer, fakeElement('g')]));
     return {
         ...pcbEditorStubs(),
         tracks, vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _layerGroups: layers, existingLayerGroups: () => layers, getLayerGroup: id => layers.get(id),
-        viewport: { scale: 10, contentLayer: new Element() },
+        viewport: { scale: 10, contentLayer: fakeElement('g') },
         showMultiSelectionProperties() { refreshBoxSelectionHighlights(this); },
         syncClipboardButtons() {},
     };
@@ -142,6 +119,26 @@ try {
     assert.deepEqual(getPcbSelection(protectedMixed, 'track'), [],
         'A hidden unlocked edge cannot make a locked visible edge marquee-selectable');
     release(protectedMixed);
+
+    bottom.locked = false;
+    for (const hidden of [top, bottom]) {
+        top.visible = bottom.visible = true;
+        hidden.visible = false;
+        const other = hidden === top ? bottom : top;
+        const hiddenPad = new Pad({ id: 'hidden-pad', x: 3, y: 3, layers: hidden.id, shape: 'rect', width: 1, height: 1 });
+        const visiblePad = new Pad({ id: 'visible-pad', x: 6, y: 3, layers: other.id, shape: 'rect', width: 1, height: 1 });
+        const throughPad = new Pad({ id: 'through-pad', x: 9, y: 3, layers: 'both', shape: 'round', size: 1, drill: 0.5 });
+        const app = fixture([]);
+        app.pads = [hiddenPad, visiblePad, throughPad];
+        PCBApp.prototype.selectAll.call(app);
+        assert.deepEqual(getPcbSelection(app, 'pad'), [visiblePad, throughPad],
+            'Select All skips pads whose only copper layer is hidden');
+        setPcbSelection(app, []);
+        drag(app);
+        release(app);
+        assert.deepEqual(getPcbSelection(app, 'pad'), [visiblePad, throughPad],
+            'Marquee skips pads whose only copper layer is hidden');
+    }
 } finally {
     [top, bottom].forEach((layer, index) => Object.assign(layer, original[index]));
 }

@@ -28,7 +28,7 @@ import { Via, viaBounds, viaHitTest } from '../../shapes/via.js';
 import { Pad } from '../../shapes/pad.js';
 import { CopperFill } from '../../shapes/copper-fill.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
-import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isViaVisible } from './layers.js';
+import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isPadVisible, isViaVisible } from './layers.js';
 import { isPcbObjectLocked } from './object-locks.js';
 import { applyShapeGeometry, cloneShapeGeometry } from '../../core/pcb-board-shapes.js';
 import { renderBoardShape, removeBoardShapeElement } from './board-shape-render.js';
@@ -160,8 +160,8 @@ function groupIsEditable(app, g) {
         && g.comps.every(/** @param {{id: string}} entry */ entry => !app.placements.get(entry.id)?.locked)
         && g.tracks.every(/** @param {{track: Track}} entry */ entry => !entry.track.locked && trackIsSelectable(entry.track))
         && g.vias.every(/** @param {{via: Via}} entry */ entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
-        && g.pads.every(/** @param {{pad: Pad}} entry */ entry => !entry.pad.locked && entry.pad.visible !== false
-            && padLayers(entry.pad).every(layer => !isLayerLocked(layer)) && padLayers(entry.pad).some(isLayerVisible))
+        && g.pads.every(/** @param {{pad: Pad}} entry */ entry => !entry.pad.locked && isPadVisible(entry.pad)
+            && padLayers(entry.pad).every(layer => !isLayerLocked(layer)))
         && [...g.shapes.map(/** @param {{shape: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.shape), ...g.texts.map(/** @param {{text: {locked?: boolean, visible?: boolean, layer: string}}} entry */ entry => entry.text)]
             .every(item => !item.locked && item.visible !== false && !isLayerLocked(item.layer) && isLayerVisible(item.layer))
         && g.fills.every(/** @param {{fill: CopperFill}} entry */ ({ fill }) => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -414,7 +414,7 @@ export function selectEnclosed(app, bounds) {
         }
     }
     for (const pad of app.pads || []) {
-        if (pad.visible === false || padLayers(pad).some(isLayerLocked)) continue;
+        if (!isPadVisible(pad) || padLayers(pad).some(isLayerLocked)) continue;
         const padBox = padBounds(pad);
         if (padBox.minX >= minX && padBox.maxX <= maxX
             && padBox.minY >= minY && padBox.maxY <= maxY) {

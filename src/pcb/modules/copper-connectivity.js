@@ -1,4 +1,4 @@
-import { copperLayer, resolveCopperPads } from './copper-model.js';
+import { resolveCopperPads } from './copper-model.js';
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {import('../../shapes/via.js').Via} Via */
@@ -73,7 +73,7 @@ export function buildCopperClusters(app, nets = null) {
     for (const pad of resolveCopperPads(app, { physical: true })) {
         if (nets && !nets.has(pad.net)) continue;
         clusters.push({ kind: 'pad', pad, net: pad.net, padNet: pad.net,
-            padKey: `${pad.componentId}|${pad.padId}`, layer: copperLayer(pad.layer),
+            padKey: `${pad.componentId}|${pad.padId}`, layer: pad.layer,
             points: [{ x: pad.x, y: pad.y }] });
     }
     return clusters;

@@ -35,7 +35,7 @@ app.placements.set('U1', { x: 5, y: 0, rotation: 0, padOffsets: [
 ] });
 app.netlist = [{ net: 'GND', pins: [{ componentId: 'U1', pinNumber: '1' }] }];
 assert.deepEqual(resolveCopperPads(app).map((pad) => [pad.padId, pad.net, pad.layer]),
-    [['1', 'GND', 'top'], ['1#2', 'GND', 'bottom']]);
+    [['1', 'GND', 'top-copper'], ['1#2', 'GND', 'bottom-copper']]);
 assert.deepEqual(buildCopperClusters(app).map((cluster) => cluster.layer), ['top-copper', 'bottom-copper']);
 app.placements.get('U1').side = 'bottom';
 assert.equal(resolveCopperPads(app)[1].x, 2);

@@ -8,7 +8,12 @@ export function padCopperOutline(pad) {
     return padFlashOutline({ x: pad.x, y: pad.y, w: pad.width, h: pad.height, shape: pad.shape }, 0.001, true);
 }
 
-/** @param {PcbBoard} app */
+/**
+ * Resolve footprint and free pads into one board-level copper model. Footprint pads
+ * use part-relative `top`/`bottom`/`both` and free pads use board copper-layer ids;
+ * every resolved pad's `layer` is `top-copper`, `bottom-copper` or `all`.
+ * @param {PcbBoard} app
+ */
 export function resolveCopperPads(app, { physical = false } = {}) {
     const outline = physical ? /** @param {CopperPadLike} pad */ (pad) => padFlashOutline({ x: pad.x, y: pad.y,
         w: pad.width, h: pad.height, shape: pad.shape }, 1e-4) : padCopperOutline;
@@ -29,7 +34,7 @@ export function resolveCopperPads(app, { physical = false } = {}) {
                 const worldWidth = Math.abs(pose.cos) * width + Math.abs(pose.sin) * height;
                 const worldHeight = Math.abs(pose.sin) * width + Math.abs(pose.cos) * height;
                 const drill = padOffset.drill || 0;
-                const layer = drill > 0 ? 'both' : padOffset.layer || 'top';
+                const layer = drill > 0 ? 'all' : copperLayer(padOffset.layer || 'top');
                 const halfSlot = Math.max(0, ((padOffset.slotLength || 0) - drill) / 2);
                 const angle = padOffset.slotAngle || 0;
                 const slotStart = pose.xf(padOffset.dx - halfSlot * Math.cos(angle), padOffset.dy - halfSlot * Math.sin(angle));
@@ -49,7 +54,7 @@ export function resolveCopperPads(app, { physical = false } = {}) {
             for (const [padId, point] of placement.pads || []) {
                 const number = String(point.number ?? padId);
                 pads.push({ ...point, componentId, padId: String(padId), number,
-                    net: nets.get(`${componentId}|${number}`) || '', layer: point.layer || 'top',
+                    net: nets.get(`${componentId}|${number}`) || '', layer: copperLayer(point.layer || 'top'),
                     width: point.width || 1.2, height: point.height || 1.2,
                     hw: (point.width || 1.2) / 2, hh: (point.height || 1.2) / 2,
                     shape: point.shape || 'rect', reference: placement.reference || componentId });
@@ -69,7 +74,7 @@ export function resolveCopperPads(app, { physical = false } = {}) {
         }, physical ? 1e-4 : undefined);
         pads.push({
             x: pad.x, y: pad.y, componentId: null, padId: pad.id, number: pad.id,
-            drill: pad.drill, net: pad.net || '', layer: pad.layers,
+            drill: pad.drill, net: pad.net || '', layer: copperLayer(pad.layers),
             width, height, hw: width / 2, hh: height / 2,
             shape, rotation: pad.rotation || 0, reference: pad.id, outline: contour,
         });

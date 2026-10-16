@@ -462,14 +462,10 @@ function resolvedShapeObstaclePaths(C, geometry, clearance) {
     return mergeStrokeObstacles(C, paths);
 }
 
-/** Does a pad's layer ('top'|'bottom'|'both') belong to the fill copper layer? */
+/** Does a resolved pad layer ('top-copper'|'bottom-copper'|'all') belong to the fill copper layer? */
 /** @param {string|undefined} padLayer @param {string} fillLayer */
 function padOnLayer(padLayer, fillLayer) {
-    const pl = padLayer || 'top';
-    if (pl === 'both') return true;
-    if (fillLayer === 'top-copper') return pl === 'top';
-    if (fillLayer === 'bottom-copper') return pl === 'bottom';
-    return false;
+    return padLayer === 'all' || padLayer === fillLayer;
 }
 
 /** Offset a single segment into a round-capped capsule. Returns Paths. */
