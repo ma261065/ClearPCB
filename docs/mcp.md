@@ -5,7 +5,7 @@ the project in an explicitly paired browser tab.
 
 ## Tools
 
-The prototype exposes thirteen tools:
+The prototype exposes fifteen tools:
 
 - `pair` requests browser approval using the short code shown in ClearPCB.
 - `pairing_status` reports whether the connector still has access to a live
@@ -36,6 +36,17 @@ The prototype exposes thirteen tools:
 - `connect` creates a bonded schematic wire between two `Reference.Pin`
   endpoints, such as `U1.3` and `R3.1`. ClearPCB resolves transformed pin
   positions and generates the wire ID and label.
+- `run_drc` runs the PCB design rule check against the live board and returns
+  counts by rule plus up to `limit` (default 100, maximum 500) violations,
+  each with its rule, severity, message, board position in millimetres and
+  net when known. Copper pours and the ratsnest are recomputed first, so the
+  result does not depend on the PCB editor being visible; `upToDate: false`
+  lists anything that could not be settled.
+- `render` returns a PNG image of the `schematic` or `pcb` view (longest side
+  `maxSize`, default 1600, range 256-4096) followed by a text block giving the
+  drawn `bounds`. The schematic is drawn in black on white without grid or
+  sheet. The PCB is drawn in layer colours on black with every populated
+  artwork layer; its bounds are in millimetres.
 - `replace_project` validates and loads a complete replacement project.
 - `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
   operations, validates the resulting project, and loads it. The `patch`

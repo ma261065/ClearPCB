@@ -13,6 +13,7 @@ interface RelayRequest {
     id: string;
     method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'search_parts' | 'get_part' | 'place_part'
         | 'get_project' | 'get_connection_points' | 'get_netlist' | 'connect'
+        | 'run_drc' | 'render'
         | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
@@ -42,6 +43,10 @@ const PAIRING_TTL_MS = 5 * 60_000;
 const MAX_PAIRING_ATTEMPTS = 10;
 const CHUNK_SIZE = 192 * 1024;
 const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
+const RELAY_TIMEOUT_MS = 15_000;
+// Pour computation, DRC and rasterising can take several seconds on large boards.
+const SLOW_RELAY_TIMEOUT_MS = 60_000;
+const SLOW_METHODS = new Set<RelayRequest['method']>(['run_drc', 'render']);
 const JSON_VALUE = z.unknown();
 const PATCH_OPERATION = z.object({
     op: z.enum(['add', 'remove', 'replace', 'move', 'copy', 'test']),
@@ -88,6 +93,26 @@ function normalizeCode(value: string): string {
 function toolResult(result: unknown) {
     return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    };
+}
+
+interface RenderedImage {
+    mimeType: string;
+    data: string;
+    [key: string]: unknown;
+}
+
+function imageResult(result: unknown) {
+    const image = result as Partial<RenderedImage> | null;
+    if (!image || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
+        return toolError('INVALID_RENDER', 'The ClearPCB tab did not return an image.');
+    }
+    const { data, mimeType, ...details } = image;
+    return {
+        content: [
+            { type: 'image' as const, data, mimeType },
+            { type: 'text' as const, text: JSON.stringify(details, null, 2) },
+        ],
     };
 }
 
@@ -323,6 +348,23 @@ export class ClientSession extends DurableObject<Env> {
             },
             annotations: { destructiveHint: true, idempotentHint: false },
         }, async ({ from, to, net }) => this.pairedTool(sessionId, 'connect', { from, to, net }));
+        server.registerTool('run_drc', {
+            title: 'Run ClearPCB design rule check',
+            description: 'Bring the PCB up to date with the schematic, recompute copper pours and run the design rule check. Returns counts by rule and the violations with board coordinates in mm, including unrouted connections.',
+            inputSchema: {
+                limit: z.number().int().min(1).max(500).default(100),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ limit }) => this.pairedTool(sessionId, 'run_drc', { limit }));
+        server.registerTool('render', {
+            title: 'Render a ClearPCB view',
+            description: 'Return a PNG of the whole schematic or PCB, cropped to its content. The text part gives the world bounds shown (schematic units or mm).',
+            inputSchema: {
+                view: z.enum(['schematic', 'pcb']),
+                maxSize: z.number().int().min(256).max(4096).default(1600),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ view, maxSize }) => this.pairedTool(sessionId, 'render', { view, maxSize }, imageResult));
         server.registerTool('replace_project', {
             title: 'Replace ClearPCB project',
             description: 'Validate and replace the complete canonical project. Returns a short operation summary.',
@@ -395,11 +437,12 @@ export class ClientSession extends DurableObject<Env> {
         sessionId: string,
         method: Omit<RelayRequest, 'id'>['method'],
         params?: Record<string, unknown>,
+        format: (result: unknown) => ReturnType<typeof toolResult> | ReturnType<typeof imageResult> = toolResult,
     ) {
         const relayId = await this.ctx.storage.get<string>('relayId');
         if (!relayId) return toolError('PAIRING_REQUIRED', 'Call pair with the code shown in ClearPCB first.');
         try {
-            return toolResult(await invokeTab(this.env, relayId, sessionId, { method, params }));
+            return format(await invokeTab(this.env, relayId, sessionId, { method, params }));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (/revoked|not connected|disconnected/i.test(message)) {
@@ -492,7 +535,8 @@ export class TabRelay extends DurableObject<Env> {
             return Response.json({ error: 'Pairing revoked or not approved for this client.' }, { status: 403 });
         }
         const input = await request.json<Omit<RelayRequest, 'id'>>();
-        const result = await this.sendRequest(input, 15_000);
+        const result = await this.sendRequest(input,
+            SLOW_METHODS.has(input.method) ? SLOW_RELAY_TIMEOUT_MS : RELAY_TIMEOUT_MS);
         return Response.json(result, { status: result.error ? 502 : 200 });
     }
 

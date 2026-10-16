@@ -15,6 +15,7 @@ const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
  * @typedef {{id: string, name: string, version?: string}} PairingClient
  * @typedef {'builtin'|'kicad'|'lcsc'|'all'} PartSource
  * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, pairingCode?: string, pairingExpiresAt?: number, pendingClient?: PairingClient, pairedClient?: PairingClient, connectionError?: string, canRevert?: boolean}} McpBridgeState
+ * @typedef {{runDrc: (options: {limit?: number}) => Promise<unknown>, render: (options: {view: 'schematic'|'pcb', maxSize?: number}) => Promise<unknown>}} McpDesignTools Editor-backed reports, injected by the application shell.
  */
 
 function endpointOrigin() {
@@ -210,11 +211,12 @@ function describeSchema() {
 export class McpBridge {
     /**
      * @param {import('./ProjectDocument.js').ProjectDocument} project
-     * @param {{onStateChanged?: (state: McpBridgeState) => void, componentLibrary?: import('../components/ComponentLibrary.js').ComponentLibrary|null}} [options]
+     * @param {{onStateChanged?: (state: McpBridgeState) => void, componentLibrary?: import('../components/ComponentLibrary.js').ComponentLibrary|null, designTools?: McpDesignTools|null}} [options]
      */
-    constructor(project, { onStateChanged = () => {}, componentLibrary = null } = {}) {
+    constructor(project, { onStateChanged = () => {}, componentLibrary = null, designTools = null } = {}) {
         this.project = project;
         this.componentLibrary = componentLibrary;
+        this.designTools = designTools;
         this.onStateChanged = onStateChanged;
         this.enabled = false;
         this.connected = false;
@@ -681,6 +683,16 @@ export class McpBridge {
                         to: toName,
                     },
                 };
+            } else if (request.method === 'run_drc') {
+                if (!this.designTools) throw new Error('Design rule checks are unavailable in this tab.');
+                const limit = Math.max(1, Math.min(500, Math.floor(Number(request.params?.limit)) || 100));
+                result = await this.designTools.runDrc({ limit });
+            } else if (request.method === 'render') {
+                if (!this.designTools) throw new Error('Rendering is unavailable in this tab.');
+                const view = request.params?.view;
+                if (view !== 'schematic' && view !== 'pcb') throw new Error('render view must be "schematic" or "pcb".');
+                const maxSize = Math.max(256, Math.min(4096, Math.floor(Number(request.params?.maxSize)) || 1600));
+                result = await this.designTools.render({ view, maxSize });
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');
                 const previous = this.project.serialize();

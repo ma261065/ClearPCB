@@ -90,9 +90,14 @@ const componentLibrary = {
     fetchFromLCSC: async () => ({ ...structuredClone(externalDefinition), name: 'LCSC_C46749', _source: 'LCSC' }),
 };
 const states = [];
+const designCalls = [];
 const bridge = new McpBridge(project, {
     onStateChanged: state => states.push(state),
     componentLibrary,
+    designTools: {
+        runDrc: async options => { designCalls.push(['runDrc', options]); return { ok: true, counts: { errors: 0, warnings: 0 } }; },
+        render: async options => { designCalls.push(['render', options]); return { mimeType: 'image/png', data: 'AAAA', view: options.view }; },
+    },
 });
 bridge.enable();
 assert.equal(bridge.mcpUrl, 'https://clearpcb-mcp.mikealex.workers.dev/mcp');
@@ -196,6 +201,18 @@ assert.deepEqual(document.schematic.shapes[0].pc,
         n1: { componentId: 'comp-target', pinNumber: '3' } });
 assert.deepEqual(document.schematic.shapes[0].nd, { n0: [36.19, 25], n1: [50, 25] });
 assert.equal(await bridge.revertLastChange(), true);
+sockets[0].emit('message', JSON.stringify({ id: 'drc', method: 'run_drc', params: { limit: 9999 } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.ok, true);
+assert.deepEqual(designCalls.at(-1), ['runDrc', { limit: 500 }]);
+sockets[0].emit('message', JSON.stringify({ id: 'render', method: 'render', params: { view: 'pcb', maxSize: 10 } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.mimeType, 'image/png');
+assert.deepEqual(designCalls.at(-1), ['render', { view: 'pcb', maxSize: 256 }]);
+sockets[0].emit('message', JSON.stringify({ id: 'render-bad', method: 'render', params: { view: '3d' } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.match(sockets[0].sent.at(-1).error, /schematic.*pcb/);
+assert.equal(designCalls.length, 2);
 const chunkedRequest = JSON.stringify({
     id: 'chunked-read',
     method: 'get_project',
@@ -255,6 +272,9 @@ const localBridge = new McpBridge(project);
 localBridge.enable();
 assert.equal(localBridge.mcpUrl, 'http://localhost:8787/mcp');
 assert.match(String(sockets.at(-1).url), /^ws:\/\/localhost:8787\/mcp\/relay\/[0-9a-f-]{36}$/);
+sockets.at(-1).emit('message', JSON.stringify({ id: 'no-drc', method: 'run_drc' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.match(sockets.at(-1).sent.at(-1).error, /unavailable/);
 localBridge.disable();
 
 console.log('PASS: MCP bridge registers, approves, discovers, patches, disconnects, and disables cleanly');

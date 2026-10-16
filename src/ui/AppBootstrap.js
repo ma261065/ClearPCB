@@ -14,6 +14,7 @@ import { renderRecentFiles } from '../shared/ui/recents.js';
 import { flushSettledChanges } from '../shared/ui/settled-input.js';
 import { McpBridge } from '../core/McpBridge.js';
 import { createMcpSessionUi } from './mcp-session.js';
+import { createMcpDesignTools } from './mcp-design-tools.js';
 
 /** @typedef {import('../core/ProjectDocument.js').ProjectData} ProjectData */
 /** @typedef {'schematic'|'pcb'} EditorMode */
@@ -67,7 +68,9 @@ export class AppBootstrap {
         this.pcbApp.initialize();
         // Register the PCB editor as a project view (contributes doc.pcb).
         this.project.registerView('pcb', this.pcbApp);
-        this.mcpBridge = new this._services.McpBridge(this.project);
+        this.mcpBridge = new this._services.McpBridge(this.project, {
+            designTools: createMcpDesignTools(() => ({ pcb: this.pcbApp, schematic: this.schematicApp })),
+        });
         this.mcpSessionUi = this._services.createMcpSessionUi(this.mcpBridge);
 
         // Install the dispatcher BEFORE SchematicApp constructs so that
