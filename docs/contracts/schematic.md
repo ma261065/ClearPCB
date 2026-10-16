@@ -99,9 +99,13 @@ Text hit testing adds at most 10% of its font size outside its measured bounds,
 instead of inheriting the full thin-wire screen-pixel allowance at low zoom.
 Its hidden origin anchor is not hit-testable; selected text is dragged by its body,
 without an extra circular grab area extending left or below the baseline.
-Filled circles render separate fill and stroke circles. The fill ends at the
-inner edge of the stroke, so translucent hover highlighting does not double-paint
-the inner half of the line. Outer dimensions and authored radius remain unchanged.
+Filled shapes keep their fill out from under the stroke. A circle renders
+separate fill and stroke circles, with the fill ending at the stroke's inner edge.
+Rectangles, polygons and arcs mask the fill with their stroke geometry, so this
+holds for any line width, including per-edge widths and bulged edges. Hover
+fades each shape's strokes as one layer, so translucent highlighting neither
+double-paints the inner half of the line nor darkens corners where round caps
+overlap. Outer dimensions and authored geometry remain unchanged.
 Existing wire-node/segment alignment and sticky wires on moved components use
 the displayed grid's magnetic tolerance: 8 screen pixels, capped at 40% of the
 effective grid spacing. They do not force alignment from half a grid cell away.
@@ -194,6 +198,13 @@ visibility, display and paint opacity, removes viewport-only component LOD place
 and interaction overlays, and retains full component detail regardless of viewport
 culling. Monochrome conversion keeps transparent repaint bounds invisible rather than
 turning them into filled black rectangles; the live viewport state is restored after cloning.
+After monochrome conversion the editor's `decorateExportSvg` hook replaces the
+one-pixel canvas-coloured crossing cues (which would otherwise turn black) with paper-white
+gaps `EXPORT_CROSSING_GAP` (0.25 mm) wide, so unjoined crossings read as broken on paper;
+the MCP content render uses the same hook. The vector PDF uses the standard PDF fonts, whose
+text encoding is WinAnsi, so `useSymbolFontForGreek` resets Greek letters (including Ω) and
+common maths symbols as standard-Symbol-font tspans; other non-WinAnsi characters still
+cannot appear in the PDF without an embedded font. Print renders with browser fonts and needs no substitution.
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
 

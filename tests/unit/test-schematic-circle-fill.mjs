@@ -16,7 +16,8 @@ assert.equal(Number(stroke.getAttribute('stroke-width')), 2);
 assert.equal(fill.getAttribute('stroke'), 'none');
 assert.equal(stroke.getAttribute('fill'), 'none');
 assert.equal(fill.getAttribute('fill-opacity'), '0.4');
-assert.equal(group.getAttribute('stroke-opacity'), '0.35');
+assert.equal(stroke.getAttribute('opacity'), '0.35', 'hover fades the stroke as one layer');
+assert.equal(group.getAttribute('stroke-opacity'), null);
 assert.equal(Number(fill.getAttribute('r')),
     Number(stroke.getAttribute('r')) - Number(stroke.getAttribute('stroke-width')) / 2);
 for (const child of group.children) {

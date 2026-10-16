@@ -64,12 +64,60 @@ setTextMeasurer((shape) => {
 
 setTextEditElementProvider(/** @param {SchematicDrawable} shape */ (shape) => viewOf(shape)?.element || null);
 
+let fillMaskCount = 0;
+
+/** @param {string} d @param {string} color @param {number} alpha */
+function createFillPath(d, color, alpha) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', color);
+    path.setAttribute('fill-opacity', String(alpha));
+    path.setAttribute('stroke', 'none');
+    return path;
+}
+
+/** One group for a shape's strokes, so hover fades it as a whole and overlapping caps do not double up. */
+function createStrokeLayer() {
+    const group = document.createElementNS(NS, 'g');
+    group.setAttribute('class', 'shape-strokes');
+    return group;
+}
+
+/**
+ * Append a fill and its strokes. The fill is masked by the stroke geometry so
+ * it ends at the stroke's inside edge whatever the line widths.
+ * @param {Element} el @param {SVGElement|null} fill @param {SVGGElement} strokeLayer
+ */
+function appendFillAndStrokes(el, fill, strokeLayer) {
+    if (fill) {
+        const mask = document.createElementNS(NS, 'mask');
+        const id = `schematic-fill-mask-${++fillMaskCount}`;
+        mask.setAttribute('id', id);
+        const area = /** @type {SVGElement} */ (fill.cloneNode(false));
+        area.setAttribute('fill', '#fff');
+        area.setAttribute('fill-opacity', '1');
+        mask.appendChild(area);
+        for (const stroke of strokeLayer.children) {
+            const cut = /** @type {SVGElement} */ (stroke.cloneNode(false));
+            cut.setAttribute('stroke', '#000');
+            cut.setAttribute('stroke-opacity', '1');
+            mask.appendChild(cut);
+        }
+        fill.setAttribute('mask', `url(#${id})`);
+        el.appendChild(mask);
+        el.appendChild(fill);
+    }
+    el.appendChild(strokeLayer);
+}
+
 /** @param {SchematicDrawable} shape */
 function createShapeElement(shape) {
     if (shape instanceof Circle) {
         const group = document.createElementNS(NS, 'g');
         group.appendChild(document.createElementNS(NS, 'circle'));
-        group.appendChild(document.createElementNS(NS, 'circle'));
+        const stroke = document.createElementNS(NS, 'circle');
+        stroke.setAttribute('class', 'shape-strokes');
+        group.appendChild(stroke);
         return group;
     }
     if (shape instanceof Text) return createTextElement();
@@ -133,12 +181,16 @@ export function renderShape(shape, scale, options = {}) {
     }
 
     updateShapeElement(shape, element, strokeColor, fillColor, scale, view);
+    const strokeLayers = [...element.children].filter(child => child.classList?.contains('shape-strokes'));
     if (visuallyHovered && !visuallySelected) {
-        element.setAttribute('stroke-opacity', '0.35');
+        // Fade each stroke layer as one image so overlapping round caps do not double up.
+        if (strokeLayers.length) for (const layer of strokeLayers) layer.setAttribute('opacity', '0.35');
+        else element.setAttribute('stroke-opacity', '0.35');
         if (shape.type === 'text') {
             element.setAttribute('fill-opacity', '0.35');
         }
     } else {
+        for (const layer of strokeLayers) layer.removeAttribute('opacity');
         element.removeAttribute('stroke-opacity');
         if (shape.type === 'text') {
             element.removeAttribute('fill-opacity');
@@ -318,14 +370,8 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
             const chain = shape.getOrderedEdgeChain();
             const pathData = roundedPathData(corners, shape.closed, chain.map(edge => edge.bulge));
 
-            if (shape.fill) {
-                const fillPath = document.createElementNS(NS, 'path');
-                fillPath.setAttribute('d', pathData);
-                fillPath.setAttribute('fill', fillColor);
-                fillPath.setAttribute('fill-opacity', String(shape.fillAlpha));
-                fillPath.setAttribute('stroke', 'none');
-                el.appendChild(fillPath);
-            }
+            const fillPath = shape.fill ? createFillPath(pathData, fillColor, shape.fillAlpha) : null;
+            const strokeLayer = createStrokeLayer();
 
             const strokes = hasEdgeWidths
                 ? [
@@ -348,8 +394,9 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
                 strokePath.setAttribute('stroke-linejoin', 'round');
                 strokePath.setAttribute('stroke-linecap', 'round');
                 strokePath.setAttribute('fill', 'none');
-                el.appendChild(strokePath);
+                strokeLayer.appendChild(strokePath);
             }
+            appendFillAndStrokes(el, fillPath, strokeLayer);
 
             const jr = Math.max(0.4, 2.5 / scale);
             for (const [nid, pos] of shape.nodes) {
@@ -367,17 +414,12 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
         }
     }
 
+    /** @type {SVGElement|null} */
+    let fillShape = null;
     if (shape.fill) {
         if (shape._hasBulgedEdges()) {
             const d = shape._buildOutlinePathD(true);
-            if (d) {
-                const fillPath = document.createElementNS(NS, 'path');
-                fillPath.setAttribute('d', d);
-                fillPath.setAttribute('fill', fillColor);
-                fillPath.setAttribute('fill-opacity', String(shape.fillAlpha));
-                fillPath.setAttribute('stroke', 'none');
-                el.appendChild(fillPath);
-            }
+            if (d) fillShape = createFillPath(d, fillColor, shape.fillAlpha);
         } else {
             const pts = shape.getOrderedPoints();
             if (pts && pts.length >= 3) {
@@ -386,11 +428,12 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
                 poly.setAttribute('fill', fillColor);
                 poly.setAttribute('fill-opacity', String(shape.fillAlpha));
                 poly.setAttribute('stroke', 'none');
-                el.appendChild(poly);
+                fillShape = poly;
             }
         }
     }
 
+    const strokeLayer = createStrokeLayer();
     for (const [eid, e] of shape.edges) {
         const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
         if (!a || !b) continue;
@@ -404,7 +447,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
             path.setAttribute('stroke-width', String(edgeWidth));
             path.setAttribute('stroke-linecap', 'round');
             path.setAttribute('fill', 'none');
-            el.appendChild(path);
+            strokeLayer.appendChild(path);
         } else {
             const ln = document.createElementNS(NS, 'line');
             ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
@@ -413,9 +456,10 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
             ln.setAttribute('stroke-width', String(edgeWidth));
             ln.setAttribute('stroke-linecap', 'round');
             ln.setAttribute('fill', 'none');
-            el.appendChild(ln);
+            strokeLayer.appendChild(ln);
         }
     }
+    appendFillAndStrokes(el, fillShape, strokeLayer);
 
     if (shape.type === 'wire') {
         const jr = Math.max(0.4, 2.5 / scale);
@@ -644,22 +688,16 @@ export function updateArcElement(shape, el, strokeColor, fillColor, scale) {
     const arcPath = primitiveShapePath(/** @type {Parameters<typeof primitiveShapePath>[0]} */ (shape._controlArc()));
     const sw = effectiveStrokeWidth(shape, scale);
 
-    if (shape.fill) {
-        const fillEl = document.createElementNS(NS, 'path');
-        fillEl.setAttribute('d', `${arcPath} Z`);
-        fillEl.setAttribute('fill', fillColor);
-        fillEl.setAttribute('fill-opacity', String(shape.fillAlpha));
-        fillEl.setAttribute('stroke', 'none');
-        el.appendChild(fillEl);
-    }
-
+    const fillEl = shape.fill ? createFillPath(`${arcPath} Z`, fillColor, shape.fillAlpha) : null;
+    const strokeLayer = createStrokeLayer();
     const strokeEl = document.createElementNS(NS, 'path');
     strokeEl.setAttribute('d', arcPath);
     strokeEl.setAttribute('stroke', strokeColor);
     strokeEl.setAttribute('stroke-width', String(sw));
     strokeEl.setAttribute('stroke-linecap', 'round');
     strokeEl.setAttribute('fill', 'none');
-    el.appendChild(strokeEl);
+    strokeLayer.appendChild(strokeEl);
+    appendFillAndStrokes(el, fillEl, strokeLayer);
 }
 
 /**

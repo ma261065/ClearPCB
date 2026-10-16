@@ -57,4 +57,48 @@ export const scenarios = [{
             'invisible text repaint bounds must not become black rectangles');
         assert.equal(result.outlineVisible, true, 'actual component outlines remain available at full detail');
     },
+}, {
+    name: 'schematic-print-pdf-keeps-crossing-gaps-and-ohm',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const result = await page.evaluate(async centre => {
+            const app = window.bootstrap.schematicApp;
+            const { Wire } = await import('/src/shapes/wire.js');
+            const { Text } = await import('/src/shapes/text.js');
+            const { cloneViewportSvgForExport, loadVectorPdfLibs, useSymbolFontForGreek } =
+                await import('/src/shared/ui/export.js');
+            const { EXPORT_CROSSING_GAP } = await import('/src/schematic/modules/wire-crossings.js');
+            app.shapes.push(
+                new Wire({ id: 'export-under', points: [{ x: centre.x, y: centre.y - 10 }, { x: centre.x, y: centre.y + 10 }] }),
+                new Wire({ id: 'export-over', points: [{ x: centre.x - 10, y: centre.y }, { x: centre.x + 10, y: centre.y }] }));
+            app.addShape(new Text({ x: centre.x + 20, y: centre.y, text: 'R1 10k\u03A9 \u00B5F' }));
+            app.updateSelectableItems();
+            app.renderShapes(true);
+            const { svgNode } = cloneViewportSvgForExport(app);
+            const borders = [...svgNode.querySelectorAll('.wire-crossing-cues > .wire-crossing-border')];
+            useSymbolFontForGreek(svgNode);
+            const text = [...svgNode.querySelectorAll('text')].find(node => node.textContent.startsWith('R1 10k'));
+            const symbol = text.querySelector('tspan[font-family="symbol"]');
+            const jsPDF = await loadVectorPdfLibs(app);
+            const pdf = new jsPDF({ unit: 'mm', format: [297, 210], compress: false });
+            const svg2pdf = window.svg2pdf.svg2pdf || window.svg2pdf.default || window.svg2pdf;
+            await svg2pdf(svgNode, pdf, { x: 0, y: 0, width: 297, height: 210 });
+            const output = pdf.output();
+            return {
+                gap: EXPORT_CROSSING_GAP,
+                borders: borders.map(line => ({ stroke: line.getAttribute('stroke'), width: Number(line.getAttribute('stroke-width')) })),
+                liveStroke: document.querySelector('.wire-crossing-cues > .wire-crossing-border').getAttribute('stroke'),
+                text: text.textContent,
+                symbol: symbol && { text: symbol.textContent, weight: symbol.getAttribute('font-weight') },
+                pdfHasCopyright: output.includes('\\251') || output.includes('\u00A9'),
+            };
+        }, await viewCentre(page));
+        assert.equal(result.borders.length, 2, 'the crossing keeps both side gaps in the export');
+        assert.ok(result.borders.every(border => border.stroke === '#ffffff' && border.width === result.gap),
+            `print/PDF gaps are paper white and ${result.gap} mm wide, not monochrome black hairlines`);
+        assert.equal(result.liveStroke, 'var(--sch-background, #1e1e1e)', 'the live canvas cue is unchanged');
+        assert.equal(result.text, 'R1 10kW \u00B5F', 'only the Omega is re-encoded; WinAnsi \u00B5 stays in Helvetica');
+        assert.deepEqual(result.symbol, { text: 'W', weight: 'normal' });
+        assert.equal(result.pdfHasCopyright, false, 'Omega no longer collapses to the WinAnsi copyright byte');
+    },
 }];

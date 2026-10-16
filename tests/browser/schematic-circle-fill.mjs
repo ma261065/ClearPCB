@@ -17,7 +17,7 @@ export const scenarios = [{
         await waitForPage(page, async () => {
             const { viewOf } = await import('/src/schematic/render/shape-view-state.js');
             const app = window.bootstrap.schematicApp;
-            return viewOf(app.shapes[0]).element.getAttribute('stroke-opacity') === '0.35';
+            return viewOf(app.shapes[0]).element.children[1].getAttribute('opacity') === '0.35';
         });
         const geometry = await page.evaluate(async () => {
             const { viewOf } = await import('/src/schematic/render/shape-view-state.js');
@@ -31,5 +31,46 @@ export const scenarios = [{
         assert.equal(geometry.strokeRadius + geometry.width / 2, 15);
         assert.equal(geometry.strokeFill, 'none');
         assert.equal(geometry.fillStroke, 'none');
+    },
+}, {
+    name: 'schematic-filled-rectangle-hover-has-no-stroke-band-or-corner-spots',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const centre = await viewCentre(page);
+        await page.evaluate(async centre => {
+            const { Polyline } = await import('/src/shapes/polyline.js');
+            const app = window.bootstrap.schematicApp;
+            const points = [{ x: centre.x - 20, y: centre.y - 10 }, { x: centre.x + 20, y: centre.y - 10 },
+                { x: centre.x + 20, y: centre.y + 10 }, { x: centre.x - 20, y: centre.y + 10 }];
+            app.addShape(new Polyline({ points, closed: true, isRect: true, lineWidth: 4, fill: true, fillAlpha: 0.3 }));
+            app.renderShapes(true);
+        }, centre);
+        const at = (/** @type {number} */ dx, /** @type {number} */ dy) => screenPoint(page, 'schematic', centre.x + dx, centre.y + dy);
+        const middle = await at(0, 0);
+        await page.mouse.move(middle.x, middle.y);
+        await waitForPage(page, async () => {
+            const { viewOf } = await import('/src/schematic/render/shape-view-state.js');
+            return viewOf(window.bootstrap.schematicApp.shapes[0]).element
+                .querySelector('.shape-strokes')?.getAttribute('opacity') === '0.35';
+        });
+        // Off-grid sample points, so background grid lines do not affect the comparison.
+        const samples = { fill: await at(-5.3, 3.3), inner: await at(18.7, 3.3), outer: await at(21.3, 3.3),
+            corner: await at(20.3, -9.7), edge: await at(20.3, 3.3) };
+        const png = (await page.screenshot()).toString('base64');
+        const colours = await page.evaluate(async ({ png, samples }) => {
+            const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = /** @type {OffscreenCanvasRenderingContext2D} */ (canvas.getContext('2d'));
+            context.drawImage(bitmap, 0, 0);
+            const scale = bitmap.width / window.innerWidth;
+            return Object.fromEntries(Object.entries(samples).map(([name, point]) => [name,
+                [...context.getImageData(Math.round(point.x * scale), Math.round(point.y * scale), 1, 1).data].slice(0, 3)]));
+        }, { png, samples });
+        const difference = (/** @type {number[]} */ a, /** @type {number[]} */ b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+        assert.ok(difference(colours.fill, colours.outer) > 4, `the fill is visible (${JSON.stringify(colours)})`);
+        assert.ok(difference(colours.inner, colours.outer) <= 2,
+            `the fill stops at the stroke's inside edge (${JSON.stringify(colours)})`);
+        assert.ok(difference(colours.corner, colours.edge) <= 2,
+            `hovered corners are not darker where stroke caps overlap (${JSON.stringify(colours)})`);
     },
 }];

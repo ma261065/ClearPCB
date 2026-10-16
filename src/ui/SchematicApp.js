@@ -27,6 +27,7 @@ import { captureShapeState, applyShapeState } from '../schematic/modules/selecti
 import { createSchematicHistory, showUnlockMenu } from '../schematic/modules/locks.js';
 import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
 import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
+import { exportWireCrossingCues } from '../schematic/modules/wire-crossings.js';
 import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
 import * as WireTools from '../schematic/modules/wire.js';
 import * as DrawingTools from '../schematic/modules/drawing.js';
@@ -1132,6 +1133,15 @@ export default class SchematicApp {
      */
     async print() {
         await ExportTools.printSchematic(this);
+    }
+
+    /**
+     * Adjust the monochrome print/PDF clone: crossing gaps are redrawn in paper
+     * white at a physical width instead of a screen-pixel canvas border.
+     * @param {SVGSVGElement} svgNode
+     */
+    decorateExportSvg(svgNode) {
+        svgNode.querySelector('.wire-crossing-cues')?.replaceWith(exportWireCrossingCues(this));
     }
 
     /**
