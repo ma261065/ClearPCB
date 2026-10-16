@@ -541,7 +541,7 @@ export function renderPlacementPose(app, compId) {
             }
         }
     }
-    getPropertyEditor(app, 'component')?.syncRotationInput(compId);
+    getPropertyEditor(app, 'component')?.syncPoseInputs(compId);
 }
 
 /** Add a freshly-built Track to app.tracks and render it. Optionally

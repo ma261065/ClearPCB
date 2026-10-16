@@ -12,6 +12,7 @@ import { beginSelectionInteraction, updateSelectionInteraction, finishSelectionI
 import { ROTATION_CURSOR } from '../../src/pcb/modules/rotation-handle.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { settleComponentMovePreview } from '../../src/pcb/modules/component-properties-host.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
@@ -318,4 +319,43 @@ for (const saved of [false, true]) {
     assert.equal(isRotationHandleDragActive(f.app), false);
     assert.equal(f.app.history.canUndo(), false);
 }
-console.log('PASS singleton component rotation, live one-degree spinner, bonded tracks, mirrored sides, history and cancellation');
+{
+    // Panel X/Y: live preview like a canvas drag, one undo step, Escape restores.
+    const f = fixture();
+    const { app, placement } = f;
+    const authored = f.track.captureState(), savedBefore = structuredClone(app.placementState.overrides);
+    const x = ids.get('pcbPropCompX'), y = ids.get('pcbPropCompY');
+    assert.equal(x.value, String(Math.PI));
+    x.fire('input', 10);
+    assert.equal(placement.x, 10, 'Typing previews the move live');
+    f.verifyBonds();
+    assert.deepEqual(f.track.captureState(), authored, 'The preview never edits authored copper');
+    assert.deepEqual(app.placementState.overrides, savedBefore);
+    assert.equal(app.history.canUndo(), false);
+    y.fire('change', -12);
+    assert.deepEqual([placement.x, placement.y], [10, 12]);
+    assert.equal(app.history.undoStack.length, 1, 'X and Y edits commit as one move');
+    assert.equal(ids.get('pcbPropCompY').value, '-12', 'Y displays Y-up');
+    f.verifyBonds();
+    app.history.undo();
+    assert.deepEqual([placement.x, placement.y], [Math.PI, -Math.E]);
+    assert.equal(ids.get('pcbPropCompX').value, String(Math.PI), 'Undo re-shows the restored position');
+    f.verifyBonds();
+    x.fire('input', 20);
+    x.fire('keydown', undefined, { key: 'Escape' });
+    assert.deepEqual([placement.x, placement.y], [Math.PI, -Math.E], 'Escape restores the start pose');
+    assert.equal(app.tracks, app.pcbDocument.tracks, 'Escape ends the preview copper projection');
+    assert.equal(app.history.canRedo(), true, 'A cancelled preview leaves redo intact');
+    ids.get('pcbPropCompX').fire('input', 15);
+    assert.equal(settleComponentMovePreview(app), true, 'A canvas press commits a pending panel move');
+    assert.equal(app.history.undoStack.length, 1);
+    assert.equal(placement.x, 15);
+    ids.get('pcbPropCompY').fire('input', -16);
+    assert.equal(app.handleKeyDown({ key: 'Escape' }), true, 'Canvas Escape cancels a pending panel move');
+    assert.equal(placement.y, -Math.E);
+    placement.locked = true;
+    app.showComponentProperties('part');
+    ids.get('pcbPropCompX').fire('change', 30);
+    assert.equal(placement.x, 15, 'Locked components ignore X/Y edits');
+}
+console.log('PASS singleton component rotation, live one-degree spinner, X/Y spinners, bonded tracks, mirrored sides, history and cancellation');

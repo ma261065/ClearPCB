@@ -9,7 +9,7 @@
  * owner's back. No imports, so worker-loaded export code can query it.
  */
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {{active: boolean, commit: () => void, cancel: () => void, dispose: () => void, affectsLayer?: (layerId: string) => boolean, sync?: () => void, refresh?: () => void, committing?: boolean, syncRotationInput?: (componentId: string) => void, track?: import('../../shapes/track.js').Track}} PropertyEditorBinding */
+/** @typedef {{active: boolean, commit: () => void, cancel: () => void, dispose: () => void, affectsLayer?: (layerId: string) => boolean, sync?: () => void, refresh?: () => void, committing?: boolean, syncPoseInputs?: (componentId: string) => void, track?: import('../../shapes/track.js').Track}} PropertyEditorBinding */
 
 /** Panel editors, in the order lifecycle cancellation and disposal visit them. */
 export const PANEL_EDITOR_KINDS = Object.freeze(['text', 'component', 'pad', 'via', 'track', 'boardShape', 'fill']);

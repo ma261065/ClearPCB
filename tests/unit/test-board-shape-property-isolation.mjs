@@ -6,7 +6,7 @@ import { getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoard
 import { renderBoardShape, hasBoardShapeElement } from '../../src/pcb/modules/board-shape-render.js';
 import { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
 import { captureBoardShapeState } from '../../src/core/pcb-board-shapes.js';
-import { showBoardShapeProperties } from '../../src/pcb/modules/board-shape-properties.js';
+import { boardShapesCentre, showBoardShapeProperties } from '../../src/pcb/modules/board-shape-properties.js';
 import { setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
@@ -74,6 +74,9 @@ const cases = [
     ['imageWidth', 'pcbPropImageWidth', 14],
     ['imageHeight', 'pcbPropImageHeight', 14],
     ['imageRotation', 'pcbPropImageRot', 73],
+    ['shapeX', 'pcbPropShapeX', 20],
+    ['shapeY', 'pcbPropShapeY', -20],
+    ['imageX', 'pcbPropImageX', 20],
 ];
 
 function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper') {
@@ -327,7 +330,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width-ch
 }
 
 let checked = 0;
-for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'cornerRadius', 'diameter'].includes(kind) ? [1, 4] : [1]) {
+for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'cornerRadius', 'diameter', 'shapeX'].includes(kind) ? [1, 4] : [1]) {
     for (const finish of ['commit', 'escape', 'dispose', 'load', 'lock', 'missing', 'failure']) {
         const { app, model, project, shapes, adapters, unrelated, group, pours } = fixture(kind, count);
         const before = model.captureGeometry(), serialized = model.serialize();
@@ -440,7 +443,8 @@ for (const [kind, id, value] of cases) {
         : kind === 'cornerRadius' || kind === 'nodeRadius' ? shapes[0].cornerRadius
             : kind === 'diameter' ? shapes[0].radius * 2
                 : kind.endsWith('Bulge') ? 0.25
-                    : kind === 'imageWidth' ? 10 : kind === 'imageHeight' ? 6 : 0;
+                    : kind === 'imageWidth' ? 10 : kind === 'imageHeight' ? 6
+                        : kind === 'shapeX' || kind === 'imageX' ? 7 : kind === 'shapeY' ? -6 : 0;
     const before = model.captureGeometry();
     app.history.execute({ execute() {}, undo() {} });
     app.history.undo();
@@ -594,12 +598,14 @@ for (const [kind, id, values] of [
 console.log('PASS repeated image numeric input/change keeps focus, center, field identity and exact history');
 
 for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image'))) {
-    for (const count of ['lineWidth', 'cornerRadius', 'diameter'].includes(kind) ? [1, 3] : [1]) {
+    for (const count of ['lineWidth', 'cornerRadius', 'diameter', 'shapeX'].includes(kind) ? [1, 3] : [1]) {
         const { app, model, shapes } = fixture(kind, count);
         app.currentTool = 'select';
         const before = model.captureGeometry();
         const input = fields.get(id), binding = getPropertyEditor(app, 'boardShape');
         const propertyValue = shape => kind === 'lineWidth' ? shape.lineWidth
+            : kind === 'shapeX' ? boardShapesCentre([shape]).x
+                : kind === 'shapeY' ? -boardShapesCentre([shape]).y
             : kind === 'segmentWidth' ? shape.segmentWidths[0]
                 : kind === 'cornerRadius' ? shape.cornerRadius
                     : kind === 'nodeRadius' ? shape.nodeCornerRadii[1]
@@ -979,3 +985,45 @@ for (const finish of ['commit', 'cancel', 'panel', 'different-owner']) {
     cancelPictureCopperRefresh(app);
 }
 console.log('PASS image rotation through selection and real property bindings, same-owner refresh, cancellation and history');
+
+{
+    // X/Y location spinners: bounds centre, Y-up display, exact translation, one undo step per run.
+    const { app, model, shapes } = fixture('shapeX');
+    const shape = shapes[0];
+    const x = fields.get('pcbPropShapeX'), y = fields.get('pcbPropShapeY');
+    assert.equal(x.value, '7.00', 'X shows the bounds centre');
+    assert.equal(y.value, '-6.00', 'Y shows the bounds centre Y-up like the status bar');
+    const before = model.captureGeometry();
+    x.value = '20'; x.fire('input');
+    y.value = '-10'; y.fire('input');
+    assert.deepEqual(shape.points, [{ x: 2, y: 3 }, { x: 12, y: 3 }, { x: 12, y: 9 }, { x: 2, y: 9 }], 'Preview never edits the authored shape');
+    getPropertyEditor(app, 'boardShape').commit();
+    assert.deepEqual(shape.points, [{ x: 15, y: 7 }, { x: 25, y: 7 }, { x: 25, y: 13 }, { x: 15, y: 13 }], 'Translate without reshaping');
+    assert.equal(app.history.undoStack.length, 1, 'An X/Y run is one undo step');
+    assert.equal(fields.get('pcbPropShapeY').value, '-10.00');
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    cancelPictureCopperRefresh(app);
+}
+{
+    const { app, shapes } = fixture('diameter');
+    assert.equal(fields.get('pcbPropShapeX').value, '7.00', 'A circle shows its exact centre');
+    fields.get('pcbPropShapeY').value = '-1'; fields.get('pcbPropShapeY').fire('change');
+    flushSettledChanges();
+    assert.deepEqual([shapes[0].x, shapes[0].y, shapes[0].radius], [7, 1, 3.123456789]);
+    cancelPictureCopperRefresh(app);
+}
+{
+    const { app, shapes } = fixture('shapeX', 1, 1, 'board-outline');
+    fields.get('pcbPropShapeX').value = '57'; fields.get('pcbPropShapeX').fire('change');
+    flushSettledChanges();
+    assert.deepEqual(shapes[0].points.map(point => point.x), [52, 62, 62, 52], 'The board outline moves by its centre');
+    const layer = PCB_LAYERS.find(item => item.id === 'board-outline');
+    layer.locked = true;
+    try {
+        showBoardShapeProperties(app, shapes[0]);
+        assert.equal(fields.get('pcbPropShapeX').disabled, true, 'A locked outline cannot move');
+    } finally { layer.locked = false; }
+    cancelPictureCopperRefresh(app);
+}
+console.log('PASS shape X/Y location spinners: bounds centre, Y-up, exact translation, circles, outline and lock');

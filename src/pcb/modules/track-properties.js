@@ -276,7 +276,7 @@ export function showTrackNodeProperties(app, track, nodeId) {
                 { key: 'x', id: 'pcbPropTrackNodeX', type: 'readout', label: 'X (mm)',
                     value: current ? formatNumberInputValue(current.x) : '' },
                 { key: 'y', id: 'pcbPropTrackNodeY', type: 'readout', label: 'Y (mm)',
-                    value: current ? formatNumberInputValue(current.y) : '' },
+                    value: current ? formatNumberInputValue(-current.y || 0) : '' },
                 bindTrackCornerRadius(binding, nodeId),
             ],
         };

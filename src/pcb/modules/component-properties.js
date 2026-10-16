@@ -39,6 +39,9 @@ const numberParse = (min, normalize = value => value) => text => {
  * @property {(layer: string) => string} layerLabel
  * @property {(model: Placement, spec: StrokeTextSpec) => StrokeTextBinding} bindStrokeText Existing field-binding helper.
  * @property {(id: string, before: number, after: number) => void} rotate
+ * @property {() => number} gridStep Spinner step for the X/Y fields (the PCB grid, mm).
+ * @property {(id: string, x: number, y: number) => boolean} previewMove Show the component at (x, y) without a history entry.
+ * @property {(id: string, commit: boolean) => boolean} finishMove Commit the previewed move as one command, or restore the start pose; false when none was in progress.
  * @property {(id: string, locked: boolean) => void} setLocked Finish selection interaction, then execute the lock command.
  * @property {(id: string, visible: boolean) => void} setReferenceVisible
  * @property {(id: string, side: 'top'|'bottom') => void} setSide
@@ -58,23 +61,43 @@ export class ComponentProperties {
         this.referenceBinding = null;
         /** @type {ComponentPanelState|null} */
         this.panel = null;
+        /** Component with an uncommitted X/Y preview. @type {string|null} */
+        this.moving = null;
     }
 
-    get active() { return !!this.referenceBinding?.active; }
+    get active() { return this.moving !== null || !!this.referenceBinding?.active; }
 
-    commit() { this.referenceBinding?.commit(); }
+    commit() {
+        this._finishMove(true);
+        this.referenceBinding?.commit();
+    }
 
-    cancel() { this.referenceBinding?.cancel(); }
+    cancel() {
+        this._finishMove(false);
+        this.referenceBinding?.cancel();
+    }
 
     /** @param {string} layer */
     affectsLayer(layer) { return !!this.referenceBinding?.affectsLayer(layer); }
 
     dispose() {
+        this._finishMove(false);
         this.panel = null;
         const binding = this.referenceBinding;
         this.referenceBinding = null;
         binding?.dispose();
     }
+
+    /** @param {boolean} commit */
+    _finishMove(commit) {
+        const id = this.moving;
+        if (id === null) return false;
+        this.moving = null;
+        return this.capabilities.finishMove(id, commit);
+    }
+
+    /** Commit a pending X/Y move before a canvas gesture (the field's blur only follows the press). */
+    settleMove() { return this._finishMove(true); }
 
     /** @param {ComponentPanelState} panel */
     _isCurrent(panel) {
@@ -82,8 +105,8 @@ export class ComponentProperties {
             && this.capabilities.getPlacement(panel.id) === panel.placement;
     }
 
-    /** @param {string} compId */
-    syncRotationInput(compId) {
+    /** Re-show the pose fields (X, Y, rotation) after the component moved or turned. @param {string} compId */
+    syncPoseInputs(compId) {
         if (!this.capabilities.isSelected('component', compId)) return;
         if (this.panel?.kind !== 'component' || this.panel.id !== compId) return;
         const placement = this.capabilities.getPlacement(compId);
@@ -114,6 +137,27 @@ export class ComponentProperties {
             if ((live.rotation || 0) === normalized) { refresh(); return; }
             this.capabilities.rotate(compId, live.rotation || 0, normalized);
             refresh();
+        };
+        /** @param {'x'|'y'} axis @param {number} value */
+        const previewAxis = (axis, value) => {
+            const live = this.capabilities.getPlacement(compId);
+            if (!editable() || !live || !Number.isFinite(value)) return false;
+            if (live[axis] === value && this.moving !== compId) return false;
+            if (live[axis] === value) return true;
+            const pose = { x: live.x, y: live.y, [axis]: value };
+            if (!this.capabilities.previewMove(compId, pose.x, pose.y)) return false;
+            this.moving = compId;
+            return true;
+        };
+        /** @param {'x'|'y'} axis @param {number} value */
+        const commitAxis = (axis, value) => {
+            this._finishMove(previewAxis(axis, value));
+            refresh();
+        };
+        const cancelMove = () => {
+            this._finishMove(false);
+            refresh();
+            return true;
         };
         /** @returns {PropertyPanel} */
         const describe = () => {
@@ -172,6 +216,15 @@ export class ComponentProperties {
                             this.capabilities.setSide(compId, value === 'bottom' ? 'bottom' : 'top');
                             refresh();
                         } },
+                    { key: 'x', id: 'pcbPropCompX', type: 'number', label: 'X (mm)', value: live.x,
+                        step: this.capabilities.gridStep() || 0.1, disabled: locked,
+                        preview: value => { previewAxis('x', value); },
+                        commit: value => commitAxis('x', value), cancel: cancelMove },
+                    // Board Y grows downward; the field shows Y-up like the status bar.
+                    { key: 'y', id: 'pcbPropCompY', type: 'number', label: 'Y (mm)', value: -live.y || 0,
+                        step: this.capabilities.gridStep() || 0.1, disabled: locked,
+                        preview: value => { previewAxis('y', -value); },
+                        commit: value => commitAxis('y', -value), cancel: cancelMove },
                     { key: 'rotation', id: 'pcbPropCompRot', type: 'number', label: 'Rotation (\u00B0)',
                         value: roundDegrees(live.rotation || 0), step: 1, numberFormat: 'rotation',
                         disabled: locked, normalize: roundDegrees, commit: value => rotateTo(value),

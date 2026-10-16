@@ -5,9 +5,11 @@ import { ComponentProperties } from './component-properties.js';
 import { getPropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { isPcbSelected } from './selection-registry.js';
-import { RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand } from './track-commands.js';
+import { MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand,
+    finishPlacementPreview, previewPlacementPose } from './track-commands.js';
 import { finishSelectionInteraction } from './selection-interaction.js';
-import { openComponent3DPopout } from './component-selection.js';
+import { netsForComponent, openComponent3DPopout } from './component-selection.js';
+import { beginDragSession, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { SetRefStyleCommand } from './ref-text-selection.js';
 import { bindStrokeTextProps } from './text-properties.js';
 import { activeTextInlineEdit, insertInlineTextSymbol } from './text-inline-edit.js';
@@ -25,6 +27,9 @@ export function getComponentProperties(app) {
         refreshPanel: panel => app.refreshPropertyPanel(panel),
         layerLabel: /** @param {string} layer */ (layer) => app.layerLabel(layer),
         bindStrokeText: (model, spec) => bindStrokeTextProps(app, model, spec),
+        gridStep: () => app.viewport?.gridSize || 0,
+        previewMove: (id, x, y) => previewComponentMove(app, id, x, y),
+        finishMove: (id, commit) => finishComponentMove(app, id, commit),
         rotate: (id, before, after) => app.history.execute(new RotatePlacementCommand(app, id, before, after)),
         setLocked: (id, locked) => {
             finishSelectionInteraction(app, false);
@@ -41,6 +46,65 @@ export function getComponentProperties(app) {
         activeTextEdit: () => activeTextInlineEdit(app),
         insertInlineSymbol: (textId, symbol) => insertInlineTextSymbol(app, textId, symbol),
     })));
+}
+
+/**
+ * A Properties-panel move in progress: the component previews like a canvas drag
+ * (bonded copper follows, only its nets' ratlines refresh) until it is committed.
+ * @type {WeakMap<PcbEditor, {compId: string, start: {x: number, y: number}, session: import('./drag-session.js').DragSession}>}
+ */
+const panelMoves = new WeakMap();
+
+/**
+ * Commit a pending Properties-panel move before a canvas gesture starts.
+ * @param {PcbEditor} app
+ */
+export function settleComponentMovePreview(app) {
+    const editor = getPropertyEditor(app, 'component');
+    return editor instanceof ComponentProperties ? editor.settleMove() : false;
+}
+
+/**
+ * Preview `compId` at (x, y) without changing the document.
+ * @param {PcbEditor} app @param {string} compId @param {number} x @param {number} y
+ */
+export function previewComponentMove(app, compId, x, y) {
+    const placement = app.placements.get(compId);
+    if (!placement || placement.locked || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    let move = panelMoves.get(app);
+    if (move && move.compId !== compId) finishComponentMove(app, move.compId, false);
+    move = panelMoves.get(app);
+    if (!move) {
+        move = { compId, start: { x: placement.x, y: placement.y },
+            session: beginDragSession(app, { nets: netsForComponent(app, compId) }) };
+        panelMoves.set(app, move);
+    }
+    previewPlacementPose(app, compId, { x, y });
+    refreshDragRatlines(app, move.session);
+    return true;
+}
+
+/**
+ * End a panel move: commit it as one MovePlacementCommand, or restore the start pose.
+ * Returns whether a move was in progress.
+ * @param {PcbEditor} app @param {string} compId @param {boolean} commit
+ */
+export function finishComponentMove(app, compId, commit) {
+    const move = panelMoves.get(app);
+    if (!move || move.compId !== compId) return false;
+    panelMoves.delete(app);
+    releaseDragSession(app, move.session);
+    const placement = app.placements.get(compId);
+    const { x: fromX, y: fromY } = move.start;
+    if (commit && placement && !placement.locked && (placement.x !== fromX || placement.y !== fromY)) {
+        const { x, y } = placement;
+        finishPlacementPreview(app, () => app.history.execute(new MovePlacementCommand(app, compId, fromX, fromY, x, y)));
+    } else {
+        finishPlacementPreview(app);
+        app.refreshClearanceHalos();
+        app.updateRatsnest();
+    }
+    return true;
 }
 
 /** @param {PcbEditor} app @param {string} compId @param {'top'|'bottom'} side */
