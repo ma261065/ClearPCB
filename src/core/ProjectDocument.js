@@ -1,12 +1,48 @@
 import { FileManager } from './FileManager.js';
-import { validateEditableProject } from './project-format.js';
+import { LEGACY_OPAMP_PAD_PIN, validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
 import { PcbDocument } from './PcbDocument.js';
+import { PcbPlacementState } from './PcbPlacementState.js';
 import { extractComponents } from './netlist.js';
 import { createPcbFootprint } from './pcb-footprint.js';
 import { disconnectIncompatiblePadNodes, repositionPadConnectedNodes } from './pcb-placement-geometry.js';
 import { flushSettledChanges } from '../shared/ui/settled-input.js';
+
+const BOND_POSITION_TOLERANCE = 0.001;
+
+/**
+ * @param {{components: import('../components/Component.js').Component[]}} schematicPrepared
+ * @param {import('./PcbDocument.js').PcbPreparedData} pcbPrepared
+ * @param {import('./PcbDocument.js').PcbData|null|undefined} pcbData
+ */
+function validatePcbPadBonds(schematicPrepared, pcbPrepared, pcbData) {
+    const state = new PcbPlacementState();
+    state.load(pcbData?.placements);
+    const placements = state.resolve(extractComponents(schematicPrepared), { persistAutoSlots: false });
+    for (const [trackIndex, track] of (pcbPrepared?.tracks || []).entries()) {
+        for (const [nodeId, connection] of track.padConnections) {
+            const path = `pcb.tracks[${trackIndex}].pdc.${nodeId}`;
+            const sourceConnection = pcbData?.tracks?.[trackIndex]?.pdc?.[nodeId];
+            const node = track.nodes.get(nodeId);
+            if (!node) throw new Error(`${path}: Pad bond references a missing track node.`);
+            const placement = placements.get(String(connection.componentId));
+            if (!placement) throw new Error(`${path}: Pad bond references a missing component placement.`);
+            const pad = placement.pads.get(String(connection.pinNumber))
+                || [...placement.pads.values()].find(candidate =>
+                    String(candidate.number) === String(connection.pinNumber));
+            if (!pad) throw new Error(`${path}: Pad bond references a missing physical pad.`);
+            if (sourceConnection && Reflect.has(sourceConnection, LEGACY_OPAMP_PAD_PIN)) {
+                node.x = pad.x;
+                node.y = pad.y;
+                Reflect.deleteProperty(sourceConnection, LEGACY_OPAMP_PAD_PIN);
+            }
+            if (Math.hypot(node.x - pad.x, node.y - pad.y) > BOND_POSITION_TOLERANCE) {
+                throw new Error(`${path}: Pad bond node must be at the physical pad position [${pad.x}, ${pad.y}].`);
+            }
+        }
+    }
+}
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 /** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
@@ -115,16 +151,31 @@ export class ProjectDocument {
     }
 
     /** Resolve physical placements and matching connectivity from the current models. */
-    resolvePcbLayout() {
+    /** @param {{persistAutoSlots?: boolean}} [options] */
+    resolvePcbLayout(options) {
         const components = extractComponents(this.schematicDocument);
         const netlist = this.getNetlist();
-        return { placements: this.pcbDocument.placementState.resolve(components), netlist };
+        return { placements: this.pcbDocument.placementState.resolve(components, options), netlist };
     }
 
     /** Resolve the complete layout before applying the existing rebuild policy to track bonds. */
     synchronizePcbLayout() {
         const layout = this.resolvePcbLayout();
         const tracks = this.pcbDocument.tracks;
+        const netByPin = new Map(layout.netlist.flatMap(({ net, pins }) =>
+            pins.map(({ componentId, pinNumber }) => [`${componentId}:${pinNumber}`, net])));
+        for (const track of tracks) {
+            const bondedNets = new Set([...track.padConnections.values()]
+                .map(({ componentId, pinNumber }) => netByPin.get(`${componentId}:${pinNumber}`))
+                .filter((net) => typeof net === 'string'));
+            if (track.net && bondedNets.size === 1) {
+                const [net] = bondedNets;
+                if (track.net !== net) {
+                    track.net = net;
+                    track.invalidate();
+                }
+            }
+        }
         for (const [id, placement] of layout.placements) {
             if (placement.side === 'bottom') disconnectIncompatiblePadNodes(tracks, id, placement.padOffsets);
             // Preserve the legacy rebuild eligibility, including reference-offset placements.
@@ -246,6 +297,7 @@ export class ProjectDocument {
      */
     serialize() {
         if (!this.canSerialize()) throw new Error('Finish the current edit before saving.');
+        this.pcbDocument.placementState.prune(this.schematicDocument.components.map(component => component.id));
         const doc = /** @type {ProjectData} */ (this.schematicDocument.serialize(this.schematic?.getViewSettings?.()));
         const pcbSection = this.pcbDocument.serializeSection(this.pcb?.getViewSettings?.());
         if (pcbSection) doc.pcb = pcbSection;
@@ -274,12 +326,14 @@ export class ProjectDocument {
             const pcbPrepared = this.pcb
                 ? await this.pcb.prepareSection?.(projectData.pcb || null)
                 : PcbDocument.prepare(projectData.pcb || null);
+            validatePcbPadBonds(prepared, pcbPrepared, projectData.pcb);
             this.fileManager.touch();
             try {
                 await this.schematic?.loadSection?.(projectData, /** @type {never} */ (prepared));
                 if (!this.schematic) this.schematicDocument.load(projectData, /** @type {Parameters<SchematicDocument['load']>[1]} */ (prepared));
                 await this.pcb?.loadSection?.(projectData.pcb || null, /** @type {never} */ (pcbPrepared));
                 if (!this.pcb) this.pcbDocument.load(projectData.pcb || null, /** @type {Parameters<PcbDocument['load']>[1]} */ (pcbPrepared));
+                this.pcbDocument.placementState.prune(this.schematicDocument.components.map(component => component.id));
             } catch (error) {
                 await this.schematic?.loadSection?.(previous);
                 if (!this.schematic) this.schematicDocument.load(previous);

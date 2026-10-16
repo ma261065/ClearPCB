@@ -6,7 +6,7 @@
  * color swatch, name, lock toggle, and visibility eye for every layer.
  */
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-
+import { padLayers } from '../../shapes/pad-geometry.js';
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
 /** @typedef {{onLayerVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onLayerLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onCopperFillVisibilityChanged?: (app: PcbEditor, layerId: string, visible: boolean) => void, onCopperFillLockChanged?: (app: PcbEditor, layerId: string, locked: boolean) => void, onOverlayVisibilityChanged?: (app: PcbEditor, overlayId: string, visible: boolean) => void}} LayerChangeHandlers */
 const lockedBubbleTimers = new WeakMap();
@@ -309,6 +309,16 @@ export function refreshPcbLayerOptions(layerId) {
 export function isLayerVisible(layerId) {
     const def = PCB_LAYERS.find(l => l.id === layerId);
     return def ? def.visible : true;
+}
+
+/**
+ * True when a free pad is shown: its own flag is on and at least one of its
+ * copper layers is visible. Click, marquee and Select All share this rule.
+ * @param {{visible?: boolean, layers: string}|null|undefined} pad
+ * @returns {boolean}
+ */
+export function isPadVisible(pad) {
+    return !!pad && pad.visible !== false && padLayers(/** @type {any} */ (pad)).some(isLayerVisible);
 }
 
 /**

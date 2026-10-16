@@ -37,9 +37,68 @@ let document = { type: 'clearpcb-project', version: '1.0', schematic: { shapes: 
 const project = {
     serialize: () => structuredClone(document),
     async load(value) { document = structuredClone(value); },
+    schematicDocument: {
+        components: [{
+            id: 'comp-geometry', reference: 'R9', value: '1k',
+            definition: { name: 'Resistor' },
+            symbol: { pins: [{ number: '1', name: '1', type: 'passive', x: -3.81, y: 0 }] },
+            localToWorld: (x, y) => ({ x: 40 + x, y: 25 + y }),
+        }, {
+            id: 'comp-target', reference: 'U2', value: 'Target',
+            definition: { name: 'Target' },
+            symbol: { pins: [{ number: '3', name: 'IN', type: 'input', x: 0, y: 0 }] },
+            localToWorld: (x, y) => ({ x: 50 + x, y: 25 + y }),
+        }],
+    },
+    resolvePcbLayout: () => ({
+        placements: new Map([['comp-geometry', {
+            reference: 'R9', footprint: 'R_Axial', x: 10, y: -10, rotation: 0, side: 'top',
+            pads: new Map([['pad-1', { number: '1', x: 10, y: -10 }]]),
+        }]]),
+    }),
+    getNetlist: () => [{ net: 'R9.1', pins: [{ componentId: 'comp-geometry', pinNumber: '1' }] }],
+};
+const externalDefinition = {
+    name: 'KiCad_NE555D',
+    description: 'NE555D timer',
+    category: 'KiCad',
+    defaultReference: 'U?',
+    defaultValue: 'NE555D',
+    _source: 'KiCad',
+    symbol: {
+        width: 20,
+        height: 20,
+        origin: { x: 10, y: 10 },
+        graphics: [],
+        pins: [{ number: '1', name: 'GND', x: 0, y: 10, orientation: 'right', length: 2.54, type: 'power_in' }],
+    },
+    footprintName: 'Package_SO:SOIC-8',
+    footprintShapes: ['PAD~1~RECT~0~0~1~2~0~~1~0~0~0~0~0'],
+    hasFootprint: true,
+};
+const componentLibrary = {
+    searchKiCad: async () => [{ library: 'Timer', name: 'NE555D', fullName: 'Timer:NE555D' }],
+    searchLCSC: async () => [{
+        lcscPartNumber: 'C46749',
+        mpn: 'NE555DR',
+        manufacturer: 'Texas Instruments',
+        description: 'Timer',
+        package: 'SOIC-8',
+        stock: 100,
+    }],
+    fetchFromKiCad: async () => structuredClone(externalDefinition),
+    fetchFromLCSC: async () => ({ ...structuredClone(externalDefinition), name: 'LCSC_C46749', _source: 'LCSC' }),
 };
 const states = [];
-const bridge = new McpBridge(project, { onStateChanged: state => states.push(state) });
+const designCalls = [];
+const bridge = new McpBridge(project, {
+    onStateChanged: state => states.push(state),
+    componentLibrary,
+    designTools: {
+        runDrc: async options => { designCalls.push(['runDrc', options]); return { ok: true, counts: { errors: 0, warnings: 0 } }; },
+        render: async options => { designCalls.push(['render', options]); return { mimeType: 'image/png', data: 'AAAA', view: options.view }; },
+    },
+});
 bridge.enable();
 assert.equal(bridge.mcpUrl, 'https://clearpcb-mcp.mikealex.workers.dev/mcp');
 assert.match(String(sockets[0].url), /^wss:\/\/clearpcb-mcp\.mikealex\.workers\.dev\/mcp\/relay\/[0-9a-f-]{36}$/);
@@ -64,11 +123,22 @@ await new Promise(resolve => setTimeout(resolve, 0));
 const schema = sockets[0].sent.at(-1).result;
 assert.equal(schema.examples.component.dn, 'Resistor');
 assert.ok(schema.notes.some(note => note.includes('do not add bundled definitions')));
+assert.deepEqual(schema.format.schematic.shapeTypes,
+    ['polyline', 'wire', 'circle', 'arc', 'text', 'net', 'noconnect']);
+assert.equal(schema.format.schematic.shapeTypes.includes('power'), false);
+assert.equal(schema.format.pcb.optional.includes('boardShapes'), true);
+assert.equal(schema.format.pcb.optional.includes('shapes'), false);
+assert.equal(schema.format.pcb.textRecord.coordinates.x.startsWith('Left edge'), true);
+assert.equal(schema.format.pcb.textRecord.coordinates.y.startsWith('Text baseline'), true);
+assert.equal(schema.format.pcb.textRecord.layerAliases['top-silkscreen'], 'top-silk');
+assert.equal(schema.notes.some(note => note.includes('compacts PCB text')), true);
 
 sockets[0].emit('message', JSON.stringify({ id: 'parts', method: 'list_parts' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 const parts = sockets[0].sent.at(-1).result;
 assert.equal(parts.find(part => part.dn === 'IC_DIP8').pinCount, 8);
+assert.equal(new Set(parts.map(part => part.dn)).size, parts.length);
+assert.equal(parts.find(part => part.dn === 'OpAmp').pinCount, 8);
 
 sockets[0].emit('message', JSON.stringify({ id: 'part', method: 'get_part', params: { dn: 'LED' } }));
 await new Promise(resolve => setTimeout(resolve, 0));
@@ -76,9 +146,73 @@ const part = sockets[0].sent.at(-1).result;
 assert.deepEqual(part.pins.map(pin => pin.number), ['A', 'K']);
 assert.ok(part.footprintShapes.some(shape => shape.includes('PAD')));
 
+sockets[0].emit('message', JSON.stringify({
+    id: 'search-parts',
+    method: 'search_parts',
+    params: { query: '555', source: 'all', limit: 10 },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+const searchResults = sockets[0].sent.at(-1).result.results;
+assert.ok(searchResults.some(result => result.source === 'kicad' && result.id === 'Timer:NE555D'));
+assert.ok(searchResults.some(result => result.source === 'lcsc' && result.id === 'C46749'));
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'external-part',
+    method: 'get_part',
+    params: { source: 'kicad', id: 'Timer:NE555D' },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.source, 'kicad');
+assert.equal(sockets[0].sent.at(-1).result.footprintName, 'Package_SO:SOIC-8');
+
+sockets[0].emit('message', JSON.stringify({
+    id: 'place-part',
+    method: 'place_part',
+    params: { source: 'kicad', id: 'Timer:NE555D', x: 70, y: 40 },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.component.ref, 'U1');
+assert.equal(document.schematic.components.at(-1).dn, 'KiCad_NE555D');
+assert.ok(document.schematic.defs.KiCad_NE555D);
+assert.equal(await bridge.revertLastChange(), true);
+assert.equal(document.schematic.components.length, 0);
+
 sockets[0].emit('message', JSON.stringify({ id: 'read', method: 'get_project' }));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(sockets[0].sent.at(-1).result.type, 'clearpcb-project');
+sockets[0].emit('message', JSON.stringify({ id: 'points', method: 'get_connection_points' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.deepEqual(sockets[0].sent.at(-1).result.schematic.components[0].pins[0],
+    { number: '1', name: '1', type: 'passive', x: 36.19, y: 25 });
+assert.deepEqual(sockets[0].sent.at(-1).result.pcb.placements[0].pads[0],
+    { id: 'pad-1', number: '1', x: 10, y: -10 });
+sockets[0].emit('message', JSON.stringify({ id: 'netlist', method: 'get_netlist' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.nets[0].net, 'R9.1');
+sockets[0].emit('message', JSON.stringify({
+    id: 'connect',
+    method: 'connect',
+    params: { from: 'R9.1', to: 'U2.3', net: 'SIGNAL' },
+}));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.wire.net, 'SIGNAL');
+assert.deepEqual(document.schematic.shapes[0].pc,
+    { n0: { componentId: 'comp-geometry', pinNumber: '1' },
+        n1: { componentId: 'comp-target', pinNumber: '3' } });
+assert.deepEqual(document.schematic.shapes[0].nd, { n0: [36.19, 25], n1: [50, 25] });
+assert.equal(await bridge.revertLastChange(), true);
+sockets[0].emit('message', JSON.stringify({ id: 'drc', method: 'run_drc', params: { limit: 9999 } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.ok, true);
+assert.deepEqual(designCalls.at(-1), ['runDrc', { limit: 500 }]);
+sockets[0].emit('message', JSON.stringify({ id: 'render', method: 'render', params: { view: 'pcb', maxSize: 10 } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(sockets[0].sent.at(-1).result.mimeType, 'image/png');
+assert.deepEqual(designCalls.at(-1), ['render', { view: 'pcb', maxSize: 256 }]);
+sockets[0].emit('message', JSON.stringify({ id: 'render-bad', method: 'render', params: { view: '3d' } }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.match(sockets[0].sent.at(-1).error, /schematic.*pcb/);
+assert.equal(designCalls.length, 2);
 const chunkedRequest = JSON.stringify({
     id: 'chunked-read',
     method: 'get_project',
@@ -138,6 +272,9 @@ const localBridge = new McpBridge(project);
 localBridge.enable();
 assert.equal(localBridge.mcpUrl, 'http://localhost:8787/mcp');
 assert.match(String(sockets.at(-1).url), /^ws:\/\/localhost:8787\/mcp\/relay\/[0-9a-f-]{36}$/);
+sockets.at(-1).emit('message', JSON.stringify({ id: 'no-drc', method: 'run_drc' }));
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.match(sockets.at(-1).sent.at(-1).error, /unavailable/);
 localBridge.disable();
 
 console.log('PASS: MCP bridge registers, approves, discovers, patches, disconnects, and disables cleanly');

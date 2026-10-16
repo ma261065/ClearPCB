@@ -1,8 +1,8 @@
 /**
  * What dropping dragged copper does: a dropped node joins the track node or via it lands
- * on, copper that now touches another net's copper adopts or refuses the net, and the
- * gesture's changes become one undoable command (trackPointerCommands). reconcileCopperRegion
- * re-derives the nets of copper a change touched.
+ * on; directly contacted unassigned non-fill copper artwork can adopt or refuse its Net.
+ * Floating pours keep their authored Net (often blank), because their cached copper may
+ * still describe the pre-drag clearance. The gesture becomes one undoable command.
  */
 import { collectNodeConnections, copperBoardWith } from './track-connections.js';
 import { showBondedNetConflict } from './track-commit.js';
@@ -13,7 +13,6 @@ import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { ModifyPadCommand } from './pad-commands.js';
 import { captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
-import { ModifyFillCommand } from './copper-fill-commands.js';
 import { collapseCollinearTrackNodes, showTrackViaNetConflict } from './track-edits.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
@@ -135,8 +134,9 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
     for (const shape of shapes) {
         if (shape.net) continue;
         if (shape.type === 'fill') {
-            const before = shape.captureState();
-            commands.push(new ModifyFillCommand(app, shape, before, { ...before, net }));
+            // A fill's computed copper can still reflect the pre-drag track
+            // clearance. Never infer a floating pour's net from that stale region.
+            continue;
         } else {
             const before = captureBoardShapeState(shape);
             commands.push(new ModifyBoardShapeCommand(app, shape, before, { ...before, net }));

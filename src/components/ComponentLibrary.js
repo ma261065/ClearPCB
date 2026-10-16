@@ -31,6 +31,16 @@ import { storageManager } from '../core/StorageManager.js';
  * @typedef {import('./kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult
  */
 
+/**
+ * @param {import('./Component.js').ComponentProperties|null|undefined} properties
+ * @param {string} key
+ */
+function propertyValue(properties, key) {
+    if (!properties || typeof properties !== 'object') return '';
+    const match = Object.keys(properties).find(candidate => candidate.toLowerCase() === key.toLowerCase());
+    return match ? String(properties[match] ?? '') : '';
+}
+
 export class ComponentLibrary {
     /** Initialise the component library, loading built-in and user components. */
     constructor() {
@@ -348,6 +358,59 @@ export class ComponentLibrary {
         // Add to library
         this.addDefinition(definition, 'LCSC');
         
+        return definition;
+    }
+
+    /**
+     * Fetch a complete placeable component from KiCad.
+     * @param {string} library
+     * @param {string} symbolName
+     * @returns {Promise<ComponentDefinition>}
+     */
+    async fetchFromKiCad(library, symbolName) {
+        const definitionName = `KiCad_${library}_${symbolName}`;
+        const cached = this.definitions.get(definitionName);
+        if (cached?.symbol && (!cached.hasFootprint || cached.footprintShapes)) return cached;
+        const raw = await this.kicadFetcher.fetchSymbol(library, symbolName);
+        if (!raw) throw new Error(`KiCad component ${library}:${symbolName} was not found.`);
+        const symbol = raw.symbol?.pins || raw.symbol?.graphics
+            ? raw.symbol
+            : raw.pins || raw.graphics ? raw : null;
+        if (!symbol) throw new Error(`KiCad component ${library}:${symbolName} has no usable symbol.`);
+        const properties = raw.properties || raw.symbol?.properties || symbol.properties;
+        const footprintName = propertyValue(properties, 'Footprint');
+        const footprintFilters = propertyValue(properties, 'ki_fp_filters')
+            .split(/\s+/).map(value => value.trim()).filter(Boolean);
+        const definition = /** @type {ComponentDefinition} */ (raw.symbol ? {
+            ...raw,
+            _source: 'KiCad',
+        } : {
+            name: `KiCad_${symbolName}`,
+            description: `${symbolName} from KiCad ${library} library`,
+            category: 'KiCad',
+            symbol,
+            _source: 'KiCad',
+        });
+        definition.name = definitionName;
+        definition.defaultValue = propertyValue(properties, 'Value') || symbolName;
+        definition.footprintName = footprintName || footprintFilters[0] || '';
+        definition.hasFootprint = !!definition.footprintName;
+        if (definition.footprintName) {
+            const [preview, availability] = await Promise.all([
+                this.kicadFetcher.fetchFootprintPreview(definition.footprintName),
+                this.kicadFetcher.checkFootprintAvailability(definition.footprintName),
+            ]);
+            if (preview?.shapes?.length) {
+                definition.footprintShapes = preview.shapes;
+                definition.footprintBBox = preview.bbox;
+            }
+            if (availability.has3d && availability.modelUrl) {
+                definition.has3d = true;
+                definition.model3dUrl = availability.modelUrl;
+                definition.model3dName = definition.footprintName;
+            }
+        }
+        this.addDefinition(definition, 'KiCad');
         return definition;
     }
     

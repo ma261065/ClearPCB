@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, stepSpinnerOneRun } from './helpers/editor-helpers.mjs';
+import { openPcb, openSchematic, saveAndReopen, stepSpinnerOneRun } from './helpers/editor-helpers.mjs';
 
 // Properties number fields commit once a run of spinner clicks settles: one undo
 // step, with the live preview showing each step meanwhile. Pressing Undo during a run
@@ -42,6 +42,82 @@ const state = page => page.evaluate(() => {
 });
 
 export const scenarios = [
+    {
+        name: 'schematic-multi-text-size-spinner-persists',
+        async run(page, url) {
+            await openSchematic(page, url);
+            await page.evaluate(async () => {
+                const { Text } = await import('/src/shapes/text.js');
+                const { Wire } = await import('/src/shapes/wire.js');
+                const { Net } = await import('/src/shapes/net.js');
+                const { attachLabelToTarget } = await import('/src/schematic/modules/label-attachment.js');
+                const app = window.bootstrap.schematicApp;
+                const wire = new Wire({ points: [{ x: 10, y: 8 }, { x: 30, y: 8 }] });
+                const texts = Array.from({ length: 9 }, (_, i) => new Text({
+                    x: 10 + i * 10, y: 10, text: `Text ${i}`, fontSize: 2,
+                }));
+                const net = new Net({ x: 30, y: 20, net: 'VCC' });
+                texts[1] = net.ensureLabelText(2.5);
+                attachLabelToTarget(texts[0], wire, { x: 10, y: 8 });
+                app.shapes.push(wire, net, ...texts);
+                app.updateSelectableItems();
+                for (const text of texts) app.selection.select(text, true);
+                app.renderShapes(true);
+                app.updatePropertiesPanel(app.selection.getSelection());
+            });
+            const field = page.locator('#prop_fontSize');
+            await field.waitFor({ state: 'visible' });
+            const box = await field.boundingBox();
+            await page.mouse.click(box.x + box.width - 8, box.y + box.height * 0.25);
+            const shown = Number(await field.inputValue());
+            assert.ok(shown > 0);
+            await page.waitForTimeout(800);
+            const sizes = await page.evaluate(() => window.bootstrap.schematicApp.selection.getSelection().map(s => s.fontSize));
+            assert.deepEqual(sizes, Array(9).fill(shown), 'all nine text sizes survive the settled commit with an attached label first');
+            await saveAndReopen(page, 'schematic');
+            const reopened = await page.evaluate(() => {
+                const app = window.bootstrap.schematicApp;
+                return {
+                    sizes: app.shapes.filter(s => s.type === 'text').map(s => s.fontSize),
+                    linked: app.shapes.find(s => s.type === 'net').labelText?.parentComponent?.type,
+                };
+            });
+            assert.deepEqual(reopened.sizes, Array(9).fill(shown), 'wire and Net Text sizes survive the editor reload');
+            assert.equal(reopened.linked, 'net');
+        },
+    },
+    {
+        name: 'schematic-net-text-copy-keeps-size',
+        async run(page, url) {
+            await openSchematic(page, url);
+            const result = await page.evaluate(async () => {
+                const { Net } = await import('/src/shapes/net.js');
+                const { copySelection, beginPastePreview, confirmPaste } = await import('/src/schematic/modules/clipboard.js');
+                const app = window.bootstrap.schematicApp;
+                const net = new Net({ x: 10, y: 10, net: 'VCC' });
+                net.ensureLabelText(3.5);
+                app.addShape(net);
+                app.selection.select(net);
+                app.selection.select(net.labelText, true);
+                copySelection(app);
+                beginPastePreview(app);
+                confirmPaste(app, { x: 40, y: 40 });
+                const pasted = app.shapes.find(s => s.type === 'net' && s !== net);
+                const result = {
+                    size: pasted.labelText.fontSize,
+                    linked: pasted.labelText.parentComponent === pasted,
+                    labels: app.shapes.filter(s => s.type === 'text').length,
+                };
+                app.history.undo();
+                result.undoLabels = app.shapes.filter(s => s.type === 'text').length;
+                app.history.redo();
+                result.redoSize = pasted.labelText.fontSize;
+                return result;
+            });
+            assert.deepEqual(result, { size: 3.5, linked: true, labels: 2, undoLabels: 1, redoSize: 3.5 });
+            await saveAndReopen(page, 'schematic');
+        },
+    },
     {
         name: 'spinner-runs-commit-once-settled',
         async run(page, url) {

@@ -124,6 +124,9 @@ Wire anchor drags also compose compatible constraints: a segment target may
 slide along its own axis to the incident wire's H/V/45 alignment intersection.
 Exact pin/node targets stay exact and retain only guides already true at that
 point. Thus hard-target yellow feedback does not erase a compatible axis guide.
+Segment drags translate every node in the moving collinear chain from its
+drag-start position. Snap targets and alignment guides use each boundary node's
+own proposed position, including nodes beyond the grabbed segment's endpoints.
 Wire rendering distinguishes unjoined interior crossings without authoring
 geometry: two parallel canvas-colored side strokes are drawn just outside the
 visually upper wire, each exactly one screen pixel wide. Normal stacking follows
@@ -146,6 +149,13 @@ A NetLabel directly contacting a physical component pin uses that same derived
 green junction dot. The label-to-pin netlist rule and the dot share the same
 connection tolerance; moving, hiding, deleting or undoing the label removes the
 dot without inventing wire geometry.
+A visible No Connect marker on a physical pin also shows this green dot,
+without creating an electrical connection. Explicit bonds must match the pin
+and its position; legacy unbonded markers use physical contact within the same
+connection tolerance. Off-pin or hidden markers show no dot.
+No Connect placement uses the wire tool's 0.5 mm pin pickup radius. Moving
+the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
+1000% zoom, reducing linearly to 0.25 mm at 5000% zoom and above.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
@@ -164,6 +174,14 @@ dropping attaches it. Movement and attachment undo together. Attached text offer
 “Detach from wire” or “Detach from shape” according to its owner, in Properties
 (with an explanatory tooltip) and its context menu;
 detachment is undoable. Component reference/value fields are not reattached this way.
+Text owns its font size, including wire-attached labels, Net-label text and component
+fields. Attachment, reattachment, redraw and reopening preserve that size, including
+multi-selection edits alongside standalone text. Newly generated wire-name and Net
+labels default to 1.4 mm; attaching existing or newly placed Text preserves its own
+chosen size. Net parents have no font-size field or Text Size property. Their linked
+Text records are saved with `cid`/`fk` and their own `fs`; legacy parent `fs`/`fontSize`
+values are ignored, not migrated. A legacy Net with no Text record receives default
+Text at 1.4 mm on load.
 The attachment tip is hidden for text already attached to a shape or wire and returns after detachment.
 Hover attachment targets are available only for unattached text. Dragging attached
 text changes its offset from its existing owner without offering or adopting another

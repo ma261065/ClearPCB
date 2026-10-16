@@ -172,7 +172,7 @@ export function collectCopper(app) {
 
     for (const pad of resolveCopperPads(app, { physical: true })) {
         pads.push({ ...pad, kind: 'pad', pin: pad.number,
-            layer: pad.layer === 'both' ? 'both' : normLayer(pad.layer),
+            layer: pad.layer === 'all' ? 'both' : normLayer(pad.layer),
             uid: `pad:${pad.componentId}.${pad.padId}`, label: `${pad.reference}.${pad.number}` });
     }
 

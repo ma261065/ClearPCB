@@ -17,9 +17,13 @@ export class Viewport {
     /**
      * Create the SVG viewport with pan, zoom, grid, rulers, and paper outline.
      * @param {HTMLElement} container - DOM element to host the SVG canvas.
+     * @param {{translatePan?: boolean}} [options]
      */
-    constructor(container) {
+    constructor(container, { translatePan = false } = {}) {
         this.container = container;
+        this.translatePan = translatePan;
+        /** @type {ViewBox|null} Rendered viewBox retained during a translated pan. */
+        this._panRenderViewBox = null;
         this.gridPatternId = `gridPattern-${Math.random().toString(36).slice(2, 10)}`;
         
         // Create SVG element
@@ -289,9 +293,19 @@ export class Viewport {
 
     // ==================== View Management ====================
     
-    /** Push the current viewBox state to the SVG element attribute. */
+    /** Apply the logical view, translating PCB layers during pan to avoid SVG descendant relayout. */
     _updateViewBox() {
         const vb = this.viewBox;
+        const rendered = this._panRenderViewBox;
+        if (rendered) {
+            const translate = this.isPanning && rendered.width === vb.width && rendered.height === vb.height;
+            for (const layer of [this.gridLayer, this.paperOutlineLayer, this.contentLayer, this.axesLayer, this.interactionLayer]) {
+                if (translate) layer?.setAttribute('transform', `translate(${rendered.x - vb.x} ${rendered.y - vb.y})`);
+                else layer?.removeAttribute('transform');
+            }
+            if (translate) return;
+            this._panRenderViewBox = this.isPanning ? { ...vb } : null;
+        }
         this.svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
     }
     
@@ -621,6 +635,7 @@ export class Viewport {
         this.isPanning = true;
         this.panStart = { x: clientX, y: clientY };
         this.panStartViewBox = { ...this.viewBox };
+        if (this.translatePan && !this._panRenderViewBox) this._panRenderViewBox = { ...this.viewBox };
         this.svg.style.cursor = 'grabbing';
         if (this.onPanStart) this.onPanStart();
     }
@@ -656,6 +671,7 @@ export class Viewport {
     endPan() {
         if (!this.isPanning) return;
         this.isPanning = false;
+        if (this._panRenderViewBox) this._updateViewBox();
         this.svg.style.cursor = '';
         if (this.onPanEnd) this.onPanEnd();
         this._notifyViewChanged();

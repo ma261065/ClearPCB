@@ -12,6 +12,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { showContextMenu } from '../../shared/ui/context-menu.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { hideNetTooltip } from './net-tooltip.js';
+import { updateTrackViewportCulling } from './track-render.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('../../core/pcb-placement-geometry.js').PlacementBounds} PlacementBounds */
@@ -149,7 +150,7 @@ export function beginComponentDrag(app, componentId, worldPos) {
  * @param {PcbEditor} app
  */
 export function updatePcbCulling(app) {
-    if (!app.viewport || !app.placements.size) return;
+    if (!app.viewport) return;
     const vb = app.viewport.getVisibleBounds();
     const w = vb.maxX - vb.minX;
     const h = vb.maxY - vb.minY;
@@ -157,6 +158,10 @@ export function updatePcbCulling(app) {
     const minX = vb.minX - margin, maxX = vb.maxX + margin;
     const minY = vb.minY - margin, maxY = vb.maxY + margin;
     const scale = app.viewport.scale;
+    updateTrackViewportCulling(app.tracks || [], app.vias || [], {
+        minX: vb.minX - w * 0.25, minY: vb.minY - h * 0.25,
+        maxX: vb.maxX + w * 0.25, maxY: vb.maxY + h * 0.25,
+    });
 
     for (const [compId, pl] of app.placements) {
         const b = placementWorldBounds(pl);
@@ -194,6 +199,7 @@ export function updatePcbCulling(app) {
  * @param {PcbEditor} app
  */
 export function uncullAllPlacements(app) {
+    updateTrackViewportCulling(app.tracks || [], app.vias || [], null);
     for (const [, pl] of app.placements) {
         const state = ensurePlacementViewState(pl);
         if (state.culled) {

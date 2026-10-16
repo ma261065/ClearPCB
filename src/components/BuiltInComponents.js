@@ -7,7 +7,7 @@
 
 import { getBuiltInModel3D } from './BuiltInModels3D.js';
 
-export const BuiltInComponents = [
+const builtInDefinitions = [
     // ============ PASSIVE COMPONENTS ============
     
     {
@@ -433,11 +433,11 @@ export const BuiltInComponents = [
     
     {
         name: 'OpAmp',
-        description: 'Operational Amplifier (single)',
+        description: 'Single operational amplifier (LM741 pinout)',
         category: 'Integrated Circuits',
         keywords: ['U', 'op-amp', 'opamp', 'amplifier'],
         defaultReference: 'U?',
-        defaultValue: 'LM358',
+        defaultValue: 'LM741',
         symbol: {
             width: 7.62,
             height: 5.08,
@@ -455,22 +455,33 @@ export const BuiltInComponents = [
                 { type: 'line', x1: -3.81, y1: -1.27, x2: -2.54, y2: -1.27, stroke: '#000000', strokeWidth: 0.254 },
                 // Output lead
                 { type: 'line', x1: 2.54, y1: 0, x2: 3.81, y2: 0, stroke: '#000000', strokeWidth: 0.254 },
+                // Offset, supply and no-connect leads
+                { type: 'line', x1: -1.27, y1: 1.905, x2: -1.27, y2: 3.81, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 0, y1: 1.27, x2: 0, y2: 3.81, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.27, y1: 0.635, x2: 1.27, y2: 3.81, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 0, y1: -1.27, x2: 0, y2: -3.81, stroke: '#000000', strokeWidth: 0.254 },
+                { type: 'line', x1: 1.27, y1: -0.635, x2: 1.27, y2: -3.81, stroke: '#000000', strokeWidth: 0.254 },
                 // Reference text
                 { type: 'text', x: 0, y: -3.5, text: '${REF}', fontSize: 1.27, anchor: 'middle', baseline: 'middle' }
             ],
             pins: [
-                { number: '+', name: '+', showNumber: false, x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: 0.37, anchor: 'middle' } },
-                { number: '-', name: '-', showNumber: false, x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: -2.17, anchor: 'middle' } },
-                { number: 'OUT', name: 'OUT', showNumber: false, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } }
+                { number: '1', name: 'OFFSET', showNumber: true, x: -1.27, y: 3.81, orientation: 'down', length: 0, type: 'passive', shape: 'line' },
+                { number: '2', name: '-', showNumber: true, x: -3.81, y: -1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: -2.17, anchor: 'middle' } },
+                { number: '3', name: '+', showNumber: true, x: -3.81, y: 1.27, orientation: 'left', length: 0, type: 'input', shape: 'line', namePos: { x: -3.81, y: 0.37, anchor: 'middle' } },
+                { number: '4', name: 'V-', showNumber: true, x: 0, y: 3.81, orientation: 'down', length: 0, type: 'power_in', shape: 'line' },
+                { number: '5', name: 'OFFSET', showNumber: true, x: 1.27, y: 3.81, orientation: 'down', length: 0, type: 'passive', shape: 'line' },
+                { number: '6', name: 'OUT', showNumber: true, x: 3.81, y: 0, orientation: 'right', length: 0, type: 'output', shape: 'line', namePos: { x: 3.81, y: -0.9, anchor: 'middle' } },
+                { number: '7', name: 'V+', showNumber: true, x: 0, y: -3.81, orientation: 'up', length: 0, type: 'power_in', shape: 'line' },
+                { number: '8', name: 'NC', showNumber: true, x: 1.27, y: -3.81, orientation: 'up', length: 0, type: 'no_connect', shape: 'line' }
             ]
         },
         footprint: 'Package_DIP:DIP-8_W7.62mm',
         footprintName: 'DIP-8_W7.62mm',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~RECT~0~0~1.6~1.6~+',
-            'PAD~ELLIPSE~0~2.54~1.6~1.6~-',
-            'PAD~ELLIPSE~0~5.08~1.6~1.6~OUT',
+            'PAD~RECT~0~0~1.6~1.6~1',
+            'PAD~ELLIPSE~0~2.54~1.6~1.6~2',
+            'PAD~ELLIPSE~0~5.08~1.6~1.6~3',
             'PAD~ELLIPSE~0~7.62~1.6~1.6~4',
             'PAD~ELLIPSE~7.62~7.62~1.6~1.6~5',
             'PAD~ELLIPSE~7.62~5.08~1.6~1.6~6',
@@ -814,7 +825,11 @@ export const BuiltInComponents = [
         ],
         footprintBBox: { x: -1.45, y: -1.4, width: 2.9, height: 2.8 }
     }
-].map(definition => {
+];
+
+export const BuiltInComponents = [...new Map(
+    builtInDefinitions.map(definition => [definition.name, definition]),
+).values()].map(definition => {
     const smd = definition.footprint.startsWith('Package_TO_SOT_SMD:');
     const drill = smd ? 0 : definition.footprint.startsWith('Connector_PinHeader_') ? 1 : 0.8;
     return {
@@ -829,5 +844,3 @@ export const BuiltInComponents = [
 });
 
 export default BuiltInComponents;
-
-

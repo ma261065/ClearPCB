@@ -1,5 +1,7 @@
 import { applyJsonPatch } from './json-patch.js';
 import { BuiltInComponents } from '../components/BuiltInComponents.js';
+import { Component, getComponentLibrary } from '../components/index.js';
+import { Wire } from '../shapes/wire.js';
 
 const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
 const DEFAULT_ENDPOINT = 'https://clearpcb-mcp.mikealex.workers.dev';
@@ -11,7 +13,9 @@ const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
  * @typedef {{id: string, method: string, params?: Record<string, unknown>}} RelayRequest
  * @typedef {{id: string, result?: unknown, error?: string}} RelayResponse
  * @typedef {{id: string, name: string, version?: string}} PairingClient
+ * @typedef {'builtin'|'kicad'|'lcsc'|'all'} PartSource
  * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, pairingCode?: string, pairingExpiresAt?: number, pendingClient?: PairingClient, pairedClient?: PairingClient, connectionError?: string, canRevert?: boolean}} McpBridgeState
+ * @typedef {{runDrc: (options: {limit?: number}) => Promise<unknown>, render: (options: {view: 'schematic'|'pcb', maxSize?: number}) => Promise<unknown>}} McpDesignTools Editor-backed reports, injected by the application shell.
  */
 
 function endpointOrigin() {
@@ -31,14 +35,16 @@ function makeSessionId() {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** @param {typeof BuiltInComponents[number]} definition */
+/** @param {import('../components/Component.js').ComponentDefinition} definition */
 function componentDefinition(definition) {
+    const rawSource = String(definition._source || 'Built-in').toLowerCase();
     return {
+        source: rawSource === 'built-in' ? 'builtin' : rawSource,
         dn: definition.name,
         description: definition.description,
         defaultReference: definition.defaultReference,
         defaultValue: definition.defaultValue,
-        pins: definition.symbol.pins.map(pin => ({
+        pins: (definition.symbol?.pins || []).map(pin => ({
             number: String(pin.number),
             name: pin.name,
             x: pin.x,
@@ -49,7 +55,71 @@ function componentDefinition(definition) {
         })),
         footprintName: definition.footprintName,
         footprintShapes: definition.footprintShapes,
+        footprintBBox: definition.footprintBBox,
+        manufacturer: definition.manufacturer,
+        mpn: definition.mpn,
+        supplierPartNumbers: definition.supplier_part_numbers,
+        datasheet: definition.datasheet,
+        productUrl: definition.productUrl,
+        has3d: !!definition.has3d,
+        model3dName: definition.model3dName,
+        model3dUrl: definition.model3dUrl,
     };
+}
+
+/**
+ * @param {string} value
+ * @returns {{library: string, name: string}}
+ */
+function parseKiCadId(value) {
+    const separator = value.indexOf(':');
+    if (separator <= 0 || separator === value.length - 1) {
+        throw new Error('KiCad part IDs must use "Library:Symbol" format.');
+    }
+    return { library: value.slice(0, separator), name: value.slice(separator + 1) };
+}
+
+/**
+ * @param {ReturnType<import('./ProjectDocument.js').ProjectDocument['serialize']>} project
+ * @param {import('../components/Component.js').ComponentDefinition} definition
+ */
+function nextReference(project, definition) {
+    const prefix = String(definition.defaultReference || 'U?').replace(/[0-9?]+$/, '') || 'U';
+    const pattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`, 'i');
+    let highest = 0;
+    for (const component of project.schematic.components) {
+        const match = pattern.exec(String(component.ref || ''));
+        if (match) highest = Math.max(highest, Number(match[1]));
+    }
+    return `${prefix}${highest + 1}`;
+}
+
+/**
+ * @param {import('./ProjectDocument.js').ProjectDocument} project
+ * @param {string} endpoint
+ */
+function resolvePinEndpoint(project, endpoint) {
+    const separator = endpoint.lastIndexOf('.');
+    if (separator <= 0 || separator === endpoint.length - 1) {
+        throw new Error(`Pin endpoint "${endpoint}" must use Reference.Pin format, for example U1.3.`);
+    }
+    const reference = endpoint.slice(0, separator);
+    const pinNumber = endpoint.slice(separator + 1);
+    const matches = project.schematicDocument.components.filter(component =>
+        String(component.reference).toLowerCase() === reference.toLowerCase());
+    if (matches.length !== 1) {
+        throw new Error(matches.length
+            ? `Component reference is not unique: ${reference}`
+            : `Unknown component reference: ${reference}`);
+    }
+    const component = matches[0];
+    const pin = (component.symbol?.pins || []).find(candidate =>
+        String(candidate.number) === pinNumber);
+    if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) {
+        throw new Error(`Unknown physical pin: ${endpoint}`);
+    }
+    const point = component.localToWorld(Number(pin.x), Number(pin.y));
+    return { component, pinNumber, point };
 }
 
 function describeSchema() {
@@ -63,11 +133,45 @@ function describeSchema() {
             schematic: {
                 required: ['shapes', 'components'],
                 optional: ['settings', 'defs'],
-                shapeTypes: ['wire', 'junction', 'no-connect', 'label', 'power', 'text', 'component'],
+                shapeTypes: ['polyline', 'wire', 'circle', 'arc', 'text', 'net', 'noconnect'],
+                note: 'Components are records in schematic.components, not schematic.shapes.',
             },
             pcb: {
-                optional: ['settings', 'placements', 'shapes', 'design', 'board'],
-                shapeTypes: ['track', 'via', 'zone', 'keepout', 'text', 'dimension', 'graphic'],
+                required: ['stackup', 'design'],
+                optional: ['board', 'panelization', 'settings', 'tracks', 'vias', 'pads',
+                    'boardShapes', 'texts', 'placements'],
+                collections: {
+                    tracks: 'Copper graph tracks',
+                    vias: 'Drilled copper vias',
+                    pads: 'Standalone pads',
+                    boardShapes: 'Board graphics, outlines and copper fills',
+                    texts: 'PCB text records',
+                },
+                textRecord: {
+                    requiredFields: ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'],
+                    optionalFields: ['border', 'locked'],
+                    getProjectAliases: {
+                        content: 't',
+                        size: 's',
+                        rotation: 'rot',
+                        layer: 'l',
+                        strokeWidth: 'lw',
+                        border: 'bd',
+                        locked: 'lk',
+                    },
+                    coordinates: {
+                        x: 'Left edge of the first glyph, in board millimetres.',
+                        y: 'Text baseline, in board millimetres; positive Y is down.',
+                        size: 'Cap height in millimetres.',
+                        rotation: 'Degrees, counter-clockwise visually.',
+                    },
+                    layers: ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper',
+                        'top-document', 'bottom-document'],
+                    layerAliases: {
+                        'top-silkscreen': 'top-silk',
+                        'bottom-silkscreen': 'bottom-silk',
+                    },
+                },
             },
         },
         examples: {
@@ -97,6 +201,9 @@ function describeSchema() {
             'Wire nd stores node coordinates, ed stores [from,to], and pc bonds nodes to {cid,pn}.',
             'PCB placements are keyed by schematic component id and require x, y, and rot.',
             'Footprint PAD records are relative to the placement origin; track pdc bonds nodes to {cid,pn}.',
+            'Component ref/val fields are rendered as linked schematic text; missing field shapes are restored on load, unless sr/sv is false.',
+            'PCB text x/y is its left-baseline origin, not its centre; size is the cap height.',
+            'get_project compacts PCB text content/size/layer/strokeWidth to t/s/l/lw; apply_project_patch accepts long or compact field names.',
         ],
     };
 }
@@ -104,10 +211,12 @@ function describeSchema() {
 export class McpBridge {
     /**
      * @param {import('./ProjectDocument.js').ProjectDocument} project
-     * @param {{onStateChanged?: (state: McpBridgeState) => void}} [options]
+     * @param {{onStateChanged?: (state: McpBridgeState) => void, componentLibrary?: import('../components/ComponentLibrary.js').ComponentLibrary|null, designTools?: McpDesignTools|null}} [options]
      */
-    constructor(project, { onStateChanged = () => {} } = {}) {
+    constructor(project, { onStateChanged = () => {}, componentLibrary = null, designTools = null } = {}) {
         this.project = project;
+        this.componentLibrary = componentLibrary;
+        this.designTools = designTools;
         this.onStateChanged = onStateChanged;
         this.enabled = false;
         this.connected = false;
@@ -261,6 +370,7 @@ export class McpBridge {
             this.connectionError = '';
         } catch (error) {
             this.connectionError = /** @type {{message: string}} */ (error).message;
+            this.codeTimer = window.setTimeout(() => void this._registerPairingCode(), 5000);
         }
         this._notify();
     }
@@ -278,6 +388,110 @@ export class McpBridge {
         } catch (error) {
             console.error('Unable to revoke the MCP pairing code.', error);
         }
+    }
+
+    /**
+     * @param {PartSource} source
+     * @param {string} id
+     * @returns {Promise<import('../components/Component.js').ComponentDefinition>}
+     */
+    async _resolvePart(source, id) {
+            if (source === 'builtin') {
+                const definition = BuiltInComponents.find(candidate => candidate.name === id);
+                if (!definition) throw new Error(`Unknown built-in component dn: ${id}`);
+                return definition;
+            }
+            const componentLibrary = this.componentLibrary || getComponentLibrary();
+            if (source === 'lcsc') return componentLibrary.fetchFromLCSC(id.toUpperCase());
+            if (source === 'kicad') {
+                const { library, name } = parseKiCadId(id);
+                return componentLibrary.fetchFromKiCad(library, name);
+            }
+            throw new Error(`Unsupported part source: ${source}`);
+        }
+
+        /**
+         * @param {string} query
+         * @param {PartSource} source
+         * @param {number} limit
+         */
+    async _searchParts(query, source, limit) {
+            const normalized = query.trim().toLowerCase();
+            const results = [];
+            if (source === 'builtin' || source === 'all') {
+                results.push(...BuiltInComponents
+                    .filter(definition => !normalized
+                        || `${definition.name} ${definition.description} ${definition.defaultValue}`.toLowerCase().includes(normalized))
+                    .map(definition => ({
+                        source: 'builtin',
+                        id: definition.name,
+                        name: definition.name,
+                        description: definition.description,
+                        footprintName: definition.footprintName,
+                    })));
+            }
+            const requests = [];
+            const library = this.componentLibrary || getComponentLibrary();
+            if (source === 'kicad' || source === 'all') {
+                requests.push(library.searchKiCad(query).then(matches => matches.map(match => ({
+                    source: 'kicad',
+                    id: `${match.library}:${match.name}`,
+                    name: match.name,
+                    library: match.library,
+                    description: `KiCad ${match.library} symbol`,
+                }))));
+            }
+            if (source === 'lcsc' || source === 'all') {
+                requests.push(library.searchLCSC(query).then(matches => matches
+                    .filter(match => match.lcscPartNumber)
+                    .map(match => ({
+                        source: 'lcsc',
+                        id: match.lcscPartNumber,
+                        name: match.mpn || match.lcscPartNumber,
+                        description: match.description,
+                        manufacturer: match.manufacturer,
+                        package: match.package,
+                        stock: match.stock,
+                    }))));
+            }
+            for (const remote of await Promise.all(requests)) results.push(...remote);
+            return { query, source, results: results.slice(0, limit) };
+    }
+
+    _connectionPoints() {
+        const components = this.project.schematicDocument.components.map(component => ({
+            id: component.id,
+            reference: component.reference,
+            value: component.value,
+            definition: component.definition?.name,
+            pins: (component.symbol?.pins || []).map(pin => {
+                const point = component.localToWorld(Number(pin.x), Number(pin.y));
+                return {
+                    number: String(pin.number),
+                    name: pin.name,
+                    type: pin.type,
+                    x: point.x,
+                    y: point.y,
+                };
+            }),
+        }));
+        const layout = this.project.resolvePcbLayout({ persistAutoSlots: false });
+        const placements = [...layout.placements].map(([componentId, placement]) => ({
+            componentId,
+            reference: placement.reference,
+            footprint: placement.footprint,
+            x: placement.x,
+            y: placement.y,
+            rotation: placement.rotation,
+            side: placement.side,
+            pads: [...placement.pads].map(([id, pad]) => ({
+                id,
+                number: String(pad.number),
+                x: pad.x,
+                y: pad.y,
+            })),
+        }));
+        return { schematic: { components }, pcb: { placements } };
     }
 
     /**
@@ -366,12 +580,119 @@ export class McpBridge {
                     footprintName: definition.footprintName,
                 }));
             } else if (request.method === 'get_part') {
-                const dn = request.params?.dn;
-                const definition = BuiltInComponents.find(candidate => candidate.name === dn);
-                if (!definition) throw new Error(`Unknown built-in component dn: ${String(dn)}`);
+                const source = /** @type {PartSource} */ (request.params?.source || 'builtin');
+                const id = String(request.params?.id || request.params?.dn || '');
+                if (!id) throw new Error('get_part requires id.');
+                const definition = await this._resolvePart(source, id);
                 result = componentDefinition(definition);
+            } else if (request.method === 'search_parts') {
+                const query = String(request.params?.query || '').trim();
+                const source = /** @type {PartSource} */ (request.params?.source || 'all');
+                const limit = Math.max(1, Math.min(50, Number(request.params?.limit) || 20));
+                if (query.length < 2 && source !== 'builtin') {
+                    throw new Error('Remote part searches require at least two characters.');
+                }
+                result = await this._searchParts(query, source, limit);
+            } else if (request.method === 'place_part') {
+                const source = /** @type {Exclude<PartSource, 'all'>} */ (request.params?.source || 'builtin');
+                const id = String(request.params?.id || '');
+                const x = Number(request.params?.x);
+                const y = Number(request.params?.y);
+                if (!id) throw new Error('place_part requires id.');
+                if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('place_part requires finite x and y.');
+                const definition = await this._resolvePart(source, id);
+                const previous = this.project.serialize();
+                const updated = structuredClone(previous);
+                const reference = String(request.params?.ref || nextReference(previous, definition));
+                if (!reference) throw new Error('place_part requires a non-empty reference.');
+                if (previous.schematic.components.some(component =>
+                    String(component.ref || '').toLowerCase() === reference.toLowerCase())) {
+                    throw new Error(`Component reference already exists: ${reference}`);
+                }
+                const component = new Component(definition, {
+                    x,
+                    y,
+                    rotation: Number(request.params?.rotation) || 0,
+                    reference,
+                    value: request.params?.value === undefined ? undefined : String(request.params.value),
+                });
+                const serialized = component.toJSON();
+                const embedded = serialized.def;
+                delete serialized.def;
+                updated.schematic.components.push(serialized);
+                if (embedded) {
+                    updated.schematic.defs ||= {};
+                    updated.schematic.defs[definition.name] = embedded;
+                }
+                await this.project.load(updated);
+                this.lastMcpSnapshot = previous;
+                result = {
+                    ok: true,
+                    operation: 'place_part',
+                    component: {
+                        id: serialized.id,
+                        dn: serialized.dn,
+                        ref: serialized.ref,
+                        value: serialized.val,
+                        x: serialized.x,
+                        y: serialized.y,
+                    },
+                };
             } else if (request.method === 'get_project') {
                 result = this.project.serialize();
+            } else if (request.method === 'get_connection_points') {
+                result = this._connectionPoints();
+            } else if (request.method === 'get_netlist') {
+                result = { nets: this.project.getNetlist() };
+            } else if (request.method === 'connect') {
+                const fromName = String(request.params?.from || '').trim();
+                const toName = String(request.params?.to || '').trim();
+                if (!fromName || !toName) throw new Error('connect requires from and to pin endpoints.');
+                const from = resolvePinEndpoint(this.project, fromName);
+                const to = resolvePinEndpoint(this.project, toName);
+                if (from.component.id === to.component.id && from.pinNumber === to.pinNumber) {
+                    throw new Error('connect endpoints must identify different pins.');
+                }
+                const previous = this.project.serialize();
+                const wire = new Wire({
+                    points: [from.point, to.point],
+                    net: request.params?.net === undefined ? undefined : String(request.params.net),
+                });
+                const [fromNode, toNode] = wire.nodes.keys();
+                wire.pinConnections.set(fromNode, {
+                    componentId: from.component.id,
+                    pinNumber: from.pinNumber,
+                });
+                wire.pinConnections.set(toNode, {
+                    componentId: to.component.id,
+                    pinNumber: to.pinNumber,
+                });
+                const updated = structuredClone(previous);
+                const serialized = wire.toJSON();
+                updated.schematic.shapes.push(serialized);
+                await this.project.load(updated);
+                this.lastMcpSnapshot = previous;
+                result = {
+                    ok: true,
+                    operation: 'connect',
+                    wire: {
+                        id: serialized.id,
+                        label: serialized.wl,
+                        net: serialized.n || '',
+                        from: fromName,
+                        to: toName,
+                    },
+                };
+            } else if (request.method === 'run_drc') {
+                if (!this.designTools) throw new Error('Design rule checks are unavailable in this tab.');
+                const limit = Math.max(1, Math.min(500, Math.floor(Number(request.params?.limit)) || 100));
+                result = await this.designTools.runDrc({ limit });
+            } else if (request.method === 'render') {
+                if (!this.designTools) throw new Error('Rendering is unavailable in this tab.');
+                const view = request.params?.view;
+                if (view !== 'schematic' && view !== 'pcb') throw new Error('render view must be "schematic" or "pcb".');
+                const maxSize = Math.max(256, Math.min(4096, Math.floor(Number(request.params?.maxSize)) || 1600));
+                result = await this.designTools.render({ view, maxSize });
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');
                 const previous = this.project.serialize();

@@ -11,8 +11,10 @@ interface Env {
 
 interface RelayRequest {
     id: string;
-    method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'get_part'
-        | 'get_project' | 'replace_project' | 'apply_project_patch';
+    method: 'request_pairing' | 'describe_schema' | 'list_parts' | 'search_parts' | 'get_part' | 'place_part'
+        | 'get_project' | 'get_connection_points' | 'get_netlist' | 'connect'
+        | 'run_drc' | 'render'
+        | 'replace_project' | 'apply_project_patch';
     params?: unknown;
 }
 
@@ -41,6 +43,10 @@ const PAIRING_TTL_MS = 5 * 60_000;
 const MAX_PAIRING_ATTEMPTS = 10;
 const CHUNK_SIZE = 192 * 1024;
 const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
+const RELAY_TIMEOUT_MS = 15_000;
+// Pour computation, DRC and rasterising can take several seconds on large boards.
+const SLOW_RELAY_TIMEOUT_MS = 60_000;
+const SLOW_METHODS = new Set<RelayRequest['method']>(['run_drc', 'render']);
 const JSON_VALUE = z.unknown();
 const PATCH_OPERATION = z.object({
     op: z.enum(['add', 'remove', 'replace', 'move', 'copy', 'test']),
@@ -48,6 +54,29 @@ const PATCH_OPERATION = z.object({
     from: z.string().optional(),
     value: JSON_VALUE.optional(),
 }).strict();
+const PATCH_OPERATIONS = z.array(PATCH_OPERATION).min(1).max(100);
+const PATCH_INPUT = z.union([PATCH_OPERATIONS, z.string().min(1)]).transform((value, context) => {
+    if (Array.isArray(value)) return value;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch {
+        context.addIssue({
+            code: 'custom',
+            message: 'patch must be an RFC 6902 operation array or a JSON string containing that array.',
+        });
+        return z.NEVER;
+    }
+    const result = PATCH_OPERATIONS.safeParse(parsed);
+    if (!result.success) {
+        context.addIssue({
+            code: 'custom',
+            message: `patch JSON must decode to 1-100 valid RFC 6902 operations: ${result.error.issues[0]?.message || 'invalid patch'}`,
+        });
+        return z.NEVER;
+    }
+    return result.data;
+});
 
 function relayStub(env: Env, relayId: string): DurableObjectStub<TabRelay> {
     return env.TAB_RELAY.get(env.TAB_RELAY.idFromName(relayId));
@@ -64,6 +93,26 @@ function normalizeCode(value: string): string {
 function toolResult(result: unknown) {
     return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    };
+}
+
+interface RenderedImage {
+    mimeType: string;
+    data: string;
+    [key: string]: unknown;
+}
+
+function imageResult(result: unknown) {
+    const image = result as Partial<RenderedImage> | null;
+    if (!image || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
+        return toolError('INVALID_RENDER', 'The ClearPCB tab did not return an image.');
+    }
+    const { data, mimeType, ...details } = image;
+    return {
+        content: [
+            { type: 'image' as const, data, mimeType },
+            { type: 'text' as const, text: JSON.stringify(details, null, 2) },
+        ],
     };
 }
 
@@ -235,17 +284,87 @@ export class ClientSession extends DurableObject<Env> {
             annotations: { readOnlyHint: true },
         }, async () => this.pairedTool(sessionId, 'list_parts'));
         server.registerTool('get_part', {
-            title: 'Get a ClearPCB built-in part',
-            description: 'Return exact symbol pin geometry and footprint shapes for one built-in dn.',
-            inputSchema: { dn: z.string().min(1) },
+            title: 'Get a ClearPCB part',
+            description: 'Fetch exact symbol pins, footprint geometry and metadata for a built-in, KiCad or LCSC part. Use an ID returned by search_parts.',
+            inputSchema: {
+                source: z.enum(['builtin', 'kicad', 'lcsc']).default('builtin'),
+                id: z.string().min(1).optional(),
+                dn: z.string().min(1).optional(),
+            },
             annotations: { readOnlyHint: true },
-        }, async ({ dn }) => this.pairedTool(sessionId, 'get_part', { dn }));
+        }, async ({ source, id, dn }) =>
+            this.pairedTool(sessionId, 'get_part', { source, id: id || dn }));
+        server.registerTool('search_parts', {
+            title: 'Search ClearPCB component catalogs',
+            description: 'Search built-in, KiCad and/or LCSC catalogs. Returns compact source-qualified IDs for get_part or place_part.',
+            inputSchema: {
+                query: z.string().min(0).max(100),
+                source: z.enum(['builtin', 'kicad', 'lcsc', 'all']).default('all'),
+                limit: z.number().int().min(1).max(50).default(20),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ query, source, limit }) =>
+            this.pairedTool(sessionId, 'search_parts', { query, source, limit }));
+        server.registerTool('place_part', {
+            title: 'Place a ClearPCB schematic part',
+            description: 'Fetch and place a built-in, KiCad or LCSC part at schematic coordinates. External definitions are embedded automatically.',
+            inputSchema: {
+                source: z.enum(['builtin', 'kicad', 'lcsc']),
+                id: z.string().min(1),
+                x: z.number().finite(),
+                y: z.number().finite(),
+                ref: z.string().min(1).optional(),
+                value: z.string().optional(),
+                rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).default(0),
+            },
+            annotations: { destructiveHint: true, idempotentHint: false },
+        }, async ({ source, id, x, y, ref, value, rotation }) =>
+            this.pairedTool(sessionId, 'place_part', { source, id, x, y, ref, value, rotation }));
         server.registerTool('get_project', {
             title: 'Get ClearPCB project',
             description: 'Return the complete canonical project currently open in the paired ClearPCB tab.',
             inputSchema: {},
             annotations: { readOnlyHint: true },
         }, async () => this.pairedTool(sessionId, 'get_project'));
+        server.registerTool('get_connection_points', {
+            title: 'Get ClearPCB connection points',
+            description: 'Return absolute schematic pin and PCB pad positions derived from the current project.',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+        }, async () => this.pairedTool(sessionId, 'get_connection_points'));
+        server.registerTool('get_netlist', {
+            title: 'Get ClearPCB netlist',
+            description: 'Return every derived electrical net and its component pins.',
+            inputSchema: {},
+            annotations: { readOnlyHint: true },
+        }, async () => this.pairedTool(sessionId, 'get_netlist'));
+        server.registerTool('connect', {
+            title: 'Connect ClearPCB schematic pins',
+            description: 'Create a bonded schematic wire between two Reference.Pin endpoints using their exact physical positions.',
+            inputSchema: {
+                from: z.string().min(3),
+                to: z.string().min(3),
+                net: z.string().min(1).optional(),
+            },
+            annotations: { destructiveHint: true, idempotentHint: false },
+        }, async ({ from, to, net }) => this.pairedTool(sessionId, 'connect', { from, to, net }));
+        server.registerTool('run_drc', {
+            title: 'Run ClearPCB design rule check',
+            description: 'Bring the PCB up to date with the schematic, recompute copper pours and run the design rule check. Returns counts by rule and the violations with board coordinates in mm, including unrouted connections.',
+            inputSchema: {
+                limit: z.number().int().min(1).max(500).default(100),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ limit }) => this.pairedTool(sessionId, 'run_drc', { limit }));
+        server.registerTool('render', {
+            title: 'Render a ClearPCB view',
+            description: 'Return a PNG of the whole schematic or PCB, cropped to its content. The text part gives the world bounds shown (schematic units or mm).',
+            inputSchema: {
+                view: z.enum(['schematic', 'pcb']),
+                maxSize: z.number().int().min(256).max(4096).default(1600),
+            },
+            annotations: { readOnlyHint: true },
+        }, async ({ view, maxSize }) => this.pairedTool(sessionId, 'render', { view, maxSize }, imageResult));
         server.registerTool('replace_project', {
             title: 'Replace ClearPCB project',
             description: 'Validate and replace the complete canonical project. Returns a short operation summary.',
@@ -254,16 +373,23 @@ export class ClientSession extends DurableObject<Env> {
         }, async ({ project }) => this.pairedTool(sessionId, 'replace_project', { project }));
         server.registerTool('apply_project_patch', {
             title: 'Patch ClearPCB project',
-            description: 'Atomically apply 1 to 100 RFC 6902 operations and return a short operation summary.',
-            inputSchema: { patch: z.array(PATCH_OPERATION).min(1).max(100) },
+            description: 'Atomically apply 1 to 100 RFC 6902 operations. patch may be an operation array or a JSON string containing one.',
+            inputSchema: { patch: PATCH_INPUT },
             annotations: { destructiveHint: true, idempotentHint: false },
         }, async ({ patch }) => this.pairedTool(sessionId, 'apply_project_patch', { patch }));
         return server;
     }
 
     private async pair(sessionId: string, code: string) {
-        if (await this.ctx.storage.get<string>('relayId')) {
-            return toolError('ALREADY_PAIRED', 'This MCP session is already paired.');
+        const existingRelayId = await this.ctx.storage.get<string>('relayId');
+        if (existingRelayId) {
+            const status = await relayStub(this.env, existingRelayId).fetch('https://relay.internal/status', {
+                headers: { 'x-clearpcb-client-session': sessionId },
+            });
+            if (status.ok) {
+                return toolError('ALREADY_PAIRED', 'This MCP session is already paired.');
+            }
+            await this.ctx.storage.delete('relayId');
         }
         const attempts = await this.ctx.storage.get<number>('pairAttempts') || 0;
         if (attempts >= MAX_PAIRING_ATTEMPTS) {
@@ -311,14 +437,18 @@ export class ClientSession extends DurableObject<Env> {
         sessionId: string,
         method: Omit<RelayRequest, 'id'>['method'],
         params?: Record<string, unknown>,
+        format: (result: unknown) => ReturnType<typeof toolResult> | ReturnType<typeof imageResult> = toolResult,
     ) {
         const relayId = await this.ctx.storage.get<string>('relayId');
         if (!relayId) return toolError('PAIRING_REQUIRED', 'Call pair with the code shown in ClearPCB first.');
         try {
-            return toolResult(await invokeTab(this.env, relayId, sessionId, { method, params }));
+            return format(await invokeTab(this.env, relayId, sessionId, { method, params }));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            if (/revoked|not connected|disconnected/i.test(message)) await this.ctx.storage.delete('relayId');
+            if (/revoked|not connected|disconnected/i.test(message)) {
+                await this.ctx.storage.delete('relayId');
+                return toolError('PAIRING_REVOKED', `${message} Call pair with the current code shown in ClearPCB.`);
+            }
             return toolError('TAB_UNAVAILABLE', message);
         }
     }
@@ -405,7 +535,8 @@ export class TabRelay extends DurableObject<Env> {
             return Response.json({ error: 'Pairing revoked or not approved for this client.' }, { status: 403 });
         }
         const input = await request.json<Omit<RelayRequest, 'id'>>();
-        const result = await this.sendRequest(input, 15_000);
+        const result = await this.sendRequest(input,
+            SLOW_METHODS.has(input.method) ? SLOW_RELAY_TIMEOUT_MS : RELAY_TIMEOUT_MS);
         return Response.json(result, { status: result.error ? 502 : 200 });
     }
 

@@ -1,7 +1,7 @@
 /**
  * Owns PCB editor selection service actions that coordinate multiple selection adapters.
  */
-import { isLayerVisible, isViaVisible, isCopperFillVisible } from './layers.js';
+import { isLayerVisible, isViaVisible, isCopperFillVisible, isPadVisible } from './layers.js';
 import { isPcbObjectLayerLocked } from './object-locks.js';
 import { trackIsSelectable } from './track-select.js';
 import { getPcbSelection, setPcbSelection } from './selection-registry.js';
@@ -34,7 +34,7 @@ export function selectAllPcbObjects(app) {
         for (const via of app.vias) if (via.visible !== false) add('via', via);
     }
     for (const pad of app.pads || []) {
-        if (pad.visible !== false) add('pad', pad);
+        if (isPadVisible(pad)) add('pad', pad);
     }
     for (const shape of app.boardShapes) {
         if (shape?.type === 'fill') {

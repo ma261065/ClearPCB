@@ -1,5 +1,4 @@
 import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
-import { createNetText } from './shape-management.js';
 import { discardComponentView, discardShapeView, mountDocument, prepareDocumentView } from './schematic-view.js';
 import { attachLabelToTarget } from './label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
@@ -80,19 +79,13 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     clearAllShapes(app);
     clearAllComponents(app);
     app.document.load(data, prepared);
+    for (const component of app.components) component.createMissingFieldTexts(app);
 
     // Unified project format (v2.0)
     const sch = data.schematic || {};
     const settings = sch.settings;
 
     mountDocument(app);
-
-    // Re-link only derived Net text (wire names are handled as generic labels)
-    for (const shape of app.shapes) {
-        if (shape.type === 'net') {
-            createNetText(app, shape);
-        }
-    }
 
     const linkTargets = new Map();
     for (const shape of app.shapes) linkTargets.set(shape.id, shape);

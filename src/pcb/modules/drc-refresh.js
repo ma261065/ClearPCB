@@ -27,8 +27,12 @@ const deferred = app => {
     return status.pictureCopperPending || status.fillScheduled || (status.fillPending && !status.fillError)
         || app.isSectionEditing();
 };
-/** @param {PcbEditor} app */
-const rulesFor = app => ({ ...app.getRoutingParams(), minAnnularRing: PCB_MIN_VIA_ANNULAR_RING,
+/**
+ * The board's design rules, including the current ratsnest as incomplete connections.
+ * @param {PcbEditor} app
+ * @returns {import('./drc.js').DrcRules}
+ */
+export const drcRulesFor = app => ({ ...app.getRoutingParams(), minAnnularRing: PCB_MIN_VIA_ANNULAR_RING,
     excludeSameFootprintPadClearance: app.pcbDocument.designSettings.values.excludeSameFootprintPadClearance,
     ratlines: collectDrcRatlines(app) });
 /** @param {DrcRefreshState} state */
@@ -138,7 +142,7 @@ export function runDrcNow(app) {
     stopWaiting(state);
     if (deferred(app)) { waitUntilSettled(app, state); return; }
     state.owed = false;
-    try { accept(app, state, runDRC(app, rulesFor(app))); }
+    try { accept(app, state, runDRC(app, drcRulesFor(app))); }
     catch (error) { report(app, error); }
 }
 
@@ -186,7 +190,7 @@ export function scheduleDrcRefresh(app) {
         if (state.failed || typeof Worker === 'undefined') { runDrcNow(app); return; }
         const revision = state.revision;
         let inputs, saved;
-        try { saved = ownership(app); inputs = captureDrcInputs(app, rulesFor(app)); }
+        try { saved = ownership(app); inputs = captureDrcInputs(app, drcRulesFor(app)); }
         catch (error) { state.owed = false; report(app, error); return; }
         state.worker ||= createDrcWorker();
         const valid = () => {

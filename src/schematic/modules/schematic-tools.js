@@ -104,7 +104,7 @@ function shapeTool(kind, name, content, key) {
 function pinMarkerTool(id, name, key, onSelected, content) {
     /** @param {SchematicEditor} app @param {{x:number,y:number}} point */
     const snapPlacement = (app, point) => resolvePinSnapPlacement(app, point,
-        id === 'net' ? { pinTolerance: PIN_PICKUP_SNAP_TOL } : {});
+        { pinTolerance: PIN_PICKUP_SNAP_TOL });
     /** @param {SchematicEditor} app @param {Positions} pos */
     const showPlacement = (app, { worldPos }) => {
         const { resolved, pos } = snapPlacement(app, worldPos);

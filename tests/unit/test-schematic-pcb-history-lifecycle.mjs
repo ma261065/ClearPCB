@@ -55,7 +55,9 @@ for (const routed of [false, true]) for (const overridden of [false, true]) {
     const slots = structuredClone(state.autoSlots);
     const saved = project.serialize();
     assert.deepEqual(state.overrides, overrides, 'Saving does not promote derived positions in the live model');
-    assert.deepEqual(state.autoSlots, slots);
+    slots.delete('A');
+    assert.deepEqual(state.autoSlots, slots, 'Saving removes automatic slots for deleted components');
+    assert.equal(saved.pcb.placements.A, undefined);
     const copy = new ProjectDocument();
     await copy.load(saved);
     const after = copy.synchronizePcbLayout();

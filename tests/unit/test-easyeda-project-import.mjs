@@ -44,7 +44,12 @@ async function checkFixture(fixture) {
     await reopened.load(await readProjectFile(written));
     assert.deepEqual(metadata(reopened), expectedMetadata);
     assert.deepEqual(reopened.getNetlist(), expectedNetlist);
-    assert.equal(reopened.schematicDocument.shapes.length, 181);
+    assert.equal(reopened.schematicDocument.shapes.filter(shape => shape.fieldKey !== 'net').length, 181);
+    const nets = reopened.schematicDocument.shapes.filter(shape => shape.type === 'net');
+    assert.equal(reopened.schematicDocument.shapes.length, 181 + nets.length,
+        'Net-label Text is now persisted separately from its parent');
+    assert.ok(nets.every(net => net.labelText?.fontSize === 1.4
+        && reopened.schematicDocument.shapes.includes(net.labelText)));
 
     const storage = new Map();
     globalThis.localStorage = {

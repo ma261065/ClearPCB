@@ -171,4 +171,68 @@ export const scenarios = [{
             && Math.max(result.guides[0].a.y, result.guides[0].b.y) === locations.expectedBottom,
         'Blue dotted guide follows the complete collinear result');
     },
+}, {
+    name: 'wire-segment-chain-does-not-invent-diagonal-guide',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const setup = await page.evaluate(async () => {
+            const app = window.bootstrap.schematicApp;
+            const view = app.viewport;
+            const rect = view.svg.getBoundingClientRect();
+            const centre = view.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
+            const { Wire } = await import('/src/shapes/wire.js');
+            const wire = new Wire({ id: 'extended-chain-browser', graphNodes: {
+                n46: { x: centre.x + 3.26, y: centre.y },
+                n65: { x: centre.x + 3.26, y: centre.y - 3.81 },
+                n71: { x: centre.x + 3.26, y: centre.y - 6.35 },
+                n14: { x: centre.x, y: centre.y },
+                n48: { x: centre.x, y: centre.y - 6.35 },
+                n74: { x: centre.x + 8.87, y: centre.y - 3.81 },
+            }, graphEdges: {
+                e82: ['n46', 'n65'], e63: ['n71', 'n65'],
+                e46: ['n46', 'n14'], e84: ['n48', 'n71'], e77: ['n74', 'n65'],
+            } });
+            app.shapes.push(wire);
+            app.updateSelectableItems();
+            app.selection.select(wire);
+            app.renderShapes(true);
+            view.snapToGrid = false;
+            view.zoomToLevel(view.zoomScales.findIndex(scale => scale >= 20));
+            const screen = point => {
+                const pos = view.worldToScreen(point);
+                return { x: rect.left + pos.x, y: rect.top + pos.y };
+            };
+            return {
+                start: screen({ x: centre.x + 3.26, y: centre.y - 2.7 }),
+                away: screen({ x: centre.x + 6, y: centre.y - 2.7 }),
+                aligned: screen({ x: centre.x + 2.52, y: centre.y - 2.7 }),
+                expectedX: centre.x + 2.52,
+                pointerTolerance: 1 / view.scale,
+            };
+        });
+        await page.mouse.move(setup.start.x, setup.start.y);
+        await page.mouse.down();
+        await page.mouse.move(setup.away.x, setup.away.y, { steps: 5 });
+        await page.mouse.move(setup.aligned.x, setup.aligned.y, { steps: 10 });
+        const result = await page.evaluate(async () => {
+            const app = window.bootstrap.schematicApp;
+            const { getAxisGlowState } = await import('/src/shapes/axis-glow.js');
+            const { getSchematicDrag } = await import('/src/schematic/modules/drag.js');
+            const wire = app.shapes.find(shape => shape.id === 'extended-chain-browser');
+            return { edgeId: getSchematicDrag(app).edgeId,
+                guides: (getAxisGlowState(app).resolved || []).map(({ segment }) => segment.axisKind),
+                chain: ['n46', 'n65', 'n71'].map(id => wire.nodes.get(id).x) };
+        });
+        assert.equal(result.edgeId, 'e82', 'Real pointer input grabs the intended segment');
+        assert.ok(result.chain.every(x => Math.abs(x - setup.expectedX) <= setup.pointerTolerance),
+            `All chain nodes follow the pointer without false diagonal attraction: ${JSON.stringify({ result, expected: setup.expectedX })}`);
+        assert.deepEqual(result.guides, [], 'Horizontal branches have no phantom diagonal guide');
+        await page.mouse.up();
+        await page.keyboard.press('Control+z');
+        await page.keyboard.press('Control+y');
+        assert.equal(await page.evaluate(async () => {
+            const { getAxisGlowState } = await import('/src/shapes/axis-glow.js');
+            return getAxisGlowState(window.bootstrap.schematicApp).resolved?.length || 0;
+        }), 0, 'No stale guide remains after release or history replay');
+    },
 }];

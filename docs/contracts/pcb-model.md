@@ -160,7 +160,7 @@ fix the authority, not the consumer.
 | --- | --- | --- |
 | Placement pose | `placementPose` (`shared/pcb/board-geometry.js`) | resolved placements (`core/pcb-placement-geometry.js`), electrical pads, reference text, track drawing |
 | Pad copper flashes | `resolvePadFlashes` (`board-geometry.js`); posed outlines from `padFlashOutline` (`shapes/pad-geometry.js`) | 2D board view (`board2d.js`), 3D view (`board3d.js`), Gerber |
-| Electrical pads | `resolveCopperPads` (`pcb/modules/copper-model.js`) | copper clusters and ratsnest, DRC, pour context, track drawing |
+| Electrical pads | `resolveCopperPads` (`pcb/modules/copper-model.js`); every resolved pad's `layer` is `top-copper`, `bottom-copper` or `all`, whether it came from a footprint's part-relative `top`/`bottom`/`both` or a free pad | copper clusters and ratsnest, DRC, pour context, track drawing |
 | Pad mask openings | `resolvePadMaskOpenings` (`board-geometry.js`); Gerber builds mask layers with the same `MASK_EXPANSION` | 2D and 3D board views |
 | Drills and slots | `resolvePlacementDrills` (`board-geometry.js`) | 2D and 3D views, Gerber/Excellon, pour context |
 | Footprint silk | `resolveSilk` (`board-geometry.js`) | 2D and 3D views, Gerber |
@@ -193,7 +193,10 @@ Track bounds, hit tests and centreline distances use the shared copper paths in
 corners. `shared/pcb/board-geometry.js` re-exports the same resolvers for
 rendering, connectivity and export consumers, so they share geometry and sampling
 tolerance. Model queries do not consult layer visibility; the editor's hit tests
-filter hidden copper. Selection pruning reuses model bounds including
+filter hidden copper. Free pads share one rule, `isPadVisible()` in
+`pcb/modules/layers.js`, for click, marquee and Select All: a pad is selectable
+while at least one of its copper layers is visible
+(`tests/unit/test-marquee-copper-visibility.mjs`). Selection pruning reuses model bounds including
 stroke extents rather than a separate centreline-only box. Whole-track radius
 previews and pad-bond removal/restoration explicitly invalidate bounds: a bond
 change can enable or suppress rounding without moving any node.
@@ -273,6 +276,22 @@ position. Cancellation keeps the original cuts. Pan/zoom may resize the outer
 clip rectangle during the gesture without moving those holes. This shared clip
 policy covers single and grouped moves, both copper sides and Hole-layer cutouts,
 without recomputing pours or rebuilding clip paths on each pointer movement.
+In the editable PCB viewport, settled copper clips also reuse their one-screen
+overscan during panning. Only approaching its edge recentres the outer rectangle;
+zoom and viewport shrinkage keep it screen-sized to avoid oversized GPU rasters.
+Ordinary pans do not mutate copper clip paths or recalculate cutout geometry.
+The editable PCB viewport translates its world-space layer groups during a pan
+instead of changing the SVG viewBox on every move, avoiding full descendant
+layout. Logical bounds, pointer mapping, rulers, tool previews and culling still
+follow the current view. Release commits the viewBox and removes the temporary
+translation; zoom or resize during a gesture rebases it. Other viewports retain
+their existing viewBox pan behavior.
+Viewport culling also hides off-screen track runs, individual net labels and
+standalone via artwork, including boards without component placements. Their
+conservative world bounds are cached when rendered, with a quarter-viewport
+overdraw margin; pans do not measure SVG geometry or rewrite unchanged visibility.
+Label selection suppression remains independent of viewport visibility. Export
+temporarily restores all artwork and reapplies viewport culling afterwards.
 
 Board-outline setup lives in `core/pcb-outline-commands.js`.
 `PcbDocument.setBoardOutline()` validates and detaches incoming geometry before

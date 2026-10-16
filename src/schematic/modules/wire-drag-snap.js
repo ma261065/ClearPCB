@@ -524,11 +524,16 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     /** @type {SnapEdge[]} */
     const snapEdges = [];
     // Use fixed chain-boundary neighbors as snap/guide targets.
-    // Each fixed neighbor knows which moving node it connects to, so we
-    // use the correct future position (A or B) as the moving point.
+    // Chain boundary nodes can extend beyond both grabbed endpoints.
+    // Translate each node from the drag snapshot, not from the live graph.
     for (const { pos: p, movingNodeId, fixedBeyond } of fixedNeighbors) {
-        const movingPt = (movingNodeId === origEdge.from) ? futureA : futureB;
-        const beyondPt = (movingNodeId === origEdge.from) ? futureB : futureA;
+        const original = origState.nodes[movingNodeId];
+        const movingPt = {
+            x: original.x + snappedTarget.x - origA.x,
+            y: original.y + snappedTarget.y - origA.y,
+        };
+        const beyondPt = Math.hypot(original.x - origA.x, original.y - origA.y) < 1e-9
+            ? futureB : futureA;
         snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt, beyondMoves: true, fixedBeyond });
     }
     const threshold = gridSnapTolerance(gridSize, app.viewport.scale);

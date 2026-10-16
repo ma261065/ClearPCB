@@ -9,7 +9,8 @@ const { Pad } = await import('../../src/shapes/pad.js');
 const { Via } = await import('../../src/shapes/via.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
-const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag, getVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { collectNodeConnections, copperBoardWith } = await import('../../src/pcb/modules/track-connections.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
@@ -135,6 +136,36 @@ for (const kind of ['via', 'pad', 'component']) {
     assert.equal(app.lastAlert, undefined, 'the old ground pour does not block a moved Track');
     assert.equal(terminal.net, 'SIGNAL');
     assert.equal(ground.net, 'GND');
+}
+
+{
+    const { app, commands } = fixture();
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }], net: 'SIGNAL' });
+    app.tracks.splice(0, app.tracks.length, track);
+    const nodeId = [...track.nodes.keys()][1];
+    const floatingFill = new CopperFill({ id: 'floating-fill', layer: 'top-copper',
+        outline: [{ x: 4, y: 1 }, { x: 6, y: 1 }, { x: 6, y: 3 }, { x: 4, y: 3 }] });
+    setComputedFill(floatingFill, [{ outer: floatingFill.outline, holes: [] }]);
+    app.boardShapes.push(floatingFill);
+
+    startVertexDrag(app, track, track.nodes.get(nodeId), { nodeId });
+    updateVertexDrag(app, { x: 5, y: 2 });
+    const drag = getVertexDrag(app);
+    assert.ok(drag?.preview);
+    const previewApp = copperBoardWith(app, { tracks: app.tracks.map(item => item === track ? drag.track : item) });
+    const staleContacts = collectNodeConnections(previewApp, new Map([[drag.track, new Set([nodeId])]]),
+        { previousTracks: new Map([[drag.track, track]]) });
+    assert.ok(staleContacts.shapes.has(floatingFill), 'the cached pre-repour region overlaps the moved node');
+    finishVertexDrag(app);
+
+    assert.equal(floatingFill.net, '', 'moving a netted track never assigns a floating fill from stale pour geometry');
+    assert.equal(track.net, 'SIGNAL');
+    assert.deepEqual(track.nodes.get(nodeId), { x: 5, y: 2 });
+    assert.equal(commands.length, 1);
+    commands[0].undo();
+    assert.equal(floatingFill.net, '', 'undo leaves the floating fill unassigned');
+    commands[0].execute();
+    assert.equal(floatingFill.net, '', 'redo leaves the floating fill unassigned');
 }
 
 {

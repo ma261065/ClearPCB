@@ -65,7 +65,6 @@ export class TextAttachmentCommand {
     }
 }
 
-const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
 /** @type {WeakMap<SchematicEditor, SVGLineElement>} */
 const labelGuides = new WeakMap();
@@ -450,9 +449,6 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
     addAttachedLabel(target, labelShape);
 
     if (isWireShape(target)) {
-        if (labelShape.fontSize !== WIRE_ATTACHED_LABEL_FONT_SIZE) {
-            labelShape.fontSize = WIRE_ATTACHED_LABEL_FONT_SIZE;
-        }
         const probe = snapPos || { x: labelShape.x, y: labelShape.y };
         const closest = target.closestEdge?.(probe);
         const anchor = closest?.point || probe;
@@ -559,10 +555,6 @@ export function syncAttachedLabels(app) {
 
         let anchor = null;
         if (isWireShape(target)) {
-            if (shape.fontSize !== WIRE_ATTACHED_LABEL_FONT_SIZE) {
-                shape.fontSize = WIRE_ATTACHED_LABEL_FONT_SIZE;
-                shape.invalidate?.();
-            }
             anchor = getWireAnchorFromAttachment(target, att);
         } else {
             anchor = getNonWireAnchor(target);

@@ -51,9 +51,12 @@ export function createMcpSessionUi(bridge) {
                 <button type="button" data-mcp-copy aria-live="polite">Copy URL</button>
             </div>
             <div class="mcp-pairing-code hide" data-mcp-code-row>
-                <span>Pairing code</span>
-                <strong data-mcp-code></strong>
-                <span data-mcp-code-expiry></span>
+                <div class="mcp-pairing-code-value">
+                    <span>Pairing code</span>
+                    <strong data-mcp-code></strong>
+                    <span data-mcp-code-expiry></span>
+                </div>
+                <button type="button" data-mcp-copy-code aria-live="polite">Copy code</button>
             </div>
             <div class="mcp-pairing-request hide" data-mcp-request>
                 <p><strong data-mcp-client-name></strong> wants access to this project.</p>
@@ -90,28 +93,76 @@ export function createMcpSessionUi(bridge) {
     const toggle = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-toggle]'));
     const revert = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-revert]'));
     const copyButton = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-copy]'));
-    let copyFeedbackTimer = 0;
+    const codeCopyButton = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-copy-code]'));
+    const copyFeedbackTimers = new Map();
     let expiryTimer = 0;
     let currentState = /** @type {McpSessionState} */ ({ enabled: false, connected: false, mcpUrl: '' });
     const updateExpiry = () => {
         const seconds = Math.max(0, Math.ceil(((currentState.pairingExpiresAt || 0) - Date.now()) / 1000));
-        codeExpiry.textContent = seconds ? `Expires in ${Math.ceil(seconds / 60)} min` : 'Expired';
-    };
-    const resetCopyFeedback = () => {
-        window.clearTimeout(copyFeedbackTimer);
-        copyFeedbackTimer = 0;
-        copyButton.textContent = 'Copy URL';
-        delete copyButton.dataset.copyState;
+        const minutes = Math.floor(seconds / 60);
+        codeCopyButton.disabled = seconds === 0;
+        codeExpiry.textContent = seconds
+            ? `Expires in ${minutes} min ${String(seconds % 60).padStart(2, '0')} sec`
+            : 'Refreshing code...';
     };
     /**
+     * @param {HTMLButtonElement} button
+     * @param {string} defaultText
+     */
+    const resetCopyFeedback = (button, defaultText) => {
+        window.clearTimeout(copyFeedbackTimers.get(button));
+        copyFeedbackTimers.delete(button);
+        button.textContent = defaultText;
+        delete button.dataset.copyState;
+    };
+    /**
+     * @param {HTMLButtonElement} button
+     * @param {string} defaultText
      * @param {string} text
      * @param {string} state
      */
-    const showCopyFeedback = (text, state) => {
-        resetCopyFeedback();
-        copyButton.textContent = text;
-        copyButton.dataset.copyState = state;
-        copyFeedbackTimer = window.setTimeout(resetCopyFeedback, 1800);
+    const showCopyFeedback = (button, defaultText, text, state) => {
+        resetCopyFeedback(button, defaultText);
+        button.textContent = text;
+        button.dataset.copyState = state;
+        copyFeedbackTimers.set(button,
+            window.setTimeout(() => resetCopyFeedback(button, defaultText), 1800));
+    };
+    /**
+     * @param {string} value
+     * @param {HTMLButtonElement} button
+     * @param {string} defaultText
+     * @param {string} label
+     */
+    const copyText = async (value, button, defaultText, label) => {
+        let clipboardError = null;
+        try {
+            await navigator.clipboard.writeText(value);
+            showCopyFeedback(button, defaultText, 'Copied!', 'success');
+            return;
+        } catch (error) {
+            clipboardError = error;
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        try {
+            textarea.select();
+            if (document.execCommand('copy')) {
+                showCopyFeedback(button, defaultText, 'Copied!', 'success');
+                return;
+            }
+        } catch (fallbackError) {
+            console.error(`Unable to copy the MCP ${label}.`, clipboardError, fallbackError);
+            showCopyFeedback(button, defaultText, 'Copy failed', 'error');
+            return;
+        } finally {
+            textarea.remove();
+        }
+        console.error(`Unable to copy the MCP ${label}.`, clipboardError);
+        showCopyFeedback(button, defaultText, 'Copy failed', 'error');
     };
     /** @param {McpSessionState} state */
     const render = state => {
@@ -124,6 +175,7 @@ export function createMcpSessionUi(bridge) {
         urlInput.value = state.mcpUrl;
         codeRow.classList.toggle('hide', !state.pairingCode);
         codeValue.textContent = state.pairingCode || '';
+        codeCopyButton.disabled = !state.pairingCode;
         requestRow.classList.toggle('hide', !state.pendingClient);
         clientName.textContent = state.pendingClient?.name || '';
         pairedRow.classList.toggle('hide', !state.pairedClient);
@@ -134,7 +186,10 @@ export function createMcpSessionUi(bridge) {
             updateExpiry();
             expiryTimer = window.setInterval(updateExpiry, 1000);
         }
-        if (!state.enabled) resetCopyFeedback();
+        if (!state.enabled) {
+            resetCopyFeedback(copyButton, 'Copy URL');
+            resetCopyFeedback(codeCopyButton, 'Copy code');
+        }
         toggle.textContent = state.enabled ? 'Disable MCP' : 'Enable MCP';
         toggle.classList.toggle('primary', !state.enabled);
         revert.disabled = !state.canRevert;
@@ -146,10 +201,12 @@ export function createMcpSessionUi(bridge) {
 
     const close = () => {
         overlay.classList.add('hide');
+        document.body.classList.remove('mcp-session-open');
         ModalManager.pop('mcp-session');
     };
     const open = () => {
         overlay.classList.remove('hide');
+        document.body.classList.add('mcp-session-open');
         ModalManager.push('mcp-session', close);
         toggle.focus();
     };
@@ -157,8 +214,8 @@ export function createMcpSessionUi(bridge) {
         if (event.target instanceof Element && event.target.closest('[data-mcp-session]')) open();
     });
     overlay.querySelectorAll('[data-mcp-close]').forEach(button => button.addEventListener('click', close));
-    overlay.addEventListener('click', event => {
-        if (event.target === overlay) close();
+    overlay.addEventListener('contextmenu', event => {
+        if (event.target instanceof Node && !dialog.contains(event.target)) event.preventDefault();
     });
     toggle.addEventListener('click', () => bridge.enabled ? bridge.disable() : bridge.enable());
     revert.addEventListener('click', () => void bridge.revertLastChange());
@@ -202,30 +259,9 @@ export function createMcpSessionUi(bridge) {
         dragHandle.addEventListener('pointerup', finish);
         dragHandle.addEventListener('pointercancel', finish);
     });
-    copyButton.addEventListener('click', async () => {
-        let clipboardError = null;
-        try {
-            await navigator.clipboard.writeText(urlInput.value);
-            showCopyFeedback('Copied!', 'success');
-            return;
-        } catch (error) {
-            clipboardError = error;
-        }
-
-        try {
-            urlInput.select();
-            if (document.execCommand('copy')) {
-                showCopyFeedback('Copied!', 'success');
-                return;
-            }
-        } catch (fallbackError) {
-            console.error('Unable to copy the MCP session URL.', clipboardError, fallbackError);
-            showCopyFeedback('Copy failed', 'error');
-            return;
-        }
-
-        console.error('Unable to copy the MCP session URL.', clipboardError);
-        showCopyFeedback('Copy failed', 'error');
-    });
+    copyButton.addEventListener('click',
+        () => void copyText(urlInput.value, copyButton, 'Copy URL', 'server URL'));
+    codeCopyButton.addEventListener('click',
+        () => void copyText(codeValue.textContent || '', codeCopyButton, 'Copy code', 'pairing code'));
     return { close, render };
 }

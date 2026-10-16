@@ -593,13 +593,23 @@ const createNode = (localName = 'g') => {
         get id() { return this.getAttribute('id') || ''; },
         set id(value) { this.setAttribute('id', value); },
         getAttribute(name) { return this.attributes.find(attribute => attribute.name === name)?.value ?? null; },
+        removeAttribute(name) { this.attributes = this.attributes.filter(attribute => attribute.name !== name); },
+        get classList() {
+            return { remove: name => this.setAttribute('class',
+                (this.getAttribute('class') || '').split(/\s+/).filter(value => value !== name).join(' ')) };
+        },
         setAttribute(name, value) { this.setAttributeNS(null, name, value); },
         setAttributeNS(namespaceURI, name, value) {
             const attribute = this.attributes.find(item => item.name === name);
             if (attribute) attribute.value = value;
             else this.attributes.push({ name, localName: name.split(':').at(-1), namespaceURI, value });
         },
-        querySelectorAll() { return this.children.flatMap(child => [child, ...child.querySelectorAll()]); },
+        querySelectorAll(selector) {
+            const nodes = this.children.flatMap(child => [child, ...child.querySelectorAll()]);
+            return selector === '.culled'
+                ? nodes.filter(child => (child.getAttribute('class') || '').split(/\s+/).includes('culled'))
+                : nodes;
+        },
         cloneNode(deep) {
             const clone = createNode(this.localName);
             clone.style = { ...this.style };
@@ -647,7 +657,8 @@ globalThis.XMLSerializer = class {
 };
 globalThis.Node = { ELEMENT_NODE: 1 };
 globalThis.NodeFilter = { SHOW_ELEMENT: 1 };
-window.getComputedStyle = () => ({ fill: '#abcdef', opacity: '1' });
+window.getComputedStyle = element => ({ fill: '#abcdef', opacity: '1',
+    display: (element.getAttribute('class') || '').split(/\s+/).includes('culled') ? 'none' : 'inline' });
 URL.createObjectURL = blob => { const url = `blob:panel-${++urlId}`; activeURLs.set(url, blob); return url; };
 URL.revokeObjectURL = url => activeURLs.delete(url);
 const observers = [];
@@ -684,6 +695,7 @@ try {
     layers.get('hole').setAttribute('clip-path', 'url(#prior-hole-clip)');
     const sourceArtwork = layers.get('top-copper').appendChild(createNode());
     sourceArtwork.id = 'source-image';
+    sourceArtwork.setAttribute('class', 'pcb-track culled');
     sourceArtwork.setAttribute('transform', 'translate(0,0)');
     const sourceUse = layers.get('top-copper').appendChild(createNode('use'));
     sourceUse.setAttribute('href', '#source-image');
@@ -710,6 +722,8 @@ try {
     const clonedUse = detached.children.at(-1).children[1].children[1];
     assert.equal(clonedArtwork.id, sourceArtwork.id, 'IDs remain local to the detached SVG');
     assert.equal(clonedArtwork.getAttribute('fill'), '#abcdef', 'computed colours survive serialization');
+    assert.equal(clonedArtwork.getAttribute('class'), 'pcb-track', 'panel artwork removes viewport-only culling');
+    assert.equal(clonedArtwork.getAttribute('display'), null, 'off-screen display is not baked into the panel raster');
     assert.equal(clonedUse.getAttribute('href'), '#source-image');
     assert.equal(clonedUse.getAttribute('clip-path'), 'url(#source-image)');
     decodedImages.at(-1).onload();

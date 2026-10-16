@@ -1,6 +1,8 @@
 import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
+import { BuiltInComponents } from '../components/BuiltInComponents.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
+import { SCHEMATIC_CONNECTION_TOLERANCE } from './component-pin-connectivity.js';
 
 /** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
 
@@ -26,7 +28,7 @@ const SHAPE_FIELDS = {
     circle: fields('x', 'y', 'r', 'f', 'fa'),
     arc: fields('sp', 'ep', 'bp', 'f'),
     text: fields('x', 'y', 't', 'fs', 'ff', 'ta', 'rot', 'cid', 'fk', 'att', 'bd'),
-    net: fields('x', 'y', 'n', 'fs', 'nst', 'no', 'nto', 'bd'),
+    net: fields('x', 'y', 'n', 'nst', 'no', 'nto', 'bd'),
     noconnect: fields('x', 'y', 'pn'),
 };
 const PCB_FIELDS = fields('stackup', 'board', 'design', 'panelization', 'settings',
@@ -60,6 +62,9 @@ const ARTWORK_FIELDS = {
     'deflate-tuples-v1': fields('encoding', 'bytes', 'data'),
     'reference-v1': fields('encoding', 'index'),
 };
+const BOND_FIELDS = fields('componentId', 'pinNumber');
+const LEGACY_OPAMP_PINS = new Map([['+', '3'], ['-', '2'], ['OUT', '6']]);
+export const LEGACY_OPAMP_PAD_PIN = Symbol('legacyOpAmpPadPin');
 
 /** @param {unknown} value */
 function numberedSnippet(value) {
@@ -204,6 +209,98 @@ function validateSchematic(schematic) {
             requireRecord(definition, `schematic.defs.${name}`);
             rejectUnknownFields(definition, DEFINITION_FIELDS, `schematic.defs.${name}`);
         }
+    }
+    validateSchematicPinBonds(schematic);
+}
+
+/** @param {JsonRecord} schematic */
+function validateSchematicPinBonds(schematic) {
+    const components = new Map(schematic.components.map(
+        /** @param {JsonRecord} component */
+        component => [String(component.id), component]));
+    const netLabels = new Map(schematic.shapes.filter(
+        /** @param {JsonRecord} shape */
+        shape => shape.type === 'net').map(
+        /** @param {JsonRecord} shape */
+        shape => [String(shape.id), shape]));
+    const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
+    for (const [name, definition] of Object.entries(schematic.defs || {})) definitions.set(name, definition);
+    for (const [shapeIndex, shape] of schematic.shapes.entries()) {
+        if (shape.type !== 'wire' || shape.pc === undefined) continue;
+        requireRecord(shape.pc, `schematic.shapes[${shapeIndex}].pc`);
+        for (const [nodeId, value] of Object.entries(shape.pc)) {
+            const path = `schematic.shapes[${shapeIndex}].pc.${nodeId}`;
+            requireRecord(value, path);
+            rejectUnknownFields(value, BOND_FIELDS, path);
+            requireFields(value, BOND_FIELDS, path);
+            const node = /** @type {Record<string, [number, number]>} */ (shape.nd)[nodeId];
+            if (!node) invalid(path, 'Pin bond references a missing wire node.', value);
+            const component = components.get(String(value.componentId));
+            const netLabel = netLabels.get(String(value.componentId));
+            if (!component && netLabel) {
+                if (String(value.pinNumber) !== 'conn') {
+                    invalid(path, 'Pin bond references a missing net-label pin.', value);
+                }
+                const expectedX = Number(netLabel.x), expectedY = Number(netLabel.y);
+                if (!Number.isFinite(expectedX) || !Number.isFinite(expectedY)
+                    || Math.hypot(node[0] - expectedX, node[1] - expectedY) >= SCHEMATIC_CONNECTION_TOLERANCE) {
+                    invalid(path, `Pin bond node must be at the net-label connection position [${expectedX}, ${expectedY}].`,
+                        { node, componentId: value.componentId, pinNumber: value.pinNumber });
+                }
+                continue;
+            }
+            if (!component) invalid(path, 'Pin bond references a missing component.', value);
+            const definition = definitions.get(String(component.dn));
+            if (!definition) invalid(path, `Missing component definition: ${component.dn}.`, value);
+            const pin = definition.symbol?.pins?.find(candidate =>
+                String(candidate.number) === String(value.pinNumber));
+            if (!pin || !Number.isFinite(pin.x) || !Number.isFinite(pin.y)) {
+                invalid(path, 'Pin bond references a missing physical pin.', value);
+            }
+
+            const rotation = (Number(component.rot) || 0) * Math.PI / 180;
+            const localX = component.mir ? -Number(pin.x) : Number(pin.x);
+            const localY = Number(pin.y);
+            const expectedX = Number(component.x) + localX * Math.cos(rotation) - localY * Math.sin(rotation);
+            const expectedY = Number(component.y) + localX * Math.sin(rotation) + localY * Math.cos(rotation);
+            if (Math.hypot(node[0] - expectedX, node[1] - expectedY) >= SCHEMATIC_CONNECTION_TOLERANCE) {
+                invalid(path, `Pin bond node must be at the physical pin position [${expectedX}, ${expectedY}].`,
+                    { node, componentId: value.componentId, pinNumber: value.pinNumber });
+            }
+        }
+    }
+}
+
+/** @param {JsonRecord} data */
+function migrateLegacyOpAmpPins(data) {
+    const schematic = /** @type {JsonRecord} */ (data.schematic);
+    const customDefinitions = new Set(Object.keys(schematic.defs || {}));
+    const components = /** @type {JsonRecord[]} */ (schematic.components || []);
+    const opAmps = new Set(components
+        .filter(component => component.dn === 'OpAmp' && !customDefinitions.has('OpAmp'))
+        .map(component => String(component.id)));
+    if (!opAmps.size) return;
+    /** @param {unknown} value @param {boolean} pcb */
+    const migrate = (value, pcb) => {
+        if (!record(value) || !opAmps.has(String(value.componentId))) return;
+        const legacy = String(value.pinNumber);
+        const pinNumber = LEGACY_OPAMP_PINS.get(legacy);
+        if (!pinNumber) return;
+        value.pinNumber = pinNumber;
+        if (pcb) {
+            Object.defineProperty(value, LEGACY_OPAMP_PAD_PIN, {
+                value: legacy,
+                enumerable: true,
+                configurable: true,
+            });
+        }
+    };
+    for (const shape of schematic.shapes || []) {
+        for (const connection of Object.values(record(shape.pc) ? shape.pc : {})) migrate(connection, false);
+        migrate(shape.pn, false);
+    }
+    for (const track of data.pcb?.tracks || []) {
+        for (const connection of Object.values(record(track.pdc) ? track.pdc : {})) migrate(connection, true);
     }
 }
 
@@ -536,6 +633,7 @@ export function validateProject(data) {
     }
     rejectUnknownFields(data, ENVELOPE_FIELDS, 'project');
     if (!record(data.schematic)) invalid('schematic', 'Missing schematic section.', data.schematic);
+    migrateLegacyOpAmpPins(data);
     validateSchematic(data.schematic);
     if (data.pcb != null) {
         requireRecord(data.pcb, 'pcb', 'Invalid PCB section.');

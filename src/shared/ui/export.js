@@ -221,21 +221,23 @@ export function loadVectorPdfLibs(app) {
 }
 
 /**
- * Deep-clones the viewport SVG, sets viewBox to paper or viewport bounds,
- * inlines styles, forces monochrome, and removes grid/axes layers.
- * @param {ViewportExportApp} app - Application state.
- * @returns {{svgNode: SVGSVGElement, paperSize: PaperSize|null}}
+ * Clone the live SVG with viewport culling and low-detail blocks undone, inlining computed
+ * styles while they are visible. `measure` runs against the unculled original.
+ * @template T
+ * @param {SVGSVGElement} originalSvg
+ * @param {() => T} [measure]
+ * @returns {{svgNode: SVGSVGElement, measured: T|undefined}}
  */
-export function cloneViewportSvgForExport(app) {
-    const originalSvg = app.viewport.svg;
-    // Culling and low-detail blocks belong to the viewport, not the printed document.
+function cloneUnculledSvg(originalSvg, measure) {
+    // Culling and low-detail blocks belong to the viewport, not the exported document.
     const viewportClasses = Array.from(originalSvg.querySelectorAll('.culled, .lod-far'))
         .map(element => ({ element, culled: element.classList.contains('culled'), lod: element.classList.contains('lod-far') }));
-    let svgNode;
+    let svgNode, measured;
     try {
         for (const { element } of viewportClasses) element.classList.remove('culled', 'lod-far');
         svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
         inlineSvgComputedStyles(originalSvg, svgNode);
+        measured = measure?.();
     } finally {
         for (const { element, culled, lod } of viewportClasses) {
             if (culled) element.classList.add('culled');
@@ -245,6 +247,17 @@ export function cloneViewportSvgForExport(app) {
     for (const element of svgNode.querySelectorAll('.cpcb-lod-rect, .shape-anchors, .component-highlight, .text-edit-overlay, .label-connection-guide, .wire-junction-highlight')) {
         element.remove();
     }
+    return { svgNode, measured };
+}
+
+/**
+ * Deep-clones the viewport SVG, sets viewBox to paper or viewport bounds,
+ * inlines styles, forces monochrome, and removes grid/axes layers.
+ * @param {ViewportExportApp} app - Application state.
+ * @returns {{svgNode: SVGSVGElement, paperSize: PaperSize|null}}
+ */
+export function cloneViewportSvgForExport(app) {
+    const { svgNode } = cloneUnculledSvg(app.viewport.svg);
     const vb = app.viewport.viewBox;
     const width = Math.max(1, Math.round(app.viewport.width));
     const height = Math.max(1, Math.round(app.viewport.height));
@@ -490,5 +503,80 @@ export function renderViewportToCanvas(app, scale = 2) {
         } catch (err) {
             reject(err);
         }
+    });
+}
+/**
+ * Clone the whole schematic drawing for a machine-readable render: monochrome on white,
+ * cropped to the drawn content (not the paper or the current view), without editor chrome.
+ * @param {ViewportExportApp} app
+ * @param {number} [margin=10] World units added around the content.
+ * @returns {{svgNode: SVGSVGElement, bounds: ExportViewBox}|null} Null when nothing is drawn.
+ */
+export function cloneSchematicContentForRender(app, margin = 10) {
+    const content = app.viewport.contentLayer;
+    const { svgNode, measured } = cloneUnculledSvg(app.viewport.svg, () => content.getBBox());
+    if (!measured || (measured.width <= 0 && measured.height <= 0)) return null;
+    const bounds = {
+        x: measured.x - margin,
+        y: measured.y - margin,
+        width: measured.width + 2 * margin,
+        height: measured.height + 2 * margin,
+    };
+    for (const element of svgNode.querySelectorAll('#gridLayer, #axesLayer, #paperOutlineLayer, #interactionLayer')) {
+        element.remove();
+    }
+    svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgNode.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+    svgNode.removeAttribute('style');
+    // The live content layer may carry a pan translation (see Viewport translatePan).
+    svgNode.querySelector('#contentLayer')?.removeAttribute('transform');
+    forceMonochromeSvg(svgNode);
+    const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    background.setAttribute('x', String(bounds.x));
+    background.setAttribute('y', String(bounds.y));
+    background.setAttribute('width', String(bounds.width));
+    background.setAttribute('height', String(bounds.height));
+    background.setAttribute('fill', '#ffffff');
+    background.setAttribute('stroke', 'none');
+    svgNode.insertBefore(background, svgNode.firstChild);
+    return { svgNode, bounds };
+}
+
+/**
+ * Rasterise a standalone SVG to PNG, scaled so its longer side is `maxSize` pixels.
+ * @param {SVGSVGElement} svgNode Must carry a viewBox.
+ * @param {number} maxSize
+ * @returns {Promise<{mimeType: 'image/png', data: string, width: number, height: number}>} Base64 data without a data-URL prefix.
+ */
+export function rasterizeSvgToPng(svgNode, maxSize) {
+    const [, , viewWidth, viewHeight] = String(svgNode.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    if (!(viewWidth > 0) || !(viewHeight > 0)) return Promise.reject(new Error('Nothing to render.'));
+    const scale = maxSize / Math.max(viewWidth, viewHeight);
+    const width = Math.max(1, Math.round(viewWidth * scale));
+    const height = Math.max(1, Math.round(viewHeight * scale));
+    svgNode.setAttribute('width', String(width));
+    svgNode.setAttribute('height', String(height));
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svgNode)],
+        { type: 'image/svg+xml;charset=utf-8' }));
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+            URL.revokeObjectURL(url);
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')).drawImage(image, 0, 0, width, height);
+                const data = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+                resolve({ mimeType: 'image/png', data, width, height });
+            } catch (error) {
+                reject(error);
+            }
+        };
+        image.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('Failed to render SVG'));
+        };
+        image.src = url;
     });
 }

@@ -3773,6 +3773,11 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     background: rgb(0 0 0 / 55%);
 }
 
+.mcp-session-open .mode-bar {
+    position: relative;
+    z-index: 10001;
+}
+
 .mcp-session-overlay.hide,
 .mcp-session-url.hide,
 .mcp-pairing-code.hide,
@@ -3950,6 +3955,8 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
 }
 
 .mcp-session-url input {
+    height: 32px;
+    box-sizing: border-box;
     flex: 1;
     min-width: 0;
     padding: 7px 9px;
@@ -3959,19 +3966,24 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     color: var(--text-primary, #eee);
 }
 
-.mcp-session-url [data-copy-state="success"] {
+.mcp-session-dialog [data-mcp-copy],
+.mcp-session-dialog [data-mcp-copy-code] {
+    width: 92px;
+    flex: 0 0 92px;
+}
+
+.mcp-session-dialog [data-copy-state="success"] {
     border-color: #378f53;
     background: rgb(55 143 83 / 18%);
     color: #70d78d;
 }
 
-.mcp-session-url [data-copy-state="error"] {
+.mcp-session-dialog [data-copy-state="error"] {
     border-color: #a74343;
     background: rgb(167 67 67 / 18%);
     color: #ed7777;
 }
 
-.mcp-pairing-code,
 .mcp-pairing-request,
 .mcp-paired-client {
     margin-top: 12px;
@@ -3981,10 +3993,29 @@ svg.pcb-zoom-low .pcb-track-label { display: none; }
     background: rgb(255 255 255 / 4%);
 }
 
+.mcp-pairing-code {
+    margin-top: 12px;
+}
+
+.mcp-pairing-code-value {
+    height: 32px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 4px 12px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border-color, #555);
+    border-radius: 6px;
+    background: rgb(255 255 255 / 4%);
+}
+
 .mcp-pairing-code strong {
     margin-right: auto;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 22px;
+    font-size: 18px;
+    line-height: 1;
     letter-spacing: 0.12em;
 }
 

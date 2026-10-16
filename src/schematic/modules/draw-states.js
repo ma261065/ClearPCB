@@ -21,7 +21,7 @@
 import { updateStickyWires } from './wire-reconcile.js';
 import { captureStickyNetLabels } from './sticky-wires.js';
 import { updateSnapHighlight, VERTEX_EPSILON } from './wire.js';
-import { resolveWireSnapPosition, SNAP_SCREEN_PX, PIN_SNAP_TOL, wirePinSnapTolerance } from './wire-snap.js';
+import { resolveWireSnapPosition, SNAP_SCREEN_PX, wirePinSnapTolerance } from './wire-snap.js';
 import { computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap } from './wire-drag-snap.js';
 import { gridSnapTolerance } from '../../core/grid-snap.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
@@ -1104,7 +1104,7 @@ export const anchorDragState = {
         let anchorPos = snapMode === 'none' ? worldPos : snapped;
 
         if (getSchematicDrag(app).shape.type === 'noconnect') {
-            const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
+            const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: wirePinSnapTolerance(app.viewport) });
             updateSnapHighlight(app, snap);
             anchorPos = { x: snap.x, y: snap.y };
         }

@@ -71,13 +71,14 @@ async function drawSchematicShape(page, tool, points) {
     await page.waitForFunction(() => window.bootstrap.schematicApp.shapes.length > 0);
 }
 
-async function exerciseMoveLockSave(page, from, to, editField) {
+async function exerciseMoveLockSave(page, from, to, editField, selectionType = null) {
     const before = await schematicSnapshot(page);
     await dragWorld(page, 'schematic', from, to);
     const after = await schematicSnapshot(page);
     assert.notEqual(after, before, 'dragging the selected schematic object changes the model');
     await undoRedoReopen(page, before, after);
     await page.keyboard.press('Control+a');
+    if (selectionType) await selectTypeAt(page, selectionType, to.x, to.y);
     const lock = page.locator('[data-prop="locked"] input[type="checkbox"]').first();
     await lock.check();
     assert.equal(await page.locator(editField).isDisabled(), true, 'locked schematic object disables its edit field');
@@ -118,13 +119,20 @@ export const scenarios = [
             await chooseSchematicTool(page, 'net');
             await clickWorld(page, 'schematic', c.x, c.y);
             await selectTypeAt(page, 'net', c.x, c.y);
+            assert.equal(await page.locator('#prop_fontSize').count(), 0, 'Net parent has no Text size field');
+            await page.evaluate(() => {
+                const app = window.bootstrap.schematicApp;
+                app.selection.clearSelection();
+                app.selection.select(app.shapes.find(s => s.type === 'net').labelText);
+            });
             await exerciseSchematicNumberField(page, '#prop_fontSize',
-                () => page.evaluate(() => window.bootstrap.schematicApp.shapes.find(s => s.type === 'net').fontSize),
+                () => page.evaluate(() => window.bootstrap.schematicApp.shapes.find(s => s.type === 'net').labelText.fontSize),
                 () => selectionVisual(page));
+            await selectTypeAt(page, 'net', c.x, c.y);
             await page.locator('#prop_net').fill('VCC');
             await page.locator('#prop_net').press('Enter');
             await page.waitForFunction(() => window.bootstrap.schematicApp.shapes.find(s => s.type === 'net').net === 'VCC');
-            await exerciseMoveLockSave(page, p(c.x, c.y), p(c.x + 8, c.y + 6), '#prop_fontSize');
+            await exerciseMoveLockSave(page, p(c.x, c.y), p(c.x + 8, c.y + 6), '#prop_net', 'net');
         },
     },
     {

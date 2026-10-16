@@ -5,6 +5,8 @@ import { createRect, createLine, createPolygon } from '../../src/shapes/polyline
 import { Circle } from '../../src/shapes/circle.js';
 import { Text } from '../../src/shapes/text.js';
 import { Net } from '../../src/shapes/net.js';
+import { Wire } from '../../src/shapes/wire.js';
+import { attachLabelToTarget, syncAttachedLabels } from '../../src/schematic/modules/label-attachment.js';
 import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
@@ -119,6 +121,67 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize']) {
             app.history.undo();
             assert.deepEqual(shapes.map(shape => shape.captureState()), after);
         } finally { dispose(); }
+    }
+}
+
+for (const attachedFirst of [true, false]) {
+    const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] });
+    const texts = ['RTS', 'DTR', '3V3', 'VIO', '5V', '5V', '3V3', 'Gnd', 'Rx', 'TX']
+        .map((text, index) => new Text({ text, x: index * 5, y: 2, fontSize: index === 1 ? 1.5 : 1.4 }));
+    attachLabelToTarget(texts[0], wire, { x: 0, y: 0 });
+    if (!attachedFirst) texts.push(texts.shift());
+    const { app, dispose } = fixture(texts);
+    app.shapes = [...texts, wire];
+    app.renderShapes = () => syncAttachedLabels(app);
+    const before = texts.map(text => text.captureState());
+    try {
+        const input = document.getElementById('prop_fontSize');
+        input.focus();
+        input.value = '2';
+        input.fire('input');
+        input.fire('change');
+        assert.ok(texts.every(text => text.fontSize === 2), 'rendered preview keeps attached and standalone text sizes');
+        flushSettledChanges();
+        assert.ok(texts.every(text => text.fontSize === 2), 'mixed attachment selection keeps the committed size');
+        assert.equal(app.history.undoStack.length, 1);
+        app.history.undo();
+        assert.deepEqual(texts.map(text => text.captureState()), before, 'undo restores each original size and attachment');
+        app.history.redo();
+        assert.ok(texts.every(text => text.fontSize === 2), 'redo keeps edited sizes during redraw');
+    } finally { dispose(); }
+}
+
+for (const attachedFirst of [true, false]) {
+    const net = new Net({ net: 'VCC' });
+    const label = net.ensureLabelText();
+    const standalone = new Text({ text: 'Note', fontSize: 2.5 });
+    const texts = attachedFirst ? [label, standalone] : [standalone, label];
+    const { app, dispose } = fixture(texts);
+    app.shapes = [net, ...texts];
+    app.renderShapes = () => net.syncLabelText();
+    const before = texts.map(text => text.fontSize);
+    try {
+        const input = document.getElementById('prop_fontSize');
+        input.focus();
+        input.value = '3';
+        input.fire('input');
+        assert.deepEqual(texts.map(text => text.fontSize), [3, 3], 'Net-owned Text keeps live preview');
+        input.fire('change');
+        flushSettledChanges();
+        assert.deepEqual(texts.map(text => text.fontSize), [3, 3], 'Every Text owns its committed size');
+        app.history.undo();
+        assert.deepEqual(texts.map(text => text.fontSize), before);
+        app.history.redo();
+        assert.deepEqual(texts.map(text => text.fontSize), [3, 3]);
+    } finally { dispose(); }
+}
+
+{
+    const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] });
+    const text = new Text({ text: 'RTS', fontSize: 3 });
+    for (const isNewLabel of [true, false]) {
+        attachLabelToTarget(text, wire, { x: 0, y: 0 }, { isNewLabel });
+        assert.equal(text.fontSize, 3, 'Attachment never overrides Text size, including placement and reload');
     }
 }
 
@@ -350,9 +413,9 @@ for (const invalid of ['', '-']) {
     } finally { dispose(); }
 }
 
-for (const property of ['fill', 'text', 'style']) for (const valid of [false, true]) {
+for (const property of ['fill', 'text']) for (const valid of [false, true]) {
     const shape = property === 'fill' ? new Circle({ radius: 5, lineWidth: 0.2 })
-        : property === 'text' ? new Text({ text: 'Before' }) : new Net({ net: 'VCC' });
+        : new Text({ text: 'Before' });
     const { app, dispose } = fixture([shape]);
     try {
         const numericProperty = property === 'fill' ? 'lineWidth' : 'fontSize';
@@ -363,7 +426,7 @@ for (const property of ['fill', 'text', 'style']) for (const valid of [false, tr
             ? allElements(app.ui.propertiesPanel).filter(element => element.type === 'checkbox').at(-1)
             : document.getElementById(`prop_${property}`);
         const number = property === 'fill' ? 0.8 : 3;
-        const value = property === 'fill' ? true : property === 'text' ? 'After' : 'gnd';
+        const value = property === 'fill' ? true : 'After';
         input.focus(); input.value = String(number); input.fire('input');
         if (!valid) { input.value = ''; input.fire('input'); }
         input.fire('blur');

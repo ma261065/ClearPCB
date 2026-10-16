@@ -39,6 +39,45 @@ const VIA_CLASS = 'pcb-via';
 const trackElements = new WeakMap();
 /** @type {WeakMap<Via, SVGElement[]>} */
 const viaElements = new WeakMap();
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} RenderBounds */
+/** @type {WeakMap<SVGElement, RenderBounds & {culled: boolean}>} */
+const renderBounds = new WeakMap();
+
+/** @param {SVGElement} element @param {Point[]} points @param {number} margin */
+function cacheRenderBounds(element, points, margin) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const point of points) {
+        minX = Math.min(minX, point.x - margin); minY = Math.min(minY, point.y - margin);
+        maxX = Math.max(maxX, point.x + margin); maxY = Math.max(maxY, point.y + margin);
+    }
+    renderBounds.set(element, { minX, minY, maxX, maxY, culled: false });
+}
+
+/**
+ * Cull individual rendered runs and labels, not whole track graphs: a long
+ * track can intersect the view while most of its labels remain off-screen.
+ * Bounds are captured during rendering, never measured from the SVG during pan.
+ * @param {Track[]} tracks
+ * @param {Via[]} vias
+ * @param {RenderBounds|null} bounds null restores every element for export.
+ */
+export function updateTrackViewportCulling(tracks, vias, bounds) {
+    /** @param {SVGElement[]} elements */
+    const update = elements => {
+        for (const element of elements) {
+            const b = renderBounds.get(element);
+            if (!b) continue;
+            const hidden = !!(bounds && (b.maxX < bounds.minX || b.minX > bounds.maxX
+                || b.maxY < bounds.minY || b.minY > bounds.maxY));
+            if (b.culled !== hidden) {
+                b.culled = hidden;
+                element.classList.toggle('culled', hidden);
+            }
+        }
+    };
+    for (const track of tracks) update(trackElements.get(track) || []);
+    for (const via of vias) update(viaElements.get(via) || []);
+}
 
 /**
  * Render a Track into the supplied layer groups, removing any prior
@@ -86,6 +125,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
         if (track.net) polyline.dataset.net = track.net;
         polyline.dataset.layer = layerId;
         parent.appendChild(polyline);
+        cacheRenderBounds(polyline, run.points, run.width / 2);
         created.push(polyline);
 
         // Net-name labels along the run.
@@ -154,6 +194,7 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     if (drill) created.push(drill);
 
     viaElements.set(via, created);
+    for (const element of created) cacheRenderBounds(element, [via], via.diameter / 2);
 }
 
 /** Remove every SVG element this Track previously created. */
@@ -189,7 +230,7 @@ export function hasViaElements(via) {
 export function setTrackLabelsVisible(track, visible) {
     let found = false;
     for (const el of trackElements.get(track) || []) {
-        if (el.getAttribute('class') === 'pcb-track-label') {
+        if (el.classList.contains('pcb-track-label')) {
             el.style.display = visible ? '' : 'none';
             found = true;
         }
@@ -320,6 +361,9 @@ function _makeNetLabel(x, y, angle, fontSize, netName) {
     text.setAttribute('transform', `rotate(${angle.toFixed(2)} ${x} ${y})`);
     text.setAttribute('class', 'pcb-track-label');
     text.textContent = netName;
+    // A deliberately conservative rotation-independent envelope avoids font
+    // measurement/layout and keeps glyphs visible at viewport boundaries.
+    cacheRenderBounds(text, [{ x, y }], fontSize * (netName.length + 2));
     return text;
 }
 

@@ -89,8 +89,7 @@ function padLabels(name, packageId) {
     if (name === 'PNP') return ['B', 'E', 'C'];
     if (name === 'NMOS' || name === 'PMOS') return packageId === 'to92' ? ['G', 'D', 'S'] : ['G', 'S', 'D'];
     // IC layouts run counterclockwise from upper-left, like the canonical DIP.
-    if (name === 'OpAmp') return ['+', '-', 'OUT', '4', '5', '6', '7', '8'];
-    if (name === 'IC_DIP8') return ['1', '2', '3', '4', '5', '6', '7', '8'];
+    if (name === 'OpAmp' || name === 'IC_DIP8') return ['1', '2', '3', '4', '5', '6', '7', '8'];
     if (name === 'SW_Push') return ['1', '2', '1', '2'];
     if (name === 'Capacitor_Polarized') return ['+', '-'];
     if (name === 'Diode' || name === 'LED') return ['A', 'K'];

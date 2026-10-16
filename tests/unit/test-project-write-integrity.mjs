@@ -20,6 +20,7 @@ const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { ProjectIntegrityError, assertSupportedPcb, defaultPcbStackup, storableProject, validateEditableProject } =
     await import('../../src/core/project-format.js');
 const { compactProjectAliases } = await import('../../src/core/project-field-aliases.js');
+const { SCHEMATIC_CONNECTION_TOLERANCE } = await import('../../src/core/component-pin-connectivity.js');
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 
 const design = () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'maze' });
@@ -50,7 +51,141 @@ const corrupt = () => {
     assert.throws(() => assertSupportedPcb(multiLayer.pcb), /only two-layer boards/);
     assert.throws(() => storableProject(multiLayer),
         error => error instanceof ProjectIntegrityError && /only two-layer boards/.test(error.message));
+
+    const bonded = valid();
+    bonded.schematic.components.push({
+        type: 'component', id: 'resistor-1', dn: 'Resistor', x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
+    });
+    bonded.schematic.shapes.push({
+        id: 'wire-1', type: 'wire',
+        nd: { pin: [36.19, 25], end: [30, 25] },
+        ed: { edge: ['pin', 'end'] },
+        pc: { pin: { cid: 'resistor-1', pn: '1' } },
+    });
+    assert.doesNotThrow(() => validateEditableProject(bonded), 'A bond at the physical pin is valid');
+    bonded.schematic.shapes[0].nd.pin = [30, 30];
+    assert.throws(() => validateEditableProject(bonded),
+        error => /physical pin position/.test(error.message),
+        'A wire cannot claim a pin while its node is elsewhere');
     console.log('PASS storage form, live-data isolation and integrity errors');
+}
+
+{
+    for (const target of ['component', 'net']) {
+        const bonded = valid();
+        if (target === 'component') bonded.schematic.components.push({
+            type: 'component', id: 'bond-target', dn: 'Resistor', x: 3.81, y: 0, ref: 'R1', val: '10k',
+        });
+        else bonded.schematic.shapes.push({ id: 'bond-target', type: 'net', x: 0, y: 0, n: 'GND' });
+        const wire = { id: 'offset-wire', type: 'wire',
+            nd: { pin: [0, 0], end: [-5, 0] }, ed: { edge: ['pin', 'end'] },
+            pc: { pin: { cid: 'bond-target', pn: target === 'component' ? '1' : 'conn' } } };
+        bonded.schematic.shapes.push(wire);
+        for (const offset of [0.02, 0.0414, 0.10, SCHEMATIC_CONNECTION_TOLERANCE - 0.0001]) {
+            wire.nd.pin = [offset, 0];
+            const before = JSON.stringify(bonded);
+            assert.doesNotThrow(() => validateEditableProject(bonded), `${target}: editor-valid offset ${offset} loads`);
+            assert.doesNotThrow(() => storableProject(bonded), `${target}: editor-valid offset ${offset} saves`);
+            assert.equal(JSON.stringify(bonded), before, 'Validation preserves saved geometry');
+        }
+        for (const offset of [SCHEMATIC_CONNECTION_TOLERANCE, SCHEMATIC_CONNECTION_TOLERANCE + 0.0001]) {
+            wire.nd.pin = [offset, 0];
+            assert.throws(() => validateEditableProject(bonded), /position/,
+                `${target}: bonds at or beyond the editor tolerance are rejected`);
+        }
+    }
+    console.log('PASS saved schematic bonds use the editor connection tolerance without moving geometry');
+}
+
+{
+    const bonded = valid();
+    bonded.schematic.shapes.push(
+        { id: 'eda_s166', type: 'net', x: 57.15, y: -158.75, n: 'VCC', nst: 'arrow', no: 'E' },
+        { id: 'label-wire', type: 'wire',
+            nd: { n0: [50, -158.75], n1: [57.15, -158.75] }, ed: { e0: ['n0', 'n1'] },
+            pc: { n1: { cid: 'eda_s166', pn: 'conn' } }, n: 'VCC' });
+    assert.doesNotThrow(() => validateEditableProject(bonded), 'Net labels expose a valid virtual conn pin');
+    assert.doesNotThrow(() => storableProject(bonded), 'Net-label bonds can be saved');
+    const project = new ProjectDocument();
+    await project.load(bonded);
+    const saved = project.serialize();
+    assert.deepEqual(saved.schematic.shapes.find(shape => shape.id === 'label-wire').pc.n1,
+        { cid: 'eda_s166', pn: 'conn' }, 'Opening and saving preserves the net-label bond');
+    await new ProjectDocument().load(saved);
+
+    const wire = bonded.schematic.shapes[1];
+    wire.pc.n1.pn = '1';
+    assert.throws(() => validateEditableProject(bonded), /missing net-label pin/);
+    wire.pc.n1.pn = 'conn';
+    wire.nd.n1 = [57.15, -150];
+    assert.throws(() => validateEditableProject(bonded), /net-label connection position/);
+    wire.nd.n1 = [57.15, -158.75];
+    wire.pc.n1.cid = 'missing-label';
+    assert.throws(() => validateEditableProject(bonded), /missing component/);
+    console.log('PASS net-label virtual pin bonds, roundtrip and invalid-target checks');
+}
+
+{
+    const bonded = valid();
+    bonded.schematic.components.push({
+        type: 'component', id: 'resistor-1', dn: 'Resistor', x: 40, y: 25, rot: 0, ref: 'R1', val: '10k',
+    });
+    bonded.pcb.placements = { 'resistor-1': { x: 10, y: -10, rotation: 0 } };
+    bonded.pcb.tracks = [{
+        id: 'bonded-track', type: 'track',
+        nd: { pad: [6.19, -10], end: [15, -10] },
+        ed: { edge: ['pad', 'end'] },
+        pdc: { pad: { cid: 'resistor-1', pn: '1' } },
+    }];
+    const project = new ProjectDocument();
+    await project.load(bonded);
+    const badPadBond = structuredClone(bonded);
+    badPadBond.pcb.tracks[0].nd.pad = [30, 30];
+    await assert.rejects(project.load(badPadBond), /physical pad position/,
+        'A track cannot claim a pad while its node is elsewhere');
+
+    const removed = project.serialize();
+    removed.schematic.components = [];
+    removed.pcb.tracks = [];
+    assert.ok(removed.pcb.placements['resistor-1']);
+    await project.load(removed);
+    assert.equal(project.serialize().pcb.placements?.['resistor-1'], undefined,
+        'Removing a component also removes its saved PCB placement');
+    console.log('PASS physical schematic/PCB bonds and orphan placement cleanup');
+}
+
+{
+    const base = valid();
+    base.schematic.components.push({
+        type: 'component', id: 'opamp-1', dn: 'OpAmp', x: 20, y: 20, rot: 0, ref: 'U1', val: 'LM358',
+    });
+    base.pcb.placements = { 'opamp-1': { x: 10, y: -10, rotation: 0 } };
+    const geometry = new ProjectDocument();
+    await geometry.load(base);
+    const legacyPad = geometry.resolvePcbLayout().placements.get('opamp-1').pads.get('1');
+    const migratedPad = geometry.resolvePcbLayout().placements.get('opamp-1').pads.get('3');
+
+    const legacy = structuredClone(base);
+    legacy.schematic.shapes.push({
+        id: 'legacy-opamp-wire', type: 'wire',
+        nd: { pin: [16.19, 21.27], end: [10, 21.27] },
+        ed: { edge: ['pin', 'end'] },
+        pc: { pin: { cid: 'opamp-1', pn: '+' } },
+    });
+    legacy.pcb.tracks = [{
+        id: 'legacy-opamp-track', type: 'track',
+        nd: { pad: [legacyPad.x, legacyPad.y], end: [legacyPad.x - 5, legacyPad.y] },
+        ed: { edge: ['pad', 'end'] },
+        pdc: { pad: { cid: 'opamp-1', pn: '+' } },
+    }];
+    const migrated = new ProjectDocument();
+    await migrated.load(legacy);
+    const saved = migrated.serialize();
+    assert.equal(saved.schematic.shapes[0].pc.pin.pn, '3');
+    assert.equal(saved.pcb.tracks[0].pdc.pad.pn, '3');
+    assert.deepEqual(saved.pcb.tracks[0].nd.pad,
+        [Math.round(migratedPad.x * 10000) / 10000, Math.round(migratedPad.y * 10000) / 10000]);
+    console.log('PASS legacy OpAmp schematic and PCB bonds migrate to the LM741 pinout');
 }
 
 function managerWithHandle() {

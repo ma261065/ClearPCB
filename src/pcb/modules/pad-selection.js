@@ -1,6 +1,5 @@
-import { isLayerVisible } from './layers.js';
+import { isPadVisible } from './layers.js';
 import { isPcbObjectLocked } from './object-locks.js';
-import { padLayers } from '../../shapes/pad-geometry.js';
 import { renderPad, updatePadHighlightGeometry } from './pad.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
@@ -26,10 +25,9 @@ import { areDragOverlaysDeferred } from './refresh-state.js';
 export function createPadSelectionAdapter(app, pad, id) {
     pad = canonicalPad(app, pad);
     const current = () => displayedPad(app, pad);
-    const layers = () => padLayers(pad);
     return {
         id, kind: 'pad', get object() { return current(); },
-        get visible() { return pad.visible !== false && layers().some(isLayerVisible); },
+        get visible() { return isPadVisible(pad); },
         get locked() { return isPcbObjectLocked(app, 'pad', pad); },
         getBounds() { return current().getBounds(); },
         getLockPosition(pointer, scale) {

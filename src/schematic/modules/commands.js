@@ -134,6 +134,17 @@ export class DeleteShapesCommand extends Command {
             shape: /** @type {SchematicDrawable} */ (s),
             index: indexMap.get(s) ?? -1
         }));
+        const removedNetIds = new Set(this.shapesData.filter(({ shape }) => isNet(shape)).map(({ shape }) => shape.id));
+        /** @type {RemovedPinConnection[]} */
+        this.removedPinConnections = [];
+        for (const wire of app.shapes) {
+            if (!isWire(wire) || shapes.includes(wire)) continue;
+            for (const [nodeId, conn] of wire.pinConnections) {
+                if (removedNetIds.has(conn.componentId)) {
+                    this.removedPinConnections.push({ wire, nodeId, conn });
+                }
+            }
+        }
 
         const explicitShapes = new Set(shapes);
         const linkedShapeSet = new Set();
@@ -176,12 +187,22 @@ export class DeleteShapesCommand extends Command {
     /** Remove the shapes from the canvas and deselect them. */
     lockTargets() { return this.shapesData.map(({ shape }) => ({ object: shape })); }
     execute() {
+        for (const { wire, nodeId } of this.removedPinConnections) {
+            wire.pinConnections.delete(nodeId);
+            redrawShape(this.app, wire);
+        }
         this.app.commandDeleteShapes(this.shapesData, this.linkedLabelData);
+        if (this.removedPinConnections.length) renderComponentPinJunctions(this.app);
     }
     
     /** Re-insert the shapes at their original z-order positions. */
     undo() {
+        for (const { wire, nodeId, conn } of this.removedPinConnections) {
+            wire.pinConnections.set(nodeId, conn);
+            redrawShape(this.app, wire);
+        }
         this.app.commandRestoreShapes(this.shapesData, this.linkedLabelData);
+        if (this.removedPinConnections.length) renderComponentPinJunctions(this.app);
     }
 }
 
@@ -452,7 +473,7 @@ export class ModifyPropertyCommand extends Command {
                 if (oldNet) freeNetName(oldNet);
                 if (newNet) bumpNetNameCounter(newNet);
             }
-            if (isNet(item) && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
+            if (isNet(item) && ['net', 'style', 'orientation', 'border'].includes(this.prop)) {
                 if (typeof item.syncTextOffsetFromLabelText === 'function') {
                     item.syncTextOffsetFromLabelText();
                 }

@@ -69,7 +69,9 @@ A pour voids other-net pads with their clearance. A pad on the pour's own net ge
 thermal relief: its clearance ring is voided too, except for four spokes along the
 pad's own axes. The spokes follow its width, height and rotation, so each one reaches
 the pour past the pad's edge whatever its aspect ratio or angle
-(`test-thermal-relief-pad-axes`).
+(`test-thermal-relief-pad-axes`). Pours read pad layers from `resolveCopperPads`, which
+gives footprint and free pads the same board copper-layer ids, so free SMD pads receive
+the same relief or clearance on their copper layer (`test-free-smd-pad-pour-layers`).
 
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
