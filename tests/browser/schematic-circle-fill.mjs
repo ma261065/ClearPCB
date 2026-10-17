@@ -40,6 +40,8 @@ export const scenarios = [{
         await page.evaluate(async centre => {
             const { Polyline } = await import('/src/shapes/polyline.js');
             const app = window.bootstrap.schematicApp;
+            // Translucent strokes reveal the grid; its screen alignment varies by platform.
+            app.viewport.setGridVisible(false);
             const points = [{ x: centre.x - 20, y: centre.y - 10 }, { x: centre.x + 20, y: centre.y - 10 },
                 { x: centre.x + 20, y: centre.y + 10 }, { x: centre.x - 20, y: centre.y + 10 }];
             app.addShape(new Polyline({ points, closed: true, isRect: true, lineWidth: 4, fill: true, fillAlpha: 0.3 }));
@@ -53,7 +55,7 @@ export const scenarios = [{
             return viewOf(window.bootstrap.schematicApp.shapes[0]).element
                 .querySelector('.shape-strokes')?.getAttribute('opacity') === '0.35';
         });
-        // Off-grid sample points, so background grid lines do not affect the comparison.
+        // Sample inside the fill and strokes, away from antialiased boundaries.
         const samples = { fill: await at(-5.3, 3.3), inner: await at(18.7, 3.3), outer: await at(21.3, 3.3),
             corner: await at(20.3, -9.7), edge: await at(20.3, 3.3) };
         const png = (await page.screenshot()).toString('base64');
