@@ -183,8 +183,14 @@ export function placeFootprints(app, placements) {
         const { geometry: fpGeom, ...placement } = resolved;
         const fpLayers = app.renderFootprint(fpGeom, /** @type {Placement & {reference: string}} */ (placement));
 
+        // Highlights must not inherit the visibility of the first artwork layer.
+        const highlights = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        highlights.setAttribute('class', 'pcb-fp-highlights');
+        highlights.setAttribute('transform', placementTransform(placement));
+        highlights.setAttribute('pointer-events', 'none');
+        app.getLayerGroup('selection-overlay').appendChild(highlights);
         /** @type {SVGGElement[]} */
-        const elements = [];
+        const elements = [highlights];
         for (const [layerId, layerGroup] of fpLayers) {
             app.getLayerGroup(layerId).appendChild(layerGroup);
             elements.push(layerGroup);

@@ -11,17 +11,41 @@
 
 // ── DSN Export ────────────────────────────────────────────────────
 
+import { placementPose } from '../../shared/pcb/board-geometry.js';
 /** @typedef {import('../../shapes/track.js').Point} Point */
-/** @typedef {{dx: number, dy: number, width?: number, height?: number, number: string|number, layer?: string, shape?: string}} DsnPadOffset */
-/** @typedef {{x: number, y: number, reference?: string, padOffsets?: DsnPadOffset[]}} DsnPlacement */
+/** @typedef {{dx: number, dy: number, width?: number, height?: number, number: string|number, layer?: string, _baseLayer?: string, shape?: string}} DsnPadOffset */
+/** @typedef {{x: number, y: number, rotation?: number, mirror?: boolean, side?: string, reference?: string, padOffsets?: DsnPadOffset[]}} DsnPlacement */
 /** @typedef {{componentId: string, pinNumber: string}} DsnNetPin */
 /** @typedef {{net: string, pins: DsnNetPin[]}} DsnNet */
 /** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} DsnBounds */
 /** @typedef {{placements: Map<string, DsnPlacement>, netlist: DsnNet[], bounds?: DsnBounds, trackWidth: number, clearance: number, viaDiameter: number}} ExportDsnOptions */
 /** @typedef {{width: number, height: number, layer: 'top'|'bottom'|'both'}} DsnPadstack */
 /** @typedef {{padstackName: string, dx: number, dy: number}} DsnPinDef */
-/** @typedef {{imageName: string, x: number, y: number}} DsnComponent */
+/** @typedef {{imageName: string, x: number, y: number, rotation: number, back: boolean}} DsnComponent */
 /** @typedef {{x: number, y: number, width: number, height: number, layer: 'top'|'bottom'|'both'}} DsnPad */
+
+/** @param {string|undefined} layer @returns {'top'|'bottom'|'both'} */
+const dsnPadLayer = layer => layer === 'bottom' ? 'bottom' : layer === 'top' ? 'top' : 'both';
+/** @param {string|undefined} layer */
+const flipPadLayer = layer => layer === 'top' ? 'bottom' : layer === 'bottom' ? 'top' : layer;
+
+/**
+ * ClearPCB poses a footprint as mirror-x (when `mirror` XOR bottom side), then a
+ * clockwise-on-screen rotation in Y-down board space. Specctra (as read by
+ * Freerouting's default flip style) mirrors x only for `back` parts, flips their
+ * pad layers itself, then rotates counter-clockwise in Y-up space. So the DSN
+ * rotation is the negated angle, bottom parts are `back`, and only a user
+ * `mirror` flag needs mirroring baked into the per-component image.
+ * @param {DsnPlacement} pl
+ */
+export function dsnPlacementPose(pl) {
+    const rotation = ((-(pl.rotation || 0) % 360) + 360) % 360;
+    return {
+        rotation: Math.round(rotation * 1000) / 1000 % 360,
+        back: pl.side === 'bottom',
+        imageMirror: !!pl.mirror,
+    };
+}
 
 /**
  * Build a Specctra DSN string from current board state.
@@ -46,18 +70,17 @@ export function exportDSN(opts) {
     /** @param {number} mm */
     const u = (mm) => Math.round(mm * resolution);
 
-    // Compute board boundary from placements
+    // Compute board boundary from posed pad positions
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const [, pl] of placements) {
+        const pose = placementPose(pl);
         for (const off of (pl.padOffsets || [])) {
-            const px = pl.x + off.dx;
-            const py = pl.y + off.dy;
-            const hw = (off.width || 1) / 2 + 2;
-            const hh = (off.height || 1) / 2 + 2;
-            minX = Math.min(minX, px - hw);
-            minY = Math.min(minY, py - hh);
-            maxX = Math.max(maxX, px + hw);
-            maxY = Math.max(maxY, py + hh);
+            const { x: px, y: py } = pose.xf(off.dx, off.dy);
+            const r = Math.max(off.width || 1, off.height || 1) / 2 + 2;
+            minX = Math.min(minX, px - r);
+            minY = Math.min(minY, py - r);
+            maxX = Math.max(maxX, px + r);
+            maxY = Math.max(maxY, py + r);
         }
     }
     if (opts.bounds) {
@@ -68,18 +91,19 @@ export function exportDSN(opts) {
     }
 
     // Collect unique padstacks and build image (footprint) definitions
-    const padstacks = new Map(); // key → { w, h, shape, name }
+    const padstacks = new Map(); // key → { w, h, shape, layer, name }
     const images = new Map();    // reference → image def string
 
     /**
      * @param {number} w
      * @param {number} h
      * @param {string} shape
+     * @param {'top'|'bottom'|'both'} layer
      */
-    const padstackName = (w, h, shape) => {
-        const key = `${shape}_${u(w)}x${u(h)}`;
+    const padstackName = (w, h, shape, layer) => {
+        const key = `${shape}_${u(w)}x${u(h)}_${layer}`;
         if (!padstacks.has(key)) {
-            padstacks.set(key, { w, h, shape, name: key });
+            padstacks.set(key, { w, h, shape, layer, name: key });
         }
         return key;
     };
@@ -93,12 +117,16 @@ export function exportDSN(opts) {
         const ref = pl.reference || compId;
         const imageName = `img_${ref}`;
         compImageMap.set(compId, imageName);
+        const pose = dsnPlacementPose(pl);
 
         if (!images.has(imageName)) {
             const pinDefs = [];
             for (const off of (pl.padOffsets || [])) {
-                const psName = padstackName(off.width || 1, off.height || 1, 'rect');
-                pinDefs.push(`      (pin ${psName} ${off.number} ${u(off.dx)} ${u(-off.dy)})`);
+                // Freerouting flips back-side pad layers itself, so the image keeps the footprint's own side.
+                const baseLayer = off._baseLayer ?? (pose.back ? flipPadLayer(off.layer) : off.layer);
+                const psName = padstackName(off.width || 1, off.height || 1, off.shape || 'rect', dsnPadLayer(baseLayer));
+                const dx = pose.imageMirror ? -off.dx : off.dx;
+                pinDefs.push(`      (pin ${psName} ${off.number} ${u(dx)} ${u(-off.dy)})`);
             }
             const imgDef = `    (image ${imageName}\n${pinDefs.join('\n')}\n    )`;
             imageDefs.push(imgDef);
@@ -107,7 +135,7 @@ export function exportDSN(opts) {
 
         placementDefs.push(
             `    (component ${imageName}\n` +
-            `      (place ${ref} ${u(pl.x)} ${u(-pl.y)} front 0)\n` +
+            `      (place ${ref} ${u(pl.x)} ${u(-pl.y)} ${pose.back ? 'back' : 'front'} ${pose.rotation})\n` +
             `    )`
         );
     }
@@ -115,10 +143,10 @@ export function exportDSN(opts) {
     // Build padstack definitions
     const padstackDefs = [];
     for (const [, ps] of padstacks) {
-        const hw = u(ps.w / 2), hh = u(ps.h / 2);
+        const layers = ps.layer === 'both' ? ['F.Cu', 'B.Cu'] : [ps.layer === 'bottom' ? 'B.Cu' : 'F.Cu'];
         padstackDefs.push(
             `    (padstack ${ps.name}\n` +
-            `      (shape (rect F.Cu ${-hw} ${-hh} ${hw} ${hh}))\n` +
+            layers.map(layer => `      (shape ${_padShape(ps, layer, u)})\n`).join('') +
             `      (attach off)\n` +
             `    )`
         );
@@ -278,30 +306,37 @@ export function importDSN(dsnText) {
         const name = child[1];
         let width = 1.0;
         let height = 1.0;
-        /** @type {'top'|'bottom'|'both'} */
-        let layer = 'both';
+        let sized = false;
+        const layers = new Set();
         for (const n of child) {
             if (!Array.isArray(n) || n[0] !== 'shape') continue;
-            // (shape (rect F.Cu x1 y1 x2 y2)) or (shape (circle F.Cu dia))
+            // (shape (rect F.Cu x1 y1 x2 y2)), (shape (circle F.Cu dia)),
+            // (shape (path F.Cu width x1 y1 x2 y2)) or (shape (polygon F.Cu 0 x y ...))
             const shape = n[1];
             if (!Array.isArray(shape)) continue;
+            /** @type {{width: number, height: number}|null} */
+            let size = null;
             if (shape[0] === 'rect' && shape.length >= 6) {
-                const sx1 = toMM(shape[2]);
-                const sy1 = toMM(shape[3]);
-                const sx2 = toMM(shape[4]);
-                const sy2 = toMM(shape[5]);
-                width = Math.abs(sx2 - sx1);
-                height = Math.abs(sy2 - sy1);
-                layer = shape[1] === 'B.Cu' ? 'bottom' : shape[1] === 'F.Cu' ? 'top' : 'both';
-                break;
-            }
-            if (shape[0] === 'circle' && shape.length >= 3) {
+                size = { width: Math.abs(toMM(shape[4]) - toMM(shape[2])), height: Math.abs(toMM(shape[5]) - toMM(shape[3])) };
+            } else if (shape[0] === 'circle' && shape.length >= 3) {
                 const dia = toMM(shape[2]);
-                width = dia;
-                height = dia;
-                layer = shape[1] === 'B.Cu' ? 'bottom' : shape[1] === 'F.Cu' ? 'top' : 'both';
+                size = { width: dia, height: dia };
+            } else if (shape[0] === 'path' && shape.length >= 7) {
+                const w = toMM(shape[2]);
+                size = { width: Math.abs(toMM(shape[5]) - toMM(shape[3])) + w, height: Math.abs(toMM(shape[6]) - toMM(shape[4])) + w };
+            } else if (shape[0] === 'polygon' && shape.length >= 8) {
+                const xs = [], ys = [];
+                for (let i = 3; i + 1 < shape.length; i += 2) { xs.push(toMM(shape[i])); ys.push(toMM(shape[i + 1])); }
+                size = { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
             }
+            if (!size) continue;
+            layers.add(shape[1]);
+            if (!sized) ({ width, height } = size);
+            sized = true;
         }
+        /** @type {'top'|'bottom'|'both'} */
+        const layer = layers.size === 1 && layers.has('F.Cu') ? 'top'
+            : layers.size === 1 && layers.has('B.Cu') ? 'bottom' : 'both';
         padstacks.set(name, { width, height, layer });
     }
 
@@ -348,7 +383,9 @@ export function importDSN(dsnText) {
             const ref = String(placeNode[1]);
             const x = toMM(placeNode[2]);
             const y = -toMM(placeNode[3]);
-            components.set(ref, { imageName, x, y });
+            const back = placeNode[4] === 'back';
+            const rotation = parseFloat(placeNode[5]) || 0;
+            components.set(ref, { imageName, x, y, rotation, back });
         }
     }
 
@@ -359,16 +396,19 @@ export function importDSN(dsnText) {
     for (const [ref, comp] of components.entries()) {
         const imgPins = images.get(comp.imageName);
         if (!imgPins) continue;
+        // Freerouting's default flip style: mirror x for back parts, then rotate CCW (Y-up).
+        const rad = comp.rotation * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const quarterTurn = Math.abs(sin) > Math.SQRT1_2;
         for (const [pinNumber, pinDef] of imgPins.entries()) {
             const ps = padstacks.get(pinDef.padstackName) || { width: 1.0, height: 1.0, layer: 'both' };
-            const padX = comp.x + pinDef.dx;
-            const padY = comp.y - pinDef.dy;
+            const lx = comp.back ? -pinDef.dx : pinDef.dx;
             const pad = {
-                x: padX,
-                y: padY,
-                width: ps.width,
-                height: ps.height,
-                layer: ps.layer,
+                x: comp.x + lx * cos - pinDef.dy * sin,
+                y: comp.y - (lx * sin + pinDef.dy * cos),
+                width: quarterTurn ? ps.height : ps.width,
+                height: quarterTurn ? ps.width : ps.height,
+                layer: comp.back ? /** @type {'top'|'bottom'|'both'} */ (flipPadLayer(ps.layer)) : ps.layer,
             };
             padByRefPin.set(`${ref}:${pinNumber}`, pad);
             allObstaclePads.push(pad);
@@ -435,6 +475,34 @@ export function importDSN(dsnText) {
 function _q(name) {
     if (/^[A-Za-z0-9_.+\-/]+$/.test(name)) return name;
     return `"${name.replace(/"/g, '""')}"`;
+}
+
+/**
+ * One copper layer's Specctra shape for a pad, centred on the pin, in image (Y-up) units.
+ * Stadium pads are a round-ended path; ellipses are approximated by a 24-gon.
+ * @param {{w: number, h: number, shape: string}} ps
+ * @param {string} layer
+ * @param {(mm: number) => number} u
+ */
+function _padShape(ps, layer, u) {
+    const hw = ps.w / 2, hh = ps.h / 2;
+    if (Math.abs(hw - hh) < 1e-9 && ps.shape !== 'rect') {
+        return `(circle ${layer} ${u(ps.w)})`;
+    }
+    if (ps.shape === 'stadium') {
+        const r = Math.min(hw, hh);
+        const ex = hw - r, ey = hh - r;
+        return `(path ${layer} ${u(2 * r)} ${u(-ex)} ${u(-ey)} ${u(ex)} ${u(ey)})`;
+    }
+    if (ps.shape === 'oval' || ps.shape === 'round') {
+        const points = [];
+        for (let i = 0; i < 24; i++) {
+            const a = (i / 24) * 2 * Math.PI;
+            points.push(u(hw * Math.cos(a)), u(hh * Math.sin(a)));
+        }
+        return `(polygon ${layer} 0 ${points.join(' ')})`;
+    }
+    return `(rect ${layer} ${u(-hw)} ${u(-hh)} ${u(hw)} ${u(hh)})`;
 }
 
 // ── SES Import ────────────────────────────────────────────────────
