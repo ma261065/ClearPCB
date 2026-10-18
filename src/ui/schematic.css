@@ -277,40 +277,61 @@ body {
 }
 
 .startup-card {
-    width: min(560px, 100%);
+    width: min(720px, 100%);
     max-height: min(620px, calc(100dvh - 64px));
     display: flex;
     flex-direction: column;
-    padding: 28px;
+    overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 12px;
     background: var(--bg-secondary);
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
 }
 
-.startup-heading {
+.startup-hero {
+    min-height: 290px;
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 28px;
+    padding: 36px;
+    background-color: #00030a;
+    background-image: radial-gradient(125% 145% at 72% 28%,
+        #1c427f 0%, #0d2254 22%, #06142f 44%, #020a1c 70%, #00030a 100%);
 }
 
-.startup-heading h1 {
-    margin: 0 0 4px;
-    color: var(--text-primary);
-    font-size: 24px;
+.startup-hero-art {
+    flex: 0 0 auto;
+    width: 44%;
+    max-width: 330px;
+    max-height: 230px;
+    object-fit: contain;
+    filter: drop-shadow(0 18px 26px rgba(0, 0, 0, 0.55));
+}
+
+.startup-hero-content {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.startup-hero h1 {
+    margin: 0 0 8px;
+    color: #f5f7ff;
+    font-size: 30px;
     font-weight: 600;
 }
 
-.startup-heading p {
+.startup-hero p {
     margin: 0;
-    color: var(--text-secondary);
-    font-size: 14px;
+    color: #c7d2ec;
+    font-size: 15px;
+    line-height: 1.4;
 }
 
 .startup-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    margin: 24px 0;
+    margin-top: 28px;
 }
 
 .startup-actions button {
@@ -333,7 +354,7 @@ body {
 }
 
 .startup-recents-heading {
-    margin-bottom: 8px;
+    margin: 24px 28px 8px;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
@@ -343,6 +364,7 @@ body {
 
 .startup-recents {
     min-height: 48px;
+    margin: 0 28px 28px;
     overflow-y: auto;
 }
 
@@ -394,8 +416,24 @@ body {
 
 @media (max-width: 600px) {
     .startup-splash { padding: 16px; }
-    .startup-card { padding: 20px; }
-    .startup-heading img { display: none; }
+    .startup-hero {
+        min-height: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 20px;
+        padding: 24px;
+    }
+    .startup-hero-art {
+        order: -1;
+        width: 100%;
+        max-width: none;
+        max-height: 170px;
+    }
+    .startup-hero-content { width: 100%; }
+    .startup-hero h1 { font-size: 25px; }
+    .startup-actions { margin-top: 20px; }
+    .startup-recents-heading { margin: 20px 20px 8px; }
+    .startup-recents { margin: 0 20px 20px; }
 }
 
 /* ── PCB placeholder ── */
