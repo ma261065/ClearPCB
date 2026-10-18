@@ -2,6 +2,8 @@
 
 A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  No build step, no framework — open `index.html` and start drawing.  A project is a single document holding both the schematic and the PCB.
 
+The latest version is always deployed at [https://clearpcb.org](https://clearpcb.org)
+
 ## Features
 
 - **Schematic drawing** — Line, Rectangle, Circle, Arc, Polygon, Text, Net Label, No Connect
@@ -18,7 +20,7 @@ A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  N
 
 ## Getting started
 
-Serve the project root with any static HTTP server:
+You can simply navigate to [https://clearpcb.org](https://clearpcb.org) for the latest version, or for self-hosting you can serve the project root yourself with any static HTTP server:
 
 ```bash
 # Node, no dependencies
