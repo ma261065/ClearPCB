@@ -84,6 +84,17 @@ an in-progress drawing, and Escape cancels its live preview without blurring the
 field or applying the canvas-level Escape action. Enter and Escape on the canvas
 retain their normal drawing and cancellation behavior.
 
+While an inline text edit is active, a focused Properties control keeps every key
+it can use — a number field retains its digits, signs, separators, arrows and
+editing keys — and Enter still belongs to that control. Escape first cancels the
+control's live preview and then cancels the inline text edit, all from one key
+press. A printable character the control cannot hold (a letter, a space) goes to
+the text being edited instead, so clicking a spinner such as Text Size does not
+strand the keyboard and the user can keep typing. Text-entry fields in the panel
+keep all of their own characters, and controls outside the Properties panel are
+unaffected (`test-schematic-inline-property-keyboard`). PCB labels behave the
+same way.
+
 Inline text editing supports Ctrl+A (Cmd+A on macOS), Shift+Left/Right,
 Ctrl/Cmd+Shift+Left/Right for word selection, and Shift+Home/End. A translucent
 highlight shows the selected text. Typing replaces the selection; Backspace and
