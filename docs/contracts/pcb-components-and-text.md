@@ -35,6 +35,13 @@ component hover outline state in per-editor WeakMaps and the component 3D
 context-menu entry point. PCB input modules import those owner APIs directly
 rather than reaching through `PCBApp` private methods.
 
+Each rendered placement's first SVG element is a dedicated highlight group in
+`selection-overlay`, not a fabrication layer. Hover, single-selection and
+multi-selection borders therefore remain visible when paste, document, silk or
+copper layers are hidden, regardless of footprint artwork order. This group
+participates in the same pose, culling and disposal lifecycle as the artwork,
+but side changes never move it onto a fabrication layer.
+
 ## Free Text
 
 Free-standing text creation, defaults/layer rules and full-precision snapshots

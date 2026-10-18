@@ -379,6 +379,14 @@ pad's copper sides) and Net. Tracks label their width "Width (mm)" because a
 track's line is its width; field text is named for its field (Reference,
 Value, Label).
 
+PCB X (mm) / Y (mm) fields use the status bar's convention: Y grows upward on
+screen, the inverse of the stored board Y. Components show their origin;
+board shapes, images and the board outline show the centre of their geometric
+bounds (the combined bounds for a multi-selection, a circle's exact centre).
+Editable location spinners step by the PCB grid and preview the move live, like
+a canvas drag. Directly typed coordinates may fall between grid steps; the grid
+increment constrains the spinner and Arrow keys, not number-field validity.
+
 Pop-up menus (context menus and the lock icon's unlock menu) come from
 `shared/ui/context-menu.js` in both editors: opened at the pointer, one per id,
 closed by choosing an item, an outside press or Escape. Every Properties number

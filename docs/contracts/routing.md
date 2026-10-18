@@ -107,6 +107,18 @@ rule width/clearance and a valid via padstack diameter. DSN round-trips
 `viaDiameter` through the referenced via padstack; ClearPCB's exporter names
 that padstack `via_default`.
 
+DSN placements carry the component pose in Freerouting's default (mirror-first)
+convention: `(place REF x -y front|back R)` where `back` means
+`side === 'bottom'` and `R = (360 - rotation) mod 360` because DSN angles are
+counter-clockwise in Y-up space. Image pins are the unposed footprint offsets;
+their x is negated only for the user `mirror` flag, since Freerouting already
+mirrors back-side parts. Padstacks name the base (unflipped) copper layer
+(`top` → F.Cu, `bottom` → B.Cu, `both` → one shape on each) and keep the pad
+outline (`round` → circle, `stadium` → path, `oval` → polygon, else rect).
+`importDSN` applies the same transform, so imported pads match
+`placementPose`; `tests/unit/test-dsn-placement-pose.mjs` checks every
+rotation/side/mirror combination.
+
 ### Pad Obstacle Model
 
 Pad shape vocabulary `'rect' | 'ellipse' | 'oval'` flows through

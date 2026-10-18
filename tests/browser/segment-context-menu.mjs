@@ -48,16 +48,15 @@ export const scenarios = [{
             const app = window.bootstrap.schematicApp;
             const { viewOf } = await import('/src/schematic/render/shape-view-state.js');
             const wire = app.shapes.find(shape => shape.id === 'short-segment-menu');
-            const line = [...viewOf(wire).element.children].find(element =>
-                String(element.tagName).toLowerCase() === 'line');
+            const lines = [...viewOf(wire).element.querySelectorAll('.shape-strokes line')];
             return {
                 selected: app.selection.getSelection().map(shape => shape.id),
-                stroke: line?.getAttribute('stroke'),
+                strokes: lines.map(line => line.getAttribute('stroke')),
             };
         });
         assert.deepEqual(await selectedState(), {
             selected: ['short-segment-menu'],
-            stroke: '#e94560',
+            strokes: ['#e94560', '#e94560'],
         }, 'Right-click selects the whole wire in red');
         const deleteSegment = menu.getByText('Delete Segment', { exact: true });
         assert.equal(await deleteSegment.count(), 1,
@@ -89,7 +88,7 @@ export const scenarios = [{
         await page.mouse.move(midpoint.x + 80, midpoint.y + 80);
         assert.deepEqual(await selectedState(), {
             selected: ['short-segment-menu'],
-            stroke: '#e94560',
+            strokes: ['#e94560', '#e94560'],
         }, 'Moving off the context menu keeps the wire selected in red');
         await page.keyboard.press('Escape');
         assert.equal(await highlight.count(), 0, 'Dismissing the menu clears the edge preview');

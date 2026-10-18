@@ -5,7 +5,7 @@ import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire-snap.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { flipComponentH, flipComponentV, isPlacingComponent, rotateComponentRight } from './components.js';
-import { handleTextEditKey, hasSchematicTextEdit } from './text-edit.js';
+import { endTextEdit, handleTextEditKey, hasSchematicTextEdit } from './text-edit.js';
 import {
     beginPastePreview, cutSelection, flipPastePreviewHorizontal, flipPastePreviewVertical,
     isTransformingPastedComponents, rotatePastePreviewRight,
@@ -33,6 +33,33 @@ import { dismissAnchorContextMenu } from './context-menu.js';
  */
 function canActOnSelection(app) {
     return canRunSchematicSelectionAction(app) && app.currentTool === 'select';
+}
+
+/**
+ * True when a printable character typed into a focused Properties control
+ * belongs to the inline text edit instead. Clicking a control such as the Text
+ * Size spinner takes the keyboard, but the inline editor stays open, so
+ * characters the control cannot use go back to the text being edited and
+ * typing resumes without a trip back to the canvas. Number fields keep their
+ * own digits and signs; real text-entry fields keep everything.
+ * Mirrors the PCB editor's behaviour in text-inline-edit.js.
+ * @param {SchematicEditor} app
+ * @param {KeyboardEvent} e
+ * @param {Element|null} targetElement
+ */
+function shouldRoutePropertyKeyToTextEdit(app, e, targetElement) {
+    if (!hasSchematicTextEdit(app)) return false;
+    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (!targetElement?.closest?.('#propertiesPanel')) return false;
+    const el = /** @type {Element & {type?: string, isContentEditable?: boolean}} */ (targetElement);
+    if (el.isContentEditable || el.tagName === 'TEXTAREA') return false;
+    if (el.tagName === 'INPUT') {
+        const type = (el.type || 'text').toLowerCase();
+        if (type === 'text' || type === 'search' || type === 'email'
+            || type === 'url' || type === 'password' || type === 'tel') return false;
+        if (type === 'number' && /[0-9.,+\-]/.test(e.key)) return false;
+    }
+    return true;
 }
 
 /**
@@ -167,10 +194,25 @@ export function bindKeyboardShortcuts(app) {
         }
         const target = /** @type {(EventTarget & {tagName?: string, type?: string, isContentEditable?: boolean})|null} */ (e.target);
         const targetElement = e.target instanceof Element ? e.target : null;
-        // Enter and Escape belong to a focused Properties control. Let its own
-        // handler commit/cancel before the canvas can finish a draw or deselect.
-        if ((e.key === 'Enter' || e.key === 'Escape')
-            && targetElement?.closest('#propertiesPanel')) return;
+        // A Properties control that took the keyboard mid-edit hands back the
+        // characters it cannot use, so the user can keep typing the text.
+        if (shouldRoutePropertyKeyToTextEdit(app, e, targetElement)
+            && /** @type {{handleTextEditKey?: Function}} */ (app).handleTextEditKey
+            && handleTextEditKey(app, e)) {
+            return;
+        }
+        // This window listener runs in the capture phase, before the control's
+        // keydown listener can stop propagation. Enter belongs to the focused
+        // Properties control. For Escape, defer text cancellation until the
+        // control has canceled and restored its own preview.
+        if (targetElement?.closest?.('#propertiesPanel')) {
+            if (e.key === 'Escape' && hasSchematicTextEdit(app)) {
+                queueMicrotask(() => {
+                    if (hasSchematicTextEdit(app)) endTextEdit(app, false);
+                });
+            }
+            if (e.key === 'Enter' || e.key === 'Escape') return;
+        }
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
         // Only block when user is actively typing in a text field
         if (target) {

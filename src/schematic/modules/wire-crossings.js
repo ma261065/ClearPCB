@@ -52,9 +52,7 @@ function appendLine(group, start, end, stroke, width, className) {
 function crossingGroup(app) {
     let group = states.get(app);
     if (!group) {
-        group = document.createElementNS(NS, 'g');
-        group.setAttribute('class', 'wire-crossing-cues');
-        group.setAttribute('pointer-events', 'none');
+        group = createCueGroup();
         states.set(app, group);
     }
     if (group.parentNode !== app.viewport.contentLayer) app.viewport.contentLayer.appendChild(group);
@@ -63,15 +61,47 @@ function crossingGroup(app) {
     return group;
 }
 
+function createCueGroup() {
+    const group = document.createElementNS(NS, 'g');
+    group.setAttribute('class', 'wire-crossing-cues');
+    group.setAttribute('pointer-events', 'none');
+    return group;
+}
+
+/** Gap (mm) printed beside the upper wire at an unjoined crossing: a wire's width, so it shows on paper. */
+export const EXPORT_CROSSING_GAP = 0.25;
+
 /**
  * Draw a local one-pixel canvas border beside the visually upper wire at each
  * electrically unjoined interior crossing.
  * @param {SchematicEditor} app
  */
 export function renderWireCrossings(app) {
-    const group = crossingGroup(app);
     const scale = Math.max(0.01, app.viewport.scale || 1);
-    const border = 1 / scale;
+    appendCrossingCues(app, crossingGroup(app), 1 / scale, 'var(--sch-background, #1e1e1e)');
+}
+
+/**
+ * Crossing cues for print and PDF: the same borders in paper white, a fixed
+ * physical gap wide rather than one screen pixel, so they survive monochrome
+ * export and read as a break on paper.
+ * @param {SchematicEditor} app
+ * @param {string} [paper]
+ * @returns {SVGGElement}
+ */
+export function exportWireCrossingCues(app, paper = '#ffffff') {
+    const group = createCueGroup();
+    appendCrossingCues(app, group, EXPORT_CROSSING_GAP, paper);
+    return group;
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {SVGGElement} group
+ * @param {number} border - border width in world units
+ * @param {string} stroke
+ */
+function appendCrossingCues(app, group, border, stroke) {
     /** @type {WireSegment[]} */
     const segments = [];
     for (const [order, shape] of app.shapes.entries()) {
@@ -127,7 +157,7 @@ export function renderWireCrossings(app) {
             const line = appendLine(group,
                 { x: point.x + unit.x * range.start + offset.x, y: point.y + unit.y * range.start + offset.y },
                 { x: point.x + unit.x * range.end + offset.x, y: point.y + unit.y * range.end + offset.y },
-                'var(--sch-background, #1e1e1e)', border, 'wire-crossing-border');
+                stroke, border, 'wire-crossing-border');
             line.setAttribute('data-wire-id', top.wire.id);
         }
     }

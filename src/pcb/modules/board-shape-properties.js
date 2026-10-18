@@ -9,7 +9,7 @@ import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { bulgePointFromRatio } from '../../core/geometry.js';
 import { displayRotationDegrees, formatNumberInputValue } from '../../core/number-inputs.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
-import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
+import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot, cloneShapeGeometry } from '../../core/pcb-board-shapes.js';
 import { isLayerLocked, PCB_LAYERS, pcbLayerOption, setPcbLayerLocked } from './layers.js';
 import { boardShapeLocked, lockedProperty } from './object-locks.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
@@ -24,7 +24,7 @@ import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor } from './property-editors.js';
 import { normalizeShapeCopperMode, isMaskLayer, rectCornerRadius, polygonCornerRadius, boardShapeNodeCornerRadius, circleFilledRadius, boardShapeSegmentBulge, shapeOutline, boardShapeLineWidthMinimum, normalizedBoardShapeLineWidth, boardShapeSegmentWidth } from '../../shared/pcb/board-shape-geometry.js';
 import { copperPathReplacementCommands, selectReplacementTracks } from './track-shape-conversion.js';
-import { boardShapeContextActions, canonicalBoardShape, collapseCollinearPolylinePoints, copyBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, editableShapeBulge, normalizeStraightArc, setBoardShapeNodeCornerRadius, shapeKindLabel } from './board-shapes.js';
+import { boardShapeContextActions, canonicalBoardShape, collapseCollinearPolylinePoints, copyBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape, editableShapeBulge, normalizeStraightArc, setBoardShapeNodeCornerRadius, shapeKindLabel, translateShapeGeometry } from './board-shapes.js';
 import { pathPropertyActions } from './path-edit.js';
 import { getBoardShapeDrag } from './board-shape-drag.js';
 import { getShapeDraw, resolveShapeDrawLayer, updateShapeDrawPreview } from './board-shape-draw.js';
@@ -59,6 +59,60 @@ const COPPER_MODE_OPTIONS = [
     { value: 'remove-solder-mask', label: 'Remove Solder Mask' },
     { value: 'remove-copper-mask', label: 'Remove Copper + Mask' },
 ];
+
+/**
+ * Centre of the shapes' combined geometric bounds (line width excluded); the
+ * point the X/Y location spinners show and move.
+ * @param {BoardShape[]} shapes
+ * @returns {Point}
+ */
+export function boardShapesCentre(shapes) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const shape of shapes) {
+        const circle = /** @type {{x:number,y:number,radius:number}} */ (/** @type {unknown} */ (shape));
+        const points = shape.kind === 'circle'
+            ? [{ x: circle.x - circle.radius, y: circle.y - circle.radius }, { x: circle.x + circle.radius, y: circle.y + circle.radius }]
+            : shapeOutline(shape);
+        for (const point of points) {
+            minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
+            minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
+        }
+    }
+    return Number.isFinite(minX) ? { x: (minX + maxX) / 2, y: (minY + maxY) / 2 } : { x: 0, y: 0 };
+}
+
+/**
+ * Live X/Y spinners that move shapes by the centre of their combined bounds.
+ * Edits run through one property preview, so a run of X/Y steps is one undo
+ * step and Escape restores the start. Y shows Y-up like the status bar.
+ * @param {PcbEditor} app
+ * @param {{ids: [string, string], targets: () => BoardShape[], preview: () => ShapePropertyPreview|null,
+ *   finish: () => void, cancel: () => boolean, refresh: () => void, disabled: boolean, hold: PropertyField['hold']}} options
+ * @returns {PropertyField[]}
+ */
+function shapeLocationFields(app, { ids, targets, preview, finish, cancel, refresh, disabled, hold }) {
+    const centre = boardShapesCentre(targets());
+    /** @param {AxisKey} axis @param {number} value */
+    const move = (axis, value) => {
+        const control = preview();
+        if (!control || !Number.isFinite(value)) return;
+        if (Math.abs(boardShapesCentre(targets())[axis] - value) < 1e-9) return;
+        control.update(/** @param {BoardShapeSnapshot[]} _before @param {BoardShape[]} copies */ (_before, copies) => {
+            const delta = value - boardShapesCentre(copies)[axis];
+            for (const copy of copies) {
+                applyShapeGeometry(copy, translateShapeGeometry(cloneShapeGeometry(copy), axis === 'x' ? delta : 0, axis === 'y' ? delta : 0));
+            }
+        });
+        refresh();
+    };
+    const step = app.viewport?.gridSize || 0.1;
+    return [
+        { key: 'x', id: ids[0], type: 'number', label: 'X (mm)', value: centre.x, step, hold, disabled,
+            format: formatNumberInputValue, preview: value => move('x', value), commit: finish, cancel },
+        { key: 'y', id: ids[1], type: 'number', label: 'Y (mm)', value: -centre.y || 0, step, hold, disabled,
+            format: formatNumberInputValue, preview: value => move('y', -value), commit: finish, cancel },
+    ];
+}
 
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
@@ -150,6 +204,8 @@ export function showImageProperties(app, shape) {
     let heightPreview = null;
     /** @type {ShapePropertyPreview|null} */
     let rotationPreview = null;
+    /** @type {ShapePropertyPreview|null} */
+    let movePreview = null;
     const hold = pictureRefreshHold(app);
     /** @returns {{width:number,height:number,rotation:number}} */
     const geometryValues = () => {
@@ -255,6 +311,10 @@ export function showImageProperties(app, shape) {
                     value: shape.net || '', disabled: readOnly, options: [{ value: '', label: 'Unassigned' },
                         ...names.map(name => ({ value: name, label: name }))],
                     commit: value => commit(candidate => { candidate.net = value.trim(); }) }]) : []),
+                ...shapeLocationFields(app, { ids: ['pcbPropImageX', 'pcbPropImageY'],
+                    targets: () => [displayedBoardShape(app, shape)], preview: () => movePreview,
+                    finish: () => finishPreview(movePreview), cancel: () => cancelPreview(movePreview),
+                    refresh, disabled: readOnly || isLayerLocked(shape.layer), hold }),
                 { key: 'width', id: 'pcbPropImageWidth', type: 'number', label: 'Width (mm)', value: width, min: 0.1, max: 500,
                     step: 0.1, hold, format: value => Number(value).toFixed(2), disabled: readOnly,
                     preview: value => previewResize('width', value), commit: () => finishPreview(widthPreview),
@@ -295,6 +355,7 @@ export function showImageProperties(app, shape) {
     widthPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     heightPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+    movePreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     refresh();
 }
 
@@ -394,6 +455,8 @@ export function showBoardShapeProperties(app, shape) {
     let nodeCornerRadiusPreview = null;
     /** @type {ShapePropertyPreview|null} */
     let bulgePreview = null;
+    /** @type {ShapePropertyPreview|null} */
+    let movePreview = null;
     const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel(describe()); };
 
     /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
@@ -625,7 +688,7 @@ export function showBoardShapeProperties(app, shape) {
             const pathShape = /** @type {BoardPathShape} */ (shape);
             fields.push(
                 { key: 'x', id: 'pcbPropShapeNodeX', type: 'readout', label: 'X (mm)', value: formatNumberInputValue(pathShape.points[selectedNode].x) },
-                { key: 'y', id: 'pcbPropShapeNodeY', type: 'readout', label: 'Y (mm)', value: formatNumberInputValue(pathShape.points[selectedNode].y) },
+                { key: 'y', id: 'pcbPropShapeNodeY', type: 'readout', label: 'Y (mm)', value: formatNumberInputValue(-pathShape.points[selectedNode].y || 0) },
             );
             if (canRoundPathNode(shape, selectedNode)) fields.push({ key: 'cornerRadius', id: 'pcbPropShapeNodeCornerRadius',
                 type: 'number', label: 'Corner Radius (mm)', value: boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode),
@@ -686,6 +749,9 @@ export function showBoardShapeProperties(app, shape) {
                     });
                     if (!replaced) showBoardShapeProperties(app, shape);
                 } });
+            fields.push(...shapeLocationFields(app, { ids: ['pcbPropShapeX', 'pcbPropShapeY'], targets: propertyTargets,
+                preview: () => movePreview, finish: () => finishPreview(movePreview), cancel: () => cancelPreview(movePreview),
+                refresh, disabled: readOnly || targets.some(target => isLayerLocked(target.layer)), hold }));;
             if (showCopperMode) fields.push({ key: 'copperMode', id: 'pcbPropShapeCopperMode', type: 'select', label: 'Copper Mode',
                 value: initialCopperMode, mixed: mixedCopperMode, disabled: readOnly || !allCopperTargets,
                 options: COPPER_MODE_OPTIONS, commit: value => {
@@ -760,6 +826,7 @@ export function showBoardShapeProperties(app, shape) {
     diameterPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => target.kind === 'circle'));
     cornerRadiusPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => ['line', 'rect', 'polygon'].includes(target.kind)));
     nodeCornerRadiusPreview = createBoardShapePropertyPreview(app, [shape]);
+    movePreview = createBoardShapePropertyPreview(app, propertyTargets(), { liveDrag: true });
     if (outlineTarget) {
         outlineDimensionPreviews.width = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
         outlineDimensionPreviews.height = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });

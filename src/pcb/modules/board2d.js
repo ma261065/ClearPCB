@@ -726,7 +726,8 @@ export class Board2D {
         }
     }
 
-    /** Rounded board substrate with a bare-FR4 edge stroke. */
+    /** Board substrate, filled exactly to the outline. A centred edge stroke would
+     * leave a bare-FR4 band outside the board that the mask never covers. */
     /** @param {CanvasRenderingContext2D} ctx */
     _drawBoard(ctx) {
         const b = this._boardRect();
@@ -736,10 +737,6 @@ export class Board2D {
         ctx.globalAlpha = LAYER_STYLE.board.o;
         ctx.fillStyle = COL.rawBoard;
         ctx.fill();
-        ctx.lineWidth = Math.max(0.15, 4 / this.scale) * 0.05;
-        ctx.strokeStyle = COL.rawBoard;
-        ctx.lineWidth = 0.2;
-        ctx.stroke();
         ctx.restore();
     }
 

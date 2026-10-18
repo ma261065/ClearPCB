@@ -50,6 +50,8 @@ function fixture() {
     const items = { querySelector: selector => controls.get(selector.slice(1)) || null };
     const actions = [], renders = [], overlays = [], bindings = [], titles = [];
     let owner;
+    /** @type {{x: number, y: number}|null} */
+    let move = null;
     const capabilities = Object.freeze({
         getPlacement: id => id === 'part' ? placement : undefined,
         isActive: () => active,
@@ -60,7 +62,29 @@ function fixture() {
         rotate: (id, before, after) => {
             actions.push(['rotate', id, before, after]);
             placement.rotation = after;
-            owner.syncRotationInput(id);
+            owner.syncPoseInputs(id);
+        },
+        gridStep: () => 1.27,
+        previewMove: (id, x, y) => {
+            if (placement.locked) return false;
+            move ??= { x: placement.x, y: placement.y };
+            actions.push(['preview', id, x, y]);
+            Object.assign(placement, { x, y });
+            owner.syncPoseInputs(id);
+            return true;
+        },
+        finishMove: (id, commit) => {
+            if (!move) return false;
+            const start = move;
+            move = null;
+            if (commit && (placement.x !== start.x || placement.y !== start.y)) {
+                actions.push(['move', id, start, { x: placement.x, y: placement.y }]);
+            } else {
+                Object.assign(placement, start);
+                actions.push(['restore', id]);
+            }
+            owner.syncPoseInputs(id);
+            return true;
         },
         setLocked: (id, locked) => { actions.push(['lock', id, locked]); placement.locked = locked; },
         setReferenceVisible: (id, visible) => actions.push(['reference', id, visible]),
@@ -201,11 +225,60 @@ function fixture() {
     assert.deepEqual(f.actions, [], 'Detached Transform callbacks cannot rebuild the panel');
 }
 
+{
+    // X/Y spinners preview live, commit one move, and Escape restores the start pose.
+    const f = fixture();
+    f.owner.showComponent('part');
+    const x = f.items.querySelector('#pcbPropCompX');
+    const y = f.items.querySelector('#pcbPropCompY');
+    assert.equal(x.field.step, 1.27, 'Spinners step by the PCB grid');
+    assert.equal(x.value, String(Math.PI));
+    assert.equal(y.value, String(Math.E), 'Y shows Y-up like the status bar');
+    x.fire('input', 5);
+    assert.deepEqual(f.actions.pop(), ['preview', 'part', 5, -Math.E]);
+    assert.equal(f.owner.active, true, 'An uncommitted move is an active edit');
+    y.fire('input', -7);
+    assert.deepEqual(f.actions.pop(), ['preview', 'part', 5, 7]);
+    assert.equal(f.items.querySelector('#pcbPropCompX').value, '5', 'Live pose syncs the sibling field');
+    y.fire('change', -8);
+    assert.deepEqual(f.actions.splice(0), [
+        ['preview', 'part', 5, 8],
+        ['move', 'part', { x: Math.PI, y: -Math.E }, { x: 5, y: 8 }],
+    ], 'A run of edits commits as one move from the original pose');
+    assert.equal(f.owner.active, false);
+
+    x.fire('input', 20);
+    y.fire('keydown', undefined, { key: 'Escape' });
+    assert.deepEqual(f.actions.splice(0), [['preview', 'part', 20, 8], ['restore', 'part']]);
+    assert.deepEqual([f.placement.x, f.placement.y], [5, 8]);
+    assert.equal(x.value, '5', 'Cancel re-shows the restored pose');
+
+    x.fire('input', 30);
+    f.owner.commit();
+    assert.deepEqual(f.actions.splice(0), [['preview', 'part', 30, 8], ['move', 'part', { x: 5, y: 8 }, { x: 30, y: 8 }]],
+        'Lifecycle commit (undo, save) finishes a pending move');
+    x.fire('input', 40);
+    f.owner.dispose();
+    assert.deepEqual(f.actions.splice(0), [['preview', 'part', 40, 8], ['restore', 'part']],
+        'Disposing the panel cancels a pending move');
+    assert.equal(f.placement.x, 30);
+}
+
+{
+    const f = fixture();
+    f.placement.locked = true;
+    f.owner.showComponent('part');
+    assert.equal(f.items.querySelector('#pcbPropCompX').disabled, true);
+    assert.equal(f.items.querySelector('#pcbPropCompY').disabled, true);
+}
+
 for (const boundary of ['inactive', 'replace', 'dispose', 'reference']) {
     const f = fixture();
     f.owner.showComponent('part');
     const controls = [
         f.items.querySelector('#pcbPropCompRot'),
+        f.items.querySelector('#pcbPropCompX'),
+        f.items.querySelector('#pcbPropCompY'),
         f.items.querySelector('#pcbPropCompSide'),
         f.items.querySelector('#pcbPropCompRefVis'),
         f.items.querySelector('#pcbPropCompLocked'),

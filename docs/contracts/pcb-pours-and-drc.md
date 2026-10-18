@@ -69,7 +69,11 @@ A pour voids other-net pads with their clearance. A pad on the pour's own net ge
 thermal relief: its clearance ring is voided too, except for four spokes along the
 pad's own axes. The spokes follow its width, height and rotation, so each one reaches
 the pour past the pad's edge whatever its aspect ratio or angle
-(`test-thermal-relief-pad-axes`). Pours read pad layers from `resolveCopperPads`, which
+(`test-thermal-relief-pad-axes`). A spoke is kept only if its copper runs unbroken
+from the pad out past the relief rings into pour copper. A spoke that would end in
+another net's clearance, a cutout or beyond the pour outline is voided with the ring,
+so the pad never carries a dangling stub. A pad none of whose spokes can connect is
+simply isolated by its ring. Pours read pad layers from `resolveCopperPads`, which
 gives footprint and free pads the same board copper-layer ids, so free SMD pads receive
 the same relief or clearance on their copper layer (`test-free-smd-pad-pour-layers`).
 

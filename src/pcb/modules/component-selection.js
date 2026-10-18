@@ -424,8 +424,8 @@ export function hitTestComponent(app, worldPos, all = false) {
  * dashed outline over the footprint's bounds, matching the selection box
  * but lighter. Skipped for the currently selected component (its solid
  * highlight already shows). Pass null to clear. The rect is appended to
- * the footprint's first layer group so it inherits the placement
- * transform (bounds are in footprint-local coords).
+ * the footprint's first element, its layer-independent highlight group,
+ * so it inherits the placement transform (bounds are in local coords).
  * @param {PcbEditor} app
  * @param {string|null} compId
  */

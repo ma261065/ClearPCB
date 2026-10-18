@@ -26,6 +26,11 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     assert.equal(row.className, 'prop-row');
     assert.equal(input.value, '1.50', 'numbers show two decimals, like every number input');
     assert.equal(input.getAttribute('min'), '0.05');
+    assert.equal(input.getAttribute('step'), 'any', 'Typed numbers are not rejected for being between spinner steps');
+    fire(input, 'keydown', { key: 'ArrowUp' });
+    assert.equal(input.getAttribute('step'), '0.05', 'Arrow runs use the configured spinner step');
+    window.dispatchEvent({ type: 'keyup', key: 'ArrowUp' });
+    assert.equal(input.getAttribute('step'), 'any', 'The field accepts any value after the Arrow run');
     for (const value of ['1.55', '1.6']) {
         input.value = value;
         fire(input, 'input');

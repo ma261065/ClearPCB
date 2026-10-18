@@ -34,6 +34,7 @@ import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interac
 import { getTrackDraw, addTrackWaypoint, finishTrackDraw } from './track-draw.js';
 import { getFillDraw, finishFillDraw, finishFillDrawAtPoint } from './copper-fill-draw.js';
 import { settleFillGeometryPreview, showFillContextMenu } from './copper-fill-edit.js';
+import { settleComponentMovePreview } from './component-properties-host.js';
 import { hitTestTrack, hitTestLockedTrack, showTrackContextMenu } from './track-select.js';
 import { showLockedLayerBubble } from './layers.js';
 import { isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
@@ -120,9 +121,10 @@ function onMouseDown(app, e) {
     if (!isEditorActive(app)) return;
     const viewport = app.viewport;
     if (!viewport) return;
-    // A live pour outline from Properties settles before any gesture saves the
-    // overlay deferral (the field's blur only follows this press).
+    // Live pour outline and component X/Y previews from Properties settle before any
+    // gesture saves the overlay deferral (the field's blur only follows this press).
     settleFillGeometryPreview(app);
+    settleComponentMovePreview(app);
     const svg = viewport.svg;
     viewport.onInteractionStart?.('pointer');
     viewport.shiftHeld = e.shiftKey;

@@ -15,9 +15,10 @@
  * clearance); pads become their footprint outline expanded by clearance.
  *
  * Exception — same-net pads get a plus-shaped THERMAL RELIEF: the pad's
- * clearance ring is voided like any other pad, but two crossed spokes
- * (horizontal + vertical) are kept as copper so the pour ties to the pad
- * through four narrow bridges instead of a solid flood (eases soldering).
+ * clearance ring is voided like any other pad, but up to four spokes along
+ * its axes are kept as copper so the pour ties to the pad through narrow
+ * bridges instead of a solid flood (eases soldering). A spoke that would not
+ * reach pour copper beyond the ring is voided rather than left dangling.
  *
  * Coordinates: world millimetres in, world millimetres out. Clipper works
  * on integers, so all geometry is scaled by SCALE during computation.
@@ -140,7 +141,8 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
     if (!region || region.length === 0) return [];
 
     // ── 3. Build other-net copper obstacles (already inflated by clearance) ──
-    const obstacles = collectObstacles(C, fill, ctx, clearance);
+    const { obstacles, thermalPads } = collectObstacles(C, fill, ctx, clearance);
+    if (thermalPads.length) obstacles.push(...thermalReliefVoids(C, thermalPads, region, obstacles, clearance));
 
     // ── 4. region − obstacles → PolyTree → ExPolygons ──
     let polytree;
@@ -247,8 +249,12 @@ function buildBoardClip(C, board, clearance) {
     return [roundedRectPath(C, x1, y1, x2 - x1, y2 - y1, rr)];
 }
 
-/** Collect all other-net copper obstacle paths (scaled, inflated). */
-/** @param {ClipperNamespace} C @param {CopperFill} fill @param {FillContext} ctx @param {number} clearance @returns {ClipperPaths} */
+/**
+ * Collect all other-net copper obstacle paths (scaled, inflated), plus the
+ * same-net pads that get a thermal relief (voided by thermalReliefVoids).
+ * @param {ClipperNamespace} C @param {CopperFill} fill @param {FillContext} ctx @param {number} clearance
+ * @returns {{obstacles: ClipperPaths, thermalPads: any[]}}
+ */
 function collectObstacles(C, fill, ctx, clearance) {
     /** @type {ClipperPaths} */
     const out = [];
@@ -339,19 +345,19 @@ function collectObstacles(C, fill, ctx, clearance) {
     }
 
     // Other-net pads are voided solid (pad + clearance). Same-net pads get a
-    // plus-shaped thermal relief: the clearance ring is voided too, but four
-    // spokes are left as copper so the pour stays tied to the pad.
+    // thermal relief, built once every other obstacle is known.
+    const thermalPads = [];
     for (const pad of (ctx.pads || [])) {
         if (!pad) continue;
         if (!padOnLayer(pad.layer, fill.layer)) continue;
         if (sameNet(pad.net || '')) {
-            out.push(...thermalReliefPaths(C, pad, clearance));
+            thermalPads.push(pad);
         } else {
             out.push(...padObstaclePaths(C, pad, clearance));
         }
     }
 
-    return out;
+    return { obstacles: out, thermalPads };
 }
 
 /** @param {ClipperNamespace} C @param {any} shape @param {number} clearance @param {any} [geometry] @returns {ClipperPaths} */
@@ -533,40 +539,98 @@ function padObstaclePaths(C, pad, clearance) {
 /** Thermal spoke width (mm) for same-net pad connections. */
 const THERMAL_SPOKE_WIDTH = 0.4;
 
+/** @param {ClipperNamespace} C @param {number} type @param {ClipperPaths} subject @param {ClipperPaths} clip @returns {ClipperPaths} */
+function booleanPaths(C, type, subject, clip) {
+    const clipper = new C.Clipper();
+    clipper.AddPaths(subject, C.PolyType.ptSubject, true);
+    if (clip.length) clipper.AddPaths(clip, C.PolyType.ptClip, true);
+    const sol = new C.Paths();
+    clipper.Execute(type, sol, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+    return sol;
+}
+
+/** @param {ClipperNamespace} C @param {ClipperPaths} paths */
+const pathsArea = (C, paths) => paths.reduce((area, path) => area + /** @type {any} */ (C.Clipper).Area(path), 0);
+
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} Bounds */
+/** @param {ClipperPath} path @returns {Bounds} */
+function pathBounds(path) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const { X, Y } of path) {
+        if (X < minX) minX = X;
+        if (X > maxX) maxX = X;
+        if (Y < minY) minY = Y;
+        if (Y > maxY) maxY = Y;
+    }
+    return { minX, minY, maxX, maxY };
+}
+
+/** @param {Bounds} a @param {Bounds} b */
+const boundsOverlap = (a, b) => a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+
 /**
- * Void geometry for a same-net pad with a plus-shaped thermal relief. Takes
- * the pad's clearance ring and subtracts two crossed spokes along the pad's own
- * axes (its width and height, turned by its rotation like its outline), so the
- * returned obstacle leaves four copper bridges tying the pad to the surrounding
- * pour, whatever the pad's aspect ratio and rotation.
+ * Void geometry for same-net pads with plus-shaped thermal reliefs. Each pad's
+ * clearance ring is voided, less up to four spokes along the pad's own axes
+ * (its width and height, turned by its rotation like its outline), whatever its
+ * aspect ratio and rotation. A spoke is kept only when the copper it leaves runs
+ * unbroken from the pad out past every relief ring into the pour; one that would
+ * end in another net's clearance, a cutout or outside the pour is voided too,
+ * so no dangling copper stubs are left on the pad.
  * @param {ClipperNamespace} C
- * @param {any} pad
+ * @param {any[]} pads - same-net pads on the pour's layer
+ * @param {ClipperPaths} region - pour outline clipped to the board
+ * @param {ClipperPaths} obstacles - every other void of the pour
  * @param {number} clearance
  * @returns {ClipperPaths} scaled int paths to subtract from the pour
  */
-function thermalReliefPaths(C, pad, clearance) {
-    const hw = (pad.width || 0) / 2;
-    const hh = (pad.height || 0) / 2;
-    // Spoke can't be wider than the pad, or the relief would have no gaps.
-    const sh = Math.min(THERMAL_SPOKE_WIDTH, Math.min(hw, hh) * 1.5) / 2;
-    // Arms reach two clearances past the ring so they merge with the pour.
-    const armX = hw + clearance * 2;
-    const armY = hh + clearance * 2;
-    const rad = -(pad.rotation || 0) * Math.PI / 180;
-    const cos = Math.cos(rad), sin = Math.sin(rad);
-    /** @param {number} halfAlong @param {number} halfAcross @returns {ClipperPath} */
-    const bar = (halfAlong, halfAcross) => [[-halfAlong, -halfAcross], [halfAlong, -halfAcross],
-        [halfAlong, halfAcross], [-halfAlong, halfAcross]]
-        .map(([x, y]) => ({ X: S(pad.x + x * cos - y * sin), Y: S(pad.y + x * sin + y * cos) }));
-    const ring = padObstaclePaths(C, pad, clearance);
-    const plus = [bar(armX, sh), bar(sh, armY)];
-    const clip = new C.Clipper();
-    clip.AddPaths(ring, C.PolyType.ptSubject, true);
-    clip.AddPaths(plus, C.PolyType.ptClip, true);
-    const sol = new C.Paths();
-    clip.Execute(C.ClipType.ctDifference, sol,
-        C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
-    return sol;
+function thermalReliefVoids(C, pads, region, obstacles, clearance) {
+    const rings = pads.map(pad => padObstaclePaths(C, pad, clearance));
+    const ringBounds = rings.map(ring => ring.map(pathBounds));
+    const obstacleBounds = obstacles.map(pathBounds);
+    const regionBounds = region.map(pathBounds);
+    /** @param {ClipperPaths} paths @param {Bounds[]} bounds @param {Bounds} near */
+    const nearby = (paths, bounds, near) => paths.filter((_, i) => boundsOverlap(bounds[i], near));
+    const spokeWidth = THERMAL_SPOKE_WIDTH;
+    // Rounding slivers along shared edges are far below a spoke's contact patch.
+    const minContact = Math.min(1e-3, spokeWidth * clearance / 4) * SCALE * SCALE;
+    const minPadTouch = 1e-6 * SCALE * SCALE;
+    /** @type {ClipperPaths} */
+    const voids = [];
+    pads.forEach((pad, index) => {
+        const hw = (pad.width || 0) / 2;
+        const hh = (pad.height || 0) / 2;
+        // Spoke can't be wider than the pad, or the relief would have no gaps.
+        const sh = Math.min(spokeWidth, Math.min(hw, hh) * 1.5) / 2;
+        // Arms reach two clearances past the pad, beyond its ring, so they merge with the pour.
+        const armX = hw + clearance * 2;
+        const armY = hh + clearance * 2;
+        const rad = -(pad.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        /** @param {number} x0 @param {number} y0 @param {number} x1 @param {number} y1 @returns {ClipperPath} */
+        const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+            .map(([x, y]) => ({ X: S(pad.x + x * cos - y * sin), Y: S(pad.y + x * sin + y * cos) }));
+        const arms = [rect(0, -sh, armX, sh), rect(-armX, -sh, 0, sh), rect(-sh, 0, sh, armY), rect(-sh, -armY, sh, 0)];
+        const padPath = offsetClosedPath(C, pad.outline || padCopperOutline(pad), 0);
+        const kept = arms.filter((arm) => {
+            const near = pathBounds(arm);
+            const inPour = booleanPaths(C, C.ClipType.ctIntersection, [arm], nearby(region, regionBounds, near));
+            if (!inPour.length) return false;
+            const clipper = new C.Clipper();
+            clipper.AddPaths(inPour, C.PolyType.ptSubject, true);
+            const blockers = nearby(obstacles, obstacleBounds, near);
+            if (blockers.length) clipper.AddPaths(blockers, C.PolyType.ptClip, true);
+            const tree = new C.PolyTree();
+            clipper.Execute(C.ClipType.ctDifference, tree, C.PolyFillType.pftNonZero, C.PolyFillType.pftNonZero);
+            const nearRings = rings.flatMap((ring, i) => nearby(ring, ringBounds[i], near));
+            return C.JS.PolyTreeToExPolygons(tree).some((ex) => {
+                const piece = [ex.outer, ...(ex.holes || [])];
+                return pathsArea(C, booleanPaths(C, C.ClipType.ctIntersection, piece, padPath)) > minPadTouch
+                    && pathsArea(C, booleanPaths(C, C.ClipType.ctDifference, piece, nearRings)) > minContact;
+            });
+        });
+        voids.push(...(kept.length ? booleanPaths(C, C.ClipType.ctDifference, rings[index], kept) : rings[index]));
+    });
+    return voids;
 }
 
 /** Rounded-rectangle polygon (scaled int path). x,y = top-left, w,h size. */

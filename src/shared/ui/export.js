@@ -3,10 +3,10 @@ import { errorMessage, isAbortError } from '../../core/errors.js';
 
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
 /** @typedef {import('../../core/Viewport.js').PaperSize} PaperSize */
-/** @typedef {{viewport: Viewport}} ViewportExportApp */
+/** @typedef {{viewport: Viewport, decorateExportSvg?: (svgNode: SVGSVGElement) => void}} ViewportExportApp */
 /** @typedef {{getSelection: () => unknown[], clearSelection: () => void, selectMultiple: (selection: any[], add: boolean) => void}} ExportSelection Dynamic selection managers have editor-specific item unions. */
 /** @typedef {{fileName?: string|null}} ExportFileManager */
-/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport}} ExportApp */
+/** @typedef {{selection: ExportSelection, fileManager?: ExportFileManager, renderShapes: (force?: boolean) => void, alert: (message: string, options?: {title?: string}) => void|Promise<void>, viewport: Viewport, decorateExportSvg?: (svgNode: SVGSVGElement) => void}} ExportApp */
 /** @typedef {{x: number, y: number, width: number, height: number}} ExportViewBox */
 
 /**
@@ -27,6 +27,7 @@ export async function savePdf(app) {
 
         const jsPDF = await loadVectorPdfLibs(app);
         const { svgNode, paperSize } = cloneViewportSvgForExport(app);
+        useSymbolFontForGreek(svgNode);
         const width = Number(svgNode.getAttribute('width'));
         const height = Number(svgNode.getAttribute('height'));
 
@@ -288,6 +289,7 @@ export function cloneViewportSvgForExport(app) {
     svgNode.setAttribute('style', 'background:#ffffff');
 
     forceMonochromeSvg(svgNode);
+    app.decorateExportSvg?.(svgNode);
 
     const gridLayer = svgNode.querySelector('#gridLayer');
     if (gridLayer) {
@@ -359,6 +361,70 @@ export function forceMonochromeSvg(svgRoot) {
             }
         }
     });
+}
+
+/**
+ * Characters outside the PDF standard fonts' WinAnsi encoding that the standard
+ * Symbol font carries, mapped to their Symbol-encoding codes.
+ * @type {Map<string, string>}
+ */
+const SYMBOL_FONT_CODES = (() => {
+    const map = new Map();
+    // Symbol encodes Greek on the Latin letter positions (A=Alpha … W=Omega).
+    const upper = 'ΑΒΧΔΕΦΓΗΙΚΛΜΝΟΠΘΡΣΤΥΩΞΨΖ', upperCodes = 'ABCDEFGHIKLMNOPQRSTUWXYZ';
+    const lower = 'αβχδεφγηιϕκλμνοπθρστυϖωξψζς', lowerCodes = 'abcdefghijklmnopqrstuvwxyzV';
+    [...upper].forEach((char, i) => map.set(char, upperCodes[i]));
+    [...lower].forEach((char, i) => map.set(char, lowerCodes[i]));
+    for (const [char, code] of /** @type {Array<[string, number]>} */ ([
+        ['\u2126', 0x57], ['\u2206', 0x44], ['≤', 0xa3], ['≥', 0xb3], ['∞', 0xa5], ['≠', 0xb9],
+        ['≈', 0xbb], ['√', 0xd6], ['∑', 0xe5], ['∂', 0xb6], ['∫', 0xf2], ['←', 0xac], ['↑', 0xad],
+        ['→', 0xae], ['↓', 0xaf], ['↔', 0xab], ['⇒', 0xde], ['•', 0xb7], ['′', 0xa2], ['″', 0xb2],
+    ])) map.set(char, String.fromCharCode(code));
+    return map;
+})();
+
+/**
+ * The vector PDF uses the standard PDF fonts, whose Helvetica/Times/Courier only
+ * encode WinAnsi: Ω (U+03A9) would reach the PDF as byte 0xA9, ©. Wrap each such
+ * character in a tspan set in the standard Symbol font, which has the glyph.
+ * Print keeps browser fonts and needs no substitution.
+ * @param {SVGElement} svgRoot
+ */
+export function useSymbolFontForGreek(svgRoot) {
+    const pattern = new RegExp(`[${[...SYMBOL_FONT_CODES.keys()].join('')}]`, 'u');
+    const doc = svgRoot.ownerDocument;
+    const walker = doc.createTreeWalker(svgRoot, NodeFilter.SHOW_TEXT);
+    /** @type {Text[]} */
+    const targets = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement?.tagName.toLowerCase();
+        if ((parent === 'text' || parent === 'tspan') && pattern.test(/** @type {Text} */ (node).data)) targets.push(/** @type {Text} */ (node));
+    }
+    for (const node of targets) {
+        const fragment = doc.createDocumentFragment();
+        let plain = '';
+        const flush = () => {
+            if (plain) fragment.appendChild(doc.createTextNode(plain));
+            plain = '';
+        };
+        for (const char of node.data) {
+            const code = SYMBOL_FONT_CODES.get(char);
+            if (code === undefined) {
+                plain += char;
+                continue;
+            }
+            flush();
+            const tspan = doc.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+            // Symbol has only a regular face; a bold/italic request would fall back to Times.
+            tspan.setAttribute('font-family', 'symbol');
+            tspan.setAttribute('font-weight', 'normal');
+            tspan.setAttribute('font-style', 'normal');
+            tspan.textContent = code;
+            fragment.appendChild(tspan);
+        }
+        flush();
+        node.replaceWith(fragment);
+    }
 }
 
 /**
@@ -531,6 +597,7 @@ export function cloneSchematicContentForRender(app, margin = 10) {
     // The live content layer may carry a pan translation (see Viewport translatePan).
     svgNode.querySelector('#contentLayer')?.removeAttribute('transform');
     forceMonochromeSvg(svgNode);
+    app.decorateExportSvg?.(svgNode);
     const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     background.setAttribute('x', String(bounds.x));
     background.setAttribute('y', String(bounds.y));

@@ -186,21 +186,23 @@ export const scenarios = [{
             };
             try {
                 const opening = openBoard3DViewer(app, { view: 'top' });
+                let observingLoading = true;
+                const observeLoadingFrame = () => {
+                    if (!observingLoading || passes > 0) return;
+                    paintedFrames++;
+                    const host = document.querySelector('.cpcb3d-host');
+                    spinnerVisible ||= !!host?.querySelector('.show');
+                    requestAnimationFrame(observeLoadingFrame);
+                };
+                requestAnimationFrame(observeLoadingFrame);
                 const immediatePasses = passes;
                 const host = document.querySelector('.cpcb3d-host');
                 const canvas = host.querySelector('.cpcb3d-cv2d');
                 const background = Array.from(canvas.getContext('2d').getImageData(
                     Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data);
                 const hostBackground = getComputedStyle(host).backgroundColor;
-                for (let i = 0; i < 3; i++) {
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                    const host = document.querySelector('.cpcb3d-host');
-                    if (host?.classList.contains('cpcb3d-sliding') && passes === 0) {
-                        paintedFrames++;
-                        spinnerVisible ||= !!host.querySelector('.show');
-                    }
-                }
                 await opening;
+                observingLoading = false;
                 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                 const initialPasses = passes;
                 getBoardViewPanel(app).setView('bottom');
@@ -300,5 +302,36 @@ export const scenarios = [{
         } finally {
             await page.locator('#pan-button-probe').evaluate(canvas => canvas.dispatchEvent(new Event('probe-cleanup')));
         }
+    },
+}, {
+    name: '2d-board-has-no-substrate-band-outside-the-outline',
+    async run(page, url) {
+        await openPcb(page, url);
+        const alpha = await page.evaluate(async () => {
+            const { Board2D } = await import('/src/pcb/modules/board2d.js');
+            const canvas = document.createElement('canvas');
+            canvas.style.cssText = 'width:900px;height:460px';
+            document.body.appendChild(canvas);
+            const viewer = new Board2D(canvas);
+            try {
+                viewer.setData({ boardWidth: 40, boardHeight: 20, placements: new Map(),
+                    tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map() });
+                const art = document.createElement('canvas');
+                art.width = 900;
+                art.height = 460;
+                const ctx = /** @type {CanvasRenderingContext2D} */ (art.getContext('2d'));
+                // 20 px/mm: the board spans x 20..820 px and y 20..420 px.
+                ctx.setTransform(20, 0, 0, 20, 20, 420);
+                viewer._paintBoard(ctx);
+                const at = (/** @type {number} */ x, /** @type {number} */ y) => ctx.getImageData(x, y, 1, 1).data[3];
+                return { inside: at(818, 200), outside: at(821, 200), outsideTop: at(400, 18) };
+            } finally {
+                viewer.dispose();
+                canvas.remove();
+            }
+        });
+        assert.ok(alpha.inside > 0, 'the board paints up to its outline');
+        assert.deepEqual({ outside: alpha.outside, outsideTop: alpha.outsideTop }, { outside: 0, outsideTop: 0 },
+            'nothing paints beyond the board outline');
     },
 }];

@@ -17,9 +17,10 @@ version `1` are separate from app release versions.
 
 The experimental MCP Worker is deployed separately through the **Deploy MCP
 Worker** workflow. GitHub Pages continues to serve the application; Cloudflare
-serves MCP from `clearpcb-mcp.mikealex.workers.dev`. See [mcp.md](mcp.md) for
-the required Cloudflare account setup, repository secrets, local testing, and
-security limitations.
+serves MCP from `clearpcb-mcp.mikealex.workers.dev`. See
+[MCP Worker Deployment](#mcp-worker-deployment) for the routine steps, and
+[mcp.md](mcp.md) for the one-time Cloudflare account setup, repository secrets,
+local testing, and security limitations.
 
 ## Automated Regression Gate
 
@@ -88,6 +89,39 @@ prove those settings are active.
 
 The outstanding release evidence and working agreements are maintained in
 [Release Readiness](release-readiness.md).
+
+## MCP Worker Deployment
+
+An MCP tool has two halves that ship separately:
+
+- The **Worker** (`mcp-worker/`) advertises tools to MCP clients and relays calls.
+  It is deployed only by the manual **Deploy MCP Worker** workflow, never by a
+  push or a release.
+- The **browser bridge** (`src/core/McpBridge.js` and the editor services it
+  calls) carries out each call in the open ClearPCB tab. It ships with the site,
+  so it reaches `https://clearpcb.org` only through a stable release.
+
+The production Worker accepts relay connections only from `https://clearpcb.org`,
+so a new tool works end to end only once both halves are live. A Worker that is
+ahead of the site is harmless: calls to tools the site does not yet handle
+return an error.
+
+To deploy, after committing and pushing the change:
+
+1. Run `npm run check` in `mcp-worker`, plus
+   `node tests\unit\test-mcp-bridge.mjs` for bridge changes.
+2. On github.com, open **Actions** → **Deploy MCP Worker** → **Run workflow**.
+3. In **Use workflow from**, choose the branch containing the Worker change
+   (normally `dev`), then select **Run workflow**. The job installs
+   dependencies, type-checks, and deploys with the repository's Cloudflare
+   secrets.
+4. If the browser bridge changed, publish a stable release containing it (see
+   [Patch Release Using the GitHub Website](#patch-release-using-the-github-website)).
+5. Reconnect the ClearPCB connector in each MCP client, or start a new chat.
+   Clients cache the tool list for the life of a connection, so new tools do not
+   appear until then.
+6. Pair with `https://clearpcb.org` and confirm the new tools are listed and
+   answer.
 
 ## Patch Release Using the GitHub Website
 
