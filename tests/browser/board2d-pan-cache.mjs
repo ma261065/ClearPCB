@@ -186,21 +186,23 @@ export const scenarios = [{
             };
             try {
                 const opening = openBoard3DViewer(app, { view: 'top' });
+                let observingLoading = true;
+                const observeLoadingFrame = () => {
+                    if (!observingLoading || passes > 0) return;
+                    paintedFrames++;
+                    const host = document.querySelector('.cpcb3d-host');
+                    spinnerVisible ||= !!host?.querySelector('.show');
+                    requestAnimationFrame(observeLoadingFrame);
+                };
+                requestAnimationFrame(observeLoadingFrame);
                 const immediatePasses = passes;
                 const host = document.querySelector('.cpcb3d-host');
                 const canvas = host.querySelector('.cpcb3d-cv2d');
                 const background = Array.from(canvas.getContext('2d').getImageData(
                     Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data);
                 const hostBackground = getComputedStyle(host).backgroundColor;
-                for (let i = 0; i < 3; i++) {
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                    const host = document.querySelector('.cpcb3d-host');
-                    if (host?.classList.contains('cpcb3d-sliding') && passes === 0) {
-                        paintedFrames++;
-                        spinnerVisible ||= !!host.querySelector('.show');
-                    }
-                }
                 await opening;
+                observingLoading = false;
                 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                 const initialPasses = passes;
                 getBoardViewPanel(app).setView('bottom');
