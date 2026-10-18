@@ -216,6 +216,7 @@ class Row {
                 : !['ArrowUp', 'ArrowDown'].includes(/** @type {KeyboardEvent} */ (event).key)) return;
             this.release?.();
             this.seedMixedNumber();
+            setAttr(this.control, 'step', this.field.step);
             this.steppingNumber = true;
             const hold = this.field.hold;
             const host = window;
@@ -229,6 +230,7 @@ class Row {
                 for (const name of endings) host.removeEventListener(name, /** @type {EventListener} */ (release), true);
                 if (this.release === release) this.release = null;
                 this.steppingNumber = false;
+                setAttr(this.control, 'step', 'any');
                 hold?.end();
             };
             this.release = release;
@@ -369,7 +371,9 @@ class Row {
         if (field.type === 'number') {
             setAttr(control, 'min', field.min);
             setAttr(control, 'max', field.max);
-            setAttr(control, 'step', field.step);
+            // Keep free-form typed numbers valid. The configured increment is
+            // applied only while an Arrow key or native spinner is being used.
+            setAttr(control, 'step', this.steppingNumber ? field.step : 'any');
             if (field.numberFormat) control.dataset.numberFormat = field.numberFormat;
             control.placeholder = field.mixed ? MIXED_LABEL : '';
             // Text that already reads as the described number stays as entered.
