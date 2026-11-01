@@ -42,6 +42,12 @@ copper layers are hidden, regardless of footprint artwork order. This group
 participates in the same pose, culling and disposal lifecycle as the artwork,
 but side changes never move it onto a fabrication layer.
 
+Pad/pin numbers use the footprint renderer's existing two-dimensional
+size-to-fit calculation, constrained by both the pad dimensions and the number
+of label characters. Their local text is counter-rotated during placement-pose
+updates, and counter-mirrored when required by the board side or footprint
+mirror, so every number remains upright without changing its fitted size.
+
 ## Free Text
 
 Free-standing text creation, defaults/layer rules and full-precision snapshots
