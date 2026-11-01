@@ -599,8 +599,11 @@ retain their existing semantics.
 
 Mixed-selection attribute preparation in `multiPropertyCapabilities`
 (`pcb/modules/multi-selection-properties.js`)
-uses detached shape/image/fill candidates and track-width snapshots rather than
-mutating canonical objects and restoring them. Mutation callbacks receive the
+uses detached shape/image/fill candidates and track snapshots rather than
+mutating canonical objects and restoring them. A multi-track selection offers the
+same editable properties a single track does — Net, Width and Corner Radius —
+where setting the whole-track Corner Radius clears that track's per-corner
+overrides, as it does for one track. Mutation callbacks receive the
 candidate, while the resulting commands retain canonical targets. Image bounds
 are measured on the candidate, immutable artwork remains shared read-only, and
 unchanged dimensions/rotation skip transforms to avoid precision drift.

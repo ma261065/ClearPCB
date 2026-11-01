@@ -25,11 +25,13 @@ import { EditTextCommand } from './text-commands.js';
 import { CompoundCommand, ModifyTrackGraphCommand, ModifyViaCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementRefVisibleCommand, SetPlacementSideCommand } from './track-commands.js';
 import { SetRefStyleCommand } from './ref-text-selection.js';
 import { applyNetToCopperSelection } from './track-properties.js';
+import { renderTrack } from './track-render.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-track-commands.js').TrackState} TrackState */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'fill'|'text'} MultiKind */
 /** @typedef {import('./selection-registry.js').PcbSelectionValue} MultiEntry */
-/** @typedef {{type: 'number'|'select'|'checkbox'|'net', label: string, get: () => any, command: ((value: any) => any)|null, options?: Array<[any, string]>, disabled?: boolean, min?: number, max?: number, step?: number}} MultiCapability */
+/** @typedef {{type: 'number'|'select'|'checkbox'|'net', label: string, get: () => any, command: ((value: any) => any)|null, preview?: (value: any) => void, cancel?: () => boolean, options?: Array<[any, string]>, disabled?: boolean, min?: number, max?: number, step?: number}} MultiCapability */
 
 /** @param {PcbEditor} app @param {MultiEntry} entry @returns {Record<string, MultiCapability>} */
 export function multiPropertyCapabilities(app, entry) {
@@ -223,18 +225,58 @@ export function multiPropertyCapabilities(app, entry) {
             value => new ModifyViaCommand(app, object, { drill: object.drill }, { drill: value }),
             0.05, 0.05, object.diameter);
     } else if (kind === 'track') {
+        /** @param {(target: Track) => void} mutate */
+        const trackCommand = (mutate) => {
+            const before = object.captureState();
+            const candidate = new Track({ id: object.id });
+            candidate.applyState(before);
+            mutate(candidate);
+            const after = candidate.captureState();
+            return JSON.stringify(before) === JSON.stringify(after)
+                ? null : new ModifyTrackGraphCommand(app, object, before, after);
+        };
         capabilities.net = net(() => String(object.net || ''), null);
         capabilities.lineWidth = number('Width (mm)', () => object.width,
-            value => {
-                const before = object.captureState();
-                const candidate = new Track({ id: object.id });
-                candidate.applyState(before);
+            value => trackCommand(candidate => {
                 candidate.width = value;
                 for (const edgeId of candidate.edges.keys()) candidate.setEdgeAttr(edgeId, 'width', value);
+            }), 0.05, 0.05);
+        /** @type {TrackState|null} */
+        let cornerRadiusPreviewBefore = null;
+        /** @param {Track} target @param {number} value */
+        const applyCornerRadius = (target, value) => {
+            target.cornerRadius = Math.max(0, value);
+            target.nodeCornerRadii = {};
+            target.invalidate();
+        };
+        // A whole-track radius replaces any per-corner overrides, as it does for one track.
+        capabilities.cornerRadius = number('Corner Radius (mm)', () => object.cornerRadius || 0,
+            value => {
+                const before = cornerRadiusPreviewBefore || object.captureState();
+                const candidate = new Track({ id: object.id });
+                candidate.applyState(before);
+                applyCornerRadius(candidate, value);
                 const after = candidate.captureState();
+                cornerRadiusPreviewBefore = null;
                 return JSON.stringify(before) === JSON.stringify(after)
                     ? null : new ModifyTrackGraphCommand(app, object, before, after);
-            }, 0.05, 0.05);
+            }, 0, 0.5);
+        capabilities.cornerRadius.preview = value => {
+            cornerRadiusPreviewBefore ||= object.captureState();
+            applyCornerRadius(object, value);
+            renderTrack(object, id => app.getLayerGroup(id));
+            app.refreshClearanceHalos();
+            app.refreshFills();
+        };
+        capabilities.cornerRadius.cancel = () => {
+            if (!cornerRadiusPreviewBefore) return false;
+            object.applyState(cornerRadiusPreviewBefore);
+            cornerRadiusPreviewBefore = null;
+            renderTrack(object, id => app.getLayerGroup(id));
+            app.refreshClearanceHalos();
+            app.refreshFills();
+            return true;
+        };
     } else if (kind === 'shape') {
         const copper = object.layer === 'top-copper' || object.layer === 'bottom-copper';
         if (copper && normalizeShapeCopperMode(object.copperMode) === 'add') {
@@ -383,7 +425,19 @@ export function showMultiSelectionProperties(app, entries) {
         // Locked members keep their values; the row stays editable while any member can take an edit.
         /** @type {PropertyField & Record<string, any>} */
         const field = { key, id, type: descriptor.type, label: descriptor.label, value: values[0], mixed,
-            disabled: group.every(item => item.disabled), commit: value => commit(key, value) };
+            disabled: group.every(item => item.disabled), preview: value => {
+                for (const capability of group) capability.preview?.(value);
+                refreshBoxSelectionHighlights(app);
+            }, cancel: () => {
+                let canceled = false;
+                for (const capability of group) {
+                    const restored = capability.cancel?.() === true;
+                    canceled = restored || canceled;
+                }
+                if (canceled) refreshBoxSelectionHighlights(app);
+                return canceled;
+            },
+            commit: value => commit(key, value) };
         if (descriptor.type === 'select') {
             const descriptorOptions = /** @type {Array<[any, string]>} */ (descriptor.options);
             field.options = descriptorOptions.map(([value, label]) => key === 'layer' && hasShapes

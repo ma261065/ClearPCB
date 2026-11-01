@@ -166,6 +166,8 @@ for (const kind of ['rect', 'polygon', 'circle']) {
     }
 }
 cases.push({ make: track, kind: 'track', key: 'lineWidth', value: 0.456789123 });
+cases.push({ make: () => { const object = track(); object.nodeCornerRadii = {}; return object; },
+    kind: 'track', key: 'cornerRadius', value: 0.456789123 });
 
 let count = 0;
 for (const test of cases) {

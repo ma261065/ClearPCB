@@ -10,6 +10,7 @@ globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../../src/core/ProjectDocument.js');
 const { Component } = await import('../../src/components/Component.js');
+const { Track } = await import('../../src/shapes/track.js');
 const { flushSettledChanges } = await import('../../src/shared/ui/settled-input.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 
@@ -41,6 +42,7 @@ app._placementOverrides = app.placementState.overrides;
 app.boardShapes = [];
 app.netlist = [];
 app._layerGroups = new Map();
+app.getLayerGroup = () => null;
 app.propertiesItems = () => items;
 app.setPropertiesTitle = () => {};
 app.setActiveRibbonTab = () => {};
@@ -48,6 +50,8 @@ app.syncClipboardButtons = () => {};
 app.setPcbStatus = () => {};
 app._recomputeFillsNow = () => {};
 app._refreshFillProperties = () => {};
+app.refreshClearanceHalos = () => {};
+app.refreshFills = () => {};
 
 app.showMultiSelectionProperties([
     { kind: 'track', object: { net: 'GND' } },
@@ -61,13 +65,40 @@ assert.equal(control('pcbPropMultiNetList'), null, 'mixed Net does not use the b
 assert.deepEqual(props(), ['locked', 'net'], 'Track and Via do not expose properties that are not shared');
 
 app.showMultiSelectionProperties([
-    { kind: 'track', object: { net: 'GND', width: 0.2 } },
-    { kind: 'track', object: { net: 'VCC', width: 0.3 } },
+    { kind: 'track', object: { net: 'GND', width: 0.2, cornerRadius: 0.5 } },
+    { kind: 'track', object: { net: 'VCC', width: 0.3, cornerRadius: 1 } },
 ]);
 assert.ok(control('pcbPropMultiNet'), 'multiple Tracks expose Net');
 assert.ok(control('pcbPropMultiTrackWidth'), 'multiple Tracks expose Width');
+assert.ok(control('pcbPropIntersection_cornerRadius'), 'multiple Tracks expose Corner Radius');
+assert.deepEqual(props(), ['locked', 'net', 'lineWidth', 'cornerRadius'],
+    'multiple Tracks expose the same properties one Track does, in the canonical order');
 assert.equal(control('pcbPropMultiNet').placeholder, 'Mixed', 'mixed Net values are represented without choosing one');
 assert.equal(control('pcbPropMultiTrackWidth').placeholder, 'Mixed', 'mixed Width values are represented without choosing one');
+assert.equal(control('pcbPropIntersection_cornerRadius').placeholder, 'Mixed',
+    'mixed Corner Radius values are represented without choosing one');
+
+const liveTrack = new Track({ id: 'live-track', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    width: 0.2, cornerRadius: 0.5 });
+app.showMultiSelectionProperties([{ kind: 'track', object: liveTrack }]);
+const liveRadius = control('pcbPropIntersection_cornerRadius');
+liveRadius.value = '2';
+fire(liveRadius, 'input');
+assert.equal(liveTrack.cornerRadius, 2, 'Corner Radius updates the selected Track while typing');
+
+const canceledTrack = new Track({ id: 'canceled-track', points: [{ x: 0, y: 1 }, { x: 10, y: 1 }],
+    width: 0.2, cornerRadius: 0.75 });
+app.showMultiSelectionProperties([
+    { kind: 'track', object: liveTrack },
+    { kind: 'track', object: canceledTrack },
+]);
+const canceledRadius = control('pcbPropIntersection_cornerRadius');
+canceledRadius.value = '3';
+fire(canceledRadius, 'input');
+canceledRadius.value = 'invalid';
+fire(canceledRadius, 'input');
+assert.equal(liveTrack.cornerRadius, 2, 'Invalid Corner Radius input restores the first selected Track');
+assert.equal(canceledTrack.cornerRadius, 0.75, 'Invalid Corner Radius input restores every selected Track');
 
 const makePad = (id, net, rotation) => ({
     id, net, shape: 'rectangle', size: 1, ratio: 2, drill: 0.4, rotation, layers: 'both',
