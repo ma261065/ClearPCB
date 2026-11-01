@@ -105,22 +105,23 @@ function moveDragFixture() {
     label.parentComponent = rect;
     const wire = new Wire({ points: [{ x: 10, y: 3 }, { x: 20, y: 3 }] });
     const other = new Text({ x: 50, y: 50, text: 'untouched' });
-    let renders = 0;
+    let renders = 0, crosshairHides = 0;
     const app = {
         shapes: [rect, label, wire, other], components: [], history: new CommandHistory(),
         interactionState: 'moveDrag',
-        viewport: { svg: { style: {} } }, removeBoxSelectElement: noop, renderShapes: () => { renders++; },
+        viewport: { svg: { style: {} } }, removeBoxSelectElement: noop,
+        hideCrosshair: () => { crosshairHides++; }, renderShapes: () => { renders++; },
         selection: { getSelection: () => [rect] },
     };
     setSchematicDrag(app, { mode: 'move', totalDx: 0, totalDy: 0 });
     setDidSchematicDrag(app, true);
-    return { app, rect, label, wire, other, renders: () => renders };
+    return { app, rect, label, wire, other, renders: () => renders, crosshairHides: () => crosshairHides };
 }
 const snapshot = shapes => JSON.stringify(shapes.map(shape => shape.captureState()));
 
 // A cancelled move drag restores what it moved, sticky wires included, without history.
 for (const route of ['one', 'all']) {
-    const { app, rect, label, wire, other, renders } = moveDragFixture();
+    const { app, rect, label, wire, other, renders, crosshairHides } = moveDragFixture();
     const before = snapshot(app.shapes);
     getSchematicDrag(app).restoreStates = captureMoveDragStates(app, [rect]);
     assert.ok(getSchematicDrag(app).restoreStates.has(label) && getSchematicDrag(app).restoreStates.has(wire), 'Snapshot covers labels and wires');
@@ -135,6 +136,7 @@ for (const route of ['one', 'all']) {
     assert.equal(getSchematicDrag(app), null);
     assert.equal(app.interactionState, 'idle');
     assert.equal(renders(), 1, 'One redraw for the whole restore');
+    assert.equal(crosshairHides(), 1, 'Cancelling a move clears any drag crosshair');
 }
 
 // Delete waits while a drag is in progress, like the PCB editor's selection actions.

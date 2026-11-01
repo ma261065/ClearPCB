@@ -3,7 +3,7 @@ import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { isLayerVisible, isLayerLocked } from './layers.js';
 import { getPropertyEditor } from './property-editors.js';
 import { renderPlacementPose, placementTransform } from './track-commands.js';
-import { hitTestRefText, invalidateRefBox, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, refTextElement, worldToPlacementLocal } from './ref-text-geometry.js';
+import { hitTestRefText, invalidateRefBox, placementLocalToWorld, refBaselineCenterWorld, refBox, refCenterWorld, refEditBoxWorldCorners, refTextElement, worldToPlacementLocal } from './ref-text-geometry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { hitTestText } from './pcb-text-render.js';
 import { applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
@@ -158,6 +158,9 @@ export function beginRefTextDrag(app, componentId, worldPos) {
         startDx: placement.refDx || 0,
         startDy: placement.refDy || 0,
     });
+    const box = refBox(placement);
+    const crosshair = box && refBaselineCenterWorld(placement, box);
+    if (crosshair) app.viewport?.setCrosshair?.(crosshair);
     app.drawRefOverlay(componentId, true);
     return true;
 }
@@ -177,11 +180,36 @@ export function updateRefTextDrag(app, worldPos) {
         x: drag.startDx + localNow.x - localStart.x,
         y: drag.startDy + localNow.y - localStart.y,
     };
-    const snap = app.snapToGrid(raw);
+    const candidate = { ...placement, refDx: raw.x, refDy: raw.y };
+    const box = refBox(placement);
+    const baseY = parseFloat(refTextElement(placement)?.getAttribute('data-ref-anchor-y') || '');
+    const crosshair = box && refBaselineCenterWorld(candidate, box, baseY);
+    let snap = app.snapToGrid(raw);
+    if (crosshair) {
+        const snappedCrosshair = app.snapToGrid(crosshair);
+        const snappedOrigin = app.snapToGrid(raw);
+        const localCrosshair = worldToPlacementLocal(crosshair, placement);
+        const localSnapped = worldToPlacementLocal(snappedCrosshair, placement);
+        const magnetized = snappedCrosshair.x !== crosshair.x || snappedCrosshair.y !== crosshair.y;
+        snap = {
+            x: raw.x + localSnapped.x - localCrosshair.x,
+            y: raw.y + localSnapped.y - localCrosshair.y,
+        };
+        if (magnetized) {
+            snap.x = Number(snap.x.toFixed(12));
+            snap.y = Number(snap.y.toFixed(12));
+        }
+        if (snappedOrigin.x === drag.startDx && snappedOrigin.y === drag.startDy) {
+            snap.x = drag.startDx;
+            snap.y = drag.startDy;
+        }
+    }
     if ((placement.refDx || 0) === snap.x && (placement.refDy || 0) === snap.y) return;
     placement.refDx = snap.x;
     placement.refDy = snap.y;
     renderPlacementPose(app, drag.compId);
+    const displayedCrosshair = box && refBaselineCenterWorld(placement, box);
+    if (displayedCrosshair) app.viewport?.setCrosshair?.(displayedCrosshair);
     app.drawRefOverlay(drag.compId, true);
 }
 
@@ -204,6 +232,7 @@ export function endRefDrag(app, commit = true) {
     setPcbInteraction(app, '_refDrag', null);
     const placement = app.placements.get(compId);
     if (app.viewport) app.viewport.svg.style.cursor = 'default';
+    app.viewport?.hideCrosshair?.();
     if (!placement) { app.drawRefOverlay(null, false); return; }
     if ((placement.refDx || 0) === startDx && (placement.refDy || 0) === startDy) {
         app.drawRefOverlay(compId, false);

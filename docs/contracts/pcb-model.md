@@ -169,6 +169,14 @@ fix the authority, not the consumer.
 | Copper pours | the computed fill (`getComputedFill`, `pcb/modules/computed-fill-cache.js`) | pour SVG, 2D and 3D views, DRC; fabrication export recomputes pours in its snapshot (`fabrication-snapshot.js`) |
 | Routing obstacles | `buildCopperObstacles` (`pcb/modules/copper-obstacles.js`) | router input (`route-input.js`) |
 
+Dragging PCB text shows the shared full-canvas crosshair with its vertical line at
+the rendered text's horizontal centre and its horizontal line at the text baseline.
+This applies to footprint reference text and free text, including rotation and
+bottom-side mirroring. The displayed baseline-centre crosshair itself is the
+magnetic grid snap point; the stored text origin/offset is derived from that snapped
+point. Shift and hidden-grid behavior remain the shared grid-magnet behavior, and
+drop or cancellation hides the crosshair.
+
 ### Intentional differences and model limits
 
 - Conservative pour outlines, picture-wide pour clearance, routing envelopes and

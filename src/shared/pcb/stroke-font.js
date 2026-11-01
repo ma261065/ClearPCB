@@ -18,6 +18,8 @@ export const GLYPHS = { .../** @type {Record<string, StrokeGlyph>} */ (/** @type
 /** Letter spacing (in glyph cells, multiply by size). Hershey glyphs
  * already include side bearings, so a small extra value gives natural spacing. */
 export const TRACKING = 0.05;
+/** Hershey glyph-space Y coordinate shared by ordinary character baselines. */
+export const GLYPH_BASELINE_Y = -0.313;
 
 /**
  * Measure the rendered width of a string at the given size (mm).

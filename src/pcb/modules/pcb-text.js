@@ -18,7 +18,7 @@
  * Creation assigns an ID if missing; PcbDocument owns the text collection.
  */
 
-import { stringToPolylines, measureText } from '../../shared/pcb/stroke-font.js';
+import { GLYPH_BASELINE_Y, stringToPolylines, measureText } from '../../shared/pcb/stroke-font.js';
 import { PCB_LAYERS } from './layers.js';
 export { TEXT_LAYERS, createPcbText, serializePcbText } from '../../core/pcb-text.js';
 
@@ -208,6 +208,24 @@ export function pcbTextBounds(text) {
         if (point.y > maxY) maxY = point.y;
     }
     return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Crosshair point for PCB text: rendered horizontal centre X and baseline Y.
+ * @param {PcbText} text
+ * @returns {Point}
+ */
+export function pcbTextBaselineCenter(text) {
+    const mirror = isBottomLayer(text.layer) ? -1 : 1;
+    const localX = measureText(text.content, text.size) / 2 * mirror;
+    const localY = -GLYPH_BASELINE_Y * text.size;
+    const angle = -(text.rotation || 0) * Math.PI / 180;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    return {
+        x: text.x + localX * cosine - localY * sine,
+        y: text.y + localX * sine + localY * cosine,
+    };
 }
 
 /**

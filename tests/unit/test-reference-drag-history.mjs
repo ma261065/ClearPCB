@@ -10,7 +10,7 @@ import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { handleRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
-import { placementLocalToWorld, setRefTextGeometryCache } from '../../src/pcb/modules/ref-text-geometry.js';
+import { placementLocalToWorld, refBaselineCenterWorld, setRefTextGeometryCache, worldToPlacementLocal } from '../../src/pcb/modules/ref-text-geometry.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -20,7 +20,7 @@ const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true } = {}) {
     const pcbDocument = new PcbDocument();
     const refElement = { isConnected: true, attributes: new Map([
-        ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
+        ['data-ref-anchor-y', '0.75'], ['data-ref-cy', '0'],
     ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
     getAttribute(name) { return this.attributes.get(name) ?? null; } };
     const placement = { x: Math.PI, y: -Math.E, rotation, side, mirror,
@@ -39,14 +39,16 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
     placement.elements = [{
         setAttribute() { renders.push(offsets()); }, querySelector: () => null, querySelectorAll: () => [],
     }];
-    const overlays = [];
+    const overlays = [], crosshairs = [];
     let dirty = 0, boardRefreshes = 0;
     const app = { ...pcbEditorStubs(),
         pcbDocument, placementState: pcbDocument.placementState, tracks: pcbDocument.tracks,
         placements: new Map([['part', placement]]), _layerGroups: new Map(),
         currentTool: 'select', history: new CommandHistory(),
         viewport: { svg: { style: { cursor: 'grabbing' } }, snapToGrid: false,
-            gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {},
+            gridVisible: true, scale: 4, gridSize: 10,
+            setCrosshair(point) { crosshairs.push({ ...point }); },
+            hideCrosshair() { crosshairs.push(null); },
             addContent(node) {
                 const append = node.appendChild;
                 node.appendChild = function (child) {
@@ -75,7 +77,7 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
         assert.equal(adapter.beginMove({ x: placement.x, y: placement.y }), true);
         if (shared) setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
     };
-    return { app, adapter, placement, snapshot, begin, renders, overlays, offsets,
+    return { app, adapter, placement, snapshot, begin, renders, overlays, crosshairs, offsets,
         dirty: () => dirty, boardRefreshes: () => boardRefreshes };
 }
 
@@ -122,10 +124,17 @@ for (const saved of [false, true]) {
     const f = fixture({ saved });
     const original = f.snapshot();
     f.begin(false);
+    assert.deepEqual(f.crosshairs.at(-1), refBaselineCenterWorld(f.placement,
+        { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
+    'Reference drag starts with a crosshair at the horizontal centre of its baseline');
     handleRefDrag(f.app, { clientX: 12.345678, clientY: -9.876543, shiftKey: false });
+    assert.deepEqual(f.crosshairs.at(-1), refBaselineCenterWorld(f.placement,
+        { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
+    'Reference drag keeps the crosshair on the rotated and mirrored baseline centre');
     const final = f.offsets();
     const beforeDrop = f.renders.length, beforeOverlays = f.overlays.length;
     f.adapter.endMove(true);
+    assert.equal(f.crosshairs.at(-1), null, 'Dropping reference text hides the crosshair');
     assert.deepEqual(f.renders.slice(beforeDrop), [final], 'Drop must render only the committed offsets, never a rollback');
     assert.equal(f.overlays.length - beforeOverlays, 1, 'The command owns the final overlay refresh');
     assert.equal(f.app.history.undoStack.length, 1);
@@ -139,8 +148,12 @@ for (const saved of [false, true]) {
 
 {
     const f = fixture({ saved: false, rotation: 0, side: 'top', mirror: false });
+    f.placement.refRot = 0;
     const original = f.snapshot();
     f.begin(false);
+    assert.equal(f.crosshairs.at(-1).y, f.placement.y + f.placement.refDy + 0.75
+        + 0.313 * (f.placement.refSize || 0.9),
+    'Unrotated reference text uses the rendered Hershey baseline, not its layout origin');
     f.adapter.endMove(false);
     assert.deepEqual(f.snapshot(), original);
     assert.equal(f.renders.length, 0, 'A no-op cancel does not redraw the placement');
@@ -172,8 +185,33 @@ for (const legacy of [false, true]) for (const side of ['top', 'bottom']) {
                 f.adapter.updateMove(point);
             }
         };
-        for (let index = 0; index < 100; index++) moveTo(20 + index / 1000, 30 + index / 1000);
-        assert.deepEqual(f.offsets(), { refDx: 20, refDy: 30 });
+        const box = { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 };
+        const rawOffsets = { x: 20, y: 30 };
+        const rawCrosshair = refBaselineCenterWorld(
+            { ...f.placement, refDx: rawOffsets.x, refDy: rawOffsets.y }, box, 0.75);
+        const gridCrosshair = {
+            x: Math.round(rawCrosshair.x / 10) * 10,
+            y: Math.round(rawCrosshair.y / 10) * 10,
+        };
+        const localGridDelta = {
+            x: worldToPlacementLocal(gridCrosshair, f.placement).x
+                - worldToPlacementLocal(rawCrosshair, f.placement).x,
+            y: worldToPlacementLocal(gridCrosshair, f.placement).y
+                - worldToPlacementLocal(rawCrosshair, f.placement).y,
+        };
+        const magnetOffsets = {
+            x: rawOffsets.x + localGridDelta.x,
+            y: rawOffsets.y + localGridDelta.y,
+        };
+        for (let index = 0; index < 100; index++) {
+            moveTo(magnetOffsets.x + index / 1000, magnetOffsets.y + index / 1000);
+        }
+        const snappedCrosshair = f.crosshairs.at(-1);
+        assert.ok(Math.abs(snappedCrosshair.x / 10 - Math.round(snappedCrosshair.x / 10)) < 1e-9
+            && Math.abs(snappedCrosshair.y / 10 - Math.round(snappedCrosshair.y / 10)) < 1e-9,
+        `Reference drag magnetically snaps its displayed baseline-centre crosshair to the grid: ${JSON.stringify({
+            snappedCrosshair, gridCrosshair, magnetOffsets, offsets: f.offsets(),
+        })}`);
         assert.equal(f.renders.length, 1, '100 events attracted to one point render the reference pose once');
         assert.equal(f.overlays.length, 2, 'Only pickup and the changed position draw the tether overlay');
         assert.deepEqual(f.snapshot().saved, original.saved);
@@ -185,20 +223,25 @@ for (const legacy of [false, true]) for (const side of ['top', 'bottom']) {
 
         for (let index = 0; index < 100; index++) {
             const x = 24 + index / 1000, y = 34 + index / 1000;
-            moveTo(x, y);
+            moveTo(x, y, true);
             assert.ok(Math.abs(f.placement.refDx - x) < 1e-12 && Math.abs(f.placement.refDy - y) < 1e-12);
         }
         assert.equal(f.renders.length, 101, 'Every distinct free position still renders immediately');
         assert.equal(f.overlays.length, 102, 'Every distinct free position updates its overlay');
-        moveTo(24.099, 34.099);
+        moveTo(24.099, 34.099, true);
         assert.equal(f.renders.length, 101, 'An identical unsnapped position also reuses its presentation');
-        moveTo(20.1, 30.1, true);
-        assert.ok(Math.abs(f.placement.refDx - 20.1) < 1e-12 && Math.abs(f.placement.refDy - 30.1) < 1e-12);
-        moveTo(20.1, 30.1);
-        assert.deepEqual(f.offsets(), { refDx: 20, refDy: 30 }, 'Releasing Shift re-evaluates the same pointer');
+        const shiftedOffsets = { x: magnetOffsets.x + 0.1, y: magnetOffsets.y + 0.1 };
+        moveTo(shiftedOffsets.x, shiftedOffsets.y, true);
+        assert.ok(Math.abs(f.placement.refDx - shiftedOffsets.x) < 1e-12
+            && Math.abs(f.placement.refDy - shiftedOffsets.y) < 1e-12);
+        moveTo(shiftedOffsets.x, shiftedOffsets.y);
+        assert.ok(Math.abs(f.crosshairs.at(-1).x - gridCrosshair.x) < 1e-9
+            && Math.abs(f.crosshairs.at(-1).y - gridCrosshair.y) < 1e-9,
+        'Releasing Shift re-evaluates the same pointer against the crosshair grid magnet');
         f.app.viewport.gridVisible = false;
-        moveTo(20.1, 30.1);
-        assert.ok(Math.abs(f.placement.refDx - 20.1) < 1e-12 && Math.abs(f.placement.refDy - 30.1) < 1e-12,
+        moveTo(shiftedOffsets.x, shiftedOffsets.y);
+        assert.ok(Math.abs(f.placement.refDx - shiftedOffsets.x) < 1e-12
+            && Math.abs(f.placement.refDy - shiftedOffsets.y) < 1e-12,
             'Hiding the grid releases the same pointer from attraction');
         f.adapter.endMove(false);
         assert.deepEqual(f.snapshot(), original);

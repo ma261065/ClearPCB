@@ -161,6 +161,7 @@ export function cancelDragGesture(app) {
         setDidSchematicDrag(app, false);
         app.removeBoxSelectElement();
         app.viewport.svg.style.cursor = '';
+        app.hideCrosshair();
         app.interactionState = 'idle';
         app.renderShapes(true);
         return true;

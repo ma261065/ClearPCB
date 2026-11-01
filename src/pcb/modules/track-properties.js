@@ -317,6 +317,12 @@ export function showTrackProperties(app, track) {
             showTrackSelectionProperties(app, track);
             return;
         }
+        const seedEdge = track.edges.get(netSeedEdgeId);
+        const seedFrom = seedEdge && track.nodes.get(seedEdge.from);
+        const seedTo = seedEdge && track.nodes.get(seedEdge.to);
+        const selectionPoint = seedFrom && seedTo
+            ? { x: (seedFrom.x + seedTo.x) / 2, y: (seedFrom.y + seedTo.y) / 2 }
+            : null;
         const before = track.captureState();
         // Move every edge of this track onto the chosen layer, then
         // re-normalise the whole bonded copper region into the canonical
@@ -343,7 +349,11 @@ export function showTrackProperties(app, track) {
         for (const vv of region.addVias) cmds.push(new AddViaCommand(app, /** @type {Via} */ (vv)));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
-        app.showPropertiesTab();
+        const replacement = (selectionPoint
+            ? region.addTracks.find((candidate) => hitTestTrackEdge(app, /** @type {Track} */ (candidate), selectionPoint))
+            : null) || region.addTracks[0];
+        if (replacement) showTrackSelectionProperties(app, /** @type {Track} */ (replacement));
+        else app.showPropertiesTab();
     };
     /** @returns {PropertyPanel} */
     const describe = () => {

@@ -51,7 +51,7 @@ import { getSchematicTextEdit } from './text-edit.js';
 import { isPastingClipboard } from './clipboard.js';
 import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
-import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
+import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, draggedTextForCrosshair, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
 import { resolveDraggingComponentSnap, resolveNetLabelDragSnap, resolvePlacingComponentSnap } from './component-snap.js';
 import { isComponentItem, isNetItem, isTextItem, isWireItem, isPolylineItem, isGraphItem as isGraphShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -957,6 +957,24 @@ export const moveDragState = {
         for (const { net } of netLabels) movingCompIds.add(net.id);
         const snappedTarget = getMoveDragSnappedTarget(app);
         resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
+        const draggedText = draggedTextForCrosshair(selNow);
+        if (draggedText) {
+            const offset = getSchematicDrag(app).textCrosshairOffset || { x: 0, y: 0 };
+            const rawCrosshair = { x: targetPos.x + offset.x, y: targetPos.y + offset.y };
+            const snappedCrosshair = app.viewport.getSnappedPosition(rawCrosshair);
+            const snappedOrigin = app.viewport.getSnappedPosition(targetPos);
+            const atPickupMagnet = snappedOrigin.x === getSchematicDrag(app).objectStartPos.x
+                && snappedOrigin.y === getSchematicDrag(app).objectStartPos.y;
+            if (atPickupMagnet) {
+                snappedTarget.x = getSchematicDrag(app).objectStartPos.x;
+                snappedTarget.y = getSchematicDrag(app).objectStartPos.y;
+            } else {
+                snappedTarget.x = snappedCrosshair.x === rawCrosshair.x ? targetPos.x
+                    : Number((targetPos.x + snappedCrosshair.x - rawCrosshair.x).toFixed(12));
+                snappedTarget.y = snappedCrosshair.y === rawCrosshair.y ? targetPos.y
+                    : Number((targetPos.y + snappedCrosshair.y - rawCrosshair.y).toFixed(12));
+            }
+        }
 
         // Probe the raw projected label anchor before grid snapping, matching placement.
         const dragNet = selNow.length === 1 && isNetItem(selNow[0]) ? selNow[0] : null;
@@ -990,6 +1008,10 @@ export const moveDragState = {
             snappedTarget.x = compSnap.targetPos.x;
             snappedTarget.y = compSnap.targetPos.y;
             deferredComponentSnap = compSnap.pinSnap;
+        }
+        if (draggedText) {
+            const offset = getSchematicDrag(app).textCrosshairOffset || { x: 0, y: 0 };
+            app.updateCrosshair({ x: snappedTarget.x + offset.x, y: snappedTarget.y + offset.y });
         }
 
         const dx = snappedTarget.x - getSchematicDrag(app).lastSnapped.x;

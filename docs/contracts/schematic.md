@@ -358,3 +358,9 @@ joins it to the component: from the symbol's outline (its local bounds grown by
 0.5 mm) to the text's outline, never from the component's centre. Other attached
 labels lead from their attachment point (`label-attachment.js` `updateLabelGuide`;
 `test-reference-selection-overlay`).
+Dragging any schematic Text shows the full-canvas crosshair with its vertical line
+at the text's horizontal centre and its horizontal line at the text baseline.
+This includes ordinary Text and component Reference and Value fields. Drop and
+every cancellation path hide it. The visible crosshair point, rather than a
+start- or end-anchored Text model position, is magnetically snapped on both grid
+axes; returning to the original two-axis pickup magnet remains a no-op.

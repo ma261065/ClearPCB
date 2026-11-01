@@ -1,7 +1,7 @@
 import { beginDragSession, releaseDragSession } from './drag-session.js';
 import { isLayerVisible } from './layers.js';
 import { boardShapeLocked, isPcbObjectLocked } from './object-locks.js';
-import { pcbTextBounds, pcbTextHitTest, pcbTextOutline, renderPcbText } from './pcb-text.js';
+import { pcbTextBaselineCenter, pcbTextBounds, pcbTextHitTest, pcbTextOutline, renderPcbText } from './pcb-text.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
@@ -35,7 +35,7 @@ export function beginTextDrag(app, text, worldPos) {
         // Text carries no net, so no ratlines follow it.
         session: beginDragSession(app),
     });
-    app.viewport?.setCrosshair({ x: text.x, y: text.y });
+    app.viewport?.setCrosshair(pcbTextBaselineCenter(text));
     return true;
 }
 
@@ -52,10 +52,23 @@ export function updateTextDrag(app, worldPos) {
         x: drag.startPos.x + worldPos.x - drag.startWorld.x,
         y: drag.startPos.y + worldPos.y - drag.startWorld.y,
     };
-    const snap = app.snapToGrid(raw);
+    const candidate = { ...text, x: raw.x, y: raw.y };
+    const crosshair = pcbTextBaselineCenter(candidate);
+    const snappedCrosshair = app.snapToGrid(crosshair);
+    const snappedOrigin = app.snapToGrid(raw);
+    const snap = {
+        x: snappedCrosshair.x === crosshair.x ? raw.x
+            : Number((raw.x + snappedCrosshair.x - crosshair.x).toFixed(12)),
+        y: snappedCrosshair.y === crosshair.y ? raw.y
+            : Number((raw.y + snappedCrosshair.y - crosshair.y).toFixed(12)),
+    };
+    if (snappedOrigin.x === drag.startPos.x && snappedOrigin.y === drag.startPos.y) {
+        snap.x = drag.startPos.x;
+        snap.y = drag.startPos.y;
+    }
     if (text.x === snap.x && text.y === snap.y) return;
     previewTextPose(app, text.id, snap);
-    app.viewport?.setCrosshair({ x: snap.x, y: snap.y });
+    app.viewport?.setCrosshair(pcbTextBaselineCenter(app.texts.get(text.id)));
     app.refreshText(text.id);
 }
 

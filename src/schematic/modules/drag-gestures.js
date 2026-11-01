@@ -77,6 +77,17 @@ export function movableSelection(app) {
 }
 
 /**
+ * The one Text object being dragged, if any.
+ * @param {SchematicItem[]} selection
+ * @returns {SchematicItem|null}
+ */
+export function draggedTextForCrosshair(selection) {
+    if (selection.length !== 1) return null;
+    const item = selection[0];
+    return item?.type === 'text' ? item : null;
+}
+
+/**
  * Start moving the unlocked part of the selection from a press at `worldPos`.
  * @param {SchematicEditor} app
  * @param {Point} worldPos
@@ -86,6 +97,14 @@ export function beginSelectionMove(app, worldPos, snapped) {
     const movable = movableSelection(app);
     const dragObjectStartPos = movable[0] ? movable[0].getPosition() : { ...snapped };
     beginMoveDragSession(app, worldPos, dragObjectStartPos);
+    const draggedText = draggedTextForCrosshair(movable);
+    if (draggedText) {
+        const bounds = draggedText.getBounds();
+        getSchematicDrag(app).textCrosshairOffset = {
+            x: bounds ? (bounds.minX + bounds.maxX) / 2 - dragObjectStartPos.x : 0,
+            y: 0,
+        };
+    }
     const movedIds = collectMovingComponentIds(movable);
     const links = captureStickyNetLabels(app, movedIds);
     getSchematicDrag(app).netLabels = links;
@@ -94,6 +113,14 @@ export function beginSelectionMove(app, worldPos, snapped) {
     getSchematicDrag(app).restoreStates = captureMoveDragStates(app, movable);
     // Bridge pin-connected wire nodes ONCE so pins can move freely
     bridgeStickyPinNodes(app, movedIds);
+    if (draggedText) {
+        const offset = getSchematicDrag(app).textCrosshairOffset;
+        app.showCrosshair();
+        app.updateCrosshair({
+            x: dragObjectStartPos.x + offset.x,
+            y: dragObjectStartPos.y + offset.y,
+        });
+    }
     app.viewport.svg.style.cursor = 'move';
     app.renderShapes();
 }
