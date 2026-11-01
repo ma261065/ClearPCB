@@ -226,6 +226,9 @@ a command class does not declare `lockTargets()`.
 `pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
 Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching live
 in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. The app's
+Ctrl/Cmd+S and Ctrl/Cmd+Alt+S handling runs before those focus guards, so Save
+and Save As remain editor-global when a ribbon or Properties control has focus
+instead of falling through to the browser's native Save Page dialog. The app's
 window-capture dispatcher gives keys to this handler only while the PCB editor is
 active, and the schematic's handler stands aside then (`pcbApp.isActive()`), so each
 editor's view keys (Home activates Select, opens the Home tab and fits its view, +/- zoom it) act on the active editor alone

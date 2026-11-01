@@ -94,6 +94,9 @@ strand the keyboard and the user can keep typing. Text-entry fields in the panel
 keep all of their own characters, and controls outside the Properties panel are
 unaffected (`test-schematic-inline-property-keyboard`). PCB labels behave the
 same way.
+Ctrl/Cmd+S and Ctrl/Cmd+Alt+S are editor-global Save and Save As shortcuts.
+They run before ribbon and Properties focus guards, so focused controls never
+let Ctrl/Cmd+S fall through to the browser's native Save Page dialog.
 
 Inline text editing supports Ctrl+A (Cmd+A on macOS), Shift+Left/Right,
 Ctrl/Cmd+Shift+Left/Right for word selection, and Shift+Home/End. A translucent

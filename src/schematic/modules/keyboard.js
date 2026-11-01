@@ -194,6 +194,15 @@ export function bindKeyboardShortcuts(app) {
         }
         const target = /** @type {(EventTarget & {tagName?: string, type?: string, isContentEditable?: boolean})|null} */ (e.target);
         const targetElement = e.target instanceof Element ? e.target : null;
+        // Save is editor-global, including while a ribbon or Properties
+        // control has focus. Handle it before those controls' focus guards so
+        // the browser never receives Ctrl/Cmd+S as "Save page as…".
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            if (e.altKey) app.saveFileAs();
+            else app.saveFile();
+            return;
+        }
         // A Properties control that took the keyboard mid-edit hands back the
         // characters it cannot use, so the user can keep typing the text.
         if (shouldRoutePropertyKeyToTextEdit(app, e, targetElement)
@@ -241,14 +250,6 @@ export function bindKeyboardShortcuts(app) {
 
         if (e.ctrlKey || e.metaKey) {
             switch (e.key.toLowerCase()) {
-                case 's':
-                    e.preventDefault();
-                    if (e.altKey) {
-                        app.saveFileAs();
-                    } else {
-                        app.saveFile();
-                    }
-                    break;
                 case 'p':
                     if (e.shiftKey) {
                         e.preventDefault();

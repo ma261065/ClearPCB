@@ -129,8 +129,12 @@ for (const source of ['keyboard', 'ribbon']) {
 
 for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { tagName: 'SELECT' }, { isContentEditable: true }]) {
     const f = fixture();
-    for (const key of ['z', 'y', 's']) assert.equal(f.app.handleKeyDown({ key, ctrlKey: true, target }), false);
-    assert.equal(f.value(), 1, 'Text controls retain native shortcuts');
+    let saves = 0;
+    f.app.project = { save() { saves++; return Promise.resolve({ success: false }); } };
+    for (const key of ['z', 'y']) assert.equal(f.app.handleKeyDown({ key, ctrlKey: true, target }), false);
+    assert.equal(f.app.handleKeyDown({ key: 's', ctrlKey: true, target }), true);
+    assert.equal(saves, 1, 'Ctrl+S remains editor-global while a text control has focus');
+    assert.equal(f.value(), 1, 'Text controls retain native history shortcuts');
 }
 
 for (const event of [{ key: 'Z', metaKey: true }, { key: 'z', ctrlKey: true, shiftKey: true },
