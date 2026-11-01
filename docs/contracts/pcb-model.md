@@ -640,17 +640,15 @@ every move.
   opposite corner fixed and rounds with circular corners, and Fill turns a
   closed loop into a filled board shape that keeps its net
   (`fillTrackLoop()`; `test-copper-path-tracks`, `test-track-rectangle-editing`).
-  The track Layer menu also lists non-copper layers: choosing one turns a
-  single-layer line or loop back into an unfilled board shape, dropping its net
-  and pad links and keeping a hole's plating (`moveTrackToBoardLayer()`). Its
-  Copper Mode menu does the same for the removal modes, which add no copper:
-  the track becomes an unfilled shape on its own layer (`setTrackCopperMode()`),
-  and switching that shape back to Add Copper makes it a track again. For
-  branched or two-layer tracks those layers and modes are disabled with a tooltip.
+  Track Properties always represents additive copper: its Layer menu contains
+  only Top Copper and Bottom Copper, with the same enabled choices for every
+  track, and it has no Copper Mode field. Non-copper layers and copper-removal
+  modes belong to board shapes rather than Tracks.
   Panel edits first drop any in-progress pickup of the same track (a midpoint
   "+" click), so they always act on the real track. The browser scenarios in
-  `tests/browser/track-shape-conversions.mjs` drive these conversions through
-  the real Properties panel, then undo, redo, save and reopen.
+  `tests/browser/track-shape-conversions.mjs` verify shape-to-track conversion
+  and the resulting copper-only Track Properties through undo, redo, save and
+  reopen.
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.

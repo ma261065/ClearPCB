@@ -15,8 +15,7 @@ import { RemoveTrackCommand, RemoveViaCommand, AddTrackCommand, AddViaCommand, C
 import { setSelectionInteraction } from './selection-interaction.js';
 import { PCB_LAYERS, isLayerLocked, isLayerVisible, pcbLayerOption } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
-import { canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './track-shape-conversion.js';
-import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
+import { canFillTrackLoop, fillTrackLoop } from './track-shape-conversion.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getLastPointerWorld } from './cursor-state.js';
@@ -298,15 +297,6 @@ export function showTrackProperties(app, track) {
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
     const currentLayer = mixed ? '' : (layers.values().next().value || track.layer || 'top-copper');
-    // Non-copper layers turn the track back into a board shape, which needs one line or loop.
-    const movable = canMoveTrackToBoardLayer(track);
-    const unmovableReason = mixed
-        ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can move to a non-copper layer.'
-        : 'This track branches. Only a track that is a single line or loop can move to a non-copper layer.';
-    // Removal modes add no copper, so they also turn the track back into a board shape.
-    const unmovableModeReason = mixed
-        ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can use a removal mode.'
-        : 'This track branches. Only a track that is a single line or loop can use a removal mode.';
     const lockEntries = [{ kind: 'track', object: track }];
     const netSeedEdgeId = hitTestTrackEdge(app, track, /** @type {Point} */ (getLastPointerWorld(app) || {}))?.edgeId
         || track.edges.keys().next().value;
@@ -319,33 +309,12 @@ export function showTrackProperties(app, track) {
             showTrackSelectionProperties(app, track);
         } else showTrackSelectionProperties(app, track);
     };
-    /** @param {string} mode */
-    const applyCopperMode = mode => {
-        if (!binding.prepare()) return;
-        const firstEdgeId = track.edges.keys().next().value;
-        const layer = firstEdgeId ? track.getEdgeLayer(firstEdgeId) || track.layer : track.layer;
-        if (mode === 'add' || isLayerLocked(layer) || !canMoveTrackToBoardLayer(track)) {
-            showTrackSelectionProperties(app, track);
-            return;
-        }
-        clearTrackSelection(app);
-        setTrackCopperMode(app, track, mode);
-        reconcileRatsnest(app);
-        app.showPropertiesTab();
-    };
     /** @param {string} v */
     const applyLayer = v => {
         if (!binding.prepare()) return;
         if (!v) return; // the Mixed placeholder
         if (!COPPER_LAYERS.some((l) => l.id === v)) {
-            if (isLayerLocked(v) || !canMoveTrackToBoardLayer(track)) {
-                showTrackSelectionProperties(app, track);
-                return;
-            }
-            clearTrackSelection(app);
-            moveTrackToBoardLayer(app, track, v);
-            reconcileRatsnest(app);
-            app.showPropertiesTab();
+            showTrackSelectionProperties(app, track);
             return;
         }
         const before = track.captureState();
@@ -384,21 +353,8 @@ export function showTrackProperties(app, track) {
             lock.field,
             { key: 'layer', id: 'pcbPropTrackLayer', type: 'select', label: 'Layer',
                 value: currentLayer, mixed, disabled: readOnly,
-                options: PCB_LAYERS.filter((l) => !PROP_HIDDEN_LAYERS.has(l.id)).map((l) => {
-                    if (COPPER_LAYERS.includes(l)) return pcbLayerOption(l.id, l.name);
-                    return movable ? pcbLayerOption(l.id, l.name)
-                        : { value: l.id, label: l.name, disabled: true, title: unmovableReason };
-                }),
+                options: COPPER_LAYERS.map((layer) => pcbLayerOption(layer.id, layer.name)),
                 commit: applyLayer },
-            { key: 'copperMode', id: 'pcbPropTrackCopperMode', type: 'select', label: 'Copper Mode',
-                value: 'add', disabled: readOnly,
-                options: [
-                    { value: 'add', label: 'Add Copper' },
-                    ...[['remove-copper', 'Remove Copper'], ['remove-solder-mask', 'Remove Solder Mask'], ['remove-copper-mask', 'Remove Copper + Mask']]
-                        .map(([value, label]) => ({ value, label, disabled: !movable,
-                            title: movable ? undefined : unmovableModeReason })),
-                ],
-                commit: applyCopperMode },
             { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
                 disabled: readOnly, nets: app.netNames(), commit: applyNet },
             ...(canFillTrackLoop(track) ? /** @type {PropertyField[]} */ ([{ key: 'fill', id: 'pcbPropTrackFill', type: 'checkbox', label: 'Fill',

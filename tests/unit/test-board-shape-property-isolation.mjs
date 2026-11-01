@@ -493,6 +493,15 @@ for (const [field, layer, mode] of [['pcbPropShapeLayer', 'top-copper', null], [
     assert.equal(app.tracks.length, 1, `${field} change made the shape a track`);
     assert.ok(fields.has('pcbPropTrackLayer') && !fields.has('pcbPropShapeLayer'),
         `after ${field} turns the shape into a track, the panel shows the track rather than the replaced shape`);
+    assert.deepEqual(fields.get('pcbPropTrackLayer').field.options.map(option => ({
+        value: option.value,
+        disabled: !!option.disabled,
+    })), [
+        { value: 'top-copper', disabled: false },
+        { value: 'bottom-copper', disabled: false },
+    ], 'Track Properties offers only the two copper layers without disabled alternatives');
+    assert.equal(fields.has('pcbPropTrackCopperMode'), false,
+        'Tracks always add copper and do not expose Copper Mode');
     cancelPictureCopperRefresh(app);
 }
 
