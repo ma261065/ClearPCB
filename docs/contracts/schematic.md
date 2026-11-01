@@ -28,6 +28,10 @@ label guides, text-edit overlays and tool ghosts, without writing entity
 Clean shapes only take the zoom fast path (stroke-width update) when the scale
 has changed since the previous `renderShapes()` pass, so hover frames do no
 per-shape view lookups.
+Hovering a wire shows its current net name after the same short settling delay
+used by PCB copper tooltips. The tooltip follows the authoritative hover hit
+from the coalesced interaction pass and hides when the pointer leaves the wire,
+an interaction starts or the viewport moves.
 `test-schematic-view-boundary` tests the helpers and fails on new
 view-lifecycle code elsewhere in the schematic editor.
 

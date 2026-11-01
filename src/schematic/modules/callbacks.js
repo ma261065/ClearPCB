@@ -3,6 +3,7 @@ import { dismissAnchorContextMenu } from './context-menu.js';
 import { onComponentDefinitionSelected } from './components.js';
 import { onComponentPickerClosed } from './tool.js';
 import { isPastingClipboard, updatePastePreview } from './clipboard.js';
+import { hideSchematicNetTooltip, updateSchematicNetTooltip } from './net-tooltip.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
@@ -39,7 +40,7 @@ export function setupCallbacks(app) {
     // Hover + status updates are coalesced to one animation frame so a burst
     // of mousemove events performs at most one hit-test / DOM update per frame
     // (matches the PCB hover scheduler pattern).
-    /** @type {{world: Point, snapped: Point}|null} */
+    /** @type {{world: Point, snapped: Point, event?: MouseEvent}|null} */
     let pendingMove = null;
     let moveRaf = 0;
     /** @type {ViewChange|null} */
@@ -73,6 +74,7 @@ export function setupCallbacks(app) {
             }
             const hit = allHits.find((shape) => app.selection.isSelected(shape)) || allHits[0] || null;
             const hoveredChanged = app.selection.setHovered(hit);
+            updateSchematicNetTooltip(app, move.event, hit);
 
             let cursor = 'default';
             const selectedShapes = app.selection.getSelection();
@@ -99,6 +101,8 @@ export function setupCallbacks(app) {
             if (hoveredChanged) {
                 app.renderShapes();
             }
+        } else {
+            hideSchematicNetTooltip(app);
         }
 
         const v = app.viewport;
@@ -111,15 +115,15 @@ export function setupCallbacks(app) {
         }
     };
 
-    /** @param {Point} world @param {Point} snapped */
-    app.viewport.onMouseMove = (world, snapped) => {
+    /** @param {Point} world @param {Point} snapped @param {MouseEvent} [event] */
+    app.viewport.onMouseMove = (world, snapped, event) => {
         if (isPastingClipboard(app) && app.pastePreviewGroup) {
             updatePastePreview(app, snapped);
         }
 
         // Component preview is handled by placingState.mousemove to avoid double-update
 
-        pendingMove = { world, snapped };
+        pendingMove = { world, snapped, event };
         if (!moveRaf) moveRaf = requestAnimationFrame(flushMouseMove);
     };
 
@@ -140,6 +144,7 @@ export function setupCallbacks(app) {
 
     app.viewport.onInteractionStart = (kind) => {
         cancelPendingMove();
+        hideSchematicNetTooltip(app);
         if (kind === 'pointer' || !viewRaf) return;
         cancelAnimationFrame(viewRaf);
         viewRaf = 0;
@@ -147,6 +152,7 @@ export function setupCallbacks(app) {
 
     /** @param {ViewChange} view */
     app.viewport.onViewChanged = (view) => {
+        if (view.scaleChanged || view.boundsChanged) hideSchematicNetTooltip(app);
         // A context menu is anchored to a screen position but refers to a board
         // location; any zoom or pan (wheel, +/- keys, arrow-key pan, buttons,
         // drag) makes it stale, so dismiss it as soon as the view moves.
