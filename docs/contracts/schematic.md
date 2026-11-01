@@ -228,7 +228,10 @@ Print and PDF share `shared/ui/export.js`'s SVG clone. The clone preserves compu
 visibility, display and paint opacity, removes viewport-only component LOD placeholders
 and interaction overlays, and retains full component detail regardless of viewport
 culling. Monochrome conversion keeps transparent repaint bounds invisible rather than
-turning them into filled black rectangles; the live viewport state is restored after cloning.
+turning them into filled black rectangles. It also preserves paint and opacity inside SVG
+masks: mask colours are luminance data, and converting their white reveal areas to black
+would hide the masked fills used by printed rectangles, polygons and rounded shapes.
+The live viewport state is restored after cloning.
 After monochrome conversion the editor's `decorateExportSvg` hook replaces the
 one-pixel canvas-coloured crossing cues (which would otherwise turn black) with paper-white
 gaps `EXPORT_CROSSING_GAP` (0.25 mm) wide, so unjoined crossings read as broken on paper;

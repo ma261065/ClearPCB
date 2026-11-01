@@ -331,6 +331,10 @@ export function forceMonochromeSvg(svgRoot) {
         const tag = el.tagName?.toLowerCase();
         if (!tag) return;
 
+        // Mask paint is luminance data, not visible artwork. Converting its
+        // white reveal area to black makes browser print hide the masked fill.
+        if (el.closest('mask')) return;
+
         if (el.getAttribute('opacity') && Number(el.getAttribute('opacity')) !== 0) {
             el.setAttribute('opacity', '1');
         }
