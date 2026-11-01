@@ -28,7 +28,7 @@ export const scenarios = [{
             hoverComponent(app, 'power-in');
         }, await viewCentre(page, 'pcb'));
 
-        const hover = page.locator('.pcb-hover-highlight');
+        const hover = page.locator('rect.pcb-hover-highlight');
         await hover.waitFor({ state: 'visible' });
         assert.equal(await hover.evaluate(el => el.closest('[data-layer]').getAttribute('data-layer')),
             'selection-overlay', 'Hover does not belong to the hidden paste layer');
@@ -38,7 +38,7 @@ export const scenarios = [{
             hoverComponent(app, null);
             app.selectComponent('power-in');
         });
-        await page.locator('.pcb-selection-highlight').waitFor({ state: 'visible' });
+        await page.locator('rect.pcb-selection-highlight').waitFor({ state: 'visible' });
         assert.equal(await hover.count(), 0);
 
         await page.evaluate(async () => {
@@ -49,7 +49,7 @@ export const scenarios = [{
             setPcbSelection(app, [{ kind: 'component', object: 'power-in' }]);
             refreshBoxSelectionHighlights(app);
         });
-        const selected = page.locator('.pcb-box-comp-sel');
+        const selected = page.locator('rect.pcb-box-comp-sel');
         await selected.waitFor({ state: 'visible' });
         const pose = await page.evaluate(async () => {
             const app = window.bootstrap.pcbApp;

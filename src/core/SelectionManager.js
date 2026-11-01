@@ -483,8 +483,14 @@ export class SelectionManager {
         // Switch hover first so refresh hooks that redraw immediately see it.
         const oldShape = this.hovered ? this._getShape(this.hovered) : null;
         this.hovered = newId;
-        if (oldShape) this._invalidateEntity(oldShape);
-        if (shape) this._invalidateEntity(shape);
+        if (oldShape) {
+            this._invalidateEntity(oldShape);
+            this._invalidateLinkedSelectionVisuals(oldShape);
+        }
+        if (shape) {
+            this._invalidateEntity(shape);
+            this._invalidateLinkedSelectionVisuals(shape);
+        }
         
         return true;  // Changed
     }
