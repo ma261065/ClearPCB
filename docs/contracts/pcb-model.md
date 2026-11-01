@@ -169,6 +169,12 @@ fix the authority, not the consumer.
 | Copper pours | the computed fill (`getComputedFill`, `pcb/modules/computed-fill-cache.js`) | pour SVG, 2D and 3D views, DRC; fabrication export recomputes pours in its snapshot (`fabrication-snapshot.js`) |
 | Routing obstacles | `buildCopperObstacles` (`pcb/modules/copper-obstacles.js`) | router input (`route-input.js`) |
 
+PCB component hover, single-selection and multi-selection highlights include a
+blue copy of the component's visible reference glyphs as well as its footprint
+bounds. The copy carries no `data-fp-ref` identity and never recolours or replaces
+the authored reference group, so selecting and editing reference text remains an
+independent interaction.
+
 Dragging PCB text shows the shared full-canvas crosshair with its vertical line at
 the rendered text's horizontal centre and its horizontal line at the text baseline.
 This applies to footprint reference text and free text, including rotation and
