@@ -5,7 +5,7 @@ import { ComponentProperties } from './component-properties.js';
 import { getPropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { isPcbSelected } from './selection-registry.js';
-import { MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand,
+import { CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand,
     finishPlacementPreview, previewPlacementPose } from './track-commands.js';
 import { finishSelectionInteraction } from './selection-interaction.js';
 import { netsForComponent, openComponent3DPopout } from './component-selection.js';
@@ -29,6 +29,7 @@ export function getComponentProperties(app) {
         bindStrokeText: (model, spec) => bindStrokeTextProps(app, model, spec),
         gridStep: () => app.viewport?.gridSize || 0,
         previewMove: (id, x, y) => previewComponentMove(app, id, x, y),
+        previewRotation: (id, rotation) => previewComponentRotation(app, id, rotation),
         finishMove: (id, commit) => finishComponentMove(app, id, commit),
         rotate: (id, before, after) => app.history.execute(new RotatePlacementCommand(app, id, before, after)),
         setLocked: (id, locked) => {
@@ -51,9 +52,22 @@ export function getComponentProperties(app) {
 /**
  * A Properties-panel move in progress: the component previews like a canvas drag
  * (bonded copper follows, only its nets' ratlines refresh) until it is committed.
- * @type {WeakMap<PcbEditor, {compId: string, start: {x: number, y: number}, session: import('./drag-session.js').DragSession}>}
+ * @type {WeakMap<PcbEditor, {compId: string, start: {x: number, y: number, rotation: number}, session: import('./drag-session.js').DragSession}>}
  */
 const panelMoves = new WeakMap();
+
+/** @param {PcbEditor} app @param {string} compId @param {import('../../core/pcb-placement-geometry.js').Placement} placement */
+function panelPose(app, compId, placement) {
+    let move = panelMoves.get(app);
+    if (move && move.compId !== compId) finishComponentMove(app, move.compId, false);
+    move = panelMoves.get(app);
+    if (!move) {
+        move = { compId, start: { x: placement.x, y: placement.y, rotation: placement.rotation || 0 },
+            session: beginDragSession(app, { nets: netsForComponent(app, compId) }) };
+        panelMoves.set(app, move);
+    }
+    return move;
+}
 
 /**
  * Commit a pending Properties-panel move before a canvas gesture starts.
@@ -71,16 +85,24 @@ export function settleComponentMovePreview(app) {
 export function previewComponentMove(app, compId, x, y) {
     const placement = app.placements.get(compId);
     if (!placement || placement.locked || !Number.isFinite(x) || !Number.isFinite(y)) return false;
-    let move = panelMoves.get(app);
-    if (move && move.compId !== compId) finishComponentMove(app, move.compId, false);
-    move = panelMoves.get(app);
-    if (!move) {
-        move = { compId, start: { x: placement.x, y: placement.y },
-            session: beginDragSession(app, { nets: netsForComponent(app, compId) }) };
-        panelMoves.set(app, move);
-    }
+    const move = panelPose(app, compId, placement);
     previewPlacementPose(app, compId, { x, y });
     refreshDragRatlines(app, move.session);
+    app.refreshSelectionHighlights();
+    return true;
+}
+
+/**
+ * Preview `compId` at an angle without changing the document.
+ * @param {PcbEditor} app @param {string} compId @param {number} rotation
+ */
+export function previewComponentRotation(app, compId, rotation) {
+    const placement = app.placements.get(compId);
+    if (!placement || placement.locked || !Number.isFinite(rotation)) return false;
+    const move = panelPose(app, compId, placement);
+    previewPlacementPose(app, compId, { rotation });
+    refreshDragRatlines(app, move.session);
+    app.refreshSelectionHighlights();
     return true;
 }
 
@@ -95,14 +117,25 @@ export function finishComponentMove(app, compId, commit) {
     panelMoves.delete(app);
     releaseDragSession(app, move.session);
     const placement = app.placements.get(compId);
-    const { x: fromX, y: fromY } = move.start;
-    if (commit && placement && !placement.locked && (placement.x !== fromX || placement.y !== fromY)) {
+    const { x: fromX, y: fromY, rotation: fromRotation } = move.start;
+    if (commit && placement && !placement.locked
+        && (placement.x !== fromX || placement.y !== fromY || (placement.rotation || 0) !== fromRotation)) {
         const { x, y } = placement;
-        finishPlacementPreview(app, () => app.history.execute(new MovePlacementCommand(app, compId, fromX, fromY, x, y)));
+        const rotation = placement.rotation || 0;
+        const commands = [
+            ...(x !== fromX || y !== fromY
+                ? [new MovePlacementCommand(app, compId, fromX, fromY, x, y)] : []),
+            ...(rotation !== fromRotation
+                ? [new RotatePlacementCommand(app, compId, fromRotation, rotation)] : []),
+        ];
+        finishPlacementPreview(app, () => app.history.execute(
+            commands.length === 1 ? commands[0] : new CompoundCommand(commands),
+        ));
     } else {
         finishPlacementPreview(app);
         app.refreshClearanceHalos();
         app.updateRatsnest();
+        app.refreshSelectionHighlights();
     }
     return true;
 }

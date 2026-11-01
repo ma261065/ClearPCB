@@ -466,6 +466,12 @@ without canonical rollback. Returning to the exact initial angle preserves redo.
 Gesture state is editor-owned too, so rebuilt adapters can finish it and stale
 callbacks cannot resume a discarded gesture. Save/export guards remain active.
 
+Component X, Y and Rotation number fields share one live placement projection.
+Every input step redraws the footprint, bonded-copper projection, selection halo
+and rotation handle at the preview pose. Settling commits the changed position
+and/or angle as one history operation; Escape and panel disposal restore the
+complete starting pose.
+
 Live numeric pad properties (size, ratio, drill and rotation) use a separate
 fixed-selection projection in `pad-commands.js`. The first changed value copies
 the selected pads and their collection once; later inputs reuse those copies

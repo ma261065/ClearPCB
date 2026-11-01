@@ -94,6 +94,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
         markDirty: () => dirty++, refreshFills: () => fills++,
     };
+    app.refreshSelectionHighlights = () => renderPcbSelectionAnchors(app);
     setBoardViewPanel(app, { refresh: () => views3d++ });
     attachPropertyPanelHarness(app, { controls: ids });
     for (const method of ['showComponentProperties', 'handleKeyDown', '_clearCursorCrosshair']) {
@@ -251,6 +252,26 @@ for (const saved of [false, true]) {
     const f = fixture();
     const { app, placement } = f;
     const input = ids.get('pcbPropCompRot');
+    renderPcbSelectionAnchors(app);
+    const handleBefore = { x: Number(f.visibleHandles()[0].getAttribute('cx')),
+        y: Number(f.visibleHandles()[0].getAttribute('cy')) };
+    input.value = '100';
+    input.fire('input');
+    assert.equal(placement.rotation, 100, 'Rotation spinner previews the component live');
+    assert.equal(app.history.canUndo(), false, 'Live rotation does not create history before settling');
+    const previewAnchor = f.anchor();
+    const previewHandle = f.visibleHandles()[0];
+    assert.deepEqual(
+        { x: Number(previewHandle.getAttribute('cx')), y: Number(previewHandle.getAttribute('cy')) },
+        { x: previewAnchor.x, y: previewAnchor.y },
+        'Rotation handle follows the live component bounds',
+    );
+    assert.notDeepEqual({ x: previewAnchor.x, y: previewAnchor.y }, handleBefore);
+    assert.equal(
+        f.overlay.querySelectorAll('image').at(-1).getAttribute('transform'),
+        `translate(${previewAnchor.x} ${previewAnchor.y}) scale(${1 / app.viewport.scale})`,
+        'Rotate icon follows the live rotation handle',
+    );
     input.value = '-15';
     input.fire('change');
     assert.equal(ids.get('pcbPropCompRot'), input, 'Spinner edits keep the input mounted for successive steps');
@@ -325,9 +346,23 @@ for (const saved of [false, true]) {
     const { app, placement } = f;
     const authored = f.track.captureState(), savedBefore = structuredClone(app.placementState.overrides);
     const x = ids.get('pcbPropCompX'), y = ids.get('pcbPropCompY');
+    renderPcbSelectionAnchors(app);
+    const handleBefore = f.anchor();
     assert.equal(x.value, String(Math.PI));
     x.fire('input', 10);
     assert.equal(placement.x, 10, 'Typing previews the move live');
+    const movedHandle = f.anchor();
+    assert.equal(movedHandle.x - handleBefore.x, 10 - Math.PI);
+    assert.deepEqual(
+        { x: Number(f.visibleHandles()[0].getAttribute('cx')), y: Number(f.visibleHandles()[0].getAttribute('cy')) },
+        { x: movedHandle.x, y: movedHandle.y },
+        'Rotation handle follows live X/Y spinner movement',
+    );
+    assert.equal(
+        f.overlay.querySelectorAll('image').at(-1).getAttribute('transform'),
+        `translate(${movedHandle.x} ${movedHandle.y}) scale(${1 / app.viewport.scale})`,
+        'Rotate icon follows live X/Y spinner movement',
+    );
     f.verifyBonds();
     assert.deepEqual(f.track.captureState(), authored, 'The preview never edits authored copper');
     assert.deepEqual(app.placementState.overrides, savedBefore);
