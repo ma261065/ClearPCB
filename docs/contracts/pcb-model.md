@@ -185,7 +185,9 @@ drop or cancellation hides the crosshair.
 - DRC uses physical pad outlines and picture regions, and subtracts copper-removal
   artwork per side before clearance and short checks; mask-only artwork does not
   remove copper. Plated barrels keep surviving surface copper connected, while
-  nominal drill and ring checks ignore surface removal. Clipped circles, arcs and
+  nominal drill and ring checks ignore surface removal. The 3D surface cutter clips
+  only triangles coplanar with the affected copper face, so it removes an annular
+  pad's surface copper without cutting the plated wall inside the hole. Clipped circles, arcs and
   round stroke joins are tessellated to 0.0001 mm on 0.000001 mm integer
   coordinates (`copper-removal.js`); unaffected features keep analytic distance
   checks. This is bounded geometric checking, not exact geometry.
