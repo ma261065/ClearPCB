@@ -1,4 +1,4 @@
-import { ModifyShapeCommand } from './commands.js';
+import { AddShapeCommand, DeleteShapesCommand, ModifyShapeCommand } from './commands.js';
 import { viewElementOf } from './schematic-view.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
@@ -113,6 +113,7 @@ export function endTextEdit(app, commit = true) {
     const state = getSchematicTextEdit(app);
     if (!state) return;
     const shape = state.shape;
+    let removed = false;
 
     if (state.shape) {
         const textLength = (state.shape.text || '').length;
@@ -120,12 +121,31 @@ export function endTextEdit(app, commit = true) {
         state.shape._lastCaretIndex = Math.max(0, Math.min(textLength, caret));
     }
 
+    const removeBlankText = commit
+        && !state.shape.text.trim()
+        && (!state.shape.parentComponent || state.shape.fieldKey === 'label');
+
     if (!commit) {
         state.shape.text = state.originalText;
         if (typeof state.shape.invalidate === 'function') {
             state.shape.invalidate();
         }
         app.renderShapes(true);
+    } else if (removeBlankText) {
+        // Restore the authored content before deletion so undo restores the
+        // pre-edit object rather than an empty text object.
+        state.shape.text = state.originalText;
+        const command = new DeleteShapesCommand(app, [state.shape]);
+        const last = app.history.undoStack.at(-1);
+        if (!state.originalText.trim() && last instanceof AddShapeCommand && last.shape === state.shape) {
+            command.execute();
+            app.history.popUndo();
+            app.history.redoStack = [];
+            app.history._notifyChanged();
+        } else {
+            app.history.execute(command);
+        }
+        removed = true;
     } else if (state.shape.text !== state.originalText) {
         // Enforce unique references for component field texts
         if (state.shape.parentComponent && state.shape.fieldKey === 'reference' && state.shape.text) {
@@ -214,12 +234,12 @@ export function endTextEdit(app, commit = true) {
 
     setSchematicTextEdit(app, null);
 
-    if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
+    if (!removed && shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }
     // Re-describe after clearing edit state so the edit-only Insert picker is removed.
     const sel = app.selection.getSelection();
-    if (sel.length > 0) app.updatePropertiesPanel(sel);
+    if (sel.length > 0 || removed) app.updatePropertiesPanel(sel);
 }
 
 /**

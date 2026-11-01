@@ -174,12 +174,19 @@ the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
-inline typing replaces `(c)`, `(r)`, `(tm)`, `(u)` and `(o)` (including
-uppercase forms) with ©, ®, ™, µ and Ω using the same shared mapping as PCB
+inline typing replaces `(c)`, `(r)`, `(tm)`, `(u)`, `(o)`, `(E)`, `(L)` and
+`(Y)` (including the opposite letter case) with ©, ®, ™, µ, Ω, €, £ and ¥ using
+the same shared mapping as PCB
 text. While inline editing, Properties shows the same Insert symbol picker as
 PCB text for standalone Text, component Reference and component Value fields;
+each entry labels its symbol with that typed shortcut and
 it inserts at the caret or replaces the current selection. These
 changes remain part of the schematic edit's single editor-history command.
+Committing standalone Text (including an attached generic label) after
+Backspace/Delete leaves it empty removes the Text object; undo restores an
+existing object's pre-edit content. A newly placed Text committed empty is
+discarded together with its Add command. Component-owned Reference, Value,
+wire-name and Net-label fields remain owned fields and are not deleted this way.
 The passive-value unit dialog is placement-only; editing an existing passive
 Value uses this shared inline text path like every other field.
 Before the edit is committed, immediate Ctrl/Cmd+Z after an automatic symbol

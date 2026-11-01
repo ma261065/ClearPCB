@@ -12,7 +12,7 @@ export const scenarios = [{
     async run(page, url) {
         await openSchematic(page, url);
         const centre = await viewCentre(page);
-        await page.locator('#ribbonSchematic [data-tool="text"]').click();
+        await page.evaluate(() => window.bootstrap.schematicApp.selectTool('text'));
         await clickWorld(page, 'schematic', centre.x, centre.y);
         await page.keyboard.type('hello world');
         await page.keyboard.press('Control+a');
@@ -75,6 +75,14 @@ export const scenarios = [{
         await page.keyboard.type('(c) (R) (tm) (u) (O)');
         assert.deepEqual(await schematicState(page), { text: '© ® ™ µ Ω', caret: 9, anchor: null },
             'schematic inline typing uses the same symbol tokens as PCB text');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.type('(E) (L) (Y) (e)');
+        assert.deepEqual(await schematicState(page), { text: '€ £ ¥ €', caret: 7, anchor: null },
+            'currency tokens insert the euro, pound and yen signs in either case');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.type('(c) (R) (tm) (u) (O)');
+        assert.deepEqual(await schematicState(page), { text: '© ® ™ µ Ω', caret: 9, anchor: null },
+            'schematic inline typing uses the same symbol tokens as PCB text');
         await page.keyboard.press('Enter');
         assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes[0].text), '© ® ™ µ Ω');
         await page.keyboard.press('Control+z');
@@ -90,6 +98,14 @@ export const scenarios = [{
         });
         const picker = page.locator('#propTextInsert');
         assert.equal(await picker.count(), 1, 'schematic text editing exposes the PCB symbol picker');
+        assert.deepEqual(await picker.locator('option').evaluateAll(options =>
+            options.filter(option => option.value && '€£¥©'.includes(option.value)).map(option => option.textContent)),
+        ['© Copyright (c)', '€ Euro (E)', '£ Pound (L)', '¥ Yen (Y)'],
+        'the picker advertises each symbol shortcut');
+        await picker.selectOption('€');
+        assert.equal((await schematicState(page)).text, 'hello PCB€',
+            'the picker inserts the euro sign at the caret');
+        await page.keyboard.press('Backspace');
         await picker.selectOption('µ');
         assert.equal((await schematicState(page)).text, 'hello PCBµ',
             'symbol picker inserts at the active schematic caret');
@@ -98,6 +114,44 @@ export const scenarios = [{
         assert.equal((await schematicState(page)).text, 'hello PCBΩ',
             'symbol picker replaces the active schematic selection');
         await page.keyboard.press('Escape');
+
+        await page.evaluate(() => window.bootstrap.schematicApp.startTextEdit(
+            window.bootstrap.schematicApp.shapes[0]));
+        const schematicTextId = await page.evaluate(() =>
+            window.bootstrap.schematicApp.shapes[0].id);
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Backspace');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(id =>
+            window.bootstrap.schematicApp.shapes.some(shape => shape.id === id), schematicTextId), false,
+        'committing backspaced schematic text removes the empty object');
+        await page.keyboard.press('Control+z');
+        assert.equal(await page.evaluate(id => {
+            const text = window.bootstrap.schematicApp.shapes.find(shape => shape.id === id);
+            return text?.text;
+        }, schematicTextId), 'hello PCB',
+        'undo restores the schematic text content that existed before deletion');
+
+        const beforeEmptyPlacement = await page.evaluate(() => ({
+            shapeCount: window.bootstrap.schematicApp.shapes.length,
+            historyCount: window.bootstrap.schematicApp.history.undoStack.length,
+        }));
+        await page.evaluate(() => window.bootstrap.schematicApp.selectTool('text'));
+        await clickWorld(page, 'schematic', centre.x + 10, centre.y + 10);
+        const emptyPlacementId = await page.evaluate(async () => {
+            const { getSchematicTextEdit } = await import('/src/schematic/modules/text-edit.js');
+            return getSchematicTextEdit(window.bootstrap.schematicApp)?.shape.id;
+        });
+        await page.keyboard.press('Enter');
+        assert.deepEqual(await page.evaluate(id => ({
+            exists: window.bootstrap.schematicApp.shapes.some(shape => shape.id === id),
+            shapeCount: window.bootstrap.schematicApp.shapes.length,
+            historyCount: window.bootstrap.schematicApp.history.undoStack.length,
+        }), emptyPlacementId), {
+            exists: false,
+            shapeCount: beforeEmptyPlacement.shapeCount,
+            historyCount: beforeEmptyPlacement.historyCount,
+        }, 'committing a newly placed empty schematic text discards its Add command');
     },
 }, {
     name: 'schematic-reference-and-value-edits-show-symbol-picker',
@@ -180,5 +234,22 @@ export const scenarios = [{
         await page.keyboard.press('Control+z');
         await page.waitForFunction(() =>
             window.bootstrap.pcbApp.pcbDocument.texts.get('selection-probe').content === 'ABC');
+        await page.evaluate(async () => {
+            const app = window.bootstrap.pcbApp;
+            const { startTextInlineEdit } = await import('/src/pcb/modules/text-inline-edit.js');
+            startTextInlineEdit(app, app.pcbDocument.texts.get('selection-probe'));
+        });
+        await page.waitForFunction(() => document.activeElement?.tagName === 'INPUT'
+            && document.activeElement.style.left === '-1000px');
+        await page.keyboard.press('Control+a');
+        await page.keyboard.press('Delete');
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() =>
+            window.bootstrap.pcbApp.pcbDocument.texts.has('selection-probe')), false,
+        'committing deleted PCB text removes the empty object');
+        await page.keyboard.press('Control+z');
+        assert.equal(await page.evaluate(() =>
+            window.bootstrap.pcbApp.pcbDocument.texts.get('selection-probe')?.content), 'ABC',
+        'undo restores the PCB text content that existed before deletion');
     },
 }];
