@@ -3,6 +3,9 @@
 /** @typedef {{id:string, reference?:string, definition?:{name?:string}|null, symbol?:{pins?:SymbolPin[]}|null, localToWorld?: (x:number,y:number) => Point}} PinComponent */
 /** @typedef {{component:PinComponent,pin:SymbolPin,key:string,point:Point}} ComponentPinContact */
 /** @typedef {{id?:string,type?:string,x?:number,y?:number,visible?:boolean,pinConnection?:{componentId:string,pinNumber:string|number}|null}} NetLabel */
+/** @typedef {{values():Iterable<Point>, get(key:string):Point|undefined}} WireNodeMap */
+/** @typedef {{values():Iterable<{from:string,to:string}>}} WireEdgeMap */
+/** @typedef {NetLabel & {nodes?:WireNodeMap|null, edges?:WireEdgeMap|null}} WireShape */
 
 export const SCHEMATIC_CONNECTION_TOLERANCE = 0.15;
 
@@ -56,6 +59,65 @@ export function collectDirectPinNoConnectContacts(
     tolerance = SCHEMATIC_CONNECTION_TOLERANCE,
 ) {
     return collectDirectPinMarkerContacts(components, markers, 'noconnect', tolerance);
+}
+
+/**
+ * Find visible No Connect markers sitting on a wire node or segment.
+ * Purely geometric: the marker is not bonded to the wire and the contact
+ * never creates an electrical connection.
+ * @param {WireShape[]|null|undefined} shapes
+ * @param {number} [tolerance]
+ * @returns {{label:NetLabel,point:Point}[]}
+ */
+export function collectDirectWireNoConnectContacts(
+    shapes,
+    tolerance = SCHEMATIC_CONNECTION_TOLERANCE,
+) {
+    if (!(tolerance > 0)) return [];
+    const all = shapes || [];
+    const wires = all.filter(shape => shape.type === 'wire');
+    if (!wires.length) return [];
+    return all.filter(shape => shape.type === 'noconnect' && shape.visible !== false
+        && Number.isFinite(shape.x) && Number.isFinite(shape.y))
+        .flatMap(label => {
+            const point = nearestWirePoint(wires, {
+                x: /** @type {number} */ (label.x),
+                y: /** @type {number} */ (label.y),
+            }, tolerance);
+            return point ? [{ label: /** @type {NetLabel} */ (label), point }] : [];
+        });
+}
+
+/**
+ * Closest point on any wire node or segment within tolerance of target.
+ * @param {WireShape[]} wires
+ * @param {Point} target
+ * @param {number} tolerance
+ * @returns {Point|null}
+ */
+function nearestWirePoint(wires, target, tolerance) {
+    /** @type {Point|null} */
+    let best = null;
+    let bestDistance = tolerance;
+    for (const wire of wires) {
+        for (const node of wire.nodes?.values() || []) {
+            const distance = Math.hypot(node.x - target.x, node.y - target.y);
+            if (distance < bestDistance) { bestDistance = distance; best = { x: node.x, y: node.y }; }
+        }
+        for (const edge of wire.edges?.values() || []) {
+            const from = wire.nodes?.get(edge.from), to = wire.nodes?.get(edge.to);
+            if (!from || !to) continue;
+            const dx = to.x - from.x, dy = to.y - from.y;
+            const lengthSq = dx * dx + dy * dy;
+            if (!lengthSq) continue;
+            const t = Math.max(0, Math.min(1,
+                ((target.x - from.x) * dx + (target.y - from.y) * dy) / lengthSq));
+            const x = from.x + t * dx, y = from.y + t * dy;
+            const distance = Math.hypot(x - target.x, y - target.y);
+            if (distance < bestDistance) { bestDistance = distance; best = { x, y }; }
+        }
+    }
+    return best;
 }
 
 /** @param {PinComponent[]|null|undefined} components

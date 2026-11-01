@@ -3,8 +3,9 @@ import { Component } from '../../src/components/Component.js';
 import { BuiltInComponents } from '../../src/components/BuiltInComponents.js';
 import { collectCoincidentComponentPins } from '../../src/core/component-pin-connectivity.js';
 import { extractNetlist } from '../../src/core/netlist.js';
-import { renderComponentPinJunctions } from '../../src/schematic/modules/component-pin-junctions.js';
+import { renderComponentPinJunctions, affectsPinJunctions } from '../../src/schematic/modules/component-pin-junctions.js';
 import { NoConnect } from '../../src/shapes/noconnect.js';
+import { Wire } from '../../src/shapes/wire.js';
 import { SCHEMATIC_CONNECTION_TOLERANCE } from '../../src/core/component-pin-connectivity.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
@@ -79,5 +80,51 @@ assert.equal(group.children.length, 1, 'Coincident markers do not duplicate dots
 app.shapes.length = 0;
 renderComponentPinJunctions(app);
 assert.equal(group.children.length, 0, 'Deleting markers clears their connection dots');
+
+// --- No Connect markers on wires ---
+const wire = new Wire({ points: [{ x: 50, y: 50 }, { x: 70, y: 50 }] });
+app.shapes.push(wire);
+const onNode = new NoConnect({ x: 70, y: 50 });
+app.shapes.push(onNode);
+const wireNetlistBefore = extractNetlist(app);
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'No Connect on a wire endpoint shows a connection dot');
+assert.equal(Number(group.children[0].getAttribute('cx')), 70);
+assert.equal(Number(group.children[0].getAttribute('cy')), 50);
+assert.deepEqual(extractNetlist(app), wireNetlistBefore,
+    'The wire contact dot does not create an electrical connection');
+
+onNode.x = 60;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'No Connect mid-segment shows a connection dot');
+assert.equal(Number(group.children[0].getAttribute('cx')), 60);
+
+onNode.y = 50 + SCHEMATIC_CONNECTION_TOLERANCE / 2;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'Near-segment markers snap the dot onto the wire');
+assert.equal(Number(group.children[0].getAttribute('cy')), 50,
+    'The dot is drawn at the contact point on the wire, not at the marker');
+
+onNode.y = 50 + SCHEMATIC_CONNECTION_TOLERANCE + 1e-6;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'A marker off the wire shows no dot');
+
+onNode.y = 50;
+onNode.visible = false;
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 0, 'Hidden markers on wires show no dot');
+onNode.visible = true;
+
+const onPinAndWire = new NoConnect({ ...firstPin });
+const pinWire = new Wire({ points: [{ ...firstPin }, { x: firstPin.x + 20, y: firstPin.y }] });
+app.shapes.push(pinWire, onPinAndWire);
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 2,
+    'A marker touching both a pin and a wire shows a single dot');
+
+app.shapes.splice(app.shapes.indexOf(wire), 1);
+renderComponentPinJunctions(app);
+assert.equal(group.children.length, 1, 'Deleting the wire clears its contact dot');
+assert.equal(affectsPinJunctions(wire), true, 'Wire edits refresh the derived dots');
 
 console.log('PASS direct component-pin electrical groups and derived junction dots');

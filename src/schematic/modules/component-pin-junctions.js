@@ -2,6 +2,7 @@ import {
     collectCoincidentComponentPins,
     collectDirectPinLabelContacts,
     collectDirectPinNoConnectContacts,
+    collectDirectWireNoConnectContacts,
     SCHEMATIC_CONNECTION_TOLERANCE,
 } from '../../core/component-pin-connectivity.js';
 import { WIRE_COLOR } from '../../shapes/wire.js';
@@ -9,6 +10,15 @@ import { WIRE_COLOR } from '../../shapes/wire.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const states = new WeakMap();
+const JUNCTION_DOT_SHAPE_TYPES = new Set(['net', 'noconnect', 'wire']);
+
+/**
+ * Whether a shape's presence or geometry can change the derived junction dots.
+ * @param {{type?:string}|null|undefined} shape
+ */
+export function affectsPinJunctions(shape) {
+    return !!shape && JUNCTION_DOT_SHAPE_TYPES.has(shape.type || '');
+}
 
 /** @param {SchematicEditor} app */
 function junctionGroup(app) {
@@ -25,7 +35,8 @@ function junctionGroup(app) {
 }
 
 /**
- * Render derived dots for direct physical component-pin joins.
+ * Render derived dots for direct physical component-pin joins, and for
+ * NetLabel / No Connect markers contacting a pin or a wire.
  * @param {SchematicEditor} app
  */
 export function renderComponentPinJunctions(app) {
@@ -39,6 +50,7 @@ export function renderComponentPinJunctions(app) {
     for (const contact of [
         ...collectDirectPinLabelContacts(app.components, app.shapes),
         ...collectDirectPinNoConnectContacts(app.components, app.shapes),
+        ...collectDirectWireNoConnectContacts(app.shapes),
     ]) {
         if (!points.some(point => Math.hypot(point.x - contact.point.x,
             point.y - contact.point.y) < SCHEMATIC_CONNECTION_TOLERANCE)) {

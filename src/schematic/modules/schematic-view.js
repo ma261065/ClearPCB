@@ -30,7 +30,7 @@ import {
 } from '../render/component-renderer.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderWireCrossings } from './wire-crossings.js';
-import { renderComponentPinJunctions } from './component-pin-junctions.js';
+import { affectsPinJunctions, renderComponentPinJunctions } from './component-pin-junctions.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -79,7 +79,7 @@ export function refreshSelectionVisual(app, entity) {
 export function mountShape(app, shape) {
     const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
     app.viewport.addContent(element);
-    if (shape.type === 'net' || shape.type === 'noconnect') renderComponentPinJunctions(app);
+    if (affectsPinJunctions(shape)) renderComponentPinJunctions(app);
 }
 
 /**

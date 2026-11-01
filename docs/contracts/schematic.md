@@ -174,7 +174,13 @@ dot without inventing wire geometry.
 A visible No Connect marker on a physical pin also shows this green dot,
 without creating an electrical connection. Explicit bonds must match the pin
 and its position; legacy unbonded markers use physical contact within the same
-connection tolerance. Off-pin or hidden markers show no dot.
+connection tolerance. Hidden markers show no dot.
+A visible No Connect marker sitting on a wire node or anywhere along a wire
+segment shows the same green dot, drawn at the contact point on the wire. That
+contact is purely geometric: it authors no wire bond and creates no electrical
+connection, and moving or deleting either the marker or the wire removes the
+dot. A marker touching both a pin and a wire still shows one dot. A marker that
+touches neither shows no dot.
 No Connect placement uses the wire tool's 0.5 mm pin pickup radius. Moving
 the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
 1000% zoom, reducing linearly to 0.25 mm at 5000% zoom and above.
