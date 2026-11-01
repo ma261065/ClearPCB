@@ -167,6 +167,12 @@ electrical contact. The model-only netlist query groups them without authoring
 a wire or attachment record, and the view draws one green, non-interactive
 junction dot at that point. Moving either component away removes both the
 derived connection and the dot.
+All green connection indicators are owned by one non-interactive
+`schematic-connection-dots` overlay. Its renderer collects wire graph junctions,
+wire-to-pin bonds, coincident physical pins, direct NetLabel contacts and No
+Connect contacts, then deduplicates coincident sources into one circle. Wire SVG
+elements never own connection-dot children; source classes remain on the shared
+circle for diagnostics and compatibility.
 A NetLabel directly contacting a physical component pin uses that same derived
 green junction dot. The label-to-pin netlist rule and the dot share the same
 connection tolerance; moving, hiding, deleting or undoing the label removes the
@@ -181,6 +187,9 @@ contact is purely geometric: it authors no wire bond and creates no electrical
 connection, and moving or deleting either the marker or the wire removes the
 dot. A marker touching both a pin and a wire still shows one dot. A marker that
 touches neither shows no dot.
+New Project and document replacement explicitly clear the unified derived-dot
+overlay after discarding shapes and components. No stale connection indicator
+remains until a later zoom-triggered render.
 No Connect placement uses the wire tool's 0.5 mm pin pickup radius. Moving
 the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
 1000% zoom, reducing linearly to 0.25 mm at 5000% zoom and above.

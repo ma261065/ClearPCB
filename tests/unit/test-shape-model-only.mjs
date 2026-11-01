@@ -77,7 +77,7 @@ document.createElementNS = (_namespace, tagName) => svgElement(tagName);
     assert.equal(
         element.children.some(child => child.classList?.contains?.('pin-connection-dot')),
         false,
-        'dispatch follows the Polyline class rather than the mutated type string',
+        'Connection dots are not owned by individual shape SVG elements',
     );
     assert.equal(viewOf(polyline).element, element);
     deleteView(polyline);

@@ -12,6 +12,7 @@ import { showSaveToast } from './ribbon.js';
 import { updateUndoRedoButtons } from './ui-utils.js';
 import { getSchematicTextEdit } from './text-edit.js';
 import { isTextItem as isTextShape } from '../../core/schematic-items.js';
+import { clearConnectionDots } from './connection-dots.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/ProjectDocument.js').ProjectData} ProjectData */
 /** @typedef {{data: ProjectData, fileName: string, handle?: FileSystemFileHandle, filePath?: string|null}} OpenSuccess */
@@ -78,6 +79,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     if (getSchematicTextEdit(app)?.shape) app.endTextEdit(false);
     clearAllShapes(app);
     clearAllComponents(app);
+    clearConnectionDots(app);
     app.document.load(data, prepared);
     for (const component of app.components) component.createMissingFieldTexts(app);
 
@@ -278,6 +280,7 @@ export function clearDocument(app) {
     app.selection.clearSelection();
     clearAllShapes(app);
     clearAllComponents(app);
+    clearConnectionDots(app);
     resetWireLabelCounter();
     resetNetNameCounter();
     app.viewport.resetView();

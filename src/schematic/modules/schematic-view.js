@@ -30,7 +30,7 @@ import {
 } from '../render/component-renderer.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderWireCrossings } from './wire-crossings.js';
-import { affectsPinJunctions, renderComponentPinJunctions } from './component-pin-junctions.js';
+import { affectsConnectionDots, renderConnectionDots } from './connection-dots.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -79,7 +79,7 @@ export function refreshSelectionVisual(app, entity) {
 export function mountShape(app, shape) {
     const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
     app.viewport.addContent(element);
-    if (affectsPinJunctions(shape)) renderComponentPinJunctions(app);
+    if (affectsConnectionDots(shape)) renderConnectionDots(app);
 }
 
 /**
@@ -106,6 +106,7 @@ export function unmountShape(shape) {
  */
 export function redrawShape(app, shape) {
     renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
+    if (affectsConnectionDots(shape)) renderConnectionDots(app);
 }
 
 /**
@@ -117,7 +118,7 @@ export function mountComponent(app, component) {
     let element = componentViewOf(component)?.element;
     if (!element) element = buildComponentSymbol(component);
     app.viewport.addComponentContent(element);
-    renderComponentPinJunctions(app);
+    renderConnectionDots(app);
 }
 
 /** Detach a component symbol, keeping it for a later mount. */
@@ -417,7 +418,7 @@ export function renderShapes(app, force = false) {
     }
     lastPassScale.set(app, scale);
     renderWireCrossings(app);
-    renderComponentPinJunctions(app);
+    renderConnectionDots(app);
     renderShapeSegmentSelection(app);
     refreshAxisGlow(app);
     updateLabelGuide(app);

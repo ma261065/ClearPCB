@@ -12,7 +12,7 @@ import { applySchematicItemState } from '../../core/schematic-state.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { applyStickyConnections, captureStickyNetLabels, followStickyNetLabels } from './sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
-import { renderComponentPinJunctions } from './component-pin-junctions.js';
+import { renderConnectionDots } from './connection-dots.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
 import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
@@ -192,7 +192,7 @@ export class DeleteShapesCommand extends Command {
             redrawShape(this.app, wire);
         }
         this.app.commandDeleteShapes(this.shapesData, this.linkedLabelData);
-        if (this.removedPinConnections.length) renderComponentPinJunctions(this.app);
+        if (this.removedPinConnections.length) renderConnectionDots(this.app);
     }
     
     /** Re-insert the shapes at their original z-order positions. */
@@ -202,7 +202,7 @@ export class DeleteShapesCommand extends Command {
             redrawShape(this.app, wire);
         }
         this.app.commandRestoreShapes(this.shapesData, this.linkedLabelData);
-        if (this.removedPinConnections.length) renderComponentPinJunctions(this.app);
+        if (this.removedPinConnections.length) renderConnectionDots(this.app);
     }
 }
 
@@ -625,7 +625,7 @@ export class DeleteComponentsCommand extends Command {
         }
         for (const wire of dirtyWires) redrawShape(app, wire);
         app.updateSelectableItems();
-        renderComponentPinJunctions(app);
+        renderConnectionDots(app);
         app.fileManager.setDirty(true);
     }
 

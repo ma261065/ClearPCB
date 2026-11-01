@@ -4,7 +4,7 @@ import { detachLabel } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
 import { ensureShapeMounted, mountShape, unmountShape, withContentDetached } from './schematic-view.js';
-import { affectsPinJunctions, renderComponentPinJunctions } from './component-pin-junctions.js';
+import { affectsConnectionDots, renderConnectionDots } from './connection-dots.js';
 import { isTextItem as isTextShape, isWireItem as isWireShape, isNetItem as isNetShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
@@ -168,7 +168,7 @@ export function removeShapeInternal(app, shape, options = {}) {
         app.selection.deselect(/** @type {SelectableSchematicDrawable} */ (shape));
         app.selection.invalidateHitCache();
         app.updateSelectableItems();
-        if (netShape || affectsPinJunctions(shape)) renderComponentPinJunctions(app);
+        if (netShape || affectsConnectionDots(shape)) renderConnectionDots(app);
         app.fileManager.setDirty(true);
     }
 }
@@ -227,7 +227,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
 
     app.selection.invalidateHitCache();
     app.updateSelectableItems();
-    if (allData.some(({ shape }) => affectsPinJunctions(shape))) renderComponentPinJunctions(app);
+    if (allData.some(({ shape }) => affectsConnectionDots(shape))) renderConnectionDots(app);
     app.fileManager.setDirty(true);
 }
 
@@ -267,7 +267,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
 
     app.updateSelectableItems();
     app.selection.invalidateHitCache();
-    if (allData.some(({ shape }) => affectsPinJunctions(shape))) renderComponentPinJunctions(app);
+    if (allData.some(({ shape }) => affectsConnectionDots(shape))) renderConnectionDots(app);
     app.fileManager.setDirty(true);
 }
 
