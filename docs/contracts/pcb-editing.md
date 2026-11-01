@@ -477,7 +477,9 @@ existing single/compound `ModifyPadCommand` execution, with every target checked
 before the first mutation. Undo retains full precision, and no-op edits retain
 redo. Shape, copper-side and net controls keep their immediate-command semantics,
 committing a pending numeric field first; placement defaults remain outside
-document history.
+document history. While the Pad tool remains active, placing a pad leaves
+Properties on `New Pad`: changing those fields affects subsequent pads and
+does not select or modify the pad that was just authored.
 
 The pad property binding cancels on Escape, tab deactivation and layer locks,
 and disposes detached controls on panel replacement, layer hiding

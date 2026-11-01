@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { formatNumberInputValue } from '../../src/core/number-inputs.js';
-import { getPadToolDefaults, setPadToolDefaults } from '../../src/pcb/modules/pad-tool.js';
+import { getPadToolDefaults, pressPadTool, setPadToolDefaults } from '../../src/pcb/modules/pad-tool.js';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
@@ -362,6 +362,23 @@ for (const commit of [false, true]) {
     app.clearProperties();
     stale.emit('change', 4);
     assert.equal(getPadToolDefaults(app).ratio, 2, 'Detached default controls cannot alter the next tool');
+    cases++;
+}
+{
+    const { app, input, model, pads } = fixture();
+    setPadToolDefaults(app, { shape: 'round', size: 2, ratio: 2, drill: 1, rotation: 0, layers: 'both', net: '' });
+    app.showPadProperties = pad => app._showPadEditor(pad);
+    app._showPadEditor(null);
+    pressPadTool(app, { x: 10, y: 20 });
+    const firstPlaced = model.pads.at(-1);
+    assert.equal(firstPlaced.shape, 'round');
+    input('Shape').emit('change', 'stadium');
+    assert.equal(firstPlaced.shape, 'round', 'Pad tool Properties do not modify the last placed pad');
+    assert.ok(pads.every(pad => pad.shape === 'rectangle'), 'Pad tool Properties do not modify prior selections');
+    assert.equal(getPadToolDefaults(app).shape, 'stadium');
+    pressPadTool(app, { x: 30, y: 40 });
+    assert.equal(model.pads.at(-1).shape, 'stadium', 'Changed Pad tool Properties apply to future pads');
+    cancelPictureCopperRefresh(app);
     cases++;
 }
 for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3']) {
