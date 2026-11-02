@@ -156,4 +156,37 @@ export const scenarios = [{
         assert.equal(panel.tracks, 300, 'Panel raster includes all top-side runs, not just visible ones');
         assert.equal(panel.hidden, 0, 'Panel artwork does not bake viewport culling into its bitmap');
     },
+}, {
+    name: 'pad-and-via-ghosts-follow-right-drag-pan',
+    async run(page, url) {
+        await openPcb(page, url);
+        for (const { button, selector } of [
+            { button: '#pcbToolPad', selector: '.pcb-pad-preview' },
+            { button: '#pcbToolVia', selector: '.pcb-via-preview' },
+        ]) {
+            await page.locator(button).evaluate(node => node.click());
+            const canvas = await page.evaluate(() => {
+                const rect = window.bootstrap.pcbApp.viewport.svg.getBoundingClientRect();
+                return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+            });
+            const start = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 };
+            await page.mouse.move(start.x, start.y);
+            await page.waitForFunction(previewSelector => document.querySelector(previewSelector), selector);
+            const before = await page.locator(selector).boundingBox();
+            assert.ok(before, `${selector} is visible before panning`);
+            await page.mouse.down({ button: 'right' });
+            await page.mouse.move(start.x + 120, start.y + 60, { steps: 8 });
+            const during = await page.locator(selector).boundingBox();
+            assert.ok(during, `${selector} remains visible while panning`);
+            assert.ok(Math.abs((during.x - before.x) - 120) < 2,
+                `${selector} follows horizontal right-drag movement`);
+            assert.ok(Math.abs((during.y - before.y) - 60) < 2,
+                `${selector} follows vertical right-drag movement`);
+            assert.equal(await page.locator(selector).evaluate(node =>
+                node.parentElement === window.bootstrap.pcbApp.viewport.interactionLayer), true,
+            `${selector} uses the pan-translated interaction layer`);
+            await page.mouse.up({ button: 'right' });
+            await viewportSettled(page, 'pcb');
+        }
+    },
 }];

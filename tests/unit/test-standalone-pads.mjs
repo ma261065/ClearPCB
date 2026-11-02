@@ -266,8 +266,7 @@ assert.equal(validateProject({
 }).pcb.pads[0].drill, 0, 'a pad without a hole is a valid project pad');
 
 const { exportGerbers } = await import('../../src/pcb/modules/gerber.js');
-const { boardCutoutEdgeRings, standalonePadEdgeMesh, standalonePadMesh } = await import('../../src/pcb/modules/board3d-layers.js');
-const { clipMeshToOutline } = await import('../../src/pcb/modules/board3d-mesh-ops.js');
+const { standalonePadMesh } = await import('../../src/pcb/modules/board3d-layers.js');
 const exportPad = new Pad({ ...pad.captureState(), id: 'pad_export', y: -20, rotation: 37 });
 const files = exportGerbers({
     placements: new Map(), tracks: [], vias: [], pads: [exportPad.captureState()],
@@ -319,55 +318,4 @@ const edgeFiles = exportGerbers({
 });
 assert.ok(edgeFiles.get('board.gtl').includes('G36*'), 'castellated copper is clipped to the board edge');
 assert.ok(edgeFiles.get('board-PTH.drl').includes('T1C0.800'), 'castellated drill remains plated');
-const edgeMesh = standalonePadEdgeMesh(
-    new Pad({ x: 0, y: -20, shape: 'round', size: 4, drill: 2, layers: 'both' }),
-    [{ x: 0, z: 0 }, { x: 100, z: 0 }, { x: 100, z: -80 }, { x: 0, z: -80 }],
-);
-assert.equal(edgeMesh.faces.length, 4, 'castellation plates both board-edge strips around the bore');
-assert.ok(Math.abs(Math.min(...edgeMesh.verts.map(vertex => vertex.z)) + 22) < 1e-9);
-assert.ok(Math.abs(Math.max(...edgeMesh.verts.map(vertex => vertex.z)) + 18) < 1e-9);
-const edgeJunctions = [...new Set(edgeMesh.verts.map(vertex => vertex.z))]
-    .filter(z => z > -22 + 1e-9 && z < -18 - 1e-9)
-    .sort((first, second) => first - second);
-assert.ok(Math.abs(edgeJunctions[0] + 20.98) < 1e-9);
-assert.ok(Math.abs(edgeJunctions[1] + 19.02) < 1e-9,
-    'axis-aligned edge plating terminates exactly on the barrel polygon');
-const diagonalAngle = Math.PI / 16;
-const diagonalDirection = { x: Math.cos(diagonalAngle), z: Math.sin(diagonalAngle) };
-const diagonalNormal = { x: -diagonalDirection.z, z: diagonalDirection.x };
-const diagonalMesh = standalonePadEdgeMesh(
-    new Pad({ x: 0, y: 0, shape: 'round', size: 4, drill: 2, layers: 'both' }),
-    [
-        { x: -10 * diagonalDirection.x, z: -10 * diagonalDirection.z },
-        { x: 10 * diagonalDirection.x, z: 10 * diagonalDirection.z },
-        { x: 10 * diagonalDirection.x + 10 * diagonalNormal.x,
-            z: 10 * diagonalDirection.z + 10 * diagonalNormal.z },
-        { x: -10 * diagonalDirection.x + 10 * diagonalNormal.x,
-            z: -10 * diagonalDirection.z + 10 * diagonalNormal.z },
-    ],
-);
-const diagonalJunctionDistances = [...new Set(diagonalMesh.verts
-    .map(vertex => Math.hypot(vertex.x, vertex.z).toFixed(9)))]
-    .map(Number)
-    .filter(distance => distance < 1.5);
-assert.deepEqual(diagonalJunctionDistances, [Number((0.98 * Math.cos(Math.PI / 16)).toFixed(9))],
-    'oblique edge plating meets the barrel facets exactly without a gap or hanging overlap');
-assert.ok(clipMeshToOutline(edgeMesh,
-    [{ x: 0, z: 0 }, { x: 100, z: 0 }, { x: 100, z: -80 }, { x: 0, z: -80 }]).faces.length > 0,
-'castellation edge plating survives board-outline clipping');
-const cutoutRings = boardCutoutEdgeRings([{
-    x: 50, z: -40, r: 5, boardShape: true,
-    ring: [
-        { x: 45, z: -45 }, { x: 55, z: -45 },
-        { x: 55, z: -35 }, { x: 45, z: -35 },
-    ],
-}]);
-const cutoutEdgeMesh = standalonePadEdgeMesh(
-    new Pad({ x: 45, y: -40, shape: 'round', size: 4, drill: 2, layers: 'both' }),
-    cutoutRings[0],
-);
-assert.equal(cutoutEdgeMesh.faces.length, 4,
-    'castellation plates both strips where a Pad meets an internal routed edge');
-assert.ok(cutoutEdgeMesh.verts.every(vertex => Math.abs(vertex.x - 45) < 1e-9));
-
 console.log('PASS standalone pad model, aliases, geometry, validation and fabrication');

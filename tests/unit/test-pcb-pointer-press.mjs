@@ -13,10 +13,13 @@ globalThis.window.removeEventListener = noop;
 globalThis.window.devicePixelRatio = 1;
 globalThis.HTMLElement = class HTMLElement {};
 globalThis.localStorage.setItem = noop;
+globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
 
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 const { PCB_TOOLS } = await import('../../src/pcb/modules/pcb-tools.js');
+const { clearPadPreview } = await import('../../src/pcb/modules/pad-tool.js');
+const { clearViaPreview } = await import('../../src/pcb/modules/via-tool.js');
 const { getTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const { getFillDraw } = await import('../../src/pcb/modules/copper-fill-draw.js');
 const { getShapeDraw } = await import('../../src/pcb/modules/board-shape-draw.js');
@@ -101,6 +104,27 @@ for (const tool of Object.keys(PCB_TOOLS)) {
         assert.deepEqual(other.pans, [[10, 20]], `${tool}: button ${button} pans`);
         assert.ok(!acted[tool](other.app), `${tool}: button ${button} does not press the tool`);
     }
+}
+
+for (const tool of ['pad', 'via']) {
+    const svg = fakeElement('svg');
+    const interactionLayer = fakeElement('g');
+    svg.appendChild(interactionLayer);
+    const app = pcbEditorFixture({
+        currentTool: tool,
+        viewport: {
+            svg, interactionLayer, scale: 10,
+            setCrosshair: noop, hideCrosshair: noop,
+            getSnappedPosition: point => ({ ...point }),
+        },
+        getRoutingParams: () => ({ viaDiameter: 0.6, viaDrill: 0.3 }),
+    });
+    PCB_TOOLS[tool].follow(app, { x: 3, y: -4 });
+    const preview = interactionLayer.querySelector(`.pcb-${tool}-preview`);
+    assert.ok(preview, `${tool}: cursor ghost uses the pan-translated interaction layer`);
+    assert.equal(preview.parentNode, interactionLayer);
+    if (tool === 'pad') clearPadPreview(app);
+    else clearViaPreview(app);
 }
 
 {

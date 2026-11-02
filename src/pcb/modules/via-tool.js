@@ -69,7 +69,7 @@ export function updateViaPreview(app, worldPos) {
         hole.setAttribute('stroke', accent);
         g.appendChild(ring);
         g.appendChild(hole);
-        svg.appendChild(g);
+        (app.viewport.interactionLayer || svg).appendChild(g);
         viaRingGroups.set(app, g);
     }
     const ring = /** @type {SVGCircleElement} */ (g.querySelector('[data-role="ring"]'));

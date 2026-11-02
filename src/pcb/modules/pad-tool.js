@@ -112,7 +112,7 @@ export function updatePadPreview(app, worldPos) {
         outline.setAttribute('stroke', accent);
         outline.setAttribute('fill-rule', 'evenodd');
         group.appendChild(outline);
-        svg.appendChild(group);
+        (app.viewport.interactionLayer || svg).appendChild(group);
         padPreviewGroups.set(app, group);
     }
     const outline = group.querySelector('[data-role="outline"]');

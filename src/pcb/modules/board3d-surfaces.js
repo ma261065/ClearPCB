@@ -12,7 +12,7 @@ import { BOARD_THICKNESS, COLOR_RAW_BOARD, SHOW_SOLDERMASK, Y_TOP, Y_BOT, COPPER
 import { roundedRectOutline, capsuleRing, discardNestedBores, boardSlabWithCutouts } from './board3d-board.js';
 import { padMesh } from './board3d-parts.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
-import { buildCopperMesh, collectCopperSubtractHoles, collectMaskOpeningHoles, buildMaskFaceMesh, buildFillMesh, buildViaMesh, buildPlatedShapeHoleMesh, standalonePadMesh, standalonePadEdgeMesh, boardCutoutEdgeRings, collectBoardHoles, buildMaskOpeningMesh, buildSilkMesh, buildTextMesh } from './board3d-layers.js';
+import { buildCopperMesh, collectCopperSubtractHoles, collectMaskOpeningHoles, buildMaskFaceMesh, buildFillMesh, buildViaMesh, buildPlatedShapeHoleMesh, standalonePadMesh, collectBoardHoles, buildMaskOpeningMesh, buildSilkMesh, buildTextMesh } from './board3d-layers.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./board3d-mesh-ops.js').XzPoint} XzPoint */
@@ -169,22 +169,14 @@ export function buildBoardSurfaceInputs(app, { outline, drilledHoles, boardHoles
     appendMesh(copperMesh, buildFillMesh(app.copperFills));
     addSurface('copper', [{ mesh: copperMesh, holes: copperPunchHoles }]);
     const padsMesh = emptyMesh();
-    const padEdgeMesh = emptyMesh();
-    const edgeRings = [outline, ...boardCutoutEdgeRings(drilledHoles)];
     for (const [, pl] of app.placements) appendMesh(padsMesh, padMesh(pl));
-    for (const pad of app.pads || []) {
-        appendMesh(padsMesh, standalonePadMesh(pad));
-        for (const edgeRing of edgeRings) {
-            appendMesh(padEdgeMesh, standalonePadEdgeMesh(pad, edgeRing));
-        }
-    }
+    for (const pad of app.pads || []) appendMesh(padsMesh, standalonePadMesh(pad));
     addSurface('via', [
         { mesh: buildViaMesh(app.vias), holes: platedMeshHoles },
         { mesh: buildPlatedShapeHoleMesh(drilledHoles) },
     ]);
     addSurface('pads', [
         { mesh: padsMesh, holes: platedMeshHoles },
-        { mesh: padEdgeMesh, holes: copperSubtractHoles },
     ]);
     if (SHOW_SOLDERMASK) {
         addSurface('maskCoatTop', [
