@@ -41,6 +41,13 @@ function propertyValue(properties, key) {
     return match ? String(properties[match] ?? '') : '';
 }
 
+/** @param {ComponentDefinition} definition */
+function isLocalDefinition(definition) {
+    return definition._source !== 'LCSC'
+        && definition._source !== 'KiCad'
+        && definition._source !== 'EasyEDA';
+}
+
 export class ComponentLibrary {
     /** Initialise the component library, loading built-in and user components. */
     constructor() {
@@ -192,6 +199,30 @@ export class ComponentLibrary {
     getAllDefinitions() {
         return Array.from(this.definitions.values());
     }
+
+    /**
+     * Get definitions that belong in the Local picker.
+     * Cached online definitions remain available by name but do not leak into
+     * Local browsing or search.
+     * @returns {ComponentDefinition[]}
+     */
+    getLocalDefinitions() {
+        return this.getAllDefinitions().filter(isLocalDefinition);
+    }
+
+    /**
+     * Get local definitions in a category.
+     * @param {string} category
+     * @returns {ComponentDefinition[]}
+     */
+    getLocalByCategory(category) {
+        return this.getByCategory(category).filter(isLocalDefinition);
+    }
+
+    /** @returns {string[]} */
+    getLocalCategoryNames() {
+        return this.getCategoryNames().filter(category => this.getLocalByCategory(category).length > 0);
+    }
     
     /**
      * Search local library
@@ -202,7 +233,7 @@ export class ComponentLibrary {
         const lowerQuery = query.toLowerCase();
         const results = [];
         
-        for (const def of this.definitions.values()) {
+        for (const def of this.getLocalDefinitions()) {
             const matchName = def.name.toLowerCase().includes(lowerQuery);
             const matchDesc = (def.description || '').toLowerCase().includes(lowerQuery);
             const matchKeywords = (def.keywords || []).some(k => 

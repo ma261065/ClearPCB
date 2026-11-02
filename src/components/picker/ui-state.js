@@ -30,9 +30,23 @@ export const pickerResultNames = {
 };
 
 /**
+ * Remove layout state owned by a previous result set.
+ * Combined online search places its headings outside the scrollable list, so
+ * clearing listEl alone is not enough when switching modes or search states.
+ */
+export function resetPickerResultsLayout(/** @type {ComponentPicker} */ picker) {
+    picker.body?.querySelector('.cp-results-header-row')?.remove();
+    if (picker._scrollHandler && picker.listEl) {
+        picker.listEl.removeEventListener('scroll', picker._scrollHandler);
+        picker._scrollHandler = null;
+    }
+}
+
+/**
  * Displays the LCSC search prompt with usage examples.
  */
 export function showLCSCPrompt(/** @type {ComponentPicker} */ picker) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = `
         <div class="cp-lcsc-prompt">
             Search online component catalogs (EasyEDA + KiCad).
@@ -56,6 +70,7 @@ export function exactMatchQuery(/** @type {ComponentPicker} */ picker) {
  * @param {string} exact
  */
 export function showNoResults(/** @type {ComponentPicker} */ picker, exact) {
+    resetPickerResultsLayout(picker);
     const empty = document.createElement('div');
     empty.className = 'cp-empty';
     empty.textContent = exact ? `No exact match for "${exact}".` : 'No results found.';
@@ -66,6 +81,7 @@ export function showNoResults(/** @type {ComponentPicker} */ picker, exact) {
  * Displays a loading spinner in the component list area.
  */
 export function showLoading(/** @type {ComponentPicker} */ picker) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = `
         <div class="cp-loading">
             <span class="cp-spinner"></span>
@@ -110,6 +126,7 @@ export function setPreviewLoading(/** @type {ComponentPicker} */ picker, message
  * @param {number} total - Total number of items to load.
  */
 export function showIndexingProgress(/** @type {ComponentPicker} */ picker, message, loaded, total) {
+    resetPickerResultsLayout(picker);
     const pct = total > 0 ? Math.min(100, Math.round(loaded / total * 100)) : 0;
     const barStyle = total > 0
         ? `width:${pct}%; animation:none;`
