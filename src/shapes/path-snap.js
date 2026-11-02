@@ -4,6 +4,28 @@ import { BULGE_EPS } from './arc-edge.js';
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{index:number, neighbours:Point[], continuations?: Array<[Point, Point]>}} PathDragConstraint */
 /** @typedef {{x:number,y:number,distance:number}} SnapDelta */
+/** @typedef {SnapDelta & {point?:Point, aligned?:Point}} SnapCandidate */
+
+const AXIS_EPS = 1e-9;
+
+/**
+ * Report which axes an H/V/45° alignment already holds fixed, so a drag that
+ * satisfies the alignment without any nudge still refuses to be grid-snapped
+ * off it. A 45° alignment couples both axes.
+ * @param {Point} aligned
+ * @param {Point[]} fixed
+ * @returns {{x: boolean, y: boolean}}
+ */
+function alignmentAxisLocks(aligned, fixed) {
+    const locks = { x: false, y: false };
+    for (const neighbour of fixed) {
+        const dx = Math.abs(aligned.x - neighbour.x), dy = Math.abs(aligned.y - neighbour.y);
+        if (dx <= AXIS_EPS) locks.x = true;
+        if (dy <= AXIS_EPS) locks.y = true;
+        if (dx > AXIS_EPS && dy > AXIS_EPS && Math.abs(dx - dy) <= AXIS_EPS) locks.x = locks.y = true;
+    }
+    return locks;
+}
 
 /**
  * @param {Point[]} points
@@ -206,7 +228,7 @@ export function resolvePathPoint(point, neighbours, grid, threshold, target = nu
  * @returns {Point|SnapDelta}
  */
 export function resolvePathTranslation(points, delta, neighbours, constraints, threshold, findTarget, snapPoint) {
-    /** @type {SnapDelta|null} */
+    /** @type {SnapCandidate|null} */
     let best = null;
     for (const point of points) {
         const target = { x: point.x + delta.x, y: point.y + delta.y };
@@ -219,16 +241,33 @@ export function resolvePathTranslation(points, delta, neighbours, constraints, t
     const anchor = points[0];
     if (!anchor) return delta;
     for (const collinearOnly of [true, false]) {
+        let lockX = false, lockY = false;
         for (const { index, neighbours: fixed, continuations = [] } of constraints) {
             const point = points[index];
             const target = { x: point.x + delta.x, y: point.y + delta.y };
             const aligned = collinearOnly ? snapPathCollinear(target, fixed, target, threshold, continuations)
                 : snapNodeToAxis(target, fixed, threshold, target);
-            if (!aligned || aligned === target) continue;
+            if (!aligned) continue;
+            const movedX = Math.abs(aligned.x - target.x) > AXIS_EPS;
+            const movedY = Math.abs(aligned.y - target.y) > AXIS_EPS;
+            // A collinear run fixes the node to a line of arbitrary slope, so both axes ride along.
+            const held = collinearOnly ? { x: true, y: true } : alignmentAxisLocks(aligned, fixed);
+            lockX ||= movedX || held.x;
+            lockY ||= movedY || held.y;
+            if (!movedX && !movedY) continue;
             const distance = Math.hypot(aligned.x - target.x, aligned.y - target.y);
-            if (!best || distance < best.distance) best = { x: aligned.x - point.x, y: aligned.y - point.y, distance };
+            if (!best || distance < best.distance) {
+                best = { x: aligned.x - point.x, y: aligned.y - point.y, distance, point, aligned };
+            }
         }
-        if (best) return best;
+        if (!lockX && !lockY) continue;
+        const origin = best?.point || anchor;
+        const base = best?.aligned || { x: origin.x + delta.x, y: origin.y + delta.y };
+        const grid = lockX && lockY ? base : snapPoint(base, []);
+        return {
+            x: (lockX ? base.x : grid.x) - origin.x,
+            y: (lockY ? base.y : grid.y) - origin.y,
+        };
     }
     const target = snapPoint({ x: anchor.x + delta.x, y: anchor.y + delta.y }, neighbours);
     return { x: target.x - anchor.x, y: target.y - anchor.y };

@@ -1,5 +1,4 @@
 import { BULGE_EPS } from './arc-edge.js';
-import { pointsBounds } from './path-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const COLLINEAR_GLOW_COLOR = '#0072B2';
@@ -125,9 +124,10 @@ function layerFor(app, segment) {
  */
 export function squareAlignmentSegments(points, widths = []) {
     if (points.length !== 4) return [];
-    const bounds = pointsBounds(points);
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
+    // Measure the rectangle's own sides rather than its bounding box so rotated
+    // rectangles are judged on their real aspect, not on the box around them.
+    const width = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+    const height = Math.hypot(points[2].x - points[1].x, points[2].y - points[1].y);
     if (width <= 0.01 || height <= 0.01 || Math.abs(width - height) > 1e-9) return [];
     return points.map((point, index) => ({ a: point, b: points[(index + 1) % points.length],
         width: widths[index] ?? 0.25, square: true }));

@@ -281,9 +281,9 @@ for (const mode of ['move', 'segment', 'insert']) {
         snapToGrid(point) { return point; },
     };
     const start = mode === 'insert' ? { x: 150, y: 100 } : { x: 130, y: 98 };
-    const feedbackStart = mode === 'move' ? { ...shape.points[0] } : start;
+    const feedbackStart = mode === 'move' || mode === 'segment' ? { ...shape.points[0] } : start;
     startBoardShapeDrag(app, shape, start, mode === 'insert' ? 'mid:0' : null, { allowSegment: mode === 'segment' });
-    const feedback = mode === 'move' ? 'shape origin' : 'grabbed point';
+    const feedback = mode === 'move' ? 'shape origin' : mode === 'segment' ? 'segment origin' : 'grabbed point';
     expect(`${mode} starts crosshair at ${feedback}`, crosshair.x === feedbackStart.x && crosshair.y === feedbackStart.y);
     const target = { x: start.x, y: start.y - 5 };
     handleBoardShapeDrag(app, target);
@@ -709,6 +709,64 @@ for (const height of [8, 10]) {
     handleBoardShapeDrag(app, target);
     expect('Shift bypasses square snapping and removes the square indicator', displayed.points[0].x === target.x
         && displayed.points[0].y === target.y && !axisGlowState(app).resolved.length);
+    endBoardShapeDrag(app, false);
+}
+
+{
+    // Grid snapping must not hide the square state: a rectangle whose opposite
+    // corner sits off-grid can only reach a square by beating the grid magnet.
+    const shape = { id: 'rectangle-square-over-grid', kind: 'rect', layer: 'top-copper', lineWidth: 0.2,
+        points: [{ x: 0.3, y: 0.2 }, { x: 10.3, y: 0.2 }, { x: 10.3, y: 8.2 }, { x: 0.3, y: 8.2 }] };
+    const layer = element('g');
+    const app = { ...pcbEditorStubs(),
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
+        viewport: { scale: 20, shiftHeld: false, snapToGrid: true, gridVisible: true, gridSize: 1.27,
+            getEffectiveGridSize: () => 1.27, setCrosshair() {}, hideCrosshair() {} },
+        snapToGrid(point) { return point; }, history: { execute() {} },
+    };
+    startBoardShapeDrag(app, shape, { x: 10.3, y: 8.2 }, 2);
+    handleBoardShapeDrag(app, { x: 10.3, y: 10.2 });
+    const displayed = getBoardShapeDrag(app).shape;
+    const width = Math.abs(displayed.points[2].x - displayed.points[0].x);
+    const height = Math.abs(displayed.points[2].y - displayed.points[0].y);
+    expect('PCB corner reaches an exact square even while grid snapping is on',
+        Math.abs(width - height) < 1e-9 && axisGlowState(app).resolved.length === 4
+        && axisGlowState(app).resolved.every(({ segment }) => segment.square));
+    endBoardShapeDrag(app, false);
+}
+
+{
+    // Rotated rectangles are judged on their own sides, not on the bounding box.
+    const angle = 20 * Math.PI / 180;
+    const rotate = point => ({ x: point.x * Math.cos(angle) - point.y * Math.sin(angle),
+        y: point.x * Math.sin(angle) + point.y * Math.cos(angle) });
+    const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }].map(rotate);
+    expect('a rotated square still highlights every side',
+        sharedGlow.squareAlignmentSegments(square).length === 4);
+    // A 10 x 5 rectangle rotated to 45° has a square bounding box but is not square.
+    const diagonal = 45 * Math.PI / 180;
+    const skew = point => ({ x: point.x * Math.cos(diagonal) - point.y * Math.sin(diagonal),
+        y: point.x * Math.sin(diagonal) + point.y * Math.cos(diagonal) });
+    const oblong = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 }, { x: 0, y: 5 }].map(skew);
+    expect('a rotated oblong with a square bounding box does not highlight',
+        sharedGlow.squareAlignmentSegments(oblong).length === 0);
+
+    const shape = { id: 'rotated-square-snap', kind: 'rect', layer: 'top-copper', lineWidth: 0.2,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }].map(rotate) };
+    const layer = element('g');
+    const app = { ...pcbEditorStubs(),
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
+        viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
+        snapToGrid(point) { return point; }, history: { execute() {} },
+    };
+    startBoardShapeDrag(app, shape, shape.points[2], 2);
+    handleBoardShapeDrag(app, rotate({ x: 10, y: 9.9 }));
+    expect('a rotated rectangle snaps square and highlights all four sides',
+        axisGlowState(app).resolved.length === 4
+        && axisGlowState(app).resolved.every(({ segment }) => segment.square));
+    handleBoardShapeDrag(app, rotate({ x: 10, y: 9.2 }));
+    expect('a rotated rectangle releases square snapping beyond the threshold',
+        !axisGlowState(app).resolved.length);
     endBoardShapeDrag(app, false);
 }
 

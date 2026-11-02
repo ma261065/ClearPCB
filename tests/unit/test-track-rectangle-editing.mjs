@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
-import { installFakeDom } from './helpers/fake-dom.mjs';
+import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
 installFakeDom();
 const { Pad } = await import('../../src/shapes/pad.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { startVertexDrag, updateVertexDrag, finishVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { getAxisGlowState } = await import('../../src/shapes/axis-glow.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
@@ -23,9 +24,10 @@ function loop(points, options = {}) {
 
 function appFor(tracks, pads = []) {
     const commands = [];
+    const layer = fakeElement('g');
     const app = Object.assign(Object.create(copperPrototype), pcbEditorStubs(), {
         pcbDocument: new PcbDocument(), tracks, vias: [], pads, placements: new Map(), netlist: [], boardShapes: [],
-        getLayerGroup() { return null; },
+        getLayerGroup() { return layer; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
         alert(message) { this.lastAlert = message; },
@@ -35,6 +37,28 @@ function appFor(tracks, pads = []) {
 
 const positions = track => Object.fromEntries([...track.nodes].map(([id, point]) => [id, [point.x, point.y]]));
 const rectangle = [{ x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: -25 }, { x: 10, y: -25 }];
+
+{
+    const track = loop(rectangle);
+    const { app } = appFor([track]);
+    app.viewport.gridVisible = true;
+    app.viewport.snapToGrid = true;
+    app.viewport.gridSize = 1.27;
+    app.viewport.getEffectiveGridSize = () => 1.27;
+    assert.ok(startVertexDrag(app, track, { x: 30, y: -25 }, { nodeId: 'n2' }));
+    updateVertexDrag(app, { x: 30, y: -30.1 });
+    const preview = getVertexDrag(app).track;
+    const points = [...preview.nodes.values()];
+    const width = Math.abs(points[1].x - points[0].x);
+    const height = Math.abs(points[2].y - points[1].y);
+    assert.ok(Math.abs(width - height) < 1e-9,
+        `a copper Rect corner snaps to exact square geometry (${width} x ${height})`);
+    assert.equal(getAxisGlowState(app).resolved.length, 4, 'a square copper Rect highlights all four sides');
+    assert.ok(getAxisGlowState(app).resolved.every(({ segment }) => segment.square),
+        'a copper Rect uses the shared square highlight');
+    finishVertexDrag(app);
+    assert.equal(getAxisGlowState(app).resolved, null, 'finishing clears the square highlight');
+}
 
 {
     const track = loop(rectangle);

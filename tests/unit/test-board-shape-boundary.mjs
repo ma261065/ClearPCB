@@ -576,6 +576,28 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     app.history.redo();
     assert.equal(model.board.height, 15);
     app.history.undo();
+    Object.assign(app.viewport, {
+        gridSize: 1,
+        gridVisible: true,
+        snapToGrid: true,
+        getEffectiveGridSize: () => 1,
+    });
+    const crosshairs = [];
+    app.viewport.setCrosshair = point => crosshairs.push({ ...point });
+    const edgeOrigin = { ...outline.points[0] };
+    const edgeGrab = {
+        x: (outline.points[0].x + outline.points[1].x) / 2,
+        y: (outline.points[0].y + outline.points[1].y) / 2,
+    };
+    assert.equal(startBoardShapeDrag(app, outline, edgeGrab, null, { allowSegment: true }), true);
+    assert.deepEqual(crosshairs.at(-1), edgeOrigin, 'A selected edge uses its first node as its origin');
+    handleBoardShapeDrag(app, { x: edgeGrab.x + 0.04, y: -14.96 });
+    assert.equal(getBoardShapeDrag(app).shape.points[0].y, -15,
+        'Board-outline edge movement combines adjoining alignment with displayed-grid snapping');
+    assert.equal(getBoardShapeDrag(app).shape.points[1].y, -15);
+    assert.deepEqual(crosshairs.at(-1), { x: edgeOrigin.x, y: -15 },
+        'The edge origin follows its snapped first node rather than the grabbed point');
+    endBoardShapeDrag(app, false);
     const adapter = createBoardShapeSelectionAdapter(app, outline, outline.id);
     adapter.moveAnchor(0, -3, -12);
     assertDimensions();
@@ -675,3 +697,26 @@ for (const reversed of [false, true]) {
         resolveBoardShapeGeometry(shape).physicalContours);
 }
 console.log('PASS centred crossings through dragging, undo and reload');
+
+{
+    // An authored outline whose corners sit off the grid: dragging one edge perpendicular
+    // must grid-snap only that axis and leave the adjoining edges exactly vertical.
+    const points = [{ x: 0.36, y: -55.88005 }, { x: 66.4, y: -55.88005 }, { x: 66.4, y: 0.61965 }, { x: 0.36, y: 0.61965 }];
+    const outline = { id: 'board-outline', kind: 'rect', layer: 'board-outline', lineWidth: 0.2, cornerRadius: 0, points };
+    const app = { ...pcbEditorStubs(), ...shapeModel(outline), _shapeElements: new Map(), getLayerGroup() { return null; },
+        snapToGrid(point) { return point; }, history: { execute(command) { command.execute(); } },
+        viewport: { scale: 10, gridSize: 1.27, gridVisible: true, snapToGrid: true,
+            getEffectiveGridSize: () => 1.27, setCrosshair() {}, hideCrosshair() {} } };
+    const grab = { x: (points[0].x + points[1].x) / 2, y: points[0].y };
+    assert.equal(startBoardShapeDrag(app, outline, grab, null, { allowSegment: true }), true);
+    assert.equal(getBoardShapeDrag(app).mode, 'segment');
+    handleBoardShapeDrag(app, { x: grab.x, y: grab.y + 0.9 });
+    const dragged = getBoardShapeDrag(app).shape;
+    assert.equal(dragged.kind, 'rect', 'A perpendicular edge drag keeps the outline rectangular');
+    assert.deepEqual(dragged.points.map(point => point.x), points.map(point => point.x),
+        'Off-grid corners never slide along the dragged edge');
+    assert.equal(dragged.points[0].y, -54.61, 'The dragged edge snaps to the displayed grid');
+    assert.equal(dragged.points[1].y, -54.61);
+    endBoardShapeDrag(app, false);
+}
+console.log('PASS off-grid outline edge drags snap perpendicular only');
