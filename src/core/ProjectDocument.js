@@ -62,6 +62,7 @@ function validatePcbPadBonds(schematicPrepared, pcbPrepared, pcbData) {
  *   isSectionDirty?: () => unknown,
  *   markSectionClean?: () => void,
  *   isSectionEditing?: () => unknown,
+ *   canSerialize?: () => unknown,
  *   restoreSectionDirty?: (dirty: boolean) => void,
  * }} ProjectView
  */
@@ -82,7 +83,8 @@ function validatePcbPadBonds(schematicPrepared, pcbPrepared, pcbData) {
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
- *   - `isSectionEditing()`  → transient previews make a file snapshot unsafe.
+ *   - `isSectionEditing()`  → an interaction is active and lifecycle actions should settle it.
+ *   - `canSerialize()`      → optional narrower snapshot-safety predicate.
  *   - `restoreSectionDirty(dirty)` → restore section dirtiness after a failed load.
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *   - `onProjectChanged()` → UI host refreshes aggregate project status.
@@ -284,7 +286,11 @@ export class ProjectDocument {
     /** Whether registered views permit a snapshot of the authored models. */
     canSerialize() {
         for (const view of this.views.values()) {
-            if (view.isSectionEditing?.()) return false;
+            if (view.canSerialize) {
+                if (!view.canSerialize()) return false;
+            } else if (view.isSectionEditing?.()) {
+                return false;
+            }
         }
         return true;
     }

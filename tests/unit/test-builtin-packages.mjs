@@ -70,6 +70,36 @@ for (const [name, original] of canonical) {
             result.footprintShapes, result.footprintBBox, result._source);
         assert.deepEqual(fp.pads.map(pad => pad.number), expectedLabels(name, option.value, original),
             `${name}/${option.value}: semantic pad identifiers and duplicates`);
+        assert.ok(fp.silks.some(shape => shape.layer === 'top-silk'),
+            `${name}/${option.value}: visible footprint silkscreen`);
+        for (let first = 0; first < fp.pads.length; first++) {
+            for (let second = first + 1; second < fp.pads.length; second++) {
+                const a = fp.pads[first], b = fp.pads[second];
+                if (a.number === b.number) continue;
+                const overlapX = Math.min(a.x + a.width / 2, b.x + b.width / 2)
+                    - Math.max(a.x - a.width / 2, b.x - b.width / 2);
+                const overlapY = Math.min(a.y + a.height / 2, b.y + b.height / 2)
+                    - Math.max(a.y - a.height / 2, b.y - b.height / 2);
+                assert.ok(overlapX <= 0 || overlapY <= 0,
+                    `${name}/${option.value}: pads ${a.number} and ${b.number} must not short`);
+            }
+        }
+        const isTo92 = (['NPN', 'PNP', 'NMOS'].includes(name)
+            && (option.value === 'default' || option.value === 'to92'))
+            || (name === 'PMOS' && option.value === 'to92');
+        if (isTo92) {
+            assert.ok(fp.pads.every(pad => pad.shape === 'oval'),
+                `${name}/${option.value}: TO-92 pads use oval copper`);
+            assert.ok(fp.pads.every(pad => pad.width === 1.05 && pad.height === 2),
+                `${name}/${option.value}: TO-92 pads provide hand-soldering copper`);
+            const ordered = [...fp.pads].sort((a, b) => a.x - b.x);
+            for (let index = 1; index < ordered.length; index++) {
+                const clearance = ordered[index].x - ordered[index - 1].x
+                    - (ordered[index].width + ordered[index - 1].width) / 2;
+                assert.ok(clearance >= 0.20 && clearance <= 0.25,
+                    `${name}/${option.value}: TO-92 copper clearance is ${clearance}`);
+            }
+        }
         const th = option.value === 'default' ? name !== 'PMOS'
             : ['to92', 'do41', 'th-3mm', 'terminal-5.08'].includes(option.value);
         for (const pad of fp.pads) {

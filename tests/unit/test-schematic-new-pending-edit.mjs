@@ -70,7 +70,8 @@ for (const mode of ['paste', 'drawing', 'wire', 'component', 'anchor', 'pending'
         } else setPendingAnchorDrag(app, { shape, preInsertState: beforeState });
         shape.move(4, 5);
     }
-    assert.equal(project.canSerialize(), false, `${mode}: pending edit blocks save before New`);
+    assert.equal(project.canSerialize(), mode === 'component',
+        `${mode}: only detached repeat-placement previews permit snapshots before New`);
     await newFile(app);
     assert.deepEqual(alerts, [], `${mode}: New must not fail after clearing either document`);
     assert.equal(app.shapes.length, 0);

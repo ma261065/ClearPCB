@@ -84,7 +84,9 @@ for (const entry of SCHEMATIC_INTERACTIONS) {
     if (entry.key === 'overlapCyclePress') setOverlapCyclePress(app, {});
     else setSchematicInteraction(app, entry.key, entry.key === 'drag' ? { mode: 'move' } : {});
     app.interactionState = stateOf[entry.key] || 'idle';
-    assert.equal(app.isSectionEditing(), entry.blocksSnapshot, `${entry.key}: save guard`);
+    assert.equal(app.isSectionEditing(), entry.blocksSnapshot || entry.key === 'placingComponent',
+        `${entry.key}: lifecycle edit guard`);
+    assert.equal(app.canSerialize(), !entry.blocksSnapshot, `${entry.key}: snapshot guard`);
     assert.equal(blocksSchematicSnapshot(app), entry.blocksSnapshot);
     assert.equal(canRunSchematicSelectionAction(app), false, `${entry.key}: selection actions wait`);
     assert.equal(hasSchematicInteraction(app), true);

@@ -36,7 +36,7 @@ export const SCHEMATIC_INTERACTIONS = /** @type {readonly SchematicInteractionDe
     { key: 'pendingAnchorDrag', category: 'gesture', blocksSnapshot: true, owner: 'drag.js' },
     { key: 'isDrawing', category: 'drawing', blocksSnapshot: true, owner: 'drawing.js' },
     { key: 'pastingClipboard', category: 'gesture', blocksSnapshot: true, owner: 'clipboard.js' },
-    { key: 'placingComponent', category: 'gesture', blocksSnapshot: true, owner: 'components.js' },
+    { key: 'placingComponent', category: 'gesture', blocksSnapshot: false, owner: 'components.js' },
 ].map(entry => Object.freeze(entry))));
 
 const INTERACTION_KEYS = new Set(SCHEMATIC_INTERACTIONS.map(entry => entry.key));

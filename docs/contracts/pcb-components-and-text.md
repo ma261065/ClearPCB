@@ -48,6 +48,13 @@ of label characters. Their local text is counter-rotated during placement-pose
 updates, and counter-mirrored when required by the board side or footprint
 mirror, so every number remains upright without changing its fitted size.
 
+Every built-in default and package variant supplies explicit top-silkscreen
+footprint artwork in addition to copper pads. Built-in package geometry must
+also keep differently numbered pad copper disjoint. The compact TO-92 layout
+uses oval pads 1.05 mm across the pin row and 2.00 mm long perpendicular to it.
+On its 1.27 mm pitch, this provides 0.22 mm copper-edge clearance while the
+extra length provides more hand-soldering copper around its 0.8 mm drills.
+
 ## Free Text
 
 Free-standing text creation, defaults/layer rules and full-precision snapshots

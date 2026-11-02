@@ -959,7 +959,13 @@ export default class SchematicApp {
     // ── ProjectDocument view interface ────────────────────────────────
 
     isSectionEditing() {
-        return hasSchematicPropertyPreview(this) || blocksSchematicSnapshot(this);
+        return hasSchematicPropertyPreview(this)
+            || blocksSchematicSnapshot(this)
+            || ComponentTools.isPlacingComponent(this);
+    }
+
+    canSerialize() {
+        return !hasSchematicPropertyPreview(this) && !blocksSchematicSnapshot(this);
     }
 
     onDocumentReplaced() {

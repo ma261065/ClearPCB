@@ -333,7 +333,7 @@ for (const [id, label, length, width, height] of /** @type {Array<[string, strin
 layout('led3', 'LED Ø3 mm, 2.54 mm pitch TH', 'led-th', [3, 3, 4.1],
     [[-1.27, 0, 1.8, 1.8, 0.8], [1.27, 0, 1.8, 1.8, 0.8]]);
 layout('to92', 'TO-92 inline TH', 'transistor', [4.6, 3, 5.7],
-    [-1.27, 0, 1.27].map(x => [x, 0, 1.4, 1.4, 0.8]),
+    [-1.27, 0, 1.27].map(x => [x, 0, 1.05, 2, 0.8]),
     'Package_TO_SOT_THT:TO-92_Inline');
 layout('sot23', 'SOT-23 SMT', 'transistor', [2.9, 2.8, 1.3],
     [[-0.95, 1.1, 1, 0.6, 0], [0.95, 1.1, 1, 0.6, 0], [0, -1.1, 1, 0.6, 0]],
