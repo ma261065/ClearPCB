@@ -11,6 +11,7 @@ import { textSymbolReplacementAtCaret } from '../../shared/ui/text-symbol-autore
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { isWireItem as isWireShape } from '../../core/schematic-items.js';
+import { updateLabelGuide } from './label-attachment.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/wire.js').Wire} WireShape */
 /** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
@@ -124,8 +125,19 @@ export function endTextEdit(app, commit = true) {
     const removeBlankText = commit
         && !state.shape.text.trim()
         && (!state.shape.parentComponent || state.shape.fieldKey === 'label');
+    const lastCommand = app.history?.undoStack?.at(-1);
+    const discardNewText = !commit
+        && !state.originalText.trim()
+        && lastCommand instanceof AddShapeCommand
+        && lastCommand.shape === state.shape;
 
-    if (!commit) {
+    if (discardNewText) {
+        new DeleteShapesCommand(app, [state.shape]).execute();
+        app.history.popUndo();
+        app.history.redoStack = [];
+        app.history._notifyChanged();
+        removed = true;
+    } else if (!commit) {
         state.shape.text = state.originalText;
         if (typeof state.shape.invalidate === 'function') {
             state.shape.invalidate();
@@ -136,8 +148,7 @@ export function endTextEdit(app, commit = true) {
         // pre-edit object rather than an empty text object.
         state.shape.text = state.originalText;
         const command = new DeleteShapesCommand(app, [state.shape]);
-        const last = app.history.undoStack.at(-1);
-        if (!state.originalText.trim() && last instanceof AddShapeCommand && last.shape === state.shape) {
+        if (!state.originalText.trim() && lastCommand instanceof AddShapeCommand && lastCommand.shape === state.shape) {
             command.execute();
             app.history.popUndo();
             app.history.redoStack = [];
@@ -233,6 +244,7 @@ export function endTextEdit(app, commit = true) {
     }
 
     setSchematicTextEdit(app, null);
+    updateLabelGuide(app);
 
     if (!removed && shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
@@ -739,6 +751,7 @@ function _cleanupTextEditState(state, app, shape) {
         state.blinkTimeoutId = null;
     }
     setSchematicTextEdit(app, null);
+    updateLabelGuide(app);
     if (shape && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }

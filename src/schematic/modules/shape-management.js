@@ -1,6 +1,6 @@
 import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
-import { detachLabel } from './label-attachment.js';
+import { detachLabel, updateLabelGuide } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
 import { ensureShapeMounted, mountShape, unmountShape, withContentDetached } from './schematic-view.js';
@@ -227,6 +227,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
 
     app.selection.invalidateHitCache();
     app.updateSelectableItems();
+    updateLabelGuide(app);
     if (allData.some(({ shape }) => affectsConnectionDots(shape))) renderConnectionDots(app);
     app.fileManager.setDirty(true);
 }
