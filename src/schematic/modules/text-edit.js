@@ -122,33 +122,23 @@ export function endTextEdit(app, commit = true) {
         state.shape._lastCaretIndex = Math.max(0, Math.min(textLength, caret));
     }
 
-    const removeBlankText = commit
-        && !state.shape.text.trim()
-        && (!state.shape.parentComponent || state.shape.fieldKey === 'label');
+    // A placement whose text was never committed is still owned by its own Add
+    // command, so discarding it leaves no empty object and no history entry.
     const lastCommand = app.history?.undoStack?.at(-1);
-    const discardNewText = !commit
-        && !state.originalText.trim()
+    const isUncommittedPlacement = !state.originalText.trim()
         && lastCommand instanceof AddShapeCommand
         && lastCommand.shape === state.shape;
 
-    if (discardNewText) {
-        new DeleteShapesCommand(app, [state.shape]).execute();
-        app.history.popUndo();
-        app.history.redoStack = [];
-        app.history._notifyChanged();
-        removed = true;
-    } else if (!commit) {
-        state.shape.text = state.originalText;
-        if (typeof state.shape.invalidate === 'function') {
-            state.shape.invalidate();
-        }
-        app.renderShapes(true);
-    } else if (removeBlankText) {
+    const removeBlankText = commit
+        && !state.shape.text.trim()
+        && (!state.shape.parentComponent || state.shape.fieldKey === 'label');
+
+    if (removeBlankText || (!commit && isUncommittedPlacement)) {
         // Restore the authored content before deletion so undo restores the
         // pre-edit object rather than an empty text object.
         state.shape.text = state.originalText;
         const command = new DeleteShapesCommand(app, [state.shape]);
-        if (!state.originalText.trim() && lastCommand instanceof AddShapeCommand && lastCommand.shape === state.shape) {
+        if (isUncommittedPlacement) {
             command.execute();
             app.history.popUndo();
             app.history.redoStack = [];
@@ -157,6 +147,12 @@ export function endTextEdit(app, commit = true) {
             app.history.execute(command);
         }
         removed = true;
+    } else if (!commit) {
+        state.shape.text = state.originalText;
+        if (typeof state.shape.invalidate === 'function') {
+            state.shape.invalidate();
+        }
+        app.renderShapes(true);
     } else if (state.shape.text !== state.originalText) {
         // Enforce unique references for component field texts
         if (state.shape.parentComponent && state.shape.fieldKey === 'reference' && state.shape.text) {

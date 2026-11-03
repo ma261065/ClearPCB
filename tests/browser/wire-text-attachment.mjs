@@ -75,9 +75,13 @@ export const scenarios = [{
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('.label-connection-guide').count(), 0,
             'cancelling inline text editing clears its connector immediately');
-        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes
-            .filter(shape => shape.type === 'text').length), 0,
-        'cancelling a newly placed text label discards its empty placement');
+        const cancelled = await page.evaluate(() => {
+            const app = window.bootstrap.schematicApp;
+            return { count: app.shapes.filter(shape => shape.type === 'text').length,
+                undo: app.history.undoStack.length };
+        });
+        assert.deepEqual(cancelled, { count: 0, undo: 1 },
+            'cancelling a brand new placement discards the text object and its history entry');
     },
 }, {
     name: 'deleting-existing-wire-attached-text-clears-connection-guide',
