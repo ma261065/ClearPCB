@@ -27,6 +27,12 @@ export const scenarios = [{
         });
         await page.waitForFunction(() => document.querySelector('#pcb-picture-import .picture-error')
             .textContent.includes('Choose an unlocked, visible layer.'));
+        const artwork = page.locator('#pcb-picture-import [data-preview="artwork"]');
+        assert.equal(await artwork.getAttribute('data-preview-state'), 'error');
+        assert.match(await artwork.getAttribute('aria-label'), /preview unavailable/i);
+        await artwork.hover();
+        assert.equal(await page.locator('#pcb-picture-import .picture-full-preview').isHidden(), true,
+            'Invalid artwork cannot open a stale magnified preview');
         const select = page.locator('#pcb-picture-import select[name="layer"]');
         const locked = select.locator('option[value="bottom-copper"]');
         assert.equal(await locked.textContent(), 'Bottom Copper \u{1F512}\uFE0E');
@@ -59,6 +65,8 @@ export const scenarios = [{
         }
         await select.selectOption('top-document');
         await page.waitForFunction(() => !document.querySelector('#pcb-picture-import .app-modal-ok').disabled);
+        assert.equal(await artwork.getAttribute('data-preview-state'), 'ready',
+            'Choosing a valid layer restores the artwork preview');
         const available = await select.evaluate(control => ({
             color: getComputedStyle(control).color,
             optionColor: getComputedStyle(control.selectedOptions[0]).color,
