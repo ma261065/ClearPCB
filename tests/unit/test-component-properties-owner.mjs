@@ -50,7 +50,7 @@ function fixture() {
     const items = { querySelector: selector => controls.get(selector.slice(1)) || null };
     const actions = [], renders = [], overlays = [], bindings = [], titles = [];
     let owner;
-    /** @type {{x: number, y: number}|null} */
+    /** @type {{x: number, y: number, rotation: number}|null} */
     let move = null;
     const capabilities = Object.freeze({
         getPlacement: id => id === 'part' ? placement : undefined,
@@ -67,9 +67,17 @@ function fixture() {
         gridStep: () => 1.27,
         previewMove: (id, x, y) => {
             if (placement.locked) return false;
-            move ??= { x: placement.x, y: placement.y };
+            move ??= { x: placement.x, y: placement.y, rotation: placement.rotation || 0 };
             actions.push(['preview', id, x, y]);
             Object.assign(placement, { x, y });
+            owner.syncPoseInputs(id);
+            return true;
+        },
+        previewRotation: (id, rotation) => {
+            if (placement.locked) return false;
+            move ??= { x: placement.x, y: placement.y, rotation: placement.rotation || 0 };
+            actions.push(['previewRotation', id, rotation]);
+            placement.rotation = rotation;
             owner.syncPoseInputs(id);
             return true;
         },
@@ -77,8 +85,14 @@ function fixture() {
             if (!move) return false;
             const start = move;
             move = null;
-            if (commit && (placement.x !== start.x || placement.y !== start.y)) {
-                actions.push(['move', id, start, { x: placement.x, y: placement.y }]);
+            if (commit && (placement.x !== start.x || placement.y !== start.y
+                || (placement.rotation || 0) !== start.rotation)) {
+                if (placement.x !== start.x || placement.y !== start.y) {
+                    actions.push(['move', id, { x: start.x, y: start.y }, { x: placement.x, y: placement.y }]);
+                }
+                if ((placement.rotation || 0) !== start.rotation) {
+                    actions.push(['rotationPreview', id, start.rotation, placement.rotation || 0]);
+                }
             } else {
                 Object.assign(placement, start);
                 actions.push(['restore', id]);
@@ -180,9 +194,17 @@ function fixture() {
     const f = fixture();
     f.owner.showComponent('part');
     const rotation = f.items.querySelector('#pcbPropCompRot');
+    rotation.value = '40';
+    rotation.fire('input');
+    assert.equal(f.placement.rotation, 40, 'Rotation input previews the component live');
+    assert.equal(f.owner.active, true, 'An uncommitted rotation is an active edit');
+    assert.deepEqual(f.actions.pop(), ['previewRotation', 'part', 40]);
     rotation.value = '401.6';
     rotation.fire('change');
-    assert.deepEqual(f.actions.pop(), ['rotate', 'part', 37.123456789, 42]);
+    assert.deepEqual(f.actions.splice(0), [
+        ['previewRotation', 'part', 42],
+        ['rotationPreview', 'part', 37.123456789, 42],
+    ]);
     assert.equal(rotation.value, '42');
     assert.equal(f.items.querySelector('#pcbPropCompRot'), rotation, 'Synchronization retains the focused input');
     rotation.value = '';

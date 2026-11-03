@@ -19,10 +19,11 @@ const flushTimers = () => {
     for (const callback of pending) callback();
 };
 const { applyShapeGeometry, cloneShapeGeometry, serializeBoardShapes } = await import('../../src/core/pcb-board-shapes.js');
-const { createBoardShapeSelectionAdapter, openBoardShape, deleteBoardShapeVertex, deleteBoardShapeSegment, setBoardShapeSegmentType, setBoardShapeNodeCornerRadius, translateShapeGeometry, getBoardShapePointerPreview } = await import('../../src/pcb/modules/board-shapes.js');
+const { createBoardShapeSelectionAdapter, openBoardShape, deleteBoardShapeVertex, deleteBoardShapeSegment, setBoardShapeSegmentType, setBoardShapeNodeCornerRadius, translateShapeGeometry, getBoardShapePointerPreview, normalizeBoardPolylineKind } = await import('../../src/pcb/modules/board-shapes.js');
 const { endBoardShapeDrag, getBoardShapeDrag, handleBoardShapeDrag, startBoardShapeDrag } = await import('../../src/pcb/modules/board-shape-drag.js');
 const { boardShapeNodeCornerRadius, boardShapeSegmentBulge, boardShapeSegmentWidth,
     resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../../src/shared/pcb/board-shape-geometry.js');
+const { pointsFormRectangle, rectangleFramePoints } = await import('../../src/shapes/rectangle-frame.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview } = await import('../../src/pcb/modules/box-select.js');
 const { getTextPosePreviewTexts } = await import('../../src/pcb/modules/text-commands.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
@@ -264,6 +265,82 @@ for (const shape of [
         points: [{ x: 0, y: 2 }, { x: 10, y: 2 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
     });
     expect('rounded rectangle canonical points stay settled', shape.points[0], { x: 0, y: 0 });
+}
+
+{
+    const points = rectangleFramePoints({ x: 12, y: -8, width: 18, height: 10, rotation: 31 });
+    const outline = {
+        id: 'rotated-outline', kind: 'polygon', layer: 'board-outline', lineWidth: 0.2,
+        points: structuredClone(points), cornerRadius: 1,
+    };
+    expect('rotated four-sided board outline classifies as a rectangle',
+        [normalizeBoardPolylineKind(outline), outline.kind], [true, 'rect']);
+    const app = { ...pcbEditorStubs(),
+        boardShapes: [outline],
+        _shapeElements: new Map(),
+        getLayerGroup() { return null; },
+        snapToGrid(point) { return point; },
+        viewport: { scale: 100, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
+    };
+    const target = { x: points[0].x - 2, y: points[0].y + 1 };
+    startBoardShapeDrag(app, outline, points[0], 0);
+    handleBoardShapeDrag(app, target);
+    const displayed = getBoardShapeDrag(app).shape;
+    expect('rotated board-outline node drag preserves rectangle topology', {
+        kind: displayed.kind,
+        rectangular: pointsFormRectangle(displayed.points),
+        moved: displayed.points[0],
+        opposite: displayed.points[2],
+    }, {
+        kind: 'rect',
+        rectangular: true,
+        moved: target,
+        opposite: points[2],
+    });
+    endBoardShapeDrag(app, false);
+
+    const skewed = { ...outline, kind: 'rect', points: structuredClone(points) };
+    skewed.points[1].x += 1;
+    expect('a skewed four-sided board outline classifies as a polygon',
+        [normalizeBoardPolylineKind(skewed), skewed.kind], [true, 'polygon']);
+    const curved = { ...outline, kind: 'rect', points: structuredClone(points), segmentBulges: { 0: 0.2 } };
+    expect('a curved four-sided board outline remains a polygon',
+        [normalizeBoardPolylineKind(curved), curved.kind], [true, 'polygon']);
+}
+
+{
+    const points = [
+        { x: 0, y: -50.8 },
+        { x: 31.75, y: -19.05 },
+        { x: -0.0123, y: 12.7123 },
+        { x: -31.7474, y: -19.0526 },
+    ];
+    const outline = {
+        id: 'reported-rotated-outline', kind: 'polygon', layer: 'board-outline',
+        lineWidth: 0.2, points: structuredClone(points), cornerRadius: 0,
+    };
+    const app = { ...pcbEditorStubs(),
+        boardShapes: [outline],
+        _shapeElements: new Map(),
+        getLayerGroup() { return null; },
+        snapToGrid(point) { return point; },
+        viewport: { scale: 100, gridSize: 1.27, gridVisible: true, snapToGrid: true,
+            getEffectiveGridSize: () => 1.27, setCrosshair() {}, hideCrosshair() {} },
+    };
+    startBoardShapeDrag(app, outline, points[2], 2);
+    handleBoardShapeDrag(app, { x: 0.001, y: 12.699 });
+    const displayed = getBoardShapeDrag(app).shape;
+    expect('near-rectangular legacy outline node lands exactly on the displayed grid', {
+        kind: displayed.kind,
+        point: displayed.points[2],
+        rectangular: pointsFormRectangle(displayed.points),
+    }, {
+        kind: 'rect',
+        point: { x: 0, y: 12.7 },
+        rectangular: true,
+    });
+    endBoardShapeDrag(app, false);
+    expect('near-rectangle fitting remains preview-only when cancelled', outline.points, points);
 }
 
 {

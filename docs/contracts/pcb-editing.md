@@ -226,6 +226,9 @@ a command class does not declare `lockTargets()`.
 `pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
 Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching live
 in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. The app's
+Ctrl/Cmd+S and Ctrl/Cmd+Alt+S handling runs before those focus guards, so Save
+and Save As remain editor-global when a ribbon or Properties control has focus
+instead of falling through to the browser's native Save Page dialog. The app's
 window-capture dispatcher gives keys to this handler only while the PCB editor is
 active, and the schematic's handler stands aside then (`pcbApp.isActive()`), so each
 editor's view keys (Home activates Select, opens the Home tab and fits its view, +/- zoom it) act on the active editor alone
@@ -463,6 +466,12 @@ without canonical rollback. Returning to the exact initial angle preserves redo.
 Gesture state is editor-owned too, so rebuilt adapters can finish it and stale
 callbacks cannot resume a discarded gesture. Save/export guards remain active.
 
+Component X, Y and Rotation number fields share one live placement projection.
+Every input step redraws the footprint, bonded-copper projection, selection halo
+and rotation handle at the preview pose. Settling commits the changed position
+and/or angle as one history operation; Escape and panel disposal restore the
+complete starting pose.
+
 Live numeric pad properties (size, ratio, drill and rotation) use a separate
 fixed-selection projection in `pad-commands.js`. The first changed value copies
 the selected pads and their collection once; later inputs reuse those copies
@@ -474,7 +483,9 @@ existing single/compound `ModifyPadCommand` execution, with every target checked
 before the first mutation. Undo retains full precision, and no-op edits retain
 redo. Shape, copper-side and net controls keep their immediate-command semantics,
 committing a pending numeric field first; placement defaults remain outside
-document history.
+document history. While the Pad tool remains active, placing a pad leaves
+Properties on `New Pad`: changing those fields affects subsequent pads and
+does not select or modify the pad that was just authored.
 
 The pad property binding cancels on Escape, tab deactivation and layer locks,
 and disposes detached controls on panel replacement, layer hiding
@@ -596,8 +607,11 @@ retain their existing semantics.
 
 Mixed-selection attribute preparation in `multiPropertyCapabilities`
 (`pcb/modules/multi-selection-properties.js`)
-uses detached shape/image/fill candidates and track-width snapshots rather than
-mutating canonical objects and restoring them. Mutation callbacks receive the
+uses detached shape/image/fill candidates and track snapshots rather than
+mutating canonical objects and restoring them. A multi-track selection offers the
+same editable properties a single track does — Net, Width and Corner Radius —
+where setting the whole-track Corner Radius clears that track's per-corner
+overrides, as it does for one track. Mutation callbacks receive the
 candidate, while the resulting commands retain canonical targets. Image bounds
 are measured on the candidate, immutable artwork remains shared read-only, and
 unchanged dimensions/rotation skip transforms to avoid precision drift.

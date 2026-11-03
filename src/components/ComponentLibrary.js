@@ -41,6 +41,13 @@ function propertyValue(properties, key) {
     return match ? String(properties[match] ?? '') : '';
 }
 
+/** @param {ComponentDefinition} definition */
+function isLocalDefinition(definition) {
+    return definition._source !== 'LCSC'
+        && definition._source !== 'KiCad'
+        && definition._source !== 'EasyEDA';
+}
+
 export class ComponentLibrary {
     /** Initialise the component library, loading built-in and user components. */
     constructor() {
@@ -56,7 +63,7 @@ export class ComponentLibrary {
         this.lcscFetcher = new LCSCFetcher();
 
         // EasyEDA symbol parser version (used to invalidate cached symbols)
-        this._easyedaSymbolParserVersion = '2026-02-05-2';
+        this._easyedaSymbolParserVersion = '2026-11-01-1';
         
         // KiCad fetcher (symbols, footprints)
         this.kicadFetcher = new KiCadFetcher();
@@ -192,6 +199,30 @@ export class ComponentLibrary {
     getAllDefinitions() {
         return Array.from(this.definitions.values());
     }
+
+    /**
+     * Get definitions that belong in the Local picker.
+     * Cached online definitions remain available by name but do not leak into
+     * Local browsing or search.
+     * @returns {ComponentDefinition[]}
+     */
+    getLocalDefinitions() {
+        return this.getAllDefinitions().filter(isLocalDefinition);
+    }
+
+    /**
+     * Get local definitions in a category.
+     * @param {string} category
+     * @returns {ComponentDefinition[]}
+     */
+    getLocalByCategory(category) {
+        return this.getByCategory(category).filter(isLocalDefinition);
+    }
+
+    /** @returns {string[]} */
+    getLocalCategoryNames() {
+        return this.getCategoryNames().filter(category => this.getLocalByCategory(category).length > 0);
+    }
     
     /**
      * Search local library
@@ -202,7 +233,7 @@ export class ComponentLibrary {
         const lowerQuery = query.toLowerCase();
         const results = [];
         
-        for (const def of this.definitions.values()) {
+        for (const def of this.getLocalDefinitions()) {
             const matchName = def.name.toLowerCase().includes(lowerQuery);
             const matchDesc = (def.description || '').toLowerCase().includes(lowerQuery);
             const matchKeywords = (def.keywords || []).some(k => 
@@ -787,7 +818,7 @@ export class ComponentLibrary {
         const segments = shape.split('^^');
         const header = segments[0].split('~');
 
-        const headerNumber = String(header[3] || '').trim();
+        const spicePin = String(header[3] || '').trim();
         let x = Number(header[4]);
         let y = Number(header[5]);
         let angle = Number(header[6]);
@@ -838,19 +869,30 @@ export class ComponentLibrary {
         }
 
         let name = '';
-        let number = headerNumber;
+        let number = '';
         let namePos = null;
         let numberPos = null;
+        let hasNameSegment = false;
+        let hasNumberSegment = false;
         /** @type {Array<{text:string, pos:ComponentSymbolTextPosition}>} */
         const labelEntries = [];
-        for (const segment of segments.slice(1)) {
+        for (let segmentIndex = 1; segmentIndex < segments.length; segmentIndex++) {
+            const segment = segments[segmentIndex];
             if (typeof segment !== 'string' || !segment.includes('~')) continue;
             const parts = segment.split('~');
             if (parts.length < 5) continue;
             const visibleFlag = Number(parts[0]);
-            if (Number.isFinite(visibleFlag) && visibleFlag === 0) continue;
             const text = String(parts[4] || '').trim();
             if (!text) continue;
+            if (segmentIndex === 3) {
+                hasNameSegment = true;
+                name = text;
+            }
+            if (segmentIndex === 4) {
+                hasNumberSegment = true;
+                number = text;
+            }
+            if (Number.isFinite(visibleFlag) && visibleFlag === 0) continue;
             const labelX = Number(parts[1]);
             const labelY = Number(parts[2]);
             const labelRot = Number(parts[3]);
@@ -882,33 +924,29 @@ export class ComponentLibrary {
                 : null;
             if (pos) {
                 labelEntries.push({ text, pos });
-            }
-            // Preserve first encountered non-empty text as name, but positions are assigned by order below
-            if (!name && text) {
-                name = text;
-            }
-            if (!number && /^\d+$/.test(text)) {
-                number = text;
+                if (segmentIndex === 3) namePos = pos;
+                if (segmentIndex === 4) numberPos = pos;
             }
         }
 
-        if (labelEntries.length > 0) {
+        if (!hasNameSegment && labelEntries.length > 0) {
             namePos = labelEntries[0].pos;
             if (!name) {
                 name = labelEntries[0].text;
             }
         }
 
-        if (labelEntries.length > 1) {
+        if (!hasNumberSegment && labelEntries.length > 1) {
             numberPos = labelEntries[1].pos;
-            if (!number && /^\d+$/.test(labelEntries[1].text)) {
+            if (!number) {
                 number = labelEntries[1].text;
             }
         }
+        if (!number) number = spicePin;
 
         return {
             _id: headerId || null,
-            _key: headerId || headerNumber || `${x},${y}`,
+            _key: headerId || number || spicePin || `${x},${y}`,
             _pathData: pathData, // Store raw path for accurate rendering
             number: number || '',
             name: name || number || '',

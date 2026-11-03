@@ -6,6 +6,7 @@
  */
 
 import { getBuiltInModel3D } from './BuiltInModels3D.js';
+import { builtInSilkOutline } from './built-in-footprint-artwork.js';
 
 const builtInDefinitions = [
     // ============ PASSIVE COMPONENTS ============
@@ -324,9 +325,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
-            'PAD~ELLIPSE~0~0~1.4~1.4~C',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+            'PAD~OVAL~-1.27~0~1.05~2~B',
+            'PAD~OVAL~0~0~1.05~2~C',
+            'PAD~OVAL~1.27~0~1.05~2~E'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -371,9 +372,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
-            'PAD~ELLIPSE~0~0~1.4~1.4~C',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+            'PAD~OVAL~-1.27~0~1.05~2~B',
+            'PAD~OVAL~0~0~1.05~2~C',
+            'PAD~OVAL~1.27~0~1.05~2~E'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -422,9 +423,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~G',
-            'PAD~ELLIPSE~0~0~1.4~1.4~D',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~S'
+            'PAD~OVAL~-1.27~0~1.05~2~G',
+            'PAD~OVAL~0~0~1.05~2~D',
+            'PAD~OVAL~1.27~0~1.05~2~S'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -665,9 +666,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
-            'PAD~ELLIPSE~0~0~1.4~1.4~C',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~E'
+            'PAD~OVAL~-1.27~0~1.05~2~B',
+            'PAD~OVAL~0~0~1.05~2~C',
+            'PAD~OVAL~1.27~0~1.05~2~E'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -713,9 +714,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~B',
-            'PAD~ELLIPSE~0~0~1.4~1.4~E',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~C'
+            'PAD~OVAL~-1.27~0~1.05~2~B',
+            'PAD~OVAL~0~0~1.05~2~E',
+            'PAD~OVAL~1.27~0~1.05~2~C'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -765,9 +766,9 @@ const builtInDefinitions = [
         footprintName: 'TO-92_Inline',
         hasFootprint: true,
         footprintShapes: [
-            'PAD~ELLIPSE~-1.27~0~1.4~1.4~G',
-            'PAD~ELLIPSE~0~0~1.4~1.4~D',
-            'PAD~ELLIPSE~1.27~0~1.4~1.4~S'
+            'PAD~OVAL~-1.27~0~1.05~2~G',
+            'PAD~OVAL~0~0~1.05~2~D',
+            'PAD~OVAL~1.27~0~1.05~2~S'
         ],
         footprintBBox: { x: -1.97, y: -2.5, width: 3.94, height: 3.2 }
     },
@@ -835,8 +836,11 @@ export const BuiltInComponents = [...new Map(
     return {
         ...definition,
         _source: 'Built-in',
-        footprintShapes: definition.footprintShapes.map(shape =>
-            `${shape}~${smd ? 'top' : 'both'}~1~${smd ? 1 : 0}~${drill}`),
+        footprintShapes: [
+            ...definition.footprintShapes.map(shape =>
+                `${shape}~${smd ? 'top' : 'both'}~1~${smd ? 1 : 0}~${drill}`),
+            ...builtInSilkOutline(definition.footprintBBox),
+        ],
         has3d: true,
         model3dName: `${definition.footprintName} (generic)`,
         model3dObj: getBuiltInModel3D(definition.footprint),

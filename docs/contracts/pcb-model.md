@@ -169,6 +169,20 @@ fix the authority, not the consumer.
 | Copper pours | the computed fill (`getComputedFill`, `pcb/modules/computed-fill-cache.js`) | pour SVG, 2D and 3D views, DRC; fabrication export recomputes pours in its snapshot (`fabrication-snapshot.js`) |
 | Routing obstacles | `buildCopperObstacles` (`pcb/modules/copper-obstacles.js`) | router input (`route-input.js`) |
 
+PCB component hover, single-selection and multi-selection highlights include a
+blue copy of the component's visible reference glyphs as well as its footprint
+bounds. The copy carries no `data-fp-ref` identity and never recolours or replaces
+the authored reference group, so selecting and editing reference text remains an
+independent interaction.
+
+Dragging PCB text shows the shared full-canvas crosshair with its vertical line at
+the rendered text's horizontal centre and its horizontal line at the text baseline.
+This applies to footprint reference text and free text, including rotation and
+bottom-side mirroring. The displayed baseline-centre crosshair itself is the
+magnetic grid snap point; the stored text origin/offset is derived from that snapped
+point. Shift and hidden-grid behavior remain the shared grid-magnet behavior, and
+drop or cancellation hides the crosshair.
+
 ### Intentional differences and model limits
 
 - Conservative pour outlines, picture-wide pour clearance, routing envelopes and
@@ -177,7 +191,9 @@ fix the authority, not the consumer.
 - DRC uses physical pad outlines and picture regions, and subtracts copper-removal
   artwork per side before clearance and short checks; mask-only artwork does not
   remove copper. Plated barrels keep surviving surface copper connected, while
-  nominal drill and ring checks ignore surface removal. Clipped circles, arcs and
+  nominal drill and ring checks ignore surface removal. The 3D surface cutter clips
+  only triangles coplanar with the affected copper face, so it removes an annular
+  pad's surface copper without cutting the plated wall inside the hole. Clipped circles, arcs and
   round stroke joins are tessellated to 0.0001 mm on 0.000001 mm integer
   coordinates (`copper-removal.js`); unaffected features keep analytic distance
   checks. This is bounded geometric checking, not exact geometry.
@@ -640,17 +656,15 @@ every move.
   opposite corner fixed and rounds with circular corners, and Fill turns a
   closed loop into a filled board shape that keeps its net
   (`fillTrackLoop()`; `test-copper-path-tracks`, `test-track-rectangle-editing`).
-  The track Layer menu also lists non-copper layers: choosing one turns a
-  single-layer line or loop back into an unfilled board shape, dropping its net
-  and pad links and keeping a hole's plating (`moveTrackToBoardLayer()`). Its
-  Copper Mode menu does the same for the removal modes, which add no copper:
-  the track becomes an unfilled shape on its own layer (`setTrackCopperMode()`),
-  and switching that shape back to Add Copper makes it a track again. For
-  branched or two-layer tracks those layers and modes are disabled with a tooltip.
+  Track Properties always represents additive copper: its Layer menu contains
+  only Top Copper and Bottom Copper, with the same enabled choices for every
+  track, and it has no Copper Mode field. Non-copper layers and copper-removal
+  modes belong to board shapes rather than Tracks.
   Panel edits first drop any in-progress pickup of the same track (a midpoint
   "+" click), so they always act on the real track. The browser scenarios in
-  `tests/browser/track-shape-conversions.mjs` drive these conversions through
-  the real Properties panel, then undo, redo, save and reopen.
+  `tests/browser/track-shape-conversions.mjs` verify shape-to-track conversion
+  and the resulting copper-only Track Properties through undo, redo, save and
+  reopen.
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.

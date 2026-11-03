@@ -28,6 +28,10 @@ label guides, text-edit overlays and tool ghosts, without writing entity
 Clean shapes only take the zoom fast path (stroke-width update) when the scale
 has changed since the previous `renderShapes()` pass, so hover frames do no
 per-shape view lookups.
+Hovering a wire shows its current net name after the same short settling delay
+used by PCB copper tooltips. The tooltip follows the authoritative hover hit
+from the coalesced interaction pass and hides when the pointer leaves the wire,
+an interaction starts or the viewport moves.
 `test-schematic-view-boundary` tests the helpers and fails on new
 view-lifecycle code elsewhere in the schematic editor.
 
@@ -94,6 +98,9 @@ strand the keyboard and the user can keep typing. Text-entry fields in the panel
 keep all of their own characters, and controls outside the Properties panel are
 unaffected (`test-schematic-inline-property-keyboard`). PCB labels behave the
 same way.
+Ctrl/Cmd+S and Ctrl/Cmd+Alt+S are editor-global Save and Save As shortcuts.
+They run before ribbon and Properties focus guards, so focused controls never
+let Ctrl/Cmd+S fall through to the browser's native Save Page dialog.
 
 Inline text editing supports Ctrl+A (Cmd+A on macOS), Shift+Left/Right,
 Ctrl/Cmd+Shift+Left/Right for word selection, and Shift+Home/End. A translucent
@@ -160,6 +167,12 @@ electrical contact. The model-only netlist query groups them without authoring
 a wire or attachment record, and the view draws one green, non-interactive
 junction dot at that point. Moving either component away removes both the
 derived connection and the dot.
+All green connection indicators are owned by one non-interactive
+`schematic-connection-dots` overlay. Its renderer collects wire graph junctions,
+wire-to-pin bonds, coincident physical pins, direct NetLabel contacts and No
+Connect contacts, then deduplicates coincident sources into one circle. Wire SVG
+elements never own connection-dot children; source classes remain on the shared
+circle for diagnostics and compatibility.
 A NetLabel directly contacting a physical component pin uses that same derived
 green junction dot. The label-to-pin netlist rule and the dot share the same
 connection tolerance; moving, hiding, deleting or undoing the label removes the
@@ -167,19 +180,35 @@ dot without inventing wire geometry.
 A visible No Connect marker on a physical pin also shows this green dot,
 without creating an electrical connection. Explicit bonds must match the pin
 and its position; legacy unbonded markers use physical contact within the same
-connection tolerance. Off-pin or hidden markers show no dot.
+connection tolerance. Hidden markers show no dot.
+A visible No Connect marker sitting on a wire node or anywhere along a wire
+segment shows the same green dot, drawn at the contact point on the wire. That
+contact is purely geometric: it authors no wire bond and creates no electrical
+connection, and moving or deleting either the marker or the wire removes the
+dot. A marker touching both a pin and a wire still shows one dot. A marker that
+touches neither shows no dot.
+New Project and document replacement explicitly clear the unified derived-dot
+overlay after discarding shapes and components. No stale connection indicator
+remains until a later zoom-triggered render.
 No Connect placement uses the wire tool's 0.5 mm pin pickup radius. Moving
 the marker or its anchor uses the wire endpoint drag radius: 0.5 mm through
 1000% zoom, reducing linearly to 0.25 mm at 5000% zoom and above.
 Text uses shortcut T. With the Text tool active or standalone Text selected,
 the status tip reads “Tip: Attach text to a shape or wire by dragging over it”. Dragging a
 standalone Text over a wire shows the same yellow attachment target as placement;
-inline typing replaces `(c)`, `(r)`, `(tm)`, `(u)` and `(o)` (including
-uppercase forms) with ©, ®, ™, µ and Ω using the same shared mapping as PCB
+inline typing replaces `(c)`, `(r)`, `(tm)`, `(u)`, `(o)`, `(E)`, `(L)` and
+`(Y)` (including the opposite letter case) with ©, ®, ™, µ, Ω, €, £ and ¥ using
+the same shared mapping as PCB
 text. While inline editing, Properties shows the same Insert symbol picker as
 PCB text for standalone Text, component Reference and component Value fields;
+each entry labels its symbol with that typed shortcut and
 it inserts at the caret or replaces the current selection. These
 changes remain part of the schematic edit's single editor-history command.
+Committing standalone Text (including an attached generic label) after
+Backspace/Delete leaves it empty removes the Text object; undo restores an
+existing object's pre-edit content. A newly placed Text committed empty is
+discarded together with its Add command. Component-owned Reference, Value,
+wire-name and Net-label fields remain owned fields and are not deleted this way.
 The passive-value unit dialog is placement-only; editing an existing passive
 Value uses this shared inline text path like every other field.
 Before the edit is committed, immediate Ctrl/Cmd+Z after an automatic symbol
@@ -208,7 +237,10 @@ Print and PDF share `shared/ui/export.js`'s SVG clone. The clone preserves compu
 visibility, display and paint opacity, removes viewport-only component LOD placeholders
 and interaction overlays, and retains full component detail regardless of viewport
 culling. Monochrome conversion keeps transparent repaint bounds invisible rather than
-turning them into filled black rectangles; the live viewport state is restored after cloning.
+turning them into filled black rectangles. It also preserves paint and opacity inside SVG
+masks: mask colours are luminance data, and converting their white reveal areas to black
+would hide the masked fills used by printed rectangles, polygons and rounded shapes.
+The live viewport state is restored after cloning.
 After monochrome conversion the editor's `decorateExportSvg` hook replaces the
 one-pixel canvas-coloured crossing cues (which would otherwise turn black) with paper-white
 gaps `EXPORT_CROSSING_GAP` (0.25 mm) wide, so unjoined crossings read as broken on paper;
@@ -344,3 +376,9 @@ joins it to the component: from the symbol's outline (its local bounds grown by
 0.5 mm) to the text's outline, never from the component's centre. Other attached
 labels lead from their attachment point (`label-attachment.js` `updateLabelGuide`;
 `test-reference-selection-overlay`).
+Dragging any schematic Text shows the full-canvas crosshair with its vertical line
+at the text's horizontal centre and its horizontal line at the text baseline.
+This includes ordinary Text and component Reference and Value fields. Drop and
+every cancellation path hide it. The visible crosshair point, rather than a
+start- or end-anchored Text model position, is magnetically snapped on both grid
+axes; returning to the original two-axis pickup magnet remains a no-op.

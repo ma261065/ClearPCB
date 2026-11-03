@@ -46,7 +46,9 @@ jobs:
     # Real app in headless Chromium: pointer input, WebGL 3D view, Properties, autosave recovery.
     # Four parallel jobs each run every fourth scenario (tools/browser-test.mjs --shard).
     name: Browser tests (${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    # Playwright 1.55 does not yet provide Chromium dependencies for Ubuntu 26.04,
+    # which is currently what ubuntu-latest resolves to on GitHub-hosted runners.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false

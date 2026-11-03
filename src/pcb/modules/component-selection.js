@@ -435,7 +435,7 @@ export function hoverComponent(app, compId) {
     if (previous === compId) return;
     if (previous) {
         const oldPl = app.placements.get(previous);
-        oldPl?.elements?.[0]?.querySelector('.pcb-hover-highlight')?.remove();
+        removeComponentHighlights(oldPl, 'pcb-hover-highlight');
     }
     if (compId) hoveredComponents.set(app, compId);
     else hoveredComponents.delete(app);
@@ -456,6 +456,40 @@ export function hoverComponent(app, compId) {
     hl.setAttribute('stroke-dasharray', '0.5 0.35');
     hl.setAttribute('pointer-events', 'none');
     pl.elements[0].appendChild(hl);
+    appendComponentTextHighlight(pl, 'pcb-hover-highlight', 0.65);
+}
+
+/**
+ * Add a highlight copy of a component's rendered reference glyphs. The authored
+ * reference group remains untouched so reference-text selection keeps its own state.
+ * @param {Placement|null|undefined} placement
+ * @param {string} className
+ * @param {number} [opacity]
+ */
+export function appendComponentTextHighlight(placement, className, opacity = 1) {
+    if (!placement || placement.refVisible === false) return;
+    for (const element of placement.elements || []) {
+        const reference = element.querySelector?.('[data-fp-ref]');
+        if (!reference) continue;
+        const highlight = /** @type {Element} */ (reference.cloneNode(true));
+        highlight.removeAttribute('data-fp-ref');
+        highlight.classList.add(className);
+        highlight.setAttribute('stroke', '#3399ff');
+        highlight.setAttribute('opacity', String(opacity));
+        highlight.setAttribute('pointer-events', 'none');
+        element.appendChild(highlight);
+    }
+}
+
+/**
+ * Remove every footprint-body and reference-text element for one highlight kind.
+ * @param {Placement|null|undefined} placement
+ * @param {string} className
+ */
+export function removeComponentHighlights(placement, className) {
+    for (const element of placement?.elements || []) {
+        for (const highlight of element.querySelectorAll?.(`.${className}`) || []) highlight.remove();
+    }
 }
 
 /** @param {PcbEditor} app */

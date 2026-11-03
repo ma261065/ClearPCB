@@ -163,7 +163,7 @@ export class Viewport {
         // Callbacks
         /** @type {((view: {offset: Point, zoom: number, bounds: Bounds, scaleChanged: boolean, boundsChanged: boolean}) => void)|null} */
         this.onViewChanged = null;
-        /** @type {((point: Point, snapped: Point) => void)|null} */
+        /** @type {((point: Point, snapped: Point, event?: MouseEvent) => void)|null} */
         this.onMouseMove = null;
         /** @type {(() => void)|null} */
         this.onViewportCull = null;
@@ -688,7 +688,7 @@ export class Viewport {
         this.shiftHeld = e.shiftKey;
         this._updateRulerCursor();
         if (this.onMouseMove) {
-            this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld));
+            this.onMouseMove(this.currentMouseWorld, this.getSnappedPosition(this.currentMouseWorld), e);
         }
     }
 

@@ -33,6 +33,7 @@ const tools = ['select', 'track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOO
 function fixture() {
     document.body.replaceChildren();
     const events = [];
+    const hoveredElement = fakeElement('g');
     const buttons = Object.fromEntries(['Select', 'Track', 'Via', 'Pad', 'Hole', 'Text', 'Fill',
         'Shapes', 'ShapesArrow', 'ShapesWrap', 'ShapesMenu'].map(name => [name, element(`pcbTool${name}`)]));
     const shapeItems = Object.fromEntries([...PCB_SHAPE_TOOLS].map(shape => [shape, element(shape, { shape })]));
@@ -50,7 +51,7 @@ function fixture() {
         pcbDocument: new PcbDocument(),
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper',
         placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
-            elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),
+            elements: [hoveredElement] }]]),
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }],
             svg: { style: {}, appendChild() {} }, hideCrosshair() {}, addContent() {} },
         getLayerGroup: () => null,

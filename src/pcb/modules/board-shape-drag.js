@@ -5,9 +5,15 @@
  */
 import { beginDragSession, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { bulgeRatio } from '../../core/geometry.js';
+import { snapToGridLines } from '../../core/grid-snap.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
 import { pathSegmentAt } from '../../shapes/path-geometry.js';
 import { joinPaths, closePathIfCoincident, resizeRectanglePoints } from '../../shapes/path-operations.js';
+import {
+    RECTANGLE_CLASSIFICATION_TOLERANCE,
+    rectangleCornerFormsSquare,
+    squareRectangleCorner,
+} from '../../shapes/rectangle-frame.js';
 import { cloneShapeGeometry, applyShapeGeometry } from '../../core/pcb-board-shapes.js';
 import { isLayerVisible } from './layers.js';
 import { boardShapeLocked } from './object-locks.js';
@@ -188,6 +194,7 @@ export function applyBoardShapeVertexResize(shape, drag, snap) {
  * @param {BoardShape} shape
  * @param {Point} worldPos
  * @param {number} tolerance
+ * @returns {number|null}
  */
 export function polygonSegmentIndexAt(shape, worldPos, tolerance) {
     if (shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' || !Array.isArray(shape.points) || shape.points.length < 2) return null;
@@ -196,7 +203,8 @@ export function polygonSegmentIndexAt(shape, worldPos, tolerance) {
         id, start, end: shape.points[(id + 1) % shape.points.length],
         bulge: boardShapeSegmentBulge(shape, id), lineWidth: boardShapeSegmentWidth(shape, id),
     }))));
-    return pathSegmentAt(worldPos, segments, tolerance);
+    const segment = pathSegmentAt(worldPos, segments, tolerance);
+    return typeof segment === 'number' ? segment : null;
 }
 
 /**
@@ -215,6 +223,37 @@ function polygonVertexSnap(app, before, index, worldPos, closed, requireGrid = f
     if (index > 0 || closed) neighbours.push(points[(index + points.length - 1) % points.length]);
     if (index < points.length - 1 || closed) neighbours.push(points[(index + 1) % points.length]);
     return snapPathPoint(app, worldPos, neighbours, false, pathContinuationConstraints(points, closed, index, bulges));
+}
+
+/**
+ * Keep displayed-grid coordinates authoritative while still allowing the opposite
+ * corner to supply square/axis guidance on axes that are outside the grid magnet.
+ * Exact squares stay reachable because square targets outrank the grid magnet,
+ * matching how the schematic editor snaps and highlights square rectangles.
+ * @param {PcbEditor} app
+ * @param {Point} worldPos
+ * @param {Point[]} points
+ * @param {number} handle
+ */
+function rectangleVertexSnap(app, worldPos, points, handle) {
+    if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y };
+    const opposite = points[(handle + 2) % 4];
+    const axis = snapPathPoint(app, worldPos, [opposite]);
+    let candidate = axis;
+    if (app.viewport?.snapToGrid && app.viewport?.gridVisible !== false) {
+        const spacing = app.viewport?.getEffectiveGridSize?.() ?? app.viewport?.gridSize ?? 0;
+        const grid = snapToGridLines(worldPos, spacing, app.viewport?.scale);
+        candidate = { x: grid.snappedX ? grid.x : axis.x, y: grid.snappedY ? grid.y : axis.y };
+    }
+    // Grid placement stays authoritative unless an exact square sits closer to
+    // the cursor, so square rectangles remain reachable without fighting the grid.
+    const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
+    const distance = (/** @type {Point} */ point) => Math.hypot(point.x - worldPos.x, point.y - worldPos.y);
+    const square = rectangleCornerFormsSquare(points, handle, axis) && distance(axis) <= threshold
+        ? axis : squareRectangleCorner(points, handle, worldPos);
+    if (square && distance(square) <= threshold
+        && (candidate === axis || distance(square) < distance(candidate))) return square;
+    return candidate;
 }
 
 /** @param {PcbEditor} app */
@@ -329,7 +368,9 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     const midpointMatch = typeof anchorId === 'string' ? /^mid:(\d+)$/.exec(anchorId) : null;
     if (midpointMatch) profile.setNodeFocus(app, null);
     let mode = handle != null ? 'vertex' : 'move';
+    /** @type {number|null} */
     let segment = null;
+    /** @type {BoardShapeDrag} */
     const drag = {
         original: shape, shape, id: shape.id, before, beforeState, editProfile: profile,
         startWorld: { x: worldPos.x, y: worldPos.y }, sourceAnchorId: anchorId,
@@ -352,12 +393,23 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
             mode = 'vertex';
         }
     } else if (options.allowSegment && (shape.kind === 'line' || shape.kind === 'polygon' || shape.kind === 'rect') && handle == null) {
-        segment = Number.isInteger(options.segment)
+        segment = typeof options.segment === 'number' && Number.isInteger(options.segment)
             ? options.segment
             : polygonSegmentIndexAt(shape, worldPos, Math.max(0.3, 8 / Math.max(0.01, app.viewport?.scale || 1)));
         if (segment != null) {
             mode = 'segment';
             profile.setSegmentFocus(app, { shapeId: shape.id, segment });
+        }
+    }
+    if ((mode === 'vertex' || mode === 'segment') && (profile.kind === 'fill' || shape.layer === 'board-outline')) {
+        const candidate = profile.copy(shape);
+        normalizeBoardPolylineKind(candidate, { coordinateTolerance: RECTANGLE_CLASSIFICATION_TOLERANCE });
+        const candidateBefore = cloneShapeGeometry(candidate);
+        if (candidate.kind === 'rect' && (shape.kind !== 'rect'
+            || JSON.stringify(candidateBefore) !== JSON.stringify(before))) {
+            drag.editBefore = candidateBefore;
+            drag.editKind = 'rect';
+            drag.normalizedEditSource = true;
         }
     }
     const bulgeMatch = typeof handle === 'string' ? /^bulge:(\d+)$/.exec(handle) : null;
@@ -366,6 +418,9 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         profile.setSegmentFocus(app, { shapeId: shape.id, segment: bulgeMatch ? Number(bulgeMatch[1]) : 0 });
         profile.showProperties(app, shape);
     } else if (mode !== 'segment') profile.setSegmentFocus(app, null);
+    if (mode === 'segment' && segment != null && before.points?.[segment]) {
+        drag.segmentOrigin = { ...before.points[segment] };
+    }
     profile.renderSegmentSelection(app);
     setPcbInteraction(app, '_shapeDrag', Object.assign(drag, {
         mode,
@@ -379,7 +434,9 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     const vertex = midpointMatch ? /** @type {BoardPathShape} */ (shape).points[/** @type {number} */ (handle)] : handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
         : null;
-    app.viewport?.setCrosshair?.(vertex || (mode === 'move' ? /** @type {Point} */ (geomAnchor(before)) : worldPos));
+    app.viewport?.setCrosshair?.(vertex || (mode === 'move'
+        ? /** @type {Point} */ (geomAnchor(before))
+        : drag.segmentOrigin || worldPos));
     return true;
 }
 
@@ -406,6 +463,10 @@ export function handleBoardShapeDrag(app, worldPos) {
     d.lastModifiers = modifiers;
     const s = beginBoardShapePointerPreview(app, d);
     const before = d.editBefore || d.before, beforeKind = d.editKind || d.beforeState.kind;
+    if (d.normalizedEditSource) {
+        /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (s).kind = beforeKind;
+        applyShapeGeometry(s, before);
+    }
     if (profile.kind === 'shape' && (d.mode === 'vertex' || d.mode === 'segment')) schedulePictureCopperRefresh(app, s);
     if (d.mode === 'vertex') {
         const polylineDrag = (['line', 'polygon'].includes(beforeKind) && typeof d.handle === 'number')
@@ -419,7 +480,7 @@ export function handleBoardShapeDrag(app, worldPos) {
                 ? polygonVertexSnap(app, { points: [before.start, before.end] }, d.handle === 'start' ? 0 : 1,
                     worldPos, false, snapActive(app) ?? app.viewport?.snapToGrid !== false)
             : beforeKind === 'rect' && typeof d.handle === 'number'
-                ? snapPathPoint(app, worldPos, [before.points[(d.handle + 2) % 4]])
+                ? rectangleVertexSnap(app, worldPos, before.points, d.handle)
             : snapPathPoint(app, worldPos, before.points || []);
         if (!app.viewport?.shiftHeld && (editingSegmentBulge || s.kind === 'arc' && d.handle === 'bulge')) {
             const segment = editingSegmentBulge ? Number(d.handle.slice(6)) : null;
@@ -451,14 +512,15 @@ export function handleBoardShapeDrag(app, worldPos) {
         return;
     }
     if (d.mode === 'segment' && ['line', 'polygon', 'rect'].includes(s.kind) && d.segment != null) {
-        const points = d.before.points || [];
+        const points = before.points || [];
         const firstIndex = d.segment;
         const wasLine = d.beforeState.kind === 'line';
         const secondIndex = wasLine ? d.segment + 1 : (d.segment + 1) % points.length;
-        const { dx, dy } = snapPolylineSegmentDrag(app, s, { ...d.before, startWorld: d.startWorld }, d.segment, worldPos);
+        const { dx, dy } = snapPolylineSegmentDrag(app, s, { ...before, startWorld: d.startWorld }, d.segment, worldPos);
         s.points[firstIndex] = { x: points[firstIndex].x + dx, y: points[firstIndex].y + dy };
         s.points[secondIndex] = { x: points[secondIndex].x + dx, y: points[secondIndex].y + dy };
-        app.viewport?.setCrosshair?.({ x: d.startWorld.x + dx, y: d.startWorld.y + dy });
+        const origin = d.segmentOrigin || d.startWorld;
+        app.viewport?.setCrosshair?.({ x: origin.x + dx, y: origin.y + dy });
         normalizeBoardPolylineKind(s);
         profile.render(app, s, { liveDrag: true });
         profile.renderHandles(app, s);

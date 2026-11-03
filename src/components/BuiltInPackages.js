@@ -5,6 +5,7 @@
  */
 import { BuiltInComponents } from './BuiltInComponents.js';
 import { builtInPackageLayouts, getBuiltInModel3D } from './BuiltInModels3D.js';
+import { builtInSilkOutline } from './built-in-footprint-artwork.js';
 
 /**
  * @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition
@@ -105,16 +106,19 @@ function padLabels(name, packageId) {
 function variantFootprint(name, packageId, entry) {
     const labels = padLabels(name, packageId);
     const footprintShapes = entry.pads.map(([x, y, width, height, drill], i) =>
-        ['PAD', drill ? 'ELLIPSE' : 'RECT', x, y, width, height, labels[i],
+        ['PAD', drill && packageId === 'to92' ? 'OVAL' : drill ? 'ELLIPSE' : 'RECT',
+            x, y, width, height, labels[i],
             drill ? 'both' : 'top', 1, drill ? 0 : 1, drill].join('~'));
     const halfWidth = Math.max(entry.body[0] / 2, ...entry.pads.map(([x, , width]) => Math.abs(x) + width / 2));
     const halfHeight = Math.max(entry.body[1] / 2, ...entry.pads.map(([, y, , height]) => Math.abs(y) + height / 2));
+    const footprintBBox = { x: -halfWidth, y: -halfHeight, width: 2 * halfWidth, height: 2 * halfHeight };
+    footprintShapes.push(...builtInSilkOutline(footprintBBox));
     return {
         footprint: entry.footprint,
         footprintName: entry.footprint.split(':')[1],
         hasFootprint: true,
         footprintShapes,
-        footprintBBox: { x: -halfWidth, y: -halfHeight, width: 2 * halfWidth, height: 2 * halfHeight },
+        footprintBBox,
     };
 }
 

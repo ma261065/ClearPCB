@@ -11,6 +11,7 @@ import { getBoardOutlineResize } from '../../src/pcb/modules/board-outline-resiz
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { updateComponentDrag, handleComponentDrag } from '../../src/pcb/modules/component-selection.js';
 import { updateTextDrag } from '../../src/pcb/modules/pcb-text-selection.js';
+import { pcbTextBaselineCenter } from '../../src/pcb/modules/pcb-text.js';
 import { updateRefTextDrag, handleRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { snapPadPlacement } from '../../src/pcb/modules/pad-tool.js';
 import { updateCursorCrosshair } from '../../src/pcb/modules/cursor-state.js';
@@ -62,9 +63,18 @@ function check(point, expected, options = {}) {
     assert.deepEqual(crosshair, app.snapToGrid(point),
         'Text placement crosshair uses the same snap policy as the new text origin');
     assert.deepEqual(snapPadPlacement(app, point), expected, 'Standalone pad placement');
+    const originalTextCrosshair = pcbTextBaselineCenter(text);
+    const candidateTextCrosshair = pcbTextBaselineCenter({ ...text, x: point.x, y: point.y });
+    const expectedTextCrosshair = app.snapToGrid(candidateTextCrosshair);
+    const snappedOrigin = app.snapToGrid(point);
+    if (snappedOrigin.x === 0 && snappedOrigin.y === 0) {
+        expectedTextCrosshair.x = originalTextCrosshair.x;
+        expectedTextCrosshair.y = originalTextCrosshair.y;
+    }
     updateTextDrag(app, point);
     const displayed = app.texts.get(text.id);
-    assert.deepEqual({ x: displayed.x, y: displayed.y }, expected, 'Text drag');
+    assert.deepEqual(pcbTextBaselineCenter(displayed), expectedTextCrosshair,
+        'Text drag applies the shared magnet to its visible baseline-centre crosshair');
     finishTextPosePreview(app);
     updateComponentDrag(app, point);
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Component adapter drag');

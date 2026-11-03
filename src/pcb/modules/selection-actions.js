@@ -8,7 +8,7 @@ import { getPcbSelection, setPcbSelection } from './selection-registry.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
-import { updatePcbCulling } from './component-selection.js';
+import { appendComponentTextHighlight, removeComponentHighlights, updatePcbCulling } from './component-selection.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'text'|'fill'} PcbSelectionKind */
@@ -66,11 +66,7 @@ export function selectPcbComponent(app, compId) {
 
     if (previousCompId) {
         const oldPlacement = app.placements.get(previousCompId);
-        if (oldPlacement?.elements) {
-            for (const element of oldPlacement.elements) {
-                element.querySelector('.pcb-selection-highlight')?.remove();
-            }
-        }
+        removeComponentHighlights(oldPlacement, 'pcb-selection-highlight');
     }
 
     setPcbSelection(app, compId ? [{ kind: 'component', object: compId }] : []);
@@ -99,6 +95,7 @@ export function selectPcbComponent(app, compId) {
     highlight.setAttribute('stroke-width', '0.2');
     highlight.setAttribute('pointer-events', 'none');
     placement.elements[0].appendChild(highlight);
+    appendComponentTextHighlight(placement, 'pcb-selection-highlight');
     renderPcbSelectionAnchors(app);
 
     if (app.viewport) app.viewport.svg.style.cursor = placement.locked ? 'default' : 'grab';

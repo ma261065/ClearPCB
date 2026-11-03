@@ -32,6 +32,90 @@ export const scenarios = [{
         assert.equal(state.textCount, 1);
     },
 }, {
+    name: 'cancelling-wire-attached-text-clears-connection-guide',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const centre = await viewCentre(page);
+        await page.evaluate(async centre => {
+            const { Wire } = await import('/src/shapes/wire.js');
+            window.bootstrap.schematicApp.addShape(new Wire({ points: [
+                { x: centre.x - 20, y: centre.y }, { x: centre.x + 20, y: centre.y },
+            ] }));
+        }, centre);
+        await page.locator('#ribbonSchematic [data-tool="text"]').click();
+        const at = await screenPoint(page, 'schematic', centre.x, centre.y);
+        await page.mouse.move(at.x, at.y);
+        await page.waitForFunction(() => document.querySelector('.wire-junction-highlight'));
+        await clickWorld(page, 'schematic', centre.x, centre.y);
+        await page.keyboard.type('Cancelled annotation');
+        await page.evaluate(() => {
+            const app = window.bootstrap.schematicApp;
+            const text = app.shapes.find(shape => shape.type === 'text');
+            text.y -= 5;
+            text.attachment.offsetY -= 5;
+            text.invalidate();
+            app.renderShapes(true);
+        });
+        const editing = await page.evaluate(() => {
+            const app = window.bootstrap.schematicApp;
+            const text = app.shapes.find(shape => shape.type === 'text');
+            return {
+                text: text?.text,
+                attached: text?.parentComponent?.type,
+                selected: app.selection.getSelection().includes(text),
+                guide: document.querySelectorAll('.label-connection-guide').length,
+            };
+        });
+        assert.deepEqual(editing, {
+            text: 'Cancelled annotation',
+            attached: 'wire',
+            selected: true,
+            guide: 1,
+        });
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('.label-connection-guide').count(), 0,
+            'cancelling inline text editing clears its connector immediately');
+        const cancelled = await page.evaluate(() => {
+            const app = window.bootstrap.schematicApp;
+            return { count: app.shapes.filter(shape => shape.type === 'text').length,
+                undo: app.history.undoStack.length };
+        });
+        assert.deepEqual(cancelled, { count: 0, undo: 1 },
+            'cancelling a brand new placement discards the text object and its history entry');
+    },
+}, {
+    name: 'deleting-existing-wire-attached-text-clears-connection-guide',
+    async run(page, url) {
+        await openSchematic(page, url);
+        const centre = await viewCentre(page);
+        await page.evaluate(async centre => {
+            const { Wire } = await import('/src/shapes/wire.js');
+            const { Text } = await import('/src/shapes/text.js');
+            const { attachLabelToTarget } = await import('/src/schematic/modules/label-attachment.js');
+            const app = window.bootstrap.schematicApp;
+            const wire = new Wire({ points: [
+                { x: centre.x - 20, y: centre.y }, { x: centre.x + 20, y: centre.y },
+            ] });
+            const text = new Text({
+                x: centre.x,
+                y: centre.y - 5,
+                text: 'Existing annotation',
+                fontSize: 2,
+            });
+            app.addShape(wire);
+            attachLabelToTarget(text, wire, centre);
+            app.addShape(text);
+            app.selection.select(text);
+            app.renderShapes(true);
+        }, centre);
+        assert.equal(await page.locator('.label-connection-guide').count(), 1);
+        await page.keyboard.press('Delete');
+        assert.equal(await page.locator('.label-connection-guide').count(), 0,
+            'deleting selected attached text clears its connector immediately');
+        assert.equal(await page.evaluate(() => window.bootstrap.schematicApp.shapes
+            .filter(shape => shape.type === 'text').length), 0);
+    },
+}, {
     name: 'existing-text-snaps-and-detaches-from-wire',
     async run(page, url) {
         await openSchematic(page, url);

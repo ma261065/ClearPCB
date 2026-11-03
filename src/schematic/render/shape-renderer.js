@@ -397,19 +397,6 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
                 strokeLayer.appendChild(strokePath);
             }
             appendFillAndStrokes(el, fillPath, strokeLayer);
-
-            const jr = Math.max(0.4, 2.5 / scale);
-            for (const [nid, pos] of shape.nodes) {
-                if (shape.degree(nid) >= 3) {
-                    const c = document.createElementNS(NS, 'circle');
-                    c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                    c.setAttribute('r', String(jr));
-                    c.setAttribute('fill', strokeColor);
-                    c.setAttribute('stroke', 'none');
-                    c.classList.add('junction-dot');
-                    el.appendChild(c);
-                }
-            }
             return;
         }
     }
@@ -461,20 +448,6 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
     }
     appendFillAndStrokes(el, fillShape, strokeLayer);
 
-    if (shape.type === 'wire') {
-        const jr = Math.max(0.4, 2.5 / scale);
-        for (const [nid, pos] of shape.nodes) {
-            if (shape.degree(nid) >= 3) {
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                c.setAttribute('r', String(jr));
-                c.setAttribute('fill', strokeColor);
-                c.setAttribute('stroke', 'none');
-                c.classList.add('junction-dot');
-                el.appendChild(c);
-            }
-        }
-    }
 }
 
 /**
@@ -546,21 +519,6 @@ export function updateWireElement(shape, el, strokeColor, fillColor, scale, view
         strokeColor = 'var(--sch-selection, #3399ff)';
     }
     updatePolylineGraphElement(shape, el, strokeColor, fillColor, scale, view);
-    if (shape.pinConnections && shape.pinConnections.size > 0) {
-        const r = Math.max(0.4, 2.5 / scale);
-        for (const nid of shape.pinConnections.keys()) {
-            const pos = shape.nodes.get(nid);
-            if (!pos) continue;
-            const c = document.createElementNS(NS, 'circle');
-            c.setAttribute('cx', pos.x);
-            c.setAttribute('cy', pos.y);
-            c.setAttribute('r', String(r));
-            c.setAttribute('fill', strokeColor);
-            c.setAttribute('stroke', 'none');
-            c.classList.add('pin-connection-dot');
-            el.appendChild(c);
-        }
-    }
     if (shape.labelText) shape.labelText.invalidate();
 }
 

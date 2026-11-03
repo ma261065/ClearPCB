@@ -110,6 +110,18 @@ check('bottom copper removal leaves top copper faces intact',
     sideCutMesh.faces.length === 1
     && sideCutMesh.verts.every((vertex) => Math.abs(vertex.y - topY) < 1e-9));
 
+const platedBarrelMesh = {
+    verts: [
+        { x: 1, y: bottomY, z: 1 },
+        { x: 4, y: topY, z: 1 },
+        { x: 1, y: topY, z: 4 },
+    ],
+    faces: [{ idx: [0, 1, 2] }],
+};
+const barrelCutMesh = punchHolesInFlatMesh(platedBarrelMesh, [bottomRemovalHole]);
+check('surface copper removal leaves plated barrel walls intact',
+    barrelCutMesh.faces.length === 1 && barrelCutMesh.verts.length === 3);
+
 const throughCutMesh = punchHolesInFlatMesh(twoSideCopperMesh, [
     { ring: bottomRemovalHole.ring },
 ]);

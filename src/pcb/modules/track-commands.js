@@ -533,6 +533,17 @@ export function renderPlacementPose(app, compId) {
                 if (rr) parts.push(`rotate(${rr}, ${c}, ${cy})`);
                 if (parts.length) t.setAttribute('transform', parts.join(' '));
                 else t.removeAttribute('transform');
+            } else if (t.classList && t.classList.contains('pcb-pad-number')) {
+                const c = parseFloat(t.getAttribute('data-mx-center') || '0') || 0;
+                const cy = parseFloat(t.getAttribute('data-mx-cy') || '0') || 0;
+                const parts = [];
+                // placementTransform applies the footprint rotation before its
+                // mirror. Applying the inverse rotation after the counter-mirror
+                // keeps the number upright for every pose combination.
+                if (mirrored) parts.push(`translate(${2 * c}, 0) scale(-1, 1)`);
+                if (pl.rotation) parts.push(`rotate(${-pl.rotation}, ${c}, ${cy})`);
+                if (parts.length) t.setAttribute('transform', parts.join(' '));
+                else t.removeAttribute('transform');
             } else if (flip) {
                 const c = parseFloat(t.getAttribute('data-mx-center') || '0') || 0;
                 t.setAttribute('transform', `translate(${2 * c}, 0) scale(-1, 1)`);

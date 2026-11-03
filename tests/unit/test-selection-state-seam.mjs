@@ -87,6 +87,25 @@ function managerFor(items, options = {}) {
 }
 
 {
+    const refreshed = [];
+    const firstWire = item('first-wire', { type: 'wire' });
+    const secondWire = item('second-wire', { type: 'wire' });
+    const firstLabel = item('first-label', { type: 'text', parentComponent: firstWire });
+    const secondLabel = item('second-label', { type: 'text', parentComponent: secondWire });
+    const { selection } = managerFor(
+        [firstWire, secondWire, firstLabel, secondLabel],
+        { invalidateEntity: entity => refreshed.push(entity.id) },
+    );
+    selection.setHovered(firstLabel);
+    selection.setHovered(secondLabel);
+    assert.deepEqual(refreshed, [
+        'first-label', 'first-wire',
+        'first-label', 'first-wire',
+        'second-label', 'second-wire',
+    ], 'Rapid label hover transitions refresh both the previous and next attached wires');
+}
+
+{
     // Hooks that redraw immediately must see the final state, not the one being left.
     const seen = [];
     const first = item('first');

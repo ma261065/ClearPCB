@@ -32,6 +32,14 @@ import { dismissTrackContextMenu } from './track-select.js';
 export function handlePcbKeyDown(app, e) {
     if (!isEditorActive(app)) return false;
 
+    // File shortcuts are editor-global and must run before focus guards.
+    // Otherwise a focused ribbon/property control lets Ctrl+S fall through
+    // to the browser's native "Save page as…" dialog.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        void savePcbProject(app, e.altKey);
+        return true;
+    }
+
     // Don't hijack keys when the user is typing in an input/textarea
     // (e.g. the Properties panel text fields). Otherwise Backspace
     // would delete the selected text instead of a character.
@@ -58,17 +66,6 @@ export function handlePcbKeyDown(app, e) {
             app.fitToContent();
             return true;
         }
-    }
-
-    // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns
-    // the keyboard, and the schematic keyboard handler bails out when PCB is
-    // active — so Ctrl+S must be handled here. Otherwise it isn't consumed by
-    // the app and falls through to the browser's native "Save page as…"
-    // dialog instead of saving the project (matching the PCB ribbon Save
-    // button, which calls project.save()/saveAs()).
-    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
-        void savePcbProject(app, e.altKey);
-        return true;
     }
 
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {

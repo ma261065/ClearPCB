@@ -16,7 +16,7 @@ import { buildTrackLayerRuns } from './track-render.js';
 import { regionFillContours } from './region-geometry.js';
 import { resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextPolylines } from './pcb-text.js';
-import { FILLED_CIRCLE_SEGMENTS, COLOR_RAW_BOARD, COLOR_SOLDERMASK, COLOR_PAD, COLOR_COPPER_TOP, COLOR_COPPER_BOTTOM, COLOR_VIA, COLOR_SILK, Y_TOP, Y_BOT, COPPER_EPS, PAD_EPS, SILK_EPS, PAD_BARREL_SEGMENTS } from './board3d-params.js';
+import { FILLED_CIRCLE_SEGMENTS, COLOR_RAW_BOARD, COLOR_SOLDERMASK, COLOR_PAD, COLOR_COPPER_TOP, COLOR_COPPER_BOTTOM, COLOR_VIA, COLOR_SILK, Y_TOP, Y_BOT, COPPER_EPS, PAD_EPS, SILK_EPS } from './board3d-params.js';
 import { triangulateWithHoles, circleRing, unionBoreRings, polygonWallMesh, polygonWallSegmentsMesh, pointToSegmentDistance } from './board3d-board.js';
 import { flatPadMesh, throughHolePadMesh, discMesh, ribbonMesh, flatRingMesh, tubeMesh } from './board3d-parts.js';
 import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
@@ -572,19 +572,6 @@ function standalonePadBarrelRadius(pad) {
     return Math.max(0.05, pad.drill / 2 - 0.02);
 }
 
-/** @param {StandalonePad} pad */
-function standalonePadBarrelOutline(pad) {
-    if (!(pad.drill > 0)) return [];
-    const radius = standalonePadBarrelRadius(pad);
-    return Array.from({ length: PAD_BARREL_SEGMENTS }, (_, index) => {
-        const angle = index / PAD_BARREL_SEGMENTS * Math.PI * 2;
-        return {
-            x: pad.x + radius * Math.cos(angle),
-            z: pad.y + radius * Math.sin(angle),
-        };
-    });
-}
-
 /** @param {StandalonePad} pad @returns {Mesh} */
 export function standalonePadMesh(pad) {
     const flash = standalonePadFlash(pad);
@@ -608,90 +595,6 @@ export function standalonePadMesh(pad) {
             outerWall: false,
         },
     );
-}
-
-/** @param {StandalonePad} pad @param {XzPoint[]} boardOutline @returns {Mesh} */
-export function standalonePadEdgeMesh(pad, boardOutline) {
-    const mesh = emptyMesh();
-    if (!Array.isArray(boardOutline) || boardOutline.length < 3) return mesh;
-    const flash = standalonePadFlash(pad);
-    const padOutline = padFlashOutline(flash).map(point => ({ x: point.x, z: point.y }));
-    if (padOutline.length < 3) return mesh;
-    const padPolygon = padOutline.map(point => ({ x: point.x, y: point.z }));
-    const barrelOutline = standalonePadBarrelOutline(pad);
-    const barrelPolygon = barrelOutline.map(point => ({ x: point.x, y: point.z }));
-    /** @param {number} ax @param {number} az @param {number} bx @param {number} bz */
-    const cross = (ax, az, bx, bz) => ax * bz - az * bx;
-    /** @param {number[]} values @param {XzPoint} a @param {XzPoint} b @param {XzPoint} c @param {XzPoint} d */
-    const addIntersection = (values, a, b, c, d) => {
-        const rx = b.x - a.x;
-        const rz = b.z - a.z;
-        const sx = d.x - c.x;
-        const sz = d.z - c.z;
-        const denominator = cross(rx, rz, sx, sz);
-        if (Math.abs(denominator) <= 1e-12) return;
-        const qx = c.x - a.x;
-        const qz = c.z - a.z;
-        const t = cross(qx, qz, sx, sz) / denominator;
-        const u = cross(qx, qz, rx, rz) / denominator;
-        if (t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) values.push(t);
-    };
-    /** @param {XzPoint} a @param {XzPoint} b @param {number} t */
-    const pointAt = (a, b, t) => ({
-        x: a.x + (b.x - a.x) * t,
-        z: a.z + (b.z - a.z) * t,
-    });
-    for (let edgeIndex = 0; edgeIndex < boardOutline.length; edgeIndex++) {
-        const a = boardOutline[edgeIndex];
-        const b = boardOutline[(edgeIndex + 1) % boardOutline.length];
-        const values = [0, 1];
-        for (let padIndex = 0; padIndex < padOutline.length; padIndex++) {
-            addIntersection(values, a, b, padOutline[padIndex],
-                padOutline[(padIndex + 1) % padOutline.length]);
-        }
-        for (let barrelIndex = 0; barrelIndex < barrelOutline.length; barrelIndex++) {
-            addIntersection(values, a, b, barrelOutline[barrelIndex],
-                barrelOutline[(barrelIndex + 1) % barrelOutline.length]);
-        }
-        values.sort((first, second) => first - second);
-        const unique = values.filter((value, index) => index === 0 || value - values[index - 1] > 1e-8);
-        for (let index = 0; index + 1 < unique.length; index++) {
-            const start = pointAt(a, b, unique[index]);
-            const end = pointAt(a, b, unique[index + 1]);
-            if (Math.hypot(end.x - start.x, end.z - start.z) <= 1e-8) continue;
-            const midpoint = pointAt(start, end, 0.5);
-            if (!pointInPolygon({ x: midpoint.x, y: midpoint.z }, padPolygon)) continue;
-            if (barrelPolygon.length >= 3
-                && pointInPolygon({ x: midpoint.x, y: midpoint.z }, barrelPolygon)) continue;
-            const base = mesh.verts.length;
-            mesh.verts.push(
-                { x: start.x, y: Y_TOP + PAD_EPS, z: start.z },
-                { x: end.x, y: Y_TOP + PAD_EPS, z: end.z },
-                { x: end.x, y: Y_BOT - PAD_EPS, z: end.z },
-                { x: start.x, y: Y_BOT - PAD_EPS, z: start.z },
-            );
-            mesh.faces.push(
-                { idx: [base, base + 1, base + 2], color: COLOR_PAD },
-                { idx: [base, base + 2, base + 3], color: COLOR_PAD },
-            );
-        }
-    }
-    return mesh;
-}
-
-/** @param {DrillHole[]} drilledHoles */
-export function boardCutoutEdgeRings(drilledHoles) {
-    const rings = (drilledHoles || [])
-        .filter((/** @type {DrillHole} */ hole) => hole?.boardShape)
-        .flatMap((/** @type {DrillHole} */ hole) => {
-            if (Array.isArray(hole.ring) && hole.ring.length >= 3) {
-                return [hole.ring.map((/** @type {XzPoint} */ point) => ({ x: point.x, y: point.z }))];
-            }
-            return hole.r > 0 ? [circleRing(hole.x, hole.z, hole.r, 48)] : [];
-        });
-    const unioned = unionBoreRings(rings);
-    return (unioned || rings)
-        .map((/** @type {Point[]} */ ring) => ring.map(point => ({ x: point.x, z: point.y })));
 }
 
 /**

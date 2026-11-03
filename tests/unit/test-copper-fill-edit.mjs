@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { CopperFill } from '../../src/shapes/copper-fill.js';
+import { CopperFill, normalizeCopperFillKind } from '../../src/shapes/copper-fill.js';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shape-drag.js';
+import { pointsFormRectangle, rectangleFramePoints } from '../../src/shapes/rectangle-frame.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { pcbEditorStubs } from './helpers/pcb-editor-stubs.mjs';
 
@@ -68,6 +69,25 @@ Object.defineProperty(app, 'boardShapes', {
     get() { return this.pcbDocument.boardShapes; },
     set(value) { this.pcbDocument.boardShapes = value; },
 });
+
+const rotatedPoints = rectangleFramePoints({ x: 12, y: -10, width: 16, height: 8, rotation: 37 });
+const rotatedFill = new CopperFill({ outline: rotatedPoints });
+assert.equal(rotatedFill.kind, 'rect', 'A rotated four-sided fill classifies as a rectangle');
+app.boardShapes.push(rotatedFill);
+const rotatedTarget = { x: rotatedPoints[0].x - 1.5, y: rotatedPoints[0].y + 0.75 };
+assert.equal(beginFillEdit(app, rotatedFill, rotatedPoints[0], 0), true);
+updateFillEdit(app, rotatedTarget);
+assert.equal(getBoardShapeDrag(app).shape.kind, 'rect');
+assert.equal(pointsFormRectangle(getBoardShapeDrag(app).shape.outline), true,
+    'A rotated fill node drag preserves rectangle topology');
+assert.deepEqual(getBoardShapeDrag(app).shape.outline[0], rotatedTarget);
+assert.deepEqual(getBoardShapeDrag(app).shape.outline[2], rotatedPoints[2]);
+endFillEdit(app, false);
+const skewedFill = new CopperFill({ outline: rotatedPoints, kind: 'rect' });
+skewedFill.outline[1] = { x: skewedFill.outline[1].x + 1, y: skewedFill.outline[1].y };
+assert.equal(normalizeCopperFillKind(skewedFill), true);
+assert.equal(skewedFill.kind, 'polygon', 'A skewed four-sided fill classifies as a polygon');
+
 const fill = new CopperFill({ outline, cornerRadius: 1, nodeCornerRadii: { 2: 2 }, segmentBulges: { 2: 0.25 } });
 app.boardShapes.push(fill);
 const before = fill.captureState();

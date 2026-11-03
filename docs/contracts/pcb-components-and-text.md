@@ -42,6 +42,19 @@ copper layers are hidden, regardless of footprint artwork order. This group
 participates in the same pose, culling and disposal lifecycle as the artwork,
 but side changes never move it onto a fabrication layer.
 
+Pad/pin numbers use the footprint renderer's existing two-dimensional
+size-to-fit calculation, constrained by both the pad dimensions and the number
+of label characters. Their local text is counter-rotated during placement-pose
+updates, and counter-mirrored when required by the board side or footprint
+mirror, so every number remains upright without changing its fitted size.
+
+Every built-in default and package variant supplies explicit top-silkscreen
+footprint artwork in addition to copper pads. Built-in package geometry must
+also keep differently numbered pad copper disjoint. The compact TO-92 layout
+uses oval pads 1.05 mm across the pin row and 2.00 mm long perpendicular to it.
+On its 1.27 mm pitch, this provides 0.22 mm copper-edge clearance while the
+extra length provides more hand-soldering copper around its 0.8 mm drills.
+
 ## Free Text
 
 Free-standing text creation, defaults/layer rules and full-precision snapshots
@@ -123,17 +136,24 @@ edit or deletion command;
 there is no temporary authored-content rollback. Enter commits, and so does
 leaving the edit by clicking elsewhere on the board, choosing another tool or
 ribbon tab, or switching to the schematic (`cancelPcbDrawingMode`); only Escape
-cancels, and a plain blur keeps editing. Typing `(c)`, `(r)`, `(tm)`, `(u)` or
-`(o)` inserts the shared ©, ®, ™, µ or Ω symbol mapping through the browser's
+cancels, and a plain blur keeps editing. Typing `(c)`, `(r)`, `(tm)`, `(u)`,
+`(o)`, `(E)`, `(L)` or `(Y)` inserts the shared ©, ®, ™, µ, Ω, €, £ or ¥ symbol
+mapping through the browser's
 `insertText` command, so Ctrl+Z straight after
 restores the literal text; Ctrl+Z while typing never steps the editor history.
 The shared Insert symbol dropdown is present while editing free PCB Text or a
 component Reference designator and inserts at the active native-input caret.
+Each dropdown entry labels its symbol with that typed shortcut, and both token
+cases are accepted. `shared/ui/text-symbol-autoreplace.js` owns the single
+symbol table that generates both the tokens and those labels; every symbol it
+lists also needs a stroke glyph in `shared/pcb/stroke-font-extras.js` so
+silkscreen and Gerber output render it.
 PCB has no separately rendered Value text object; component Value remains
 schematic-owned metadata used by BOM and placement data.
 Cancel restores presentation
 from the current model, preserving independently committed property changes.
-Blank-content deletion and cancelled new-placement cleanup use
+Committing after Backspace/Delete leaves free PCB Text blank removes its text
+object. Blank-content deletion and cancelled new-placement cleanup use
 RemoveTextCommand rather than deleting the canonical text map in the editor.
 First-click placement still records Add. If Add is the latest command, cleanup
 removes the text without adding another history entry, prunes Add and updates

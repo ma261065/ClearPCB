@@ -11,6 +11,10 @@ const originalRequestIdleCallback = globalThis.requestIdleCallback;
 const originalCancelIdleCallback = globalThis.cancelIdleCallback;
 const originalBootstrap = Object.getOwnPropertyDescriptor(globalThis, 'bootstrap');
 const document = installFakeDom();
+const { Component } = await import('../../src/components/Component.js');
+const { BuiltInComponents } = await import('../../src/components/BuiltInComponents.js');
+const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 let globalLookups = 0;
 Object.defineProperty(globalThis, 'bootstrap', {
     configurable: true, get() { globalLookups++; return null; },
@@ -132,6 +136,25 @@ try {
     assert.equal(pcbSerializations, 2);
     assert.equal(owner.fileManager.isDirty, false);
     owner.fileManager.stopAutoSave();
+
+    const placementOwner = new ProjectDocument();
+    const placementView = Object.assign(Object.create(SchematicApp.prototype), {
+        getViewSettings: () => undefined,
+    });
+    placementOwner.registerView('schematic', placementView);
+    placementOwner.fileManager.newDocument(placementOwner.serialize());
+    const npn = new Component(BuiltInComponents.find(definition => definition.name === 'NPN'),
+        { reference: 'Q1' });
+    placementOwner.schematicDocument.components.push(npn);
+    placementOwner.fileManager.setDirty(true);
+    setSchematicInteraction(placementView, 'placingComponent', npn.definition);
+    placementOwner.startAutoSave();
+    tick(placementOwner.fileManager);
+    const placementRecovery = JSON.parse(stored.get('clearpcb_autosave_untitled.cpcb')).data;
+    assert.equal(placementRecovery.schematic.components.length, 1,
+        'Repeat placement mode autosaves the already committed built-in component');
+    assert.equal(placementRecovery.schematic.components[0].dn, 'NPN');
+    placementOwner.fileManager.stopAutoSave();
 
     for (const failure of ['document', 'index', 'serialization']) {
         const retry = new FileManager();

@@ -23,7 +23,8 @@ import { beginDragSession, releaseDragSession } from './drag-session.js';
 import { bulgeRatio, distanceToSegment } from '../../core/geometry.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { pathHandleDescriptors } from '../../shapes/path-geometry.js';
-import { remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
+import { remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
+import { normalizeRectanglePoints, pointsFormRectangle } from '../../shapes/rectangle-frame.js';
 import { validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { loadBoardShapeData, cloneShapeGeometry, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
@@ -404,8 +405,9 @@ export function shapeKindLabel(kind) {
 /**
  * Keep PCB kinds in lockstep with the schematic Polyline topology.
  * @param {BoardShape} shape
+ * @param {{coordinateTolerance?: number}} [options]
  */
-export function normalizeBoardPolylineKind(shape) {
+export function normalizeBoardPolylineKind(shape, { coordinateTolerance = 0 } = {}) {
     if (!shape || shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect') return false;
     const points = shape.points || [];
     const before = shape.kind;
@@ -415,8 +417,14 @@ export function normalizeBoardPolylineKind(shape) {
         /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'line';
         shape.filled = false;
         /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).cornerRadius = undefined;
-    } else if (pointsFormAxisAlignedRect(points) && !Object.values(shape.segmentBulges || {}).some(value => Math.abs(value) >= BULGE_EPS)) {
+    } else if (pointsFormRectangle(points, { coordinateTolerance })
+        && !Object.values(shape.segmentBulges || {}).some(value => Math.abs(value) >= BULGE_EPS)) {
         /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'rect';
+        if (coordinateTolerance > 0 && !pointsFormRectangle(points)) {
+            shape.points = normalizeRectanglePoints(points, {
+                coordinateTolerance,
+            });
+        }
         shape.cornerRadius = Math.max(0, Number(shape.cornerRadius) || 0);
     } else {
         /** @type {import('../../core/pcb-board-shapes.js').BoardShapeBase} */ (shape).kind = 'polygon';

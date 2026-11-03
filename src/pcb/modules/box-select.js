@@ -70,7 +70,7 @@ import {
 import { isEditorActive } from './pcb-editor-api.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { setSelectionInteraction } from './selection-interaction.js';
-import { netsForComponent } from './component-selection.js';
+import { appendComponentTextHighlight, netsForComponent } from './component-selection.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 /** @typedef {{x: number, y: number}} Point */
@@ -486,7 +486,11 @@ function _clearHighlights(app) {
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements || []) {
         if (pl.elements) {
-            for (const el of pl.elements) el.querySelector(`.${COMP_HALO_CLASS}`)?.remove();
+            for (const el of pl.elements) {
+                el.querySelectorAll(`.${COMP_HALO_CLASS}`).forEach(
+                    (/** @type {Element} */ highlight) => highlight.remove(),
+                );
+            }
         }
     }
 }
@@ -512,6 +516,7 @@ function _drawCompHighlight(app, compId) {
     rect.setAttribute('stroke-width', '0.2');
     rect.setAttribute('pointer-events', 'none');
     pl.elements[0].appendChild(rect);
+    appendComponentTextHighlight(pl, COMP_HALO_CLASS);
 }
 
 /**

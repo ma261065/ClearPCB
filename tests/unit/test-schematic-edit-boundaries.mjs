@@ -141,13 +141,21 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
     assert.deepEqual(app.history.redoStack, redo, 'Failed cleanup cannot advance redo');
 }
 
-for (const flag of ['drag', 'pendingAnchorDrag', 'isDrawing', 'textEdit', 'pastingClipboard', 'placingComponent']) {
+for (const flag of ['drag', 'pendingAnchorDrag', 'isDrawing', 'textEdit', 'pastingClipboard']) {
     const { app, project } = fixture();
     setSchematicInteraction(app, flag, {});
     assert.equal(project.canSerialize(), false, `${flag}: pending schematic edits block snapshots`);
     assert.throws(() => project.serialize(), /Finish the current edit before saving/);
     setSchematicInteraction(app, flag, null);
     assert.doesNotThrow(() => project.serialize(), `${flag}: clearing the edit permits snapshots`);
+}
+
+{
+    const { app, project } = fixture();
+    setSchematicInteraction(app, 'placingComponent', {});
+    assert.equal(app.isSectionEditing(), true, 'Repeat placement remains an active lifecycle edit');
+    assert.equal(project.canSerialize(), true, 'Detached component preview does not block snapshots');
+    assert.doesNotThrow(() => project.serialize());
 }
 
 for (const action of ['undo', 'redo']) {

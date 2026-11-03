@@ -12,7 +12,7 @@ import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
 import { editTargets } from '../../core/edit-guard.js';
 import { getSchematicDrag } from './drag.js';
-import { getSchematicTextEdit } from './text-edit.js';
+import { getSchematicInteraction } from './schematic-interactions.js';
 import { isTextItem as isTextShape, isWireItem as isWireShape, isComponentItem as isComponentShape, isCircleItem as isCircleShape, isArcItem as isArcShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
@@ -128,6 +128,12 @@ export function getLabelGuideElement(app) {
 function setLabelGuideElement(app, guide) {
     if (guide) labelGuides.set(app, guide);
     else labelGuides.delete(app);
+}
+
+/** @param {SchematicEditor} app */
+function clearLabelGuide(app) {
+    getLabelGuideElement(app)?.remove();
+    setLabelGuideElement(app, null);
 }
 
 /**
@@ -368,14 +374,18 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
 /** @param {SchematicEditor} app */
 export function updateLabelGuide(app) {
     const selection = app.selection?.getSelection?.() || [];
-    const label = getSchematicTextEdit(app)?.shape || (selection.length === 1 ? selection[0] : null);
+    const label = getSchematicInteraction(app, 'textEdit')?.shape
+        || (selection.length === 1 ? selection[0] : null);
     const textLabel = isTextShape(label) ? label : null;
     const target = textLabel && textLabel.visible !== false ? textLabel.parentComponent : null;
     let anchor = null;
     let endpoint = null;
     if (target && textLabel) {
         const textBox = getTextEditBoxWorldCorners(textLabel);
-        if (!textBox) return;
+        if (!textBox) {
+            clearLabelGuide(app);
+            return;
+        }
         // A component's field texts (reference and value) lead from its box outline.
         if (isComponentFieldTextTarget(target, textLabel)) {
             const local = target._getLocalBounds();
@@ -402,9 +412,7 @@ export function updateLabelGuide(app) {
         }
     }
     if (!anchor) {
-        const guide = getLabelGuideElement(app);
-        if (guide) guide.remove();
-        setLabelGuideElement(app, null);
+        clearLabelGuide(app);
         return;
     }
     let guide = getLabelGuideElement(app);

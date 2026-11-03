@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { openPcb, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
-// Track <-> board-shape conversions driven only through the real Properties panel,
-// the way a user does them, then checked through undo/redo and save + reopen.
+// Board-shape to Track conversion and Track copper-only Properties behavior,
+// checked through undo/redo and save + reopen.
 
 /** Wait until the PCB view stops moving (opening zooms to fit with an animation). */
 const settle = page => viewportSettled(page, 'pcb');
@@ -83,7 +83,7 @@ async function saveAndReopen(page) {
 
 export const scenarios = [
     {
-        name: 'track-shape-conversions-through-the-properties-panel',
+        name: 'track-properties-stay-copper-only-after-shape-conversion',
         async run(page, url) {
             await openPcb(page, url);
             await drawShape(page, 'rect', 'hole', [[20, -20], [30, -14]], { plated: true });
@@ -98,25 +98,18 @@ export const scenarios = [
             // A second click on the selected track's midpoint picks up a new node; a
             // panel edit made meanwhile must still reach the track.
             await clickAt(page, 25, -20);
-            await choose(page, '#pcbPropTrackLayer', 'hole');
-            assert.equal(await panel(page), 'shape');
-            assert.deepEqual((await model(page)).shapes.map(shape => [shape.kind, shape.layer, shape.plated, shape.points]),
-                [['rect', 'hole', true, 4]], 'the track returns as the same plated hole rectangle, without the picked-up node');
-
-            await clickAt(page, 25, -20);
-            await choose(page, '#pcbPropShapeLayer', 'top-copper');
-            await choose(page, '#pcbPropTrackLayer', 'top-silk');
-            assert.equal(await panel(page), 'shape');
-            await clickAt(page, 80, 30);
-            await clickAt(page, 20, -17);
-            assert.equal(await panel(page), 'shape', 'reselecting the silk shape shows the shape panel');
-            assert.equal((await model(page)).shapes[0].layer, 'top-silk', 'it stayed on silk');
-
-            await choose(page, '#pcbPropShapeLayer', 'top-copper');
-            await choose(page, '#pcbPropTrackCopperMode', 'remove-copper');
-            assert.deepEqual((await model(page)).shapes.map(shape => [shape.layer, shape.copperMode]), [['top-copper', 'remove-copper']]);
-            await choose(page, '#pcbPropShapeCopperMode', 'add');
-            assert.equal(await panel(page), 'track', 'back to Add Copper makes a track again');
+            assert.deepEqual(await page.locator('#pcbPropTrackLayer option').evaluateAll(options =>
+                options.map(option => ({ value: option.value, disabled: option.disabled }))), [
+                { value: 'top-copper', disabled: false },
+                { value: 'bottom-copper', disabled: false },
+            ], 'Track Layer offers only Top and Bottom Copper');
+            assert.equal(await page.locator('#pcbPropTrackCopperMode').count(), 0,
+                'Track Properties does not offer Copper Mode');
+            await choose(page, '#pcbPropTrackLayer', 'bottom-copper');
+            assert.equal(await panel(page), 'track');
+            assert.deepEqual((await model(page)).tracks.map(track => [track.layer, track.nodes]),
+                [['bottom-copper', 4]], 'the copper-layer edit drops the picked-up midpoint and keeps a Track');
+            await choose(page, '#pcbPropTrackLayer', 'top-copper');
 
             await page.locator('#pcbPropTrackFill').click();
             await page.waitForTimeout(100);
@@ -136,7 +129,7 @@ export const scenarios = [
         },
     },
     {
-        name: 'converted-tracks-keep-unique-ids-across-reopen',
+        name: 'shape-converted-tracks-keep-unique-ids-across-reopen',
         async run(page, url) {
             await openPcb(page, url);
             await drawShape(page, 'line', 'top-silk', [[20, -20], [40, -20]]);
@@ -147,15 +140,14 @@ export const scenarios = [
             // After reopening, new shapes are numbered from the board shapes alone.
             await saveAndReopen(page);
             await drawShape(page, 'line', 'top-silk', [[20, -10], [40, -10]]);
-            await clickAt(page, 30, -20);
-            assert.equal(await panel(page), 'track');
-            await choose(page, '#pcbPropTrackLayer', 'top-silk');
             const converted = await model(page);
-            assert.equal(converted.shapes.length, 2);
+            assert.equal(converted.tracks.length, 1);
+            assert.equal(converted.shapes.length, 1);
             assert.ok(converted.uniqueIds, `shape ids stay unique (${converted.shapes.map(shape => shape.id).join(', ')})`);
 
             await saveAndReopen(page);
-            assert.deepEqual((await model(page)).shapes.map(shape => shape.layer), ['top-silk', 'top-silk']);
+            assert.deepEqual((await model(page)).shapes.map(shape => shape.layer), ['top-silk']);
+            assert.equal((await model(page)).tracks.length, 1);
         },
     },
 ];

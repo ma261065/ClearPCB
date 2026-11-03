@@ -1,27 +1,36 @@
-export const TEXT_SYMBOL_AUTOREPLACE = Object.freeze([
-    ['(c)', '\u00A9'],
-    ['(C)', '\u00A9'],
-    ['(r)', '\u00AE'],
-    ['(R)', '\u00AE'],
-    ['(tm)', '\u2122'],
-    ['(TM)', '\u2122'],
-    ['(u)', '\u00B5'],
-    ['(U)', '\u00B5'],
-    ['(o)', '\u03A9'],
-    ['(O)', '\u03A9'],
+/**
+ * Single source of truth for insertable text symbols. `shortcut` drives both
+ * the typed `(x)` autoreplacement and the label shown in the Insert dropdown,
+ * so the advertised shortcut always matches the one that actually fires.
+ * Every `char` also needs a PCB stroke glyph in `shared/pcb/stroke-font-extras.js`.
+ * @type {ReadonlyArray<{char:string, name:string, shortcut?:string}>}
+ */
+export const TEXT_SYMBOLS = Object.freeze([
+    { char: '\u00A9', name: 'Copyright', shortcut: 'c' },
+    { char: '\u00AE', name: 'Registered', shortcut: 'r' },
+    { char: '\u2122', name: 'Trademark', shortcut: 'tm' },
+    { char: '\u00B0', name: 'Degree' },
+    { char: '\u00B5', name: 'Micro', shortcut: 'u' },
+    { char: '\u03A9', name: 'Ohm', shortcut: 'o' },
+    { char: '\u20AC', name: 'Euro', shortcut: 'E' },
+    { char: '\u00A3', name: 'Pound', shortcut: 'L' },
+    { char: '\u00A5', name: 'Yen', shortcut: 'Y' },
+    { char: '\u00B1', name: 'Plus-minus' },
+    { char: '\u00D7', name: 'Times' },
+    { char: '\u00F7', name: 'Divide' },
 ]);
+
+/** Typed tokens accept either case, so `(e)` and `(E)` both insert €. */
+export const TEXT_SYMBOL_AUTOREPLACE = Object.freeze(TEXT_SYMBOLS.flatMap(({ char, shortcut }) =>
+    (shortcut ? [...new Set([shortcut.toLowerCase(), shortcut.toUpperCase()])] : [])
+        .map(token => /** @type {[string, string]} */ ([`(${token})`, char]))));
 
 export const TEXT_SYMBOL_OPTIONS = Object.freeze([
     { value: '', label: 'Symbol\u2026' },
-    { value: '\u00A9', label: '\u00A9 Copyright' },
-    { value: '\u00AE', label: '\u00AE Registered' },
-    { value: '\u2122', label: '\u2122 Trademark' },
-    { value: '\u00B0', label: '\u00B0 Degree' },
-    { value: '\u00B5', label: '\u00B5 Micro' },
-    { value: '\u03A9', label: '\u03A9 Ohm' },
-    { value: '\u00B1', label: '\u00B1 Plus-minus' },
-    { value: '\u00D7', label: '\u00D7 Times' },
-    { value: '\u00F7', label: '\u00F7 Divide' },
+    ...TEXT_SYMBOLS.map(({ char, name, shortcut }) => ({
+        value: char,
+        label: shortcut ? `${char} ${name} (${shortcut})` : `${char} ${name}`,
+    })),
 ]);
 
 /**

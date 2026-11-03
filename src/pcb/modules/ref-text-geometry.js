@@ -5,6 +5,7 @@
  */
 import { REF_DEFAULT_SIZE } from '../../shared/pcb/footprint.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
+import { GLYPH_BASELINE_Y } from '../../shared/pcb/stroke-font.js';
 import { isLayerVisible } from './layers.js';
 import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 
@@ -140,6 +141,24 @@ export function refBox(pl) {
  */
 export function refCenterWorld(pl, box) {
     return placementLocalToWorld(pl, box.cx + (pl.refDx || 0), box.cy + (pl.refDy || 0));
+}
+
+/**
+ * Crosshair point for reference text: rendered horizontal centre X and baseline Y.
+ * @param {RefPlacement} pl
+ * @param {RefBox} box
+ * @param {number} [baseY]
+ * @returns {Point|null}
+ */
+export function refBaselineCenterWorld(pl, box, baseY = parseFloat(refTextElement(pl)?.getAttribute('data-ref-anchor-y') || '')) {
+    if (!Number.isFinite(baseY)) return null;
+    const visualBaselineY = baseY - GLYPH_BASELINE_Y * (pl.refSize || REF_DEFAULT_SIZE);
+    const angle = (pl.refRot || 0) * Math.PI / 180;
+    const dy = visualBaselineY - box.cy;
+    let x = box.cx - dy * Math.sin(angle);
+    const y = box.cy + dy * Math.cos(angle);
+    if (pl.mirror) x = 2 * box.cx - x;
+    return placementLocalToWorld(pl, x + (pl.refDx || 0), y + (pl.refDy || 0));
 }
 
 /**

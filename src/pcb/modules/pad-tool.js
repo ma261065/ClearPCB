@@ -3,8 +3,6 @@ import { showPadEditor } from './pad-properties.js';
 import { isLayerVisible } from './layers.js';
 import { AddPadCommand } from './pad-commands.js';
 import { Pad } from '../../shapes/pad.js';
-import { refreshBoxSelectionHighlights } from './box-select.js';
-import { setPcbSelection } from './selection-registry.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('../../shapes/pad.js').PadOptions} PadOptions */
@@ -114,7 +112,7 @@ export function updatePadPreview(app, worldPos) {
         outline.setAttribute('stroke', accent);
         outline.setAttribute('fill-rule', 'evenodd');
         group.appendChild(outline);
-        svg.appendChild(group);
+        (app.viewport.interactionLayer || svg).appendChild(group);
         padPreviewGroups.set(app, group);
     }
     const outline = group.querySelector('[data-role="outline"]');
@@ -146,7 +144,7 @@ export function showPadToolProperties(app) {
 }
 
 /**
- * A primary press with the Pad tool: place a pad from the tool's defaults and select it.
+ * A primary press with the Pad tool: place a pad from the tool's defaults.
  * @param {PcbEditor} app
  * @param {Point} worldPos
  */
@@ -154,9 +152,6 @@ export function pressPadTool(app, worldPos) {
     const snap = snapPadPlacement(app, worldPos);
     const pad = new Pad({ ...getPadToolDefaults(app), x: snap.x, y: snap.y });
     app.history.execute(new AddPadCommand(app, pad));
-    setPcbSelection(app, [{ kind: 'pad', object: pad }]);
-    app.showPadProperties(pad);
-    refreshBoxSelectionHighlights(app);
 }
 
 /** The status-bar tip for the Pad tool and for a selected pad. */

@@ -16,7 +16,13 @@
 
 import { closedShapeOutline } from './closed-outline.js';
 import { collapseRoundedPolygon } from './path-operations.js';
-import { rectangleFrameFromPoints, rectangleFramePoints, pointsFormRectangle } from './rectangle-frame.js';
+import {
+    normalizeRectanglePoints,
+    pointsFormRectangle,
+    rectangleFrameFromPoints,
+    rectangleFramePoints,
+    RECTANGLE_CLASSIFICATION_TOLERANCE,
+} from './rectangle-frame.js';
 import { IdAllocator } from '../core/id-allocator.js';
 
 const fillIds = new IdAllocator('fill');
@@ -80,7 +86,14 @@ export function normalizeCopperFillKind(fill) {
     if (!fill || fill.kind === 'circle') return false;
     const before = fill.kind;
     const hasCurves = Object.values(fill.segmentBulges || {}).some(value => Math.abs(value) >= 1e-4);
-    fill.kind = pointsFormRectangle(fill.outline) && !hasCurves ? 'rect' : 'polygon';
+    const rectangle = pointsFormRectangle(fill.outline, { coordinateTolerance: RECTANGLE_CLASSIFICATION_TOLERANCE })
+        && !hasCurves;
+    fill.kind = rectangle ? 'rect' : 'polygon';
+    if (rectangle && !pointsFormRectangle(fill.outline)) {
+        fill.outline = normalizeRectanglePoints(fill.outline, {
+            coordinateTolerance: RECTANGLE_CLASSIFICATION_TOLERANCE,
+        });
+    }
     return fill.kind !== before;
 }
 

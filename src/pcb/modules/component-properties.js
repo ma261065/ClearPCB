@@ -41,7 +41,8 @@ const numberParse = (min, normalize = value => value) => text => {
  * @property {(id: string, before: number, after: number) => void} rotate
  * @property {() => number} gridStep Spinner step for the X/Y fields (the PCB grid, mm).
  * @property {(id: string, x: number, y: number) => boolean} previewMove Show the component at (x, y) without a history entry.
- * @property {(id: string, commit: boolean) => boolean} finishMove Commit the previewed move as one command, or restore the start pose; false when none was in progress.
+ * @property {(id: string, rotation: number) => boolean} previewRotation Show the component at an angle without a history entry.
+ * @property {(id: string, commit: boolean) => boolean} finishMove Commit the previewed pose as one command, or restore the start pose; false when none was in progress.
  * @property {(id: string, locked: boolean) => void} setLocked Finish selection interaction, then execute the lock command.
  * @property {(id: string, visible: boolean) => void} setReferenceVisible
  * @property {(id: string, side: 'top'|'bottom') => void} setSide
@@ -61,7 +62,7 @@ export class ComponentProperties {
         this.referenceBinding = null;
         /** @type {ComponentPanelState|null} */
         this.panel = null;
-        /** Component with an uncommitted X/Y preview. @type {string|null} */
+        /** Component with an uncommitted X/Y/rotation preview. @type {string|null} */
         this.moving = null;
     }
 
@@ -133,6 +134,7 @@ export class ComponentProperties {
         const rotateTo = degrees => {
             const live = this.capabilities.getPlacement(compId);
             if (!editable() || !live) return;
+            this._finishMove(true);
             const normalized = roundDegrees(degrees);
             if ((live.rotation || 0) === normalized) { refresh(); return; }
             this.capabilities.rotate(compId, live.rotation || 0, normalized);
@@ -152,6 +154,22 @@ export class ComponentProperties {
         /** @param {'x'|'y'} axis @param {number} value */
         const commitAxis = (axis, value) => {
             this._finishMove(previewAxis(axis, value));
+            refresh();
+        };
+        /** @param {number} value */
+        const previewRotation = value => {
+            const live = this.capabilities.getPlacement(compId);
+            if (!editable() || !live || !Number.isFinite(value)) return false;
+            const rotation = roundDegrees(value);
+            if ((live.rotation || 0) === rotation && this.moving !== compId) return false;
+            if ((live.rotation || 0) === rotation) return true;
+            if (!this.capabilities.previewRotation(compId, rotation)) return false;
+            this.moving = compId;
+            return true;
+        };
+        /** @param {number} value */
+        const commitRotation = value => {
+            this._finishMove(previewRotation(value));
             refresh();
         };
         const cancelMove = () => {
@@ -227,8 +245,9 @@ export class ComponentProperties {
                         commit: value => commitAxis('y', -value), cancel: cancelMove },
                     { key: 'rotation', id: 'pcbPropCompRot', type: 'number', label: 'Rotation (\u00B0)',
                         value: roundDegrees(live.rotation || 0), step: 1, numberFormat: 'rotation',
-                        disabled: locked, normalize: roundDegrees, commit: value => rotateTo(value),
-                        cancel: () => { refresh(); return true; } },
+                        disabled: locked, normalize: roundDegrees,
+                        preview: value => { previewRotation(value); },
+                        commit: commitRotation, cancel: cancelMove },
                 ],
                 actions,
             };

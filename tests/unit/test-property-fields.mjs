@@ -258,6 +258,12 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     assert.equal(otherRow.dataset.prop, 'net');
     assert.equal(otherRow.querySelector('details'), null);
     assert.equal(controls.get('other').placeholder, 'Auto');
+    // Net names are identifiers: the browser's spelling/autofill popups stay off.
+    assert.equal(net.spellcheck, false);
+    assert.equal(net.getAttribute('autocomplete'), 'off');
+    assert.equal(net.getAttribute('autocorrect'), 'off');
+    assert.equal(net.getAttribute('autocapitalize'), 'off');
+    assert.equal(net.getAttribute('data-gramm'), 'false');
 }
 
 // Actions render as buttons in titled groups.

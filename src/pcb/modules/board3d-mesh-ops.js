@@ -338,9 +338,13 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
         }
         return [...indices].sort((first, second) => first - second)
             .map(index => rings[index])
-            .filter(ring => triangleMinX <= ring.maxX && triangleMaxX >= ring.minX
-                && triangleMinZ <= ring.maxZ && triangleMaxZ >= ring.minZ
-                && !(ring.y !== undefined && Number.isFinite(ring.y) && Math.abs(a.y - ring.y) > 1e-6));
+            .filter(ring => {
+                if (triangleMinX > ring.maxX || triangleMaxX < ring.minX
+                    || triangleMinZ > ring.maxZ || triangleMaxZ < ring.minZ) return false;
+                const surfaceY = ring.y;
+                return surfaceY === undefined || !Number.isFinite(surfaceY)
+                    || [a, b, c].every(vertex => Math.abs(vertex.y - surfaceY) <= 1e-6);
+            });
     };
 
     // Signed area-ish test against the directed edge P→Q in the (x,z) plane;

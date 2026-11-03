@@ -6,6 +6,7 @@ import { beginTextDrag, createPcbTextSelectionAdapter, endTextDrag, handleTextDr
 import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refresh.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getTextDrag } from '../../src/pcb/modules/pcb-text-selection.js';
+import { pcbTextBaselineCenter } from '../../src/pcb/modules/pcb-text.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
@@ -42,21 +43,27 @@ function fixture(options = {}) {
     try {
         const original = { ...text };
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
-        assert.deepEqual(crosshairs.at(-1), { x: text.x, y: text.y },
-            'Pickup crosshair marks the same text origin that snapping uses');
+        assert.deepEqual(crosshairs.at(-1), pcbTextBaselineCenter(text),
+            'Pickup crosshair marks the horizontal centre of the text baseline');
+        assert.equal(crosshairs.at(-1).y, text.y + 0.313 * text.size,
+            'Unrotated PCB text uses the rendered Hershey baseline, not its stored origin');
         assert.equal(areDragOverlaysDeferred(app), true);
+        const pickup = crosshairs.at(-1);
         for (let index = 0; index < 100; index++) {
-            adapter.updateMove({ x: 5 + index / 1000, y: 7 + index / 1000 });
+            adapter.updateMove({
+                x: 15 - pickup.x + index / 1000,
+                y: 27 - pickup.y + index / 1000,
+            });
         }
-        assert.deepEqual([adapter.object.x, adapter.object.y], [15, 27]);
         assert.deepEqual(text, original, 'Live movement leaves authored text unchanged');
         assert.deepEqual(crosshairs.at(-1), { x: 15, y: 27 },
-            'Drag crosshair lies on the snapped grid point without a font-height offset');
+            'The rendered baseline-centre crosshair, not the hidden text origin, magnetically snaps to the grid');
+        assert.deepEqual(crosshairs.at(-1), pcbTextBaselineCenter(adapter.object));
         assert.equal(renders.length, 1, '100 pointer events inside the same grid magnet render once');
         assert.equal(crosshairs.length, 2, 'Crosshair updates only at pickup and a changed position');
         assert.equal(historyChanges(), 0, 'Preview does not notify committed history');
         assert.equal(app.history.canUndo(), false);
-        adapter.updateMove({ x: 6, y: 8 });
+        adapter.updateMove({ x: 16 - pickup.x, y: 28 - pickup.y });
         assert.equal(renders.length, 2, 'Entering another cell renders immediately');
         const final = { ...adapter.object };
         const beforeDrop = renders.length;
@@ -109,11 +116,11 @@ for (const layer of ['top-silk', 'bottom-silk']) {
             app.viewport.scale = 4;
             app.viewport.getEffectiveGridSize = () => 10;
             adapter.beginMove({ x: 0, y: 0 });
-            assert.deepEqual(crosshairs.at(-1), { x: text.x, y: text.y });
+            assert.deepEqual(crosshairs.at(-1), pcbTextBaselineCenter(text));
             for (const point of [{ x: 4, y: 6 }, { x: 1.5, y: 8.5 }]) {
                 adapter.updateMove(point);
-                assert.deepEqual(crosshairs.at(-1), adapter.getPosition(),
-                    'Free and magnetic motion share one origin regardless of rotation, side or style');
+                assert.deepEqual(crosshairs.at(-1), pcbTextBaselineCenter(adapter.object),
+                    'Free and magnetic motion share one baseline centre regardless of rotation, side or style');
             }
             adapter.endMove(false);
         } finally { cancelPictureCopperRefresh(app); }
@@ -166,8 +173,9 @@ for (const previousDefer of [false, true]) {
         assert.deepEqual(text, final, 'Redo preserves unrounded final coordinates');
         beginTextDrag(app, text, { x: 0, y: 0 });
         handleTextDrag(app, { clientX: 1, clientY: 2, shiftKey: false });
-        assert.equal(app.texts.get(text.id).x, Math.round(final.x + 1));
-        assert.equal(app.texts.get(text.id).y, Math.round(final.y + 2));
+        const snappedCrosshair = pcbTextBaselineCenter(app.texts.get(text.id));
+        assert.equal(snappedCrosshair.x, Math.round(snappedCrosshair.x));
+        assert.equal(snappedCrosshair.y, Math.round(snappedCrosshair.y));
         endTextDrag(app, false);
         assert.deepEqual(text, final);
     } finally { cancelPictureCopperRefresh(app); }

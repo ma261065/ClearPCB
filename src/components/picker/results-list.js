@@ -6,7 +6,13 @@ import { LazyLoader } from '../../core/LazyLoader.js';
 import { fetchAndPlace, fetchAndPlaceKiCad, selectKiCadResult, selectLCSCResult } from './online-selection.js';
 import { beginPlacement } from './placement.js';
 import { applyLCSCThumbnail, createMiniPreview, normalizeDefinition, updatePreview } from './symbol-preview.js';
-import { exactMatchQuery, isExactNameMatch, pickerResultNames, showNoResults } from './ui-state.js';
+import {
+    exactMatchQuery,
+    isExactNameMatch,
+    pickerResultNames,
+    resetPickerResultsLayout,
+    showNoResults,
+} from './ui-state.js';
 
 /** @typedef {import('../ComponentPicker.js').ComponentPicker} ComponentPicker */
 /** @typedef {import('../ComponentPicker.js').KiCadSearchResult} KiCadSearchResult */
@@ -18,6 +24,7 @@ import { exactMatchQuery, isExactNameMatch, pickerResultNames, showNoResults } f
  * @param {KiCadSearchResult[]} results - Array of KiCad search result objects.
  */
 export function populateKiCadResults(/** @type {ComponentPicker} */ picker, results) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = `
         <div class="cp-kicad-notice">
             <strong>KiCad Library Results</strong>
@@ -53,6 +60,7 @@ export function populateKiCadResults(/** @type {ComponentPicker} */ picker, resu
  * @returns {Promise<void>}
  */
 export async function populateLocalFallbackResults(/** @type {ComponentPicker} */ picker, results, query) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = `
         <div class="cp-kicad-notice">
             <strong>Local Library Results</strong>
@@ -88,13 +96,8 @@ export async function populateLocalFallbackResults(/** @type {ComponentPicker} *
  * Populates the results list with combined EasyEDA and KiCad search results in a two-column layout.
  */
 export function populateLCSCResults(/** @type {ComponentPicker} */ picker) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = '';
-    
-    // Remove any existing header row from previous searches
-    const existingHeader = picker.body.querySelector('.cp-results-header-row');
-    if (existingHeader) {
-        existingHeader.remove();
-    }
     
     const exact = exactMatchQuery(picker);
     const hasOnlineError = picker.lcscResults.length === 1 && picker.lcscResults[0].error;
@@ -313,7 +316,7 @@ export function balanceResultsColumns(/** @type {ComponentPicker} */ picker) {
  * Populates the category dropdown with available component categories from the library.
  */
 export function populateCategories(/** @type {ComponentPicker} */ picker) {
-    const categories = picker.library.getCategoryNames();
+    const categories = picker.library.getLocalCategoryNames?.() ?? picker.library.getCategoryNames();
     categories.sort();
     
     for (const cat of categories) {
@@ -328,6 +331,7 @@ export function populateCategories(/** @type {ComponentPicker} */ picker) {
  * Populates the component list based on the current search query and selected category.
  */
 export function populateComponents(/** @type {ComponentPicker} */ picker) {
+    resetPickerResultsLayout(picker);
     picker.listEl.innerHTML = '';
     picker.componentItems.clear();
     
@@ -344,9 +348,10 @@ export function populateComponents(/** @type {ComponentPicker} */ picker) {
         const exact = exactMatchQuery(picker);
         if (exact) components = components.filter(comp => isExactNameMatch(exact, pickerResultNames.local(comp)));
     } else if (picker.selectedCategory === 'All') {
-        components = picker.library.getAllDefinitions();
+        components = picker.library.getLocalDefinitions?.() ?? picker.library.getAllDefinitions();
     } else {
-        components = picker.library.getByCategory(picker.selectedCategory);
+        components = picker.library.getLocalByCategory?.(picker.selectedCategory)
+            ?? picker.library.getByCategory(picker.selectedCategory);
     }
     
     if (!components || components.length === 0) {

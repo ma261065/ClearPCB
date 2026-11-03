@@ -23,7 +23,7 @@ function canvas() {
     const context = {
         clearRect() {}, drawImage(...args) { imageDraws.push(args); }, translate() {}, scale() {}, putImageData() {},
         beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, save() {}, restore() {}, transform() {}, arc() {},
-        fill(rule) { fills.push({ rule, color: this.fillStyle }); }, fillRect() {},
+        fill(rule) { fills.push({ rule, color: this.fillStyle }); }, fillRect() {}, fillText() {},
         createImageData(width, height) { return { data: new Uint8ClampedArray(width * height * 4) }; },
         getImageData(left, top, width, height) {
             const data = new Uint8ClampedArray(width * height * 4);
@@ -172,6 +172,11 @@ empty = true;
 await form.emit('input', { target: fields.get('threshold') });
 assert.match(error.textContent, /empty/);
 assert.equal(accept.disabled, true);
+assert.equal(artworkPreview.dataset.previewState, 'error');
+assert.equal(artworkPreview.tabIndex, -1, 'Invalid artwork cannot receive magnifier focus');
+assert.match(artworkPreview.getAttribute('aria-label'), /preview unavailable/i);
+await artworkPreview.emit('pointerenter', { pointerType: 'mouse' });
+assert.equal(fullPreview.hidden, true, 'Invalid artwork does not retain a stale magnified preview');
 empty = false;
 const staleTrace = form.emit('input', { target: fields.get('threshold') });
 fields.get('conversion').value = 'pixels';
@@ -179,6 +184,8 @@ fields.get('width').value = '30';
 await form.emit('input', { target: fields.get('conversion') });
 await staleTrace;
 assert.match(summary.textContent, /Rectangles:/, 'Older trace results do not replace the latest mode');
+assert.equal(artworkPreview.dataset.previewState, 'ready');
+assert.equal(artworkPreview.tabIndex, 0, 'Valid artwork restores magnifier keyboard access');
 assert.ok(pixelControls.every(control => !control.hidden));
 fields.get('conversion').value = 'vtrace';
 await form.emit('input', { target: fields.get('conversion') });

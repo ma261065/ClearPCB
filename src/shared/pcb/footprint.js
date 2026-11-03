@@ -1091,9 +1091,12 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
             numText.setAttribute('fill', 'var(--pcb-pad-text, #fff)');
             numText.setAttribute('font-family', 'Arial, sans-serif');
             numText.setAttribute('pointer-events', 'none');
-            // Kept readable when the footprint is mirrored (see applyPlacementPose).
-            numText.setAttribute('class', 'pcb-mirror-text');
+            // Kept readable when the footprint is rotated or mirrored (see
+            // applyPlacementPose). The local center lets the pose renderer
+            // counter-transform the text without changing its size-to-fit.
+            numText.setAttribute('class', 'pcb-pad-number pcb-mirror-text');
             numText.setAttribute('data-mx-center', String(pad.x));
+            numText.setAttribute('data-mx-cy', String(pad.y));
             numText.textContent = padLabel;
             // Pad numbers live on a dedicated layer that sits above the copper
             // (and any tracks routed on it) so a track connecting to the pad

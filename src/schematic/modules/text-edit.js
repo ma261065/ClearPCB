@@ -1,4 +1,4 @@
-import { ModifyShapeCommand } from './commands.js';
+import { AddShapeCommand, DeleteShapesCommand, ModifyShapeCommand } from './commands.js';
 import { viewElementOf } from './schematic-view.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
@@ -11,6 +11,7 @@ import { textSymbolReplacementAtCaret } from '../../shared/ui/text-symbol-autore
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { isWireItem as isWireShape } from '../../core/schematic-items.js';
+import { updateLabelGuide } from './label-attachment.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/wire.js').Wire} WireShape */
 /** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
@@ -113,6 +114,7 @@ export function endTextEdit(app, commit = true) {
     const state = getSchematicTextEdit(app);
     if (!state) return;
     const shape = state.shape;
+    let removed = false;
 
     if (state.shape) {
         const textLength = (state.shape.text || '').length;
@@ -120,7 +122,32 @@ export function endTextEdit(app, commit = true) {
         state.shape._lastCaretIndex = Math.max(0, Math.min(textLength, caret));
     }
 
-    if (!commit) {
+    // A placement whose text was never committed is still owned by its own Add
+    // command, so discarding it leaves no empty object and no history entry.
+    const lastCommand = app.history?.undoStack?.at(-1);
+    const isUncommittedPlacement = !state.originalText.trim()
+        && lastCommand instanceof AddShapeCommand
+        && lastCommand.shape === state.shape;
+
+    const removeBlankText = commit
+        && !state.shape.text.trim()
+        && (!state.shape.parentComponent || state.shape.fieldKey === 'label');
+
+    if (removeBlankText || (!commit && isUncommittedPlacement)) {
+        // Restore the authored content before deletion so undo restores the
+        // pre-edit object rather than an empty text object.
+        state.shape.text = state.originalText;
+        const command = new DeleteShapesCommand(app, [state.shape]);
+        if (isUncommittedPlacement) {
+            command.execute();
+            app.history.popUndo();
+            app.history.redoStack = [];
+            app.history._notifyChanged();
+        } else {
+            app.history.execute(command);
+        }
+        removed = true;
+    } else if (!commit) {
         state.shape.text = state.originalText;
         if (typeof state.shape.invalidate === 'function') {
             state.shape.invalidate();
@@ -213,13 +240,14 @@ export function endTextEdit(app, commit = true) {
     }
 
     setSchematicTextEdit(app, null);
+    updateLabelGuide(app);
 
-    if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
+    if (!removed && shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }
     // Re-describe after clearing edit state so the edit-only Insert picker is removed.
     const sel = app.selection.getSelection();
-    if (sel.length > 0) app.updatePropertiesPanel(sel);
+    if (sel.length > 0 || removed) app.updatePropertiesPanel(sel);
 }
 
 /**
@@ -719,6 +747,7 @@ function _cleanupTextEditState(state, app, shape) {
         state.blinkTimeoutId = null;
     }
     setSchematicTextEdit(app, null);
+    updateLabelGuide(app);
     if (shape && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }

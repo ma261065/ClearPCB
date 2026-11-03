@@ -1621,6 +1621,11 @@ body {
     image-rendering: pixelated;
 }
 
+.picture-previews [data-preview="artwork"][data-preview-state="error"] {
+    background: #f4f4f4;
+    cursor: not-allowed;
+}
+
 .picture-full-preview {
     position: fixed;
     inset: 0;

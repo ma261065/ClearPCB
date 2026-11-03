@@ -30,6 +30,8 @@ import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { arcFromBulge } from '../../shapes/arc-edge.js';
 import { trackRectangleOrder } from '../../shapes/track-geometry.js';
 import { resizeRectanglePoints } from '../../shapes/path-operations.js';
+import { rectangleCornerFormsSquare, squareRectangleCorner } from '../../shapes/rectangle-frame.js';
+import { squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { getPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
 import { commitPropertyEditors } from './property-editors.js';
@@ -459,9 +461,16 @@ export function updateVertexDrag(app, worldPos) {
     }
 
     if (drag.mode === 'rectangle') {
-        const snap = snapPathPoint(app, worldPos, [], true);
         const nodes = /** @type {TrackDragNode[]} */ (drag.nodes);
         const corners = nodes.map(node => ({ x: node.startX, y: node.startY }));
+        const grid = snapPathPoint(app, worldPos, [], true);
+        const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
+        const distance = (/** @type {Point} */ point) => Math.hypot(point.x - worldPos.x, point.y - worldPos.y);
+        const square = rectangleCornerFormsSquare(corners, drag.handle, grid)
+            ? grid : squareRectangleCorner(corners, drag.handle, worldPos);
+        const gridDistance = distance(grid);
+        const snap = square && distance(square) <= threshold
+            && (gridDistance < 1e-12 || distance(square) < gridDistance) ? square : grid;
         const opposite = corners[(drag.handle + 2) % 4];
         // A zero-width rectangle has no side axis left to resize along.
         if (Math.abs(snap.x - opposite.x) < 1e-6 || Math.abs(snap.y - opposite.y) < 1e-6) return;
@@ -474,8 +483,17 @@ export function updateVertexDrag(app, worldPos) {
         nodes.forEach((node, index) => Object.assign(drag.track.nodes.get(node.nodeId), points[index]));
         drag.track.invalidate();
         app.viewport?.setCrosshair(points[drag.handle]);
+        renderTrackAxisGlow(app, squareAlignmentSegments(points,
+            nodes.map((node, index) => {
+                const next = nodes[(index + 1) % nodes.length];
+                const edge = [...drag.track.edges].find(([, item]) =>
+                    item.from === node.nodeId && item.to === next.nodeId
+                    || item.from === next.nodeId && item.to === node.nodeId);
+                return edge ? drag.track.getEdgeWidth(edge[0]) : drag.track.width;
+            })).map(segment => ({ ...segment, layerId: drag.track.layer })));
         renderTrack(drag.track, (id) => app.getLayerGroup(id), trackEditRenderOptions(app));
         refreshTrackClearance(app, drag.track);
+        renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
         refreshDragRatlines(app, drag.session);
         return;

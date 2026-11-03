@@ -40,7 +40,7 @@ function viewApp() {
     const after = svg.appendChild(node('overlay'));
     const componentLayer = node('components');
     return {
-        svg, after,
+        svg, after, shapes: [], components: [],
         viewport: {
             scale: 4, contentLayer, componentLayer,
             addContent(element) { contentLayer.appendChild(element); },

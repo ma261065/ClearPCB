@@ -143,7 +143,7 @@ export const scenarios = [
             await chooseSchematicTool(page, 'text');
             await clickWorld(page, 'schematic', c.x, c.y);
             await page.keyboard.type('NOTE');
-            await page.keyboard.press('Escape');
+            await page.keyboard.press('Enter');
             // Text is picked up at its anchor (where it was placed).
             const anchor = () => page.evaluate(() => {
                 const text = window.bootstrap.schematicApp.shapes.find(s => s.type === 'text');

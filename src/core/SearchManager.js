@@ -79,7 +79,7 @@ export class SearchManager {
      */
     searchLocal(query) {
         if (!query || query.length === 0) {
-            return this.library.getAllDefinitions();
+            return this.library.getLocalDefinitions?.() ?? this.library.getAllDefinitions();
         }
         return this.library.searchLocal(query);
     }

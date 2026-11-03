@@ -156,6 +156,31 @@ export function showPictureImport(app) {
         if (!fullPreview.hidden) fullPreview.hidePopover?.();
         fullPreview.hidden = true;
     };
+    /** @param {'empty'|'loading'|'ready'|'error'} state @param {string} [message] */
+    const setArtworkPreviewState = (state, message = '') => {
+        if (state !== 'ready' && hoveredPreview === artworkCanvas) hoveredPreview = null;
+        if (state !== 'ready') hideFullPreview();
+        artworkCanvas.dataset.previewState = state;
+        artworkCanvas.tabIndex = state === 'ready' ? 0 : -1;
+        artworkCanvas.setAttribute('aria-disabled', state === 'ready' ? 'false' : 'true');
+        artworkCanvas.setAttribute('aria-label', state === 'error'
+            ? `Artwork preview unavailable: ${message}`
+            : 'Thresholded artwork');
+        if (state === 'ready') return;
+        artworkCanvas.width = 256;
+        artworkCanvas.height = 180;
+        const context = artworkCanvas.getContext('2d');
+        if (!context) return;
+        context.clearRect(0, 0, artworkCanvas.width, artworkCanvas.height);
+        if (state !== 'error') return;
+        context.fillStyle = '#f4f4f4';
+        context.fillRect(0, 0, artworkCanvas.width, artworkCanvas.height);
+        context.fillStyle = '#666';
+        context.font = '600 15px sans-serif';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText('Preview unavailable', artworkCanvas.width / 2, artworkCanvas.height / 2);
+    };
     const refreshFullPreview = () => {
         if (closed || !hoveredPreview || !bitmap || (hoveredPreview === artworkCanvas && !prepared)) {
             hideFullPreview();
@@ -234,6 +259,7 @@ export function showPictureImport(app) {
         const version = ++previewGeneration;
         prepared = null;
         hideFullPreview();
+        setArtworkPreviewState(bitmap ? 'loading' : 'empty');
         accept.disabled = true;
         error.textContent = '';
         summary.textContent = '';
@@ -335,6 +361,7 @@ export function showPictureImport(app) {
                 drawPicture(artworkContext, prepared);
                 artworkContext.restore();
             }
+            setArtworkPreviewState('ready');
             accept.disabled = false;
             refreshFullPreview();
             return prepared;
@@ -343,7 +370,9 @@ export function showPictureImport(app) {
             prepared = null;
             accept.disabled = true;
             summary.textContent = halftoning ? 'Halftone unavailable' : tracing ? 'Tracing unavailable' : summary.textContent;
-            error.textContent = /** @type {Error} */ (failure).message;
+            const message = /** @type {Error} */ (failure).message;
+            error.textContent = message;
+            setArtworkPreviewState('error', message);
         }
     };
     field('file').addEventListener('change', async () => {
@@ -357,7 +386,7 @@ export function showPictureImport(app) {
         error.textContent = '';
         summary.textContent = '';
         /** @type {CanvasRenderingContext2D} */ (sourceCanvas.getContext('2d')).clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-        /** @type {CanvasRenderingContext2D} */ (artworkCanvas.getContext('2d')).clearRect(0, 0, artworkCanvas.width, artworkCanvas.height);
+        setArtworkPreviewState('empty');
         const file = field('file').files?.[0];
         if (!file) return;
         summary.textContent = 'Loading image...';
@@ -382,7 +411,9 @@ export function showPictureImport(app) {
         } catch (failure) {
             if (closed || version !== generation) return;
             summary.textContent = '';
-            error.textContent = /** @type {Error} */ (failure).message || 'This image could not be decoded.';
+            const message = /** @type {Error} */ (failure).message || 'This image could not be decoded.';
+            error.textContent = message;
+            setArtworkPreviewState('error', message);
         }
     });
     form.addEventListener('input', event => {

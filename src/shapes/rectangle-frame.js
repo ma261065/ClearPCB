@@ -7,6 +7,58 @@ const round4 = value => {
     return rounded === 0 ? 0 : rounded;
 };
 const frameFields = ['x', 'y', 'width', 'height', 'rotation'];
+export const RECTANGLE_CLASSIFICATION_TOLERANCE = 0.005;
+
+/**
+ * Resolve a corner against the rectangle's own axes.
+ * @param {Point[]} points
+ * @param {number} handle
+ * @param {Point} point
+ */
+function rectangleCornerSpans(points, handle, point) {
+    if (!Array.isArray(points) || points.length !== 4) return null;
+    const opposite = points[(handle + 2) % 4];
+    const along = points[(handle + 1) % 4];
+    const across = points[(handle + 3) % 4];
+    if (!opposite || !along || !across) return null;
+    const alongLength = Math.hypot(along.x - opposite.x, along.y - opposite.y);
+    const acrossLength = Math.hypot(across.x - opposite.x, across.y - opposite.y);
+    if (alongLength < 1e-9 || acrossLength < 1e-9) return null;
+    const alongUnit = { x: (along.x - opposite.x) / alongLength, y: (along.y - opposite.y) / alongLength };
+    const acrossUnit = { x: (across.x - opposite.x) / acrossLength, y: (across.y - opposite.y) / acrossLength };
+    const dx = point.x - opposite.x, dy = point.y - opposite.y;
+    return {
+        opposite, alongUnit, acrossUnit,
+        along: dx * alongUnit.x + dy * alongUnit.y,
+        across: dx * acrossUnit.x + dy * acrossUnit.y,
+    };
+}
+
+/** @param {Point[]} points @param {number} handle @param {Point} point */
+export function rectangleCornerFormsSquare(points, handle, point) {
+    const spans = rectangleCornerSpans(points, handle, point);
+    return !!spans && Math.abs(Math.abs(spans.along) - Math.abs(spans.across)) < 1e-9;
+}
+
+/**
+ * Nearest corner placement that makes a rectangle square.
+ * @param {Point[]} points
+ * @param {number} handle
+ * @param {Point} point
+ * @returns {Point|null}
+ */
+export function squareRectangleCorner(points, handle, point) {
+    const spans = rectangleCornerSpans(points, handle, point);
+    if (!spans) return null;
+    const side = (Math.abs(spans.along) + Math.abs(spans.across)) / 2;
+    if (side < 1e-6) return null;
+    const along = spans.along < 0 ? -side : side;
+    const across = spans.across < 0 ? -side : side;
+    return {
+        x: spans.opposite.x + spans.alongUnit.x * along + spans.acrossUnit.x * across,
+        y: spans.opposite.y + spans.alongUnit.y * along + spans.acrossUnit.y * across,
+    };
+}
 
 /** @param {unknown} value */
 export function hasRectangleFrame(value) {
@@ -69,9 +121,9 @@ function rectanglePointsError(points, { coordinateTolerance = 0 } = {}) {
     return null;
 }
 
-/** @param {Point[]} points */
-export function pointsFormRectangle(points) {
-    return rectanglePointsError(points) === null;
+/** @param {Point[]} points @param {{coordinateTolerance?: number}} [options] */
+export function pointsFormRectangle(points, options = {}) {
+    return rectanglePointsError(points, options) === null;
 }
 
 /**
