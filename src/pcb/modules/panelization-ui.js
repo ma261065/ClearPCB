@@ -397,7 +397,8 @@ export function updatePanelRailConstraints(form) {
 /** @param {PcbEditor} app */
 export function openPanelizeDialog(app) {
     if (dialogs.has(app)) return;
-    const settings = app.panelization ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
+    const hasAppliedPanel = !!app.panelization;
+    const settings = hasAppliedPanel ? panelSettings(app.panelization) : { ...PANEL_DEFAULTS };
     settings.railTop = Math.max(settings.railTop, settings.railBottom);
     settings.railLeft = Math.max(settings.railLeft, settings.railRight);
     /** @type {Array<{title: string, wide?: boolean, fields: PanelFieldDef[], toggles?: PanelToggleDef[]}>} */
@@ -451,7 +452,7 @@ export function openPanelizeDialog(app) {
         <div data-summary style="margin-top:12px;font-size:12px" aria-live="polite"></div>
         <div data-error role="alert" style="margin-top:8px;color:var(--danger,#d84949);font-size:12px"></div>
         <div class="app-modal-actions" style="flex-wrap:wrap">
-            <button type="button" class="app-modal-btn" data-remove>Remove Panel</button>
+            ${hasAppliedPanel ? '<button type="button" class="app-modal-btn" data-remove>Remove Panel</button>' : ''}
             <button type="button" class="app-modal-btn" data-cancel>Cancel</button>
             <button type="submit" class="app-modal-btn app-modal-ok" data-apply>Apply</button>
         </div>
@@ -491,8 +492,7 @@ export function openPanelizeDialog(app) {
     const error = /** @type {HTMLElement} */ (overlay.querySelector('[data-error]'));
     const summary = /** @type {HTMLElement} */ (overlay.querySelector('[data-summary]'));
     const apply = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-apply]'));
-    const remove = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-remove]'));
-    remove.disabled = !app.panelization;
+    const remove = /** @type {HTMLButtonElement|null} */ (overlay.querySelector('[data-remove]'));
     const priorFocus = /** @type {HTMLElement} */ (document.activeElement);
     /** @returns {PanelSettings} */
     const read = () => {
@@ -535,7 +535,7 @@ export function openPanelizeDialog(app) {
     };
     dialogs.set(app, close);
     /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-cancel]')).addEventListener('click', close);
-    remove.addEventListener('click', () => {
+    remove?.addEventListener('click', () => {
         app.history.execute(new SetPanelizationCommand(app, null));
         close();
     });

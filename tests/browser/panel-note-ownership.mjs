@@ -24,6 +24,8 @@ export const scenarios = [{
     async run(page, url) {
         await openPcb(page, url);
         await openPanel(page);
+        assert.equal(await page.locator('.panelize [data-remove]').count(), 0,
+            'a draft preview does not offer to remove a panel that has not been applied');
         assert.equal(await page.locator('.pcb-panel-note-preview').count(), 4,
             'generated notes are visible before Apply');
         assert.equal(await page.evaluate(() => window.bootstrap.pcbApp.texts.size), 0,
@@ -59,6 +61,8 @@ export const scenarios = [{
         assert.equal(ids.length, 4);
         const beforeDialog = await page.evaluate(id => window.bootstrap.pcbApp.texts.get(id).content, ids[0]);
         await openPanel(page);
+        assert.equal(await page.locator('.panelize [data-remove]').count(), 1,
+            'reopening an applied panel offers the Remove Panel action');
         await page.locator('.panelize input[name="columns"]').fill('3');
         await page.waitForFunction(() => [...document.querySelectorAll('.pcb-panel-note-preview')]
             .some(element => element.getAttribute('aria-label')?.includes('2 rows x 3 columns')));
