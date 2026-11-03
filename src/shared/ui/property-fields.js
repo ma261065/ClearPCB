@@ -186,6 +186,14 @@ class Row {
         } else if (type === 'text' || type === 'net') {
             this.control = element('input');
             this.control.type = 'text';
+            if (type === 'net') {
+                // Net names are identifiers, so suppress the browser's spelling and autofill popups.
+                this.control.spellcheck = false;
+                this.control.setAttribute('autocomplete', 'off');
+                this.control.setAttribute('autocorrect', 'off');
+                this.control.setAttribute('autocapitalize', 'off');
+                this.control.setAttribute('data-gramm', 'false');
+            }
             this.control.addEventListener('input', () => { this.dirty = true; });
             this.control.addEventListener('change', () => {
                 this.dirty = false;
