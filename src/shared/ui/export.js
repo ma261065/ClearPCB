@@ -598,8 +598,6 @@ export function cloneSchematicContentForRender(app, margin = 10) {
     svgNode.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     svgNode.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
     svgNode.removeAttribute('style');
-    // The live content layer may carry a pan translation (see Viewport translatePan).
-    svgNode.querySelector('#contentLayer')?.removeAttribute('transform');
     forceMonochromeSvg(svgNode);
     app.decorateExportSvg?.(svgNode);
     const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');

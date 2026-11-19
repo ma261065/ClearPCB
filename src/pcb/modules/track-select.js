@@ -194,8 +194,8 @@ export function createTrackSelectionAdapter(app, track, id) {
             );
         },
         getBounds() { return current().getBounds(); },
-        /** @param {Point} point @param {number} tolerance */
-        hitTest(point, tolerance = 0) { return trackHitTest(current(), point, tolerance); },
+        /** @param {Point} point */
+        hitTest(point) { return trackHitTest(current(), point, HIT_TOL_PX / (app.viewport?.scale || 1)); },
         getEditPath() {
             const edit = getTrackEdit(app);
             if (edit?.track === track && edit.nodeId != null
@@ -324,8 +324,8 @@ export function createViaSelectionAdapter(app, via, id) {
             return lockPositionOutsideOutline(outline, pointer, scale);
         },
         getBounds() { return viaBounds(current()); },
-        /** @param {Point} point @param {number} tolerance */
-        hitTest(point, tolerance = 0) { return viaHitTest(current(), point, tolerance); },
+        /** @param {Point} point */
+        hitTest(point) { return viaHitTest(current(), point, HIT_TOL_PX / (app.viewport?.scale || 1)); },
         getPosition() { const via = current(); return { x: via.x, y: via.y }; },
         /** @param {Point} worldPos */
         beginMove(worldPos) {

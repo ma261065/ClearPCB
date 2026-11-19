@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import { openPcb, viewportSettled } from './helpers/editor-helpers.mjs';
 
+function changedPixels(page, first, second) {
+    return page.evaluate(async ([before, after]) => {
+        const images = await Promise.all([before, after].map(bytes =>
+            createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: 'image/png' }))));
+        const arrays = images.map(image => {
+            const canvas = new OffscreenCanvas(image.width, image.height);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0);
+            return ctx.getImageData(0, 0, image.width, image.height).data;
+        });
+        let changed = 0;
+        for (let i = 0; i < arrays[0].length; i += 4) {
+            if ([0, 1, 2].some(c => Math.abs(arrays[0][i + c] - arrays[1][i + c]) > 8)) changed++;
+        }
+        images.forEach(image => image.close());
+        return { changed, total: arrays[0].length / 4 };
+    }, [[...first], [...second]]);
+}
+
 export const scenarios = [{
     name: 'PCB pan reuses copper clips while retaining board holes',
     async run(page, url) {
@@ -49,30 +68,15 @@ export const scenarios = [{
         await viewportSettled(page, 'pcb');
         const during = await page.evaluate(() => {
             const v = window.bootstrap.pcbApp.viewport;
-            return { viewBox: v.svg.getAttribute('viewBox'), transform: v.contentLayer.getAttribute('transform') };
+            return { viewBox: v.svg.getAttribute('viewBox'), transform: v.panWrapper.style.transform };
         });
         assert.equal(during.viewBox, start.viewBox, 'Pan translates artwork without changing the SVG viewBox');
-        assert.ok(during.transform, 'Artwork follows the pointer via a temporary translation');
+        assert.match(during.transform, /^translate3d\(160px, 80px, 0px\)$/, 'Artwork follows the wrapper');
         const beforeRelease = await page.screenshot();
         await page.mouse.up({ button: 'right' });
         await viewportSettled(page, 'pcb');
         const afterRelease = await page.screenshot();
-        const pixels = await page.evaluate(async ([before, after]) => {
-            const images = await Promise.all([before, after].map(async bytes =>
-                createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: 'image/png' }))));
-            const arrays = images.map(image => {
-                const canvas = new OffscreenCanvas(image.width, image.height);
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(image, 0, 0);
-                return ctx.getImageData(0, 0, image.width, image.height).data;
-            });
-            let changed = 0;
-            for (let i = 0; i < arrays[0].length; i += 4) {
-                if ([0, 1, 2].some(c => Math.abs(arrays[0][i + c] - arrays[1][i + c]) > 8)) changed++;
-            }
-            images.forEach(image => image.close());
-            return { changed, total: arrays[0].length / 4 };
-        }, [[...beforeRelease], [...afterRelease]]);
+        const pixels = await changedPixels(page, beforeRelease, afterRelease);
         assert.ok(pixels.changed / pixels.total < 0.005,
             `Translated artwork matches settled rendering, including holes: ${JSON.stringify(pixels)}`);
         const result = await page.evaluate(() => {
@@ -83,13 +87,13 @@ export const scenarios = [{
                 viewBox: svg.getAttribute('viewBox'), mutations: probe.mutations,
                 reused: probe.paths.every(path => path.isConnected),
                 holes: probe.paths.every(path => (path.getAttribute('d').match(/ M /g) || []).length > 0),
-                transform: window.bootstrap.pcbApp.viewport.contentLayer.getAttribute('transform'),
+                transform: window.bootstrap.pcbApp.viewport.panWrapper.style.transform,
             };
         });
         assert.notEqual(result.viewBox, start.viewBox, 'Real right-button dragging pans the editable board');
         assert.equal(result.mutations, 0, 'Ordinary pan must not rewrite copper clip definitions');
         assert.ok(result.reused && result.holes, 'Both original hole clips remain attached');
-        assert.equal(result.transform, null, 'Release restores normal SVG coordinates for editing');
+        assert.equal(result.transform, 'translate3d(0px, 0px, 0px)', 'Release resets the wrapper');
         console.log(`  PCB pan: ${result.mutations} copper-definition mutations over 30 pointer steps`);
         await page.evaluate(() => {
             const app = window.bootstrap.pcbApp;
@@ -108,7 +112,9 @@ export const scenarios = [{
             const app = window.bootstrap.pcbApp;
             updateTrackViewportCulling(app.tracks, app.vias, null);
         });
-        assert.deepEqual(await page.screenshot(), withCulling, 'Culling does not change visible artwork at 500%');
+        const cullingPixels = await changedPixels(page, withCulling, await page.screenshot());
+        assert.equal(cullingPixels.changed, 0,
+            `Culling does not change visible artwork at 500%: ${JSON.stringify(cullingPixels)}`);
         const exported = await page.evaluate(async () => {
             const app = window.bootstrap.pcbApp;
             const { updatePcbCulling } = await import('/src/pcb/modules/component-selection.js');

@@ -17,11 +17,18 @@ export class Viewport {
     /**
      * Create the SVG viewport with pan, zoom, grid, rulers, and paper outline.
      * @param {HTMLElement} container - DOM element to host the SVG canvas.
-     * @param {{translatePan?: boolean}} [options]
+     * @param {{wrapperPan?: boolean}} [options]
      */
-    constructor(container, { translatePan = false } = {}) {
+    constructor(container, { wrapperPan = false } = {}) {
         this.container = container;
-        this.translatePan = translatePan;
+        /** @type {HTMLDivElement|null} */
+        this.panWrapper = null;
+        if (wrapperPan) {
+            this.panWrapper = document.createElement('div');
+            this.panWrapper.style.cssText = 'position:absolute;inset:0;will-change:transform;transform:translate3d(0,0,0);clip-path:inset(-25%);';
+            this.panWrapper.dataset.pcbPanWrapper = '';
+            container.appendChild(this.panWrapper);
+        }
         /** @type {ViewBox|null} Rendered viewBox retained during a translated pan. */
         this._panRenderViewBox = null;
         this.gridPatternId = `gridPattern-${Math.random().toString(36).slice(2, 10)}`;
@@ -33,7 +40,8 @@ export class Viewport {
         this.svg.style.display = 'block';
         this.svg.style.backgroundColor = 'var(--bg-canvas, #000000)';
         this.svg.style.cursor = 'default';
-        container.appendChild(this.svg);
+        if (this.panWrapper) this.svg.style.overflow = 'visible';
+        (this.panWrapper || container).appendChild(this.svg);
         
         // Theme colors (will be read from CSS variables)
         this.themeColors = this._getThemeColors();
@@ -293,17 +301,16 @@ export class Viewport {
 
     // ==================== View Management ====================
     
-    /** Apply the logical view, translating PCB layers during pan to avoid SVG descendant relayout. */
+    /** Apply the logical view, retaining the PCB SVG while its wrapper moves. */
     _updateViewBox() {
         const vb = this.viewBox;
         const rendered = this._panRenderViewBox;
-        if (rendered) {
-            const translate = this.isPanning && rendered.width === vb.width && rendered.height === vb.height;
-            for (const layer of [this.gridLayer, this.paperOutlineLayer, this.contentLayer, this.axesLayer, this.interactionLayer]) {
-                if (translate) layer?.setAttribute('transform', `translate(${rendered.x - vb.x} ${rendered.y - vb.y})`);
-                else layer?.removeAttribute('transform');
+        if (this.panWrapper && rendered) {
+            if (this.isPanning && rendered.width === vb.width && rendered.height === vb.height) {
+                this.panWrapper.style.transform = `translate3d(${(rendered.x - vb.x) * this.scale}px, ${(rendered.y - vb.y) * this.scale}px, 0)`;
+                return;
             }
-            if (translate) return;
+            this.panWrapper.style.transform = 'translate3d(0,0,0)';
             this._panRenderViewBox = this.isPanning ? { ...vb } : null;
         }
         this.svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
@@ -348,7 +355,7 @@ export class Viewport {
      */
     _getCachedRect() {
         if (!this.cachedRect) {
-            this.cachedRect = this.svg.getBoundingClientRect();
+            this.cachedRect = (this.panWrapper ? this.container : this.svg).getBoundingClientRect();
         }
         return this.cachedRect;
     }
@@ -635,7 +642,7 @@ export class Viewport {
         this.isPanning = true;
         this.panStart = { x: clientX, y: clientY };
         this.panStartViewBox = { ...this.viewBox };
-        if (this.translatePan && !this._panRenderViewBox) this._panRenderViewBox = { ...this.viewBox };
+        if (this.panWrapper && !this._panRenderViewBox) this._panRenderViewBox = { ...this.viewBox };
         this.svg.style.cursor = 'grabbing';
         if (this.onPanStart) this.onPanStart();
     }
@@ -652,15 +659,29 @@ export class Viewport {
         const dy = (clientY - this.panStart.y) / this.scale;
         this.viewBox.x = panStartViewBox.x - dx;
         this.viewBox.y = panStartViewBox.y - dy;
+        const rendered = this._panRenderViewBox;
+        // Stay inside the track culler's 25% overdraw. Refresh only when the
+        // retained scene's guard band runs out, not on every pointer movement.
+        if (this.panWrapper && rendered
+            && (Math.abs(rendered.x - this.viewBox.x) > rendered.width * 0.2
+                || Math.abs(rendered.y - this.viewBox.y) > rendered.height * 0.2)) {
+            this.panWrapper.style.transform = 'translate3d(0,0,0)';
+            this._panRenderViewBox = null;
+            this._updateViewBox();
+            this._panRenderViewBox = { ...this.viewBox };
+            this._ensureGridCoverage();
+            this.onViewportCull?.();
+        }
         this._updateViewBox();
         if (!this._panUpdatePending) {
             this._panUpdatePending = true;
             requestAnimationFrame(() => {
                 this._panUpdatePending = false;
                 this._createRulers();
-                this._ensureGridCoverage();
+                const refreshScene = !this.panWrapper || !this.isPanning;
+                if (refreshScene) this._ensureGridCoverage();
                 this._positionCrosshair();
-                if (this.onViewportCull) this.onViewportCull();
+                if (refreshScene) this.onViewportCull?.();
             });
         }
     }
@@ -1773,7 +1794,8 @@ export class Viewport {
         };
         
         // Attach handlers (no mousedown/mousemove/mouseup/contextmenu — those are in mouse.js)
-        this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
+        if (this.panWrapper) this.container.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
+        else this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
         window.addEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver = new ResizeObserver(() => this._onResize());
         this.resizeObserver.observe(this.container);
@@ -1789,7 +1811,10 @@ export class Viewport {
             cancelAnimationFrame(this.viewChangeTimer);
             this.viewChangeTimer = null;
         }
-        if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
+        if (this.boundHandlers.wheel) {
+            if (this.panWrapper) this.container.removeEventListener('wheel', this.boundHandlers.wheel);
+            else this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
+        }
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver?.disconnect();
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
@@ -1799,6 +1824,7 @@ export class Viewport {
         if (this.svg.parentNode) {
             this.svg.parentNode.removeChild(this.svg);
         }
+        this.panWrapper?.remove();
         
         // Clear ruler container
         if (this.rulerContainer && this.rulerContainer.parentNode) {
