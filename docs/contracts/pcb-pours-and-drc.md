@@ -164,6 +164,8 @@ or not copper-removal artwork is present. Track segment interiors and stroke
 edges touching a different named net report a short, not zero clearance.
 The same distance checker covers pads, Via annuli, curves, shapes, pictures and
 computed pours; opposite copper sides do not connect without a plated bond.
+Net hover likewise joins coincident track nodes only on a shared incident edge
+layer, unless a Via bridges the layers.
 One short report represents each physically connected group of distinct named
 nets. Disconnected groups with the same net names have distinct result IDs;
 clipped islands sharing primitive IDs retain their identities when unchanged
