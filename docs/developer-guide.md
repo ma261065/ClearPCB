@@ -237,6 +237,9 @@ adjacent nets do not disagree between hover and selection at high zoom.
   fonts (and so text sizes and the canvas height) differ from Windows and macOS:
   click relative to where the model says an object is, not at offsets from the
   view centre, and check what got selected before editing it.
+  Use Playwright's paused clock and `runFor()` for debounce-boundary assertions,
+  rather than real sleeps that can overshoot the deadline on a busy runner
+  (`board2d-pan-cache.mjs` exercises the zoom settle deadline this way).
 
 ## Before You Commit
 
