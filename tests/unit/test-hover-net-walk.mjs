@@ -4,6 +4,8 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 globalThis.window = { addEventListener() {} };
 installFakeDom();
 const { collectHoveredNet } = await import('../../src/pcb/modules/copper-halos.js');
+const { Track } = await import('../../src/shapes/track.js');
+const { runDRC } = await import('../../src/pcb/modules/drc.js');
 
 // The scanning walk collectHoveredNet replaced, kept verbatim as the reference: the
 // indexed walk must find the same copper in the same order.
@@ -89,7 +91,9 @@ function board() {
     const tracks = Array.from({ length: 70 }, (_, index) => {
         const nodes = new Map(Array.from({ length: 2 + Math.floor(random() * 3) }, (_, n) => [`n${n}`, grid()]));
         const padConnections = new Map(random() < 0.3 ? [['n0', pick(pins)]] : []);
-        return { id: `t${index}`, net: pick(nets), nodes, padConnections };
+        const ids = [...nodes.keys()];
+        const edges = new Map(ids.slice(1).map((id, i) => [`e${i}`, { from: ids[i], to: id }]));
+        return { id: `t${index}`, net: pick(nets), nodes, edges, getEdgeLayer: () => 'top-copper', padConnections };
     });
     const vias = Array.from({ length: 15 }, (_, index) => ({ id: `v${index}`, ...grid(), net: pick(nets) }));
     const pads = Array.from({ length: 6 }, (_, index) => ({ id: `p${index}`, net: pick(nets) }));
@@ -122,4 +126,35 @@ for (let round = 0; round < 40; round++) {
     }
 }
 assert.ok(compared > 800);
+
+{
+    const top = new Track({ id: 'net0001', net: 'Net0001', layer: 'top-copper',
+        points: [{ x: 13.72, y: -52.5 }, { x: 14.72, y: -52.5 }] });
+    const bottom = new Track({ id: 'gnd', net: 'GND', layer: 'bottom-copper',
+        points: [{ x: 14.72, y: -52.5 }, { x: 15.72, y: -52.5 }] });
+    const app = { tracks: [top, bottom], vias: [], pads: [], boardShapes: [], netlist: [], placements: new Map(), texts: new Map() };
+    const hover = () => collectHoveredNet(app, { type: 'track', track: top }).tracks;
+    assert.deepEqual([...hover()], [top], 'Coincident endpoints on opposite layers are not connected');
+    assert.equal(runDRC(app, { clearance: 0.152 }).violations.some(v => v.rule === 'short'), false);
+
+    app.vias.push({ id: 'bridge', x: 14.72, y: -52.5, diameter: 0.6, drill: 0.3, net: '' });
+    assert.deepEqual([...hover()], [top, bottom], 'A via at the junction connects both layers');
+    assert.equal(runDRC(app, { clearance: 0.152 }).violations.some(v => v.rule === 'short'), true);
+
+    app.vias.length = 0;
+    for (const edgeId of bottom.edges.keys()) bottom.setEdgeAttr(edgeId, 'layer', 'top-copper');
+    assert.deepEqual([...hover()], [top, bottom], 'Coincident endpoints on the same layer remain connected');
+    assert.equal(runDRC(app, { clearance: 0.152 }).violations.some(v => v.rule === 'short'), true);
+}
+
+{
+    const mixed = new Track({ id: 'mixed', net: 'A', layer: 'top-copper',
+        points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }] });
+    mixed.setEdgeAttr('e1', 'layer', 'bottom-copper');
+    const other = new Track({ id: 'other', net: 'B', layer: 'bottom-copper',
+        points: [{ x: 0, y: 0 }, { x: -1, y: 0 }] });
+    const app = { tracks: [mixed, other], vias: [], pads: [], boardShapes: [], netlist: [] };
+    assert.deepEqual([...collectHoveredNet(app, { type: 'track', track: mixed }).tracks], [mixed],
+        'An unrelated edge on another layer does not connect this node');
+}
 console.log(`PASS the indexed hover walk finds the same copper in the same order as the scan (${compared} seeds)`);

@@ -2,7 +2,7 @@ import { hitTestBoardShape } from './board-shapes.js';
 import { setBoardShapeHover } from './board-shape-render.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { getPcbSelectionHits, isPcbSelected } from './selection-registry.js';
-import { hitTestTrack, getSelectedTrack } from './track-select.js';
+import { getSelectedTrack } from './track-select.js';
 import { setHoverHighlight } from './copper-halos.js';
 import { hitTestTrackMidpoint, hitTestTrackNode } from './track-edits.js';
 import { hitTestText, setTextHover } from './pcb-text-render.js';
@@ -85,11 +85,15 @@ export function scheduleHoverUpdate(app, e) {
         if (!viewport) return;
         const worldPos = app.screenToWorld(ev);
         hoverBoardOutline(app, hitTestBoardOutline(app, worldPos));
-        // Hover highlight for tracks/vias.
-        const trackHover = hitTestTrack(app, worldPos);
         // Read-only overlap count: skip the per-frame adapter-list rebuild
         // and reuse the last-synced entries (structural edits resync).
         const selectionHits = getPcbSelectionHits(app, worldPos, null, { sync: false });
+        // Match the click controller's selected-first ordering and adapter hit margins.
+        const copperHits = selectionHits.filter(hit => hit.kind === 'track' || hit.kind === 'via');
+        const copperHit = copperHits.find(hit => isPcbSelected(app, hit.kind, hit.object)) || copperHits[0];
+        const trackHover = copperHit?.kind === 'track'
+            ? { type: /** @type {const} */ ('track'), track: copperHit.object }
+            : copperHit ? { type: /** @type {const} */ ('via'), via: copperHit.object } : null;
         const componentHover = (selectionHits.find(/** @param {SelectionHit} hit */ (hit) => hit.kind === 'component' && isPcbSelected(app, hit.kind, hit.object))
             || selectionHits.find(/** @param {SelectionHit} hit */ (hit) => hit.kind === 'component'))?.object || null;
         s.componentHover = componentHover;

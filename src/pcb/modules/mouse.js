@@ -92,7 +92,11 @@ export function bindPcbMouseEvents(app) {
     const svg = app.viewport.svg;
     if (!svg) return;
     svg.addEventListener('mousedown', e => onMouseDown(app, e));
-    svg.addEventListener('mousemove', e => onMouseMove(app, e));
+    window.addEventListener('mousemove', e => {
+        // A translated HTML wrapper leaves part of the fixed viewport uncovered.
+        // Continue a pan there (and outside the canvas) without dispatching twice.
+        if (app.viewport?.isPanning || svg.contains(/** @type {Node|null} */ (e.target))) onMouseMove(app, e);
+    });
     svg.addEventListener('dblclick', e => onDoubleClick(app, e));
     // Some pointer sequences (e.g. when the two clicks land on different child elements
     // within the layer-group hierarchy) never fire a `dblclick`; catch those through

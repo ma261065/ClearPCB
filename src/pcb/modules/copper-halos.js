@@ -201,9 +201,9 @@ export function setHoverHighlight(app, hit) {
 
 /**
  * The copper a hover over `seed` highlights: everything on its net, plus copper joined
- * to it through shared track nodes, vias at track nodes and pad connections. Tracks are
- * indexed by node position and pad once per walk, so a hover costs linear time on large
- * boards; the walk visits tracks in board order, as a scan would.
+ * to it through layer-compatible track nodes, vias at track nodes and pad connections.
+ * Tracks are indexed by node position and pad once per walk, so a hover costs linear
+ * time on large boards; the walk visits tracks in board order, as a scan would.
  * @param {Pick<PcbEditor, 'tracks'|'vias'|'pads'|'boardShapes'|'netlist'>} app
  * @param {CopperHoverHit} seed
  */
@@ -221,8 +221,10 @@ export function collectHoveredNet(app, seed) {
     /** @type {Map<string, Via>} */
     const viaByPos = new Map();
     for (const via of app.vias || []) viaByPos.set(_posKey(via.x, via.y), via);
-    /** @type {Map<string, Track[]>} */
+    /** @type {Map<string, Array<{track: Track, layers: Set<string>}>>} */
     const tracksByPos = new Map();
+    /** @type {Map<Track, Map<string, Set<string>>>} */
+    const nodeLayers = new Map();
     /** @type {Map<string, Track[]>} */
     const tracksByPad = new Map();
     /**
@@ -236,7 +238,23 @@ export function collectHoveredNet(app, seed) {
         else if (list[list.length - 1] !== track) list.push(track);
     };
     for (const track of app.tracks || []) {
-        for (const node of track.nodes.values()) index(tracksByPos, _posKey(node.x, node.y), track);
+        /** @type {Map<string, Set<string>>} */
+        const layersByNode = new Map();
+        for (const [edgeId, edge] of track.edges) {
+            const layer = track.getEdgeLayer(edgeId);
+            for (const nodeId of [edge.from, edge.to]) {
+                if (!layersByNode.has(nodeId)) layersByNode.set(nodeId, new Set());
+                layersByNode.get(nodeId)?.add(layer);
+            }
+        }
+        nodeLayers.set(track, layersByNode);
+        for (const [nodeId, node] of track.nodes) {
+            const layers = layersByNode.get(nodeId);
+            if (!layers?.size) continue;
+            const key = _posKey(node.x, node.y);
+            if (!tracksByPos.has(key)) tracksByPos.set(key, []);
+            tracksByPos.get(key)?.push({ track, layers });
+        }
         for (const connection of track.padConnections?.values?.() || []) {
             index(tracksByPad, `${connection.componentId}|${connection.pinNumber}`, track);
         }
@@ -302,18 +320,21 @@ export function collectHoveredNet(app, seed) {
                 const key = `${connection.componentId}|${connection.pinNumber}`;
                 if (!pads.has(key)) { pads.add(key); queue.push({ kind: 'pad', key }); }
             }
-            for (const node of item.track.nodes.values()) {
+            for (const [nodeId, node] of item.track.nodes) {
                 const key = _posKey(node.x, node.y);
+                const layers = nodeLayers.get(item.track)?.get(nodeId);
+                if (!layers?.size) continue;
                 const via = viaByPos.get(key);
                 if (via && !vias.has(via)) { vias.add(via); queue.push({ kind: 'via', via }); }
-                for (const otherTrack of tracksByPos.get(key) || []) {
+                for (const { track: otherTrack, layers: otherLayers } of tracksByPos.get(key) || []) {
                     if (otherTrack === item.track || tracks.has(otherTrack)) continue;
+                    if (![...layers].some(layer => otherLayers.has(layer))) continue;
                     tracks.add(otherTrack);
                     queue.push({ kind: 'track', track: otherTrack });
                 }
             }
         } else if (item.kind === 'via') {
-            for (const track of tracksByPos.get(_posKey(item.via.x, item.via.y)) || []) {
+            for (const { track } of tracksByPos.get(_posKey(item.via.x, item.via.y)) || []) {
                 if (tracks.has(track)) continue;
                 tracks.add(track);
                 queue.push({ kind: 'track', track });

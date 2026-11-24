@@ -77,7 +77,9 @@ export const scenarios = [{
     name: '2d-board-zoom-scales-cached-artwork-and-settles-sharply',
     async run(page, url) {
         await openPcb(page, url);
-        const results = await page.evaluate(async () => {
+        await page.clock.install();
+        await page.clock.pauseAt(new Date());
+        const state = await page.evaluateHandle(async () => {
             const { Board2D } = await import('/src/pcb/modules/board2d.js');
             const canvas = document.createElement('canvas');
             canvas.style.cssText = 'width:600px;height:400px';
@@ -87,16 +89,24 @@ export const scenarios = [{
                 tracks: [], vias: [{ x: 10, y: -10, diameter: 3, drill: 1.5 }],
                 pads: [{ x: 20, y: -10, layers: 'both', shape: 'round', size: 4, drill: 2 }],
                 boardShapes: [], texts: new Map() });
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
             let geometryPasses = 0, bitmapPasses = 0;
             const paint = viewer._paintBoard.bind(viewer);
             viewer._paintBoard = context => { geometryPasses++; paint(context); };
             const bitmap = viewer._paintPanRaster.bind(viewer);
             viewer._paintPanRaster = () => { bitmapPasses++; bitmap(); };
-            const results = [];
-            for (const side of ['top', 'bottom']) {
+            return { viewer, canvas, getGeometryPasses: () => geometryPasses,
+                getBitmapPasses: () => bitmapPasses,
+                resetPasses: () => { geometryPasses = 0; bitmapPasses = 0; } };
+        });
+        // Deliver initial resize notifications before measuring navigation.
+        await page.clock.runFor(32);
+        for (const side of ['top', 'bottom']) {
+            await page.evaluate(({ state: { viewer, resetPasses }, side }) => {
                 viewer.setSide(side);
                 viewer.fit();
+                resetPasses();
+            }, { state, side });
+            const burst = await page.evaluate(({ viewer, canvas, getGeometryPasses }) => {
                 const rect = canvas.getBoundingClientRect();
                 const worldX = (300 - viewer.tx) / (viewer.mirror * viewer.scale);
                 const worldY = (200 - viewer.ty) / viewer.scale;
@@ -104,33 +114,40 @@ export const scenarios = [{
                 const holePixel = () => Array.from(viewer.ctx.getImageData(
                     Math.floor(300 * dpr), Math.floor(200 * dpr), 1, 1).data);
                 const background = holePixel();
-                geometryPasses = 0;
-                bitmapPasses = 0;
                 for (let i = 0; i < 100; i++) {
                     canvas.dispatchEvent(new WheelEvent('wheel', {
                         clientX: rect.left + 300, clientY: rect.top + 200,
                         deltaY: -1, cancelable: true,
                     }));
                 }
-                const immediate = geometryPasses;
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                const during = geometryPasses;
-                const frames = bitmapPasses;
-                const cachedHole = holePixel();
-                const anchorError = Math.max(
-                    Math.abs((300 - viewer.tx) / (viewer.mirror * viewer.scale) - worldX),
-                    Math.abs((200 - viewer.ty) / viewer.scale - worldY));
-                // Ordinary mouse-wheel notches may be spaced farther apart than
-                // a trackpad burst. They should not rebuild between notches.
-                await new Promise(resolve => setTimeout(resolve, 200));
+                return { immediate: getGeometryPasses(), worldX, worldY, background };
+            }, state);
+            await page.clock.runFor(16);
+            const frame = await page.evaluate(({ viewer, canvas, getGeometryPasses, getBitmapPasses }) => {
+                const dpr = canvas.width / 600;
+                return { during: getGeometryPasses(), frames: getBitmapPasses(),
+                    cachedHole: Array.from(viewer.ctx.getImageData(
+                        Math.floor(300 * dpr), Math.floor(200 * dpr), 1, 1).data),
+                    tx: viewer.tx, ty: viewer.ty, scale: viewer.scale, mirror: viewer.mirror };
+            }, state);
+            // Advance exactly 200 ms: host load cannot turn this into a 300 ms idle.
+            await page.clock.runFor(200);
+            await page.evaluate(({ canvas }) => {
+                const rect = canvas.getBoundingClientRect();
                 canvas.dispatchEvent(new WheelEvent('wheel', {
                     clientX: rect.left + 300, clientY: rect.top + 200,
                     deltaY: -10, cancelable: true,
                 }));
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                const betweenNotches = geometryPasses;
-                await new Promise(resolve => setTimeout(resolve, 400));
-                const settled = geometryPasses;
+            }, state);
+            await page.clock.runFor(16);
+            const betweenNotches = await page.evaluate(state => state.getGeometryPasses(), state);
+            // The second notch resets the deadline, rather than retaining the first.
+            await page.clock.runFor(283);
+            assert.equal(await page.evaluate(state => state.getGeometryPasses(), state), 0,
+                `${side}: no sharp redraw before 300 ms of idle`);
+            await page.clock.runFor(1);
+            const result = await page.evaluate(({ viewer, canvas, getGeometryPasses }) => {
+                const settled = getGeometryPasses();
                 const sharp = viewer.ctx.getImageData(0, 0, canvas.width, canvas.height).data;
                 viewer.render();
                 const fresh = viewer.ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -140,32 +157,40 @@ export const scenarios = [{
                     if (difference) changed++;
                     maxDifference = Math.max(maxDifference, difference);
                 }
-                results.push({ side, immediate, during, frames, betweenNotches, settled, anchorError,
-                    cachedHole, background, changed, maxDifference,
-                    cacheReady: viewer._panRaster !== null && viewer._zoomTimer === null });
-            }
+                return { settled, changed, maxDifference,
+                    cacheReady: viewer._panRaster !== null && viewer._zoomTimer === null };
+            }, state);
+            const { worldX, worldY, immediate, background } = burst;
+            const { during, frames, cachedHole } = frame;
+            const anchorError = Math.max(
+                Math.abs((300 - frame.tx) / (frame.mirror * frame.scale) - worldX),
+                Math.abs((200 - frame.ty) / frame.scale - worldY));
+            const { settled, maxDifference, cacheReady } = result;
+            assert.equal(immediate, 0, `${side}: wheel burst reuses existing artwork immediately`);
+            assert.equal(during, 0, `${side}: frame does not redraw geometry`);
+            assert.equal(frames, 1, `${side}: wheel events coalesce to one bitmap draw`);
+            assert.equal(betweenNotches, 0, `${side}: spaced wheel notches do not rebuild artwork`);
+            assert.equal(settled, 1, `${side}: zoom settles with one sharp redraw`);
+            assert.ok(anchorError < 1e-10, `${side}: cursor world point remains fixed`);
+            assert.ok(cachedHole.every((channel, i) => Math.abs(channel - background[i]) <= 1),
+                `${side}: background remains fixed through holes (allowing gradient quantization)`);
+            assert.ok(maxDifference <= 1,
+                `${side}: settled view matches fresh full-detail rendering (${JSON.stringify(result)})`);
+            assert.equal(cacheReady, true, 'sharp artwork is retained for the next gesture');
+        }
+        const beforeWait = await page.evaluate(({ viewer, canvas, getGeometryPasses }) => {
             canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -20, cancelable: true }));
             viewer.setSide('top');
-            const beforeWait = geometryPasses;
-            await new Promise(resolve => setTimeout(resolve, 400));
-            if (geometryPasses !== beforeWait) throw new Error('Side change left a stale zoom redraw scheduled');
+            return getGeometryPasses();
+        }, state);
+        await page.clock.runFor(400);
+        assert.equal(await page.evaluate(state => state.getGeometryPasses(), state), beforeWait,
+            'Side change cancels the pending zoom redraw');
+        await page.evaluate(({ viewer, canvas }) => {
             viewer.dispose();
             canvas.remove();
-            return results;
-        });
-        for (const result of results) {
-            assert.equal(result.immediate, 0, `${result.side}: wheel burst reuses existing artwork immediately`);
-            assert.equal(result.during, 0, `${result.side}: frame does not redraw geometry`);
-            assert.equal(result.frames, 1, `${result.side}: wheel events coalesce to one bitmap draw`);
-            assert.equal(result.betweenNotches, 0, `${result.side}: spaced wheel notches do not rebuild artwork`);
-            assert.equal(result.settled, 1, `${result.side}: zoom settles with one sharp redraw`);
-            assert.ok(result.anchorError < 1e-10, `${result.side}: cursor world point remains fixed`);
-            assert.ok(result.cachedHole.every((channel, i) => Math.abs(channel - result.background[i]) <= 1),
-                `${result.side}: background remains fixed through holes (allowing gradient quantization)`);
-            assert.ok(result.maxDifference <= 1,
-                `${result.side}: settled view matches fresh full-detail rendering (${JSON.stringify(result)})`);
-            assert.equal(result.cacheReady, true, 'sharp artwork is retained for the next gesture');
-        }
+        }, state);
+        await state.dispose();
     },
 }, {
     name: '2d-board-opening-slides-before-building-artwork',

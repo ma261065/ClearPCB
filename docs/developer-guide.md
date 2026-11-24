@@ -186,6 +186,25 @@ modules need an editor capability, add a public method on the editor and list it
 in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 [project_structure.md](project_structure.md#state-ownership).
 
+### PCB panning
+
+The PCB editor moves a compositor-promoted HTML wrapper around the live
+SVG during a pan, leaving the SVG viewBox and descendants unchanged. On release it
+commits the final viewBox and resets the wrapper. Rulers and crosshairs remain in
+fixed screen-space overlays. The SVG can paint into a bounded 25% guard band
+outside its own viewport; only the fixed editor container clips the visible
+scene. Visibility scans and grid coverage refresh run when movement exhausts
+20% of the retained view, or on release, rather than on every frame.
+
+Wrapper promotion is a browser hint, not a guarantee of repaint-free compositing.
+Run the browser scenarios with
+`node tools/browser-test.mjs "PCB wrapper pan"`.
+
+Track and via adapter hit tests use the same six-screen-pixel margin as legacy
+copper hit testing, not the selection manager's larger world-unit floor. Copper
+hover uses the adapter hit list and selected-first ordering used by clicks, so
+adjacent nets do not disagree between hover and selection at high zoom.
+
 ## Tests
 
 - **Unit and regression tests** are `tests/unit/test-*.mjs`, plain Node scripts using
@@ -218,6 +237,9 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
   fonts (and so text sizes and the canvas height) differ from Windows and macOS:
   click relative to where the model says an object is, not at offsets from the
   view centre, and check what got selected before editing it.
+  Use Playwright's paused clock and `runFor()` for debounce-boundary assertions,
+  rather than real sleeps that can overshoot the deadline on a busy runner
+  (`board2d-pan-cache.mjs` exercises the zoom settle deadline this way).
 
 ## Before You Commit
 
